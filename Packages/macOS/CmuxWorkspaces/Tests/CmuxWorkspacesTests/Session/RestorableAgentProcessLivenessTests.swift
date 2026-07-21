@@ -52,8 +52,8 @@ struct RestorableAgentProcessLivenessTests {
         #expect(RestorableAgentProcessLiveness.exited.revalidated(against: [.matches]) == .exited)
     }
 
-    @Test("Exited state requires an exact runtime override")
-    func exitedStateRequiresExactRuntimeOverride() {
+    @Test("Exact runtime evidence precedes cached and shell state")
+    func exactRuntimeEvidencePrecedesCachedAndShellState() {
         #expect(
             RestorableAgentProcessLiveness.exited.resolvedWasRunning(
                 fallingBackTo: .commandRunning,
@@ -70,6 +70,12 @@ struct RestorableAgentProcessLivenessTests {
             RestorableAgentProcessLiveness.unknown.resolvedWasRunning(
                 fallingBackTo: .commandRunning,
                 hasConfirmedRuntimeProcess: false
+            ) == true
+        )
+        #expect(
+            RestorableAgentProcessLiveness.unknown.resolvedWasRunning(
+                fallingBackTo: .promptIdle,
+                hasConfirmedRuntimeProcess: true
             ) == true
         )
     }

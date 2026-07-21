@@ -65,7 +65,7 @@ public enum RestorableAgentProcessLiveness: Equatable, Hashable, Sendable {
 
     /// Resolves the saved running flag after process revalidation.
     ///
-    /// Confirmed current runtime evidence can supersede an exited cached generation.
+    /// Confirmed current runtime evidence supersedes cached and shell state.
     /// Shell activity is used only when process evidence remains unknown.
     ///
     /// - Parameters:
@@ -76,11 +76,14 @@ public enum RestorableAgentProcessLiveness: Equatable, Hashable, Sendable {
         fallingBackTo shellActivityState: PanelShellActivityState?,
         hasConfirmedRuntimeProcess: Bool
     ) -> Bool? {
+        if hasConfirmedRuntimeProcess {
+            return true
+        }
         switch self {
         case .running:
             return true
         case .exited:
-            return hasConfirmedRuntimeProcess
+            return false
         case .unknown:
             switch shellActivityState {
             case .some(.commandRunning):
