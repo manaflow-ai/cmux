@@ -17,10 +17,32 @@ public enum SocketPathMarkerFiles {
         directory?.appendingPathComponent(fileName, isDirectory: false)
     }
 
+    /// Resolves build-variant marker paths for one state directory and `/tmp`.
+    /// - Parameters:
+    ///   - bundleIdentifier: The running app's bundle identifier.
+    ///   - environment: The process environment.
+    ///   - directory: The directory that owns the persistent marker.
+    ///   - baseDebugBundleIdentifier: The base bundle identifier for debug builds.
+    /// - Returns: Ordered, deduplicated marker paths for the build variant.
     public static func paths(
         bundleIdentifier: String?,
         environment: [String: String],
         directory: URL?,
+        baseDebugBundleIdentifier: String = defaultBaseDebugBundleIdentifier
+    ) -> [String] {
+        paths(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            directories: directory.map { [$0] } ?? [],
+            baseDebugBundleIdentifier: baseDebugBundleIdentifier
+        )
+    }
+
+    /// Resolves build-variant marker paths across app-owned discovery directories.
+    static func paths(
+        bundleIdentifier: String?,
+        environment: [String: String],
+        directories: [URL],
         baseDebugBundleIdentifier: String = defaultBaseDebugBundleIdentifier
     ) -> [String] {
         let variant = variant(
@@ -28,12 +50,11 @@ public enum SocketPathMarkerFiles {
             environment: environment,
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
         )
-        var candidates: [String] = []
-        if let directoryPath = markerFileURL(
-            fileName: variant.markerFileName,
-            directory: directory
-        )?.path {
-            candidates.append(directoryPath)
+        var candidates = directories.compactMap { directory in
+            markerFileURL(
+                fileName: variant.markerFileName,
+                directory: directory
+            )?.path
         }
         candidates.append(variant.tmpPath)
         return dedupe(candidates)
