@@ -3,12 +3,12 @@
 import Testing
 
 @Suite struct OnboardingConnectionPhaseTests {
-    @Test func unresolvedAutomaticDiscoveryShowsSearching() {
+    @Test func discoveryThatHasNotStartedShowsIdle() {
         #expect(OnboardingConnectionPhase(
             isMacReady: false,
             isSearching: false,
             didFinishSearch: false
-        ) == .searching)
+        ) == .idle)
     }
 
     @Test func activeAutomaticDiscoveryShowsSearching() {
@@ -39,8 +39,8 @@ import Testing
         #expect(OnboardingConnectionPhase(
             isMacReady: false,
             isSearching: false,
-            didFinishSearch: true
-        ) == .fallback)
+            didFinishSearch: false
+        ) == .idle)
     }
 }
 #endif

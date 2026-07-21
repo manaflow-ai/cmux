@@ -77,6 +77,17 @@ struct OnboardingConnectionPreview: View {
     @ViewBuilder
     private var connectionStatus: some View {
         switch phase {
+        case .idle:
+            Label(
+                L10n.string(
+                    "mobile.onboarding.connect.idleStatus",
+                    defaultValue: "Ready to look for your Mac"
+                ),
+                systemImage: "magnifyingglass"
+            )
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("MobileOnboardingConnectionIdle")
         case .searching:
             HStack(spacing: 8) {
                 ProgressView()

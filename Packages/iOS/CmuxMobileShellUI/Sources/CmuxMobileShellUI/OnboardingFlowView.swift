@@ -139,6 +139,9 @@ struct OnboardingFlowView: View {
 
     private func finishOrRetry() {
         switch connectionPhase {
+        case .idle:
+            connectionCompletionSource = "auto_connect"
+            onRetryConnection()
         case .searching:
             break
         case .fallback:

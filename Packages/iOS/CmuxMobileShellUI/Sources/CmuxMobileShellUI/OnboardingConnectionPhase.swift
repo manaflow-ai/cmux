@@ -4,6 +4,7 @@
 /// Same-account Iroh discovery always gets the first attempt. QR pairing is
 /// revealed only after that attempt finishes without a live Mac.
 enum OnboardingConnectionPhase: Equatable, Sendable {
+    case idle
     case searching
     case fallback
     case ready
@@ -15,8 +16,10 @@ enum OnboardingConnectionPhase: Equatable, Sendable {
     ) {
         if isMacReady {
             self = .ready
-        } else if isSearching || !didFinishSearch {
+        } else if isSearching {
             self = .searching
+        } else if !didFinishSearch {
+            self = .idle
         } else {
             self = .fallback
         }

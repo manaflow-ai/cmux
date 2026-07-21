@@ -4044,6 +4044,23 @@
         }
       }
     },
+    "mobile.onboarding.connect.idleStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready to look for your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを探す準備ができました"
+          }
+        }
+      }
+    },
     "mobile.onboarding.connect.help": {
       "extractionState": "manual",
       "localizations": {
@@ -4108,6 +4125,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macを検索中…"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check for My Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを探す"
           }
         }
       }

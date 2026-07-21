@@ -36,6 +36,12 @@ struct OnboardingSceneChrome: Equatable {
             }
 
             switch connectionPhase {
+            case .idle:
+                primaryTitle = L10n.string(
+                    "mobile.onboarding.connect.start",
+                    defaultValue: "Check for My Mac"
+                )
+                secondaryTitle = nil
             case .searching:
                 primaryTitle = nil
                 secondaryTitle = nil

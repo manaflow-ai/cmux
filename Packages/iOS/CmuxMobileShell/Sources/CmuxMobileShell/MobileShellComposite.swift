@@ -205,12 +205,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `nil` only for a fresh/legacy host that has not reported one.
     var activeMacInstanceTag: String?
 
-    /// True only while an actually-found stored Mac is mid-reconnect.
+    /// True while the latest stored-Mac reconnect attempt is active.
     ///
-    /// Set just before awaiting the connect for a Mac resolved from the paired-Mac
-    /// store on launch (or network recovery), and cleared once that attempt
-    /// resolves. Drives the root scene's choice to show ``RestoringSessionView``
-    /// during the reconnect window instead of the empty add-device sheet.
+    /// Set before scope resolution, backup refresh, and paired-Mac lookup so
+    /// onboarding can present one bounded searching state for the complete attempt.
+    /// The root restoring gate separately treats
+    /// ``didFinishStoredMacReconnectAttempt`` as sticky for the current account,
+    /// so later background retries do not replace the disconnected workspace UI.
     public internal(set) var isReconnectingStoredMac: Bool = false
 
     /// True once the first launch reconnect attempt has resolved.
@@ -1744,7 +1745,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> Bool {
         guard !isReconnectingStoredMac else { return false }
         isReconnectingStoredMac = true
-        didFinishStoredMacReconnectAttempt = false
         return await reconnectActiveMacIfAvailable(stackUserID: stackUserID)
     }
 
@@ -1769,7 +1769,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         let generation = storedMacReconnectGeneration
         isReconnectingStoredMac = true
-        didFinishStoredMacReconnectAttempt = false
         // Bound the complete visible retry window, including scope resolution,
         // backup refresh, and local-store reads before dialing starts.
         let restoringDeadline = Task { [weak self] in

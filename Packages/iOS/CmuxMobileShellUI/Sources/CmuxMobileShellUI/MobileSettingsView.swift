@@ -382,9 +382,7 @@ struct MobileSettingsView: View {
                     connectionPhase: OnboardingConnectionPhase(
                         isMacReady: store?.connectionState == .connected,
                         isSearching: store?.isReconnectingStoredMac == true,
-                        didFinishSearch: store?.isReconnectingStoredMac == true
-                            ? store?.didFinishStoredMacReconnectAttempt ?? false
-                            : true
+                        didFinishSearch: false
                     ),
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },

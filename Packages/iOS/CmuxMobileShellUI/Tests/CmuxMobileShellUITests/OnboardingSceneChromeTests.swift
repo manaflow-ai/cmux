@@ -37,6 +37,11 @@ import Testing
             isAuthenticated: true,
             connectionPhase: .searching
         )
+        let idle = OnboardingSceneChrome(
+            stage: .connect,
+            isAuthenticated: true,
+            connectionPhase: .idle
+        )
         let fallback = OnboardingSceneChrome(
             stage: .connect,
             isAuthenticated: true,
@@ -55,6 +60,8 @@ import Testing
 
         #expect(searching.primaryTitle == nil)
         #expect(searching.secondaryTitle == nil)
+        #expect(idle.primaryTitle != nil)
+        #expect(idle.secondaryTitle == nil)
         #expect(fallback.primaryTitle != nil)
         #expect(fallback.secondaryTitle != nil)
         #expect(ready.primaryTitle != nil)
