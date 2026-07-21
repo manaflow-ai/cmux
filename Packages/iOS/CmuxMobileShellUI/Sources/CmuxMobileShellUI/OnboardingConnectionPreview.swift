@@ -8,12 +8,12 @@ struct OnboardingConnectionPreview: View {
     var body: some View {
         VStack(spacing: 20) {
             HStack(spacing: 14) {
-                OnboardingConnectionDeviceIcon(systemImage: "desktopcomputer", tint: .indigo)
-                OnboardingConnectionAccountLink(phase: phase)
-                OnboardingConnectionDeviceIcon(systemImage: "iphone", tint: .blue)
+                deviceIcon(systemImage: "desktopcomputer", tint: .indigo)
+                accountLink
+                deviceIcon(systemImage: "iphone", tint: .blue)
             }
 
-            OnboardingConnectionStatus(phase: phase)
+            connectionStatus
 
             Label(
                 L10n.string(
@@ -36,13 +36,8 @@ struct OnboardingConnectionPreview: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileOnboardingConnectionPreview")
     }
-}
 
-private struct OnboardingConnectionDeviceIcon: View {
-    let systemImage: String
-    let tint: Color
-
-    var body: some View {
+    private func deviceIcon(systemImage: String, tint: Color) -> some View {
         Circle()
             .fill(tint.gradient)
             .frame(width: 74, height: 74)
@@ -53,12 +48,8 @@ private struct OnboardingConnectionDeviceIcon: View {
             }
             .accessibilityHidden(true)
     }
-}
 
-private struct OnboardingConnectionAccountLink: View {
-    let phase: OnboardingConnectionPhase
-
-    var body: some View {
+    private var accountLink: some View {
         VStack(spacing: 5) {
             ZStack {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
@@ -82,12 +73,9 @@ private struct OnboardingConnectionAccountLink: View {
         }
         .accessibilityHidden(true)
     }
-}
 
-private struct OnboardingConnectionStatus: View {
-    let phase: OnboardingConnectionPhase
-
-    var body: some View {
+    @ViewBuilder
+    private var connectionStatus: some View {
         switch phase {
         case .searching:
             HStack(spacing: 8) {

@@ -8,18 +8,18 @@ enum OnboardingConnectionPhase: Equatable, Sendable {
     case fallback
     case ready
 
-    static func resolve(
+    init(
         isMacReady: Bool,
         isSearching: Bool,
         didFinishSearch: Bool
-    ) -> OnboardingConnectionPhase {
+    ) {
         if isMacReady {
-            return .ready
+            self = .ready
+        } else if isSearching || !didFinishSearch {
+            self = .searching
+        } else {
+            self = .fallback
         }
-        if isSearching || !didFinishSearch {
-            return .searching
-        }
-        return .fallback
     }
 }
 #endif

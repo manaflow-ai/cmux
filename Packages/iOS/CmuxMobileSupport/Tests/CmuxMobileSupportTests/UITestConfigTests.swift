@@ -197,37 +197,37 @@ import Testing
     #if DEBUG
     @Test func pairingScannerPreviewFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_SCANNER_PREVIEW": "1"]
-        #expect(UITestConfig.pairingScannerPreviewEnabled(from: env) == true)
+        #expect(isPairingScannerPreviewEnabled(in: env) == true)
     }
 
     @Test func onboardingPreviewFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_ONBOARDING_PREVIEW": "1"]
-        #expect(UITestConfig.onboardingPreviewEnabled(from: env) == true)
+        #expect(isOnboardingPreviewEnabled(in: env) == true)
     }
 
     @Test func onboardingPreviewFlagRequiresOne() {
-        #expect(UITestConfig.onboardingPreviewEnabled(from: [:]) == false)
-        #expect(UITestConfig.onboardingPreviewEnabled(
-            from: ["CMUX_UITEST_ONBOARDING_PREVIEW": "0"]
+        #expect(isOnboardingPreviewEnabled(in: [:]) == false)
+        #expect(isOnboardingPreviewEnabled(
+            in: ["CMUX_UITEST_ONBOARDING_PREVIEW": "0"]
         ) == false)
     }
 
     @Test func onboardingConnectionFallbackFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1"]
-        #expect(UITestConfig.onboardingConnectionFallbackEnabled(from: env) == true)
+        #expect(isOnboardingConnectionFallbackEnabled(in: env) == true)
     }
 
     @Test func onboardingConnectionFallbackFlagRequiresOne() {
-        #expect(UITestConfig.onboardingConnectionFallbackEnabled(from: [:]) == false)
-        #expect(UITestConfig.onboardingConnectionFallbackEnabled(
-            from: ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "0"]
+        #expect(isOnboardingConnectionFallbackEnabled(in: [:]) == false)
+        #expect(isOnboardingConnectionFallbackEnabled(
+            in: ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "0"]
         ) == false)
     }
 
     @Test func pairingScannerPreviewFlagRequiresOne() {
-        #expect(UITestConfig.pairingScannerPreviewEnabled(from: [:]) == false)
-        #expect(UITestConfig.pairingScannerPreviewEnabled(
-            from: ["CMUX_UITEST_SCANNER_PREVIEW": "0"]
+        #expect(isPairingScannerPreviewEnabled(in: [:]) == false)
+        #expect(isPairingScannerPreviewEnabled(
+            in: ["CMUX_UITEST_SCANNER_PREVIEW": "0"]
         ) == false)
     }
     #endif

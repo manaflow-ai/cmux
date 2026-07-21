@@ -379,7 +379,7 @@ struct MobileSettingsView: View {
                     initialStage: .agents,
                     context: .replay,
                     isAuthenticated: true,
-                    connectionPhase: OnboardingConnectionPhase.resolve(
+                    connectionPhase: OnboardingConnectionPhase(
                         isMacReady: store?.connectionState == .connected,
                         isSearching: store?.isReconnectingStoredMac == true,
                         didFinishSearch: store?.isReconnectingStoredMac == true

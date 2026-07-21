@@ -4,7 +4,7 @@ import Testing
 
 @Suite struct OnboardingConnectionPhaseTests {
     @Test func unresolvedAutomaticDiscoveryShowsSearching() {
-        #expect(OnboardingConnectionPhase.resolve(
+        #expect(OnboardingConnectionPhase(
             isMacReady: false,
             isSearching: false,
             didFinishSearch: false
@@ -12,7 +12,7 @@ import Testing
     }
 
     @Test func activeAutomaticDiscoveryShowsSearching() {
-        #expect(OnboardingConnectionPhase.resolve(
+        #expect(OnboardingConnectionPhase(
             isMacReady: false,
             isSearching: true,
             didFinishSearch: true
@@ -20,7 +20,7 @@ import Testing
     }
 
     @Test func completedSearchWithoutMacRevealsFallback() {
-        #expect(OnboardingConnectionPhase.resolve(
+        #expect(OnboardingConnectionPhase(
             isMacReady: false,
             isSearching: false,
             didFinishSearch: true
@@ -28,7 +28,7 @@ import Testing
     }
 
     @Test func connectedMacAlwaysShowsReady() {
-        #expect(OnboardingConnectionPhase.resolve(
+        #expect(OnboardingConnectionPhase(
             isMacReady: true,
             isSearching: true,
             didFinishSearch: false
@@ -36,7 +36,7 @@ import Testing
     }
 
     @Test func replayCanDeclareNoSearchPending() {
-        #expect(OnboardingConnectionPhase.resolve(
+        #expect(OnboardingConnectionPhase(
             isMacReady: false,
             isSearching: false,
             didFinishSearch: true

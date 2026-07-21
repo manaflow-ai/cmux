@@ -9,17 +9,17 @@ import Testing
         MobileOnboardingProgress.connect,
     ])
     func showsEveryIncompleteMilestone(_ progress: MobileOnboardingProgress) {
-        #expect(MobileOnboardingGate.shouldShowOnboarding(progress: progress))
+        #expect(progress.shouldShowOnboarding)
     }
 
     @Test func skipsCompletedOnboarding() {
-        #expect(!MobileOnboardingGate.shouldShowOnboarding(progress: .complete))
+        #expect(!MobileOnboardingProgress.complete.shouldShowOnboarding)
     }
 
     @Test func connectionCompletesOnlyTheConnectionMilestone() {
-        #expect(!MobileOnboardingGate.shouldCompleteAfterConnection(progress: .welcome, isConnected: true))
-        #expect(MobileOnboardingGate.shouldCompleteAfterConnection(progress: .connect, isConnected: true))
-        #expect(!MobileOnboardingGate.shouldCompleteAfterConnection(progress: .complete, isConnected: true))
-        #expect(!MobileOnboardingGate.shouldCompleteAfterConnection(progress: .connect, isConnected: false))
+        #expect(!MobileOnboardingProgress.welcome.shouldCompleteAfterConnection(isConnected: true))
+        #expect(MobileOnboardingProgress.connect.shouldCompleteAfterConnection(isConnected: true))
+        #expect(!MobileOnboardingProgress.complete.shouldCompleteAfterConnection(isConnected: true))
+        #expect(!MobileOnboardingProgress.connect.shouldCompleteAfterConnection(isConnected: false))
     }
 }

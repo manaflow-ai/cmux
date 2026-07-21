@@ -25,7 +25,7 @@ struct OnboardingPageViewport<PageContent: View>: View {
                 width: geometry.size.width * CGFloat(OnboardingStage.allCases.count),
                 alignment: .leading
             )
-            .offset(x: OnboardingPageTrack.offset(
+            .offset(x: onboardingPageOffset(
                 for: stage,
                 pageWidth: geometry.size.width
             ))
@@ -38,9 +38,7 @@ struct OnboardingPageViewport<PageContent: View>: View {
     }
 }
 
-enum OnboardingPageTrack {
-    static func offset(for stage: OnboardingStage, pageWidth: CGFloat) -> CGFloat {
-        -CGFloat(stage.rawValue) * pageWidth
-    }
+func onboardingPageOffset(for stage: OnboardingStage, pageWidth: CGFloat) -> CGFloat {
+    -CGFloat(stage.rawValue) * pageWidth
 }
 #endif

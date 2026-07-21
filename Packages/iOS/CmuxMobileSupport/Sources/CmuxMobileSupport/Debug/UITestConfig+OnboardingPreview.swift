@@ -3,28 +3,31 @@ import Foundation
 
 /// Debug-only onboarding and scanner fixture flags.
 public extension UITestConfig {
+    /// Whether the deterministic onboarding preview is enabled.
     static var onboardingPreviewEnabled: Bool {
-        onboardingPreviewEnabled(from: ProcessInfo.processInfo.environment)
+        isOnboardingPreviewEnabled(in: ProcessInfo.processInfo.environment)
     }
 
-    static func onboardingPreviewEnabled(from env: [String: String]) -> Bool {
-        env["CMUX_UITEST_ONBOARDING_PREVIEW"] == "1"
-    }
-
+    /// Whether the onboarding preview should render its fallback connection state.
     static var onboardingConnectionFallbackEnabled: Bool {
-        onboardingConnectionFallbackEnabled(from: ProcessInfo.processInfo.environment)
+        isOnboardingConnectionFallbackEnabled(in: ProcessInfo.processInfo.environment)
     }
 
-    static func onboardingConnectionFallbackEnabled(from env: [String: String]) -> Bool {
-        env["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] == "1"
-    }
-
+    /// Whether the deterministic pairing-scanner preview is enabled.
     static var pairingScannerPreviewEnabled: Bool {
-        pairingScannerPreviewEnabled(from: ProcessInfo.processInfo.environment)
+        isPairingScannerPreviewEnabled(in: ProcessInfo.processInfo.environment)
     }
+}
 
-    static func pairingScannerPreviewEnabled(from env: [String: String]) -> Bool {
-        env["CMUX_UITEST_SCANNER_PREVIEW"] == "1"
-    }
+func isOnboardingPreviewEnabled(in env: [String: String]) -> Bool {
+    env["CMUX_UITEST_ONBOARDING_PREVIEW"] == "1"
+}
+
+func isOnboardingConnectionFallbackEnabled(in env: [String: String]) -> Bool {
+    env["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] == "1"
+}
+
+func isPairingScannerPreviewEnabled(in env: [String: String]) -> Bool {
+    env["CMUX_UITEST_SCANNER_PREVIEW"] == "1"
 }
 #endif

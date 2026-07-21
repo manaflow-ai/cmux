@@ -14,46 +14,42 @@ struct OnboardingNotificationPreview: View {
                 .strokeBorder(Color.accentColor.opacity(0.14), style: StrokeStyle(lineWidth: 1, dash: [5, 7]))
                 .frame(width: 190, height: 190)
 
-            OnboardingNotificationLink(tint: .blue)
+            notificationLink(tint: .blue)
                 .rotationEffect(.degrees(31))
                 .offset(x: -55, y: -42)
-            OnboardingNotificationLink(tint: .indigo)
+            notificationLink(tint: .indigo)
                 .rotationEffect(.degrees(-31))
                 .offset(x: 55, y: -42)
-            OnboardingNotificationLink(tint: .pink)
+            notificationLink(tint: .pink)
                 .rotationEffect(.degrees(-32))
                 .offset(x: -54, y: 45)
 
-            OnboardingNotificationSource(
+            notificationSource(
                 systemImage: "shippingbox.fill",
                 tint: .blue
             )
             .offset(x: -112, y: -76)
 
-            OnboardingNotificationSource(
+            notificationSource(
                 systemImage: "terminal.fill",
                 tint: .indigo
             )
             .offset(x: 112, y: -76)
 
-            OnboardingNotificationSource(
+            notificationSource(
                 systemImage: "doc.text.fill",
                 tint: .pink
             )
             .offset(x: -108, y: 78)
 
-            OnboardingNotificationDestination()
+            notificationDestination
         }
         .frame(maxWidth: .infinity)
         .frame(height: 232)
         .accessibilityHidden(true)
     }
-}
 
-private struct OnboardingNotificationLink: View {
-    let tint: Color
-
-    var body: some View {
+    private func notificationLink(tint: Color) -> some View {
         Capsule()
             .fill(LinearGradient(
                 colors: [tint.opacity(0.42), Color.accentColor.opacity(0.12)],
@@ -62,13 +58,8 @@ private struct OnboardingNotificationLink: View {
             ))
             .frame(width: 92, height: 2)
     }
-}
 
-private struct OnboardingNotificationSource: View {
-    let systemImage: String
-    let tint: Color
-
-    var body: some View {
+    private func notificationSource(systemImage: String, tint: Color) -> some View {
         ZStack(alignment: .topTrailing) {
             Circle()
                 .fill(.regularMaterial)
@@ -94,10 +85,8 @@ private struct OnboardingNotificationSource: View {
         }
         .shadow(color: tint.opacity(0.18), radius: 12, y: 6)
     }
-}
 
-private struct OnboardingNotificationDestination: View {
-    var body: some View {
+    private var notificationDestination: some View {
         Circle()
             .fill(.regularMaterial)
             .frame(width: 116, height: 116)

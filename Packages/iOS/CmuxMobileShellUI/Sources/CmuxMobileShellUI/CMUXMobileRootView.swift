@@ -205,10 +205,7 @@ struct CMUXMobileRootView: View {
             if connectionState == .connected {
                 #if os(iOS)
                 if !shouldShowOnboardingPreview,
-                   MobileOnboardingGate.shouldCompleteAfterConnection(
-                       progress: onboardingStore.progress,
-                       isConnected: true
-                   ) {
+                   onboardingStore.progress.shouldCompleteAfterConnection(isConnected: true) {
                     analytics.capture(
                         "ios_onboarding_completed",
                         [
@@ -347,9 +344,7 @@ struct CMUXMobileRootView: View {
     /// Whether first-run onboarding has an unfinished durable milestone.
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
-        return MobileOnboardingGate.shouldShowOnboarding(
-            progress: onboardingStore.progress
-        )
+        return onboardingStore.progress.shouldShowOnboarding
         #else
         return false
         #endif
@@ -401,7 +396,7 @@ struct CMUXMobileRootView: View {
     }
 
     private var onboardingConnectionPhase: OnboardingConnectionPhase {
-        OnboardingConnectionPhase.resolve(
+        OnboardingConnectionPhase(
             isMacReady: store.connectionState == .connected,
             isSearching: store.isReconnectingStoredMac,
             didFinishSearch: store.didFinishStoredMacReconnectAttempt
