@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 import CmuxMobileRPC
 import Foundation
 internal import OSLog
@@ -265,6 +266,7 @@ extension MobileShellComposite {
             mobileStateSyncLog.error(
                 "state sync fetch failed: \(String(describing: error), privacy: .private)"
             )
+            MobileDebugLog.anchormux("sync.v2 fetch failed; falling back")
             fallBackToLegacyListAfterFetchFailure(client: client)
             return false
         }
@@ -278,8 +280,13 @@ extension MobileShellComposite {
     /// next event-listener generation re-negotiates v2.
     private func fallBackToLegacyListAfterFetchFailure(client: MobileCoreRPCClient) {
         guard remoteClient === client, connectionState == .connected else { return }
-        guard stateSyncActive else { return }
+        // Unconditional on transient failure: during renegotiation the
+        // authority was already cleared before the fetch, and events missed
+        // in the subscription gap still need the authoritative reload — a
+        // guard on current authority here would skip exactly the recovery
+        // this exists for.
         stateSyncAuthorityClientID = nil
+        MobileDebugLog.anchormux("sync.v2 fallback to legacy after fetch failure")
         Task { @MainActor [weak self] in
             // The missed delta may have been the last event, so this reload
             // cannot be fire-and-forget: retry a bounded number of times with
@@ -289,7 +296,11 @@ extension MobileShellComposite {
             for attempt in 0..<3 {
                 guard let self, self.remoteClient === client,
                       self.connectionState == .connected,
-                      !self.stateSyncActive else { return }
+                      !self.stateSyncActive else {
+                    MobileDebugLog.anchormux("sync.v2 fallback loop guard exited")
+                    return
+                }
+                MobileDebugLog.anchormux("sync.v2 fallback reload attempt \(attempt)")
                 if await self.reloadWorkspaceListFromMac() { return }
                 try? await ContinuousClock().sleep(for: .seconds(2 << attempt))
             }

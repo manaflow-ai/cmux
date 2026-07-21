@@ -236,6 +236,29 @@ struct MobileShellStateSyncTests {
         #expect(store.stateSyncActive == false)
     }
 
+    @Test func transientNegotiationFailureStillRunsTheLegacyReload() async throws {
+        // The negotiation fetch itself fails transiently (not method_not_found).
+        // Events missed in the subscription gap must still be recovered by the
+        // authoritative legacy reload even though authority was never granted.
+        let router = LivenessHostRouter()
+        await router.scriptSyncFetchTransientError()
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+        let probed = try await pollUntil {
+            await router.count(of: "mobile.sync.fetch") >= 1
+        }
+        #expect(probed)
+        #expect(store.stateSyncActive == false)
+        // The connect flow's route binding uses "workspace.list"; only the
+        // fallback reload issues "mobile.workspace.list" here.
+        let reloaded = try await pollUntil {
+            await router.count(of: "mobile.workspace.list") >= 1
+        }
+        #expect(reloaded, "a transient negotiation failure must trigger the authoritative legacy reload")
+    }
+
     @Test func legacyMacKeepsWorkspaceUpdatedRefetchLoop() async throws {
         // No scripted sync result: the router answers `method_not_found`,
         // modeling a released Mac.
