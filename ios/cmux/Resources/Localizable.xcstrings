@@ -2789,19 +2789,434 @@
         }
       }
     },
+    "mobile.notificationFeed.allRead.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New agent alerts will appear here as they arrive." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいエージェント通知は届き次第ここに表示されます。" } }
+      }
+    },
+    "mobile.notificationFeed.allRead.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You're all caught up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて確認済みです" } }
+      }
+    },
+    "mobile.notificationFeed.day.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Today" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今日" } }
+      }
+    },
+    "mobile.notificationFeed.day.yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Yesterday" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "昨日" } }
+      }
+    },
+    "mobile.notificationFeed.empty.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Every agent alert from your paired Macs will collect here, even if push alerts are off. Enable push alerts in Settings only when you want an immediate heads-up away from the app." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングしたすべてのMacからのエージェント通知が、プッシュ通知をオフにしていてもここに集まります。アプリを離れているときにすぐ知らせてほしい場合だけ、設定でプッシュ通知を有効にしてください。" } }
+      }
+    },
+    "mobile.notificationFeed.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No notifications yet" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知はまだありません" } }
+      }
+    },
+    "mobile.notificationFeed.filter.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて" } }
+      }
+    },
+    "mobile.notificationFeed.filter.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification filter" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知フィルタ" } }
+      }
+    },
+    "mobile.notificationFeed.filter.unread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unread" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未読" } }
+      }
+    },
+    "mobile.notificationFeed.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Syncing notifications…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を同期中…" } }
+      }
+    },
+    "mobile.notificationFeed.loading.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Collecting agent alerts from your paired Macs." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングしたMacからエージェント通知を収集中です。" } }
+      }
+    },
+    "mobile.notificationFeed.macReconnectingFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ · Reconnecting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ · 再接続中" } }
+      }
+    },
+    "mobile.notificationFeed.macUnavailableFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ · Unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ · 利用不可" } }
+      }
+    },
+    "mobile.notificationFeed.markAllRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mark All Read" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて既読にする" } }
+      }
+    },
+    "mobile.notificationFeed.markRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mark as Read" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "既読にする" } }
+      }
+    },
+    "mobile.notificationFeed.markUnread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mark as Unread" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未読にする" } }
+      }
+    },
+    "mobile.notificationFeed.offline.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnect a paired Mac, then pull to refresh." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリング済みのMacに再接続してから、下に引いて更新してください。" } }
+      }
+    },
+    "mobile.notificationFeed.offline.inlineBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Showing the latest alerts synced from your Macs." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macから最後に同期した通知を表示しています。" } }
+      }
+    },
+    "mobile.notificationFeed.offline.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notifications are offline" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知はオフラインです" } }
+      }
+    },
+    "mobile.notificationFeed.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開く" } }
+      }
+    },
+    "mobile.notificationFeed.openHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Opens this notification's workspace." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この通知のワークスペースを開きます。" } }
+      }
+    },
+    "mobile.notificationFeed.preview.approval.body": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知フィードをiOSアプリで開けるようになりました。ナビゲーションを確認し、最終の操作チェックを承認してください。" } }
+      }
+    },
+    "mobile.notificationFeed.preview.approval.subtitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification feed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知フィード" } }
+      }
+    },
+    "mobile.notificationFeed.preview.approval.title": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex needs approval" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codexが承認を求めています" } }
+      }
+    },
+    "mobile.notificationFeed.preview.finished.body": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The onboarding copy now explains the notification history." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オンボーディングで通知履歴について説明するようになりました。" } }
+      }
+    },
+    "mobile.notificationFeed.preview.finished.subtitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Documentation" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ドキュメント" } }
+      }
+    },
+    "mobile.notificationFeed.preview.finished.title": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent finished" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが完了しました" } }
+      }
+    },
+    "mobile.notificationFeed.preview.input.body": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose whether to retry the unavailable builder or keep the current artifact. This longer message verifies wrapping without hiding the workspace and Mac context below it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "利用できないビルダーを再試行するか、現在の成果物を維持するか選んでください。この長いメッセージでは、下にあるワークスペースとMacの情報を隠さずに折り返せることを確認します。" } }
+      }
+    },
+    "mobile.notificationFeed.preview.input.subtitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud build" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドビルド" } }
+      }
+    },
+    "mobile.notificationFeed.preview.input.title": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Input needed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要です" } }
+      }
+    },
+    "mobile.notificationFeed.preview.localization.body": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "English and Japanese notification-feed strings are ready." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知フィードの英語と日本語の文言がそろいました。" } }
+      }
+    },
+    "mobile.notificationFeed.preview.localization.title": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Localization complete" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカライズが完了しました" } }
+      }
+    },
+    "mobile.notificationFeed.preview.mac.build": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Build Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビルド用Mac" } }
+      }
+    },
+    "mobile.notificationFeed.preview.mac.macBookPro": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "MacBook Pro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "MacBook Pro" } }
+      }
+    },
+    "mobile.notificationFeed.preview.mac.studio": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Studio" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Studio" } }
+      }
+    },
+    "mobile.notificationFeed.preview.surface.agent": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント" } }
+      }
+    },
+    "mobile.notificationFeed.preview.surface.build": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Build" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビルド" } }
+      }
+    },
+    "mobile.notificationFeed.preview.surface.codex": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "mobile.notificationFeed.preview.surface.tests": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tests" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "テスト" } }
+      }
+    },
+    "mobile.notificationFeed.preview.tests.body": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All focused iOS notification tests passed in 42 seconds." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iOS通知の対象テストはすべて42秒で合格しました。" } }
+      }
+    },
+    "mobile.notificationFeed.preview.tests.subtitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Release preparation" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リリース準備" } }
+      }
+    },
+    "mobile.notificationFeed.preview.tests.title": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tests passed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "テストに合格しました" } }
+      }
+    },
+    "mobile.notificationFeed.preview.workspace.cloudBuilder": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud Builder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドビルダー" } }
+      }
+    },
+    "mobile.notificationFeed.preview.workspace.docs": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Docs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ドキュメント" } }
+      }
+    },
+    "mobile.notificationFeed.preview.workspace.ios": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux iOS" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux iOS" } }
+      }
+    },
+    "mobile.notificationFeed.preview.workspace.localization": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Localization" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカライズ" } }
+      }
+    },
+    "mobile.notificationFeed.preview.workspace.release": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Release" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リリース" } }
+      }
+    },
+    "mobile.notificationFeed.preview.openedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Opened %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@を開きました" } }
+      }
+    },
+    "mobile.notificationFeed.read": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Read" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "既読" } }
+      }
+    },
+    "mobile.notificationFeed.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Try Again" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再試行" } }
+      }
+    },
+    "mobile.notificationFeed.row.computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Computer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンピュータ" } }
+      }
+    },
+    "mobile.notificationFeed.row.fieldFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@: %2$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@：%2$@" } }
+      }
+    },
+    "mobile.notificationFeed.row.unknownWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なワークスペース" } }
+      }
+    },
+    "mobile.notificationFeed.row.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
+      }
+    },
+    "mobile.notificationFeed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notifications" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知" } }
+      }
+    },
+    "mobile.notificationFeed.unread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unread" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未読" } }
+      }
+    },
+    "mobile.notificationFeed.update.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install the latest cmux on your paired Macs to sync their notification history." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングしたMacのcmuxを最新版に更新すると、通知履歴を同期できます。" } }
+      }
+    },
+    "mobile.notificationFeed.update.inlineBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Some paired Macs cannot sync notifications yet." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一部のペアリング済みMacはまだ通知を同期できません。" } }
+      }
+    },
+    "mobile.notificationFeed.update.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update cmux on your Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macのcmuxを更新してください" } }
+      }
+    },
+    "mobile.notificationFeed.workspaceFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
+      }
+    },
+    "mobile.settings.notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Push Alerts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プッシュ通知" } }
+      }
+    },
+    "mobile.tabs.notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notifications" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知" } }
+      }
+    },
+    "mobile.tabs.workspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
+      }
+    },
     "mobile.notifications.disable": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn Off Agent Notifications"
+            "value": "Turn Off Push Alerts"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェント通知をオフにする"
+            "value": "プッシュ通知をオフにする"
           }
         }
       }
@@ -2812,13 +3227,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notify Me About Agents"
+            "value": "Notify Me When Agents Need Me"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェント通知を受け取る"
+            "value": "エージェントが対応を求めたら通知"
           }
         }
       }
@@ -3169,13 +3584,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux runs your terminals and AI coding agents on your Mac. This app lets you watch them, type, and get notified when an agent needs you, right from your phone."
+            "value": "cmux runs your terminals and AI coding agents on your Mac. Watch, type, and respond from your phone. Every agent alert stays in Notifications, and push alerts are optional when you want an immediate heads-up away from the app."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxはMac上でターミナルとAIコーディングエージェントを動かします。このアプリを使えば、iPhoneからその様子を見たり、入力したり、エージェントから呼ばれたときに通知を受け取れます。"
+            "value": "cmuxはMac上でターミナルとAIコーディングエージェントを動かします。iPhoneから状況を確認し、入力して対応できます。エージェントからの通知はすべて「通知」に時系列で残り、アプリを離れているときのプッシュ通知は必要に応じて有効にできます。"
           }
         }
       }

@@ -137,6 +137,226 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    @MainActor
+    func testWorkspaceSearchPreservesQueryAndPlacementAcrossRefresh() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let scroll = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-0"]
+                .waitForExistence(timeout: 3)
+        )
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Docs")
+
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(mainRow.waitForNonExistence(timeout: 3))
+
+        let searchKey = app.keyboards.buttons["Search"]
+        XCTAssertTrue(searchKey.waitForExistence(timeout: 3))
+        searchKey.tap()
+        if !waitForKeyboardDismissal(in: app), searchKey.exists {
+            searchKey.tap()
+        }
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+
+        let beforeRefreshField = app.searchFields.firstMatch
+        XCTAssertEqual(beforeRefreshField.value as? String, "Docs")
+        guard let beforeRefreshFrame = waitForUsableFrame(of: beforeRefreshField, timeout: 3) else {
+            XCTFail("Search field had no usable frame before refresh")
+            return
+        }
+        XCTAssertLessThan(
+            beforeRefreshFrame.midY,
+            app.windows.firstMatch.frame.midY,
+            "Workspace search must remain in the navigation bar"
+        )
+
+        let refreshStart = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        let refreshEnd = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        refreshStart.press(forDuration: 0.01, thenDragTo: refreshEnd)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-1"]
+                .waitForExistence(timeout: 5),
+            "Pull-to-refresh did not replace the preview workspace snapshot"
+        )
+
+        let afterRefreshField = app.searchFields.firstMatch
+        XCTAssertTrue(afterRefreshField.waitForExistence(timeout: 3))
+        XCTAssertEqual(afterRefreshField.value as? String, "Docs")
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(mainRow.waitForNonExistence(timeout: 3))
+        guard let afterRefreshFrame = waitForUsableFrame(of: afterRefreshField, timeout: 3) else {
+            XCTFail("Search field had no usable frame after refresh")
+            return
+        }
+
+        XCTAssertEqual(afterRefreshFrame.minX, beforeRefreshFrame.minX, accuracy: 2)
+        XCTAssertEqual(afterRefreshFrame.minY, beforeRefreshFrame.minY, accuracy: 2)
+        XCTAssertEqual(afterRefreshFrame.width, beforeRefreshFrame.width, accuracy: 2)
+        XCTAssertEqual(afterRefreshFrame.height, beforeRefreshFrame.height, accuracy: 2)
+    }
+
+    @MainActor
+    func testNotificationTabPreservesSharedRootToolbar() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeed"].waitForExistence(timeout: 8))
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        let computers = app.buttons["MobileWorkspaceDevicesButton"]
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        XCTAssertTrue(computers.waitForExistence(timeout: 3))
+        XCTAssertTrue(picker.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+        let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
+        XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(markAllRead.frame.width, 60)
+        XCTAssertEqual(picker.frame.midX, app.frame.midX, accuracy: 2)
+        if app.frame.width >= 400 {
+            XCTAssertGreaterThanOrEqual(picker.frame.width, 120)
+        } else {
+            XCTAssertLessThanOrEqual(picker.frame.width, 100)
+        }
+    }
+
+    @MainActor
+    func testNotificationFeedPreviewSupportsTriageInteractions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.tabBars.buttons["Notifications"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
+        XCTAssertTrue(app.staticTexts["Build Mac"].exists)
+
+        let approvalTitle = app.staticTexts["Codex needs approval"]
+        let approvalWorkspace = app.staticTexts["cmux iOS"]
+        let approvalBody = app.staticTexts[
+            "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass."
+        ]
+        let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
+        XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalWorkspace.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalBody.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
+        let approvalComputer = approvalRow.staticTexts["Studio"]
+        XCTAssertTrue(approvalComputer.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Notification feed"].exists)
+        XCTAssertFalse(app.staticTexts["Context"].exists)
+        XCTAssertFalse(app.staticTexts["Opens in"].exists)
+        XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalWorkspace.frame.minY)
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.minY - approvalTitle.frame.maxY, 6)
+        XCTAssertEqual(approvalWorkspace.frame.midY, approvalComputer.frame.midY, accuracy: 2)
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalBody.frame.minY)
+        XCTAssertGreaterThanOrEqual(approvalWorkspace.frame.height, approvalComputer.frame.height)
+
+        XCTAssertLessThanOrEqual(approvalRow.frame.height, 135)
+        let approvalValue = try XCTUnwrap(approvalRow.value as? String)
+        let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
+        let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
+        let computerRange = try XCTUnwrap(approvalValue.range(of: "Studio"))
+        XCTAssertTrue(approvalValue.contains("Workspace: cmux iOS"))
+        XCTAssertTrue(approvalValue.contains("Computer: Studio"))
+        XCTAssertFalse(approvalValue.contains("Context:"))
+        XCTAssertFalse(approvalValue.contains("Pane:"))
+        XCTAssertFalse(approvalValue.contains("Notification feed"))
+        XCTAssertLessThan(workspaceRange.lowerBound, bodyRange.lowerBound)
+        XCTAssertLessThan(bodyRange.lowerBound, computerRange.lowerBound)
+
+        let unavailableRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-build-mac-input-needed"
+        ]
+        XCTAssertTrue(unavailableRow.waitForExistence(timeout: 3))
+        let unavailableValue = try XCTUnwrap(unavailableRow.value as? String)
+        XCTAssertTrue(unavailableValue.contains("Workspace: Cloud Builder"))
+        XCTAssertTrue(unavailableValue.contains("Computer: Build Mac · Unavailable"))
+        XCTAssertFalse(unavailableValue.contains("Pane:"))
+
+        let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
+        XCTAssertTrue(unreadFilter.waitForExistence(timeout: 3))
+        unreadFilter.tap()
+
+        XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
+        approvalRow.swipeLeft()
+        let markRead = app.descendants(matching: .any)["MobileNotificationFeedMarkReadSwipe-studio-codex-approval"]
+        XCTAssertTrue(markRead.waitForExistence(timeout: 3))
+        markRead.tap()
+        XCTAssertTrue(approvalRow.waitForNonExistence(timeout: 3))
+
+        let allFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterAll"]
+        XCTAssertTrue(allFilter.waitForExistence(timeout: 3))
+        allFilter.tap()
+
+        let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        completedRow.tap()
+
+        let workspaceDestination = app.descendants(matching: .any)[
+            "MobileNotificationFeedPreviewWorkspaceDestination"
+        ]
+        XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["Release"].waitForExistence(timeout: 3))
+
+        let systemBackButton = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(systemBackButton.waitForExistence(timeout: 3))
+        systemBackButton.tap()
+
+        let notificationsTab = app.tabBars.buttons["Notifications"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.isSelected)
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+
+        completedRow.press(forDuration: 1)
+        let markUnread = app.descendants(matching: .any)[
+            "MobileNotificationFeedMarkUnreadMenu-macbook-tests-passed"
+        ]
+        XCTAssertTrue(markUnread.waitForExistence(timeout: 3))
+        markUnread.tap()
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(try XCTUnwrap(completedRow.value as? String).contains("Unread"))
+
+        completedRow.tap()
+        XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
+        let swipeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        let swipeEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.isSelected)
+
+        let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
+        XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+        markAllRead.tap()
+        XCTAssertTrue(markAllRead.waitForNonExistence(timeout: 3))
+
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        workspacesTab.tap()
+        XCTAssertTrue(app.staticTexts["Workspaces"].waitForExistence(timeout: 3))
+        app.tabBars.buttons["Notifications"].tap()
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
+    }
+
     /// Regression: every task-composer action must remain discoverable through
     /// the accessibility hierarchy, and its exposed activation frame must meet
     /// Apple's 44-point minimum on both compact and regular-width layouts.
@@ -5367,28 +5587,29 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     }
 
     private func mobileHostStatusResult() -> [String: Any] {
-        [
+        let capabilities = [
+            "events.v1",
+            "notification.badge.v1",
+            "notification.dismiss.v1",
+            "notification.reconcile.v1",
+            "terminal.bytes.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "terminal.viewport.v1",
+            "workspace.actions.v1",
+            "workspace.task_create.v1",
+            "workspace.read_state.v1",
+            "workspace.close.v1",
+            "dogfood.v1",
+            "workspace.groups.v1",
+        ]
+        return [
             "mac_device_id": "ui-test-mac",
             "mac_display_name": "UI Test Mac",
             "mac_instance_tag": macInstanceTag,
             "routes": [],
             "terminal_fidelity": "render_grid",
-            "capabilities": [
-                "events.v1",
-                "notification.badge.v1",
-                "notification.dismiss.v1",
-                "notification.reconcile.v1",
-                "terminal.bytes.v1",
-                "terminal.render_grid.v1",
-                "terminal.replay.v1",
-                "terminal.viewport.v1",
-                "workspace.actions.v1",
-                "workspace.task_create.v1",
-                "workspace.read_state.v1",
-                "workspace.close.v1",
-                "dogfood.v1",
-                "workspace.groups.v1",
-            ],
+            "capabilities": capabilities,
         ]
     }
 
