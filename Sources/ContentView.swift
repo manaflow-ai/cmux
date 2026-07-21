@@ -11618,6 +11618,9 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         let rowActions = SidebarAppKitRowActions(
             commands: commands,
+            onOpenStatusURL: { url in
+                NSWorkspace.shared.open(url)
+            },
             onOpenPullRequest: { [prefer = input.settings.openPullRequestLinksInCmuxBrowser] url in
                 openInBrowser(url, prefer)
             },

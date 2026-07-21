@@ -476,8 +476,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.portOrdinal = portOrdinal
-        let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
+        self.initialCommand = initialCommand.flatMap {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+        }
         let trimmedTmuxStartCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.tmuxStartCommand = (trimmedTmuxStartCommand?.isEmpty == false) ? trimmedTmuxStartCommand : nil
         let trimmedInput = initialInput?.isEmpty == false ? initialInput : nil

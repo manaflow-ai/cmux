@@ -444,7 +444,7 @@ extension TerminalController {
 
     /// The byte-faithful twin of the file-private `tabForSidebarMutation(id:)`:
     /// the controller's own TabManager first, then any window's TabManager.
-    private func controlTabForSidebarMutation(id: UUID) -> Workspace? {
+    func controlTabForSidebarMutation(id: UUID) -> Workspace? {
         if let tab = tabManager?.tabs.first(where: { $0.id == id }) {
             return tab
         }
@@ -455,7 +455,7 @@ extension TerminalController {
     }
 
     /// The byte-faithful twin of the file-private `resolveReportedSurfaceId`.
-    private func controlResolveReportedSurfaceId(
+    func controlResolveReportedSurfaceId(
         in workspace: Workspace,
         requestedSurfaceId: UUID?,
         validSurfaceIds: Set<UUID>

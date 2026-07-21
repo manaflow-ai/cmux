@@ -122,6 +122,7 @@ extension Workspace {
         var snapshot = SessionWorkspaceSnapshot(
             workspaceId: id,
             stableId: stableId,
+            taskCreateOperationID: taskCreateOperationID,
             processTitle: processTitle,
             customTitle: customTitle,
             customTitleSource: effectiveCustomTitleSource,
@@ -162,6 +163,7 @@ extension Workspace {
            sessionRestoreIdentityExclusions.shouldAdopt(persistedStableId) {
             stableId = persistedStableId
         }
+        taskCreateOperationID = snapshot.taskCreateOperationID
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
@@ -1951,10 +1953,11 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
-
     let id: UUID
     /// Restart-stable workspace identifier persisted for durable deep links.
     private(set) var stableId = UUID()
+    /// Durable idempotency key for task-composer workspace creation.
+    var taskCreateOperationID: UUID?
     private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
 
     func beginForkAgentConversationAction(panelId: UUID) -> Bool {
@@ -5272,8 +5275,11 @@ final class Workspace: Identifiable, ObservableObject {
                 "error_code": proxyState == "error" ? "proxy_unavailable" : NSNull(),
             ]
         }
+        payload["transport"] = (remoteConfiguration?.transport.rawValue as Any?) ?? NSNull()
+        payload["terminal_transport"] = (remoteConfiguration?.terminalTransport.rawValue as Any?) ?? NSNull()
+        payload["terminal_profile"] = (remoteConfiguration?.terminalProfile.kind.rawValue as Any?) ?? NSNull()
+        payload["terminal_tmux_session"] = (remoteConfiguration?.terminalProfile.tmuxSessionName as Any?) ?? NSNull()
         if let remoteConfiguration {
-            payload["transport"] = remoteConfiguration.transport.rawValue
             payload["destination"] = remoteConfiguration.destination
             payload["port"] = remoteConfiguration.port ?? NSNull()
             payload["has_identity_file"] = remoteConfiguration.identityFile != nil
@@ -5282,7 +5288,6 @@ final class Workspace: Identifiable, ObservableObject {
             payload["persistent_daemon_slot"] = remoteConfiguration.persistentDaemonSlot ?? NSNull()
             payload["managed_cloud_vm_id"] = remoteConfiguration.managedCloudVMID ?? NSNull()
         } else {
-            payload["transport"] = NSNull()
             payload["destination"] = NSNull()
             payload["port"] = NSNull()
             payload["has_identity_file"] = false

@@ -13,6 +13,7 @@ import SwiftUI
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State private var refreshGeneration = 0
     @State private var workspaces: [MobileWorkspacePreview]
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
@@ -170,6 +171,8 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     public var body: some View {
+        let workspacesBinding = $workspaces
+        let refreshGenerationBinding = $refreshGeneration
         Group {
             if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
                 WorkspaceDetailCreateDelayedTerminalPreviewView()
@@ -179,68 +182,78 @@ public struct WorkspaceListLayoutPreviewView: View {
                 WorkspaceDetailDelayedTerminalPreviewView()
             } else {
                 NavigationStack {
-                    WorkspaceListView(
-                        workspaces: workspaces,
-                        groups: groups,
-                        selectedWorkspaceID: selectedWorkspaceID,
-                        host: "Visual Mock Mac",
-                        connectionStatus: .connected,
-                        navigationStyle: .push,
-                        wrapWorkspaceTitles: false,
-                        previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
-                        unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
-                        profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
-                        profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
-                        selectWorkspace: { id in
-                            selectedWorkspaceID = id
-                            if reorderEnabled {
-                                fixtureRoute = FixtureWorkspaceRoute(id: id)
+                    WorkspaceListSearchHost { searchText in
+                        WorkspaceListView(
+                            workspaces: workspaces,
+                            groups: groups,
+                            selectedWorkspaceID: selectedWorkspaceID,
+                            host: "Visual Mock Mac",
+                            connectionStatus: .connected,
+                            navigationStyle: .push,
+                            wrapWorkspaceTitles: false,
+                            previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
+                            unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
+                            profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
+                            profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
+                            selectWorkspace: { id in
+                                selectedWorkspaceID = id
+                                if reorderEnabled {
+                                    fixtureRoute = FixtureWorkspaceRoute(id: id)
+                                }
+                            },
+                            createWorkspace: {},
+                            macSelection: $macSelection,
+                            refresh: {
+                                await MainActor.run {
+                                    let current = workspacesBinding.wrappedValue
+                                    workspacesBinding.wrappedValue = Array(current.dropFirst()) + Array(current.prefix(1))
+                                    refreshGenerationBinding.wrappedValue += 1
+                                }
+                            },
+                            renameWorkspace: reorderEnabled ? { id, newName in
+                                if let index = workspaces.firstIndex(where: { $0.id == id }) {
+                                    workspaces[index].name = newName
+                                }
+                            } : nil,
+                            setPinned: reorderEnabled ? { id, pinned in
+                                if let index = workspaces.firstIndex(where: { $0.id == id }) {
+                                    workspaces[index].isPinned = pinned
+                                }
+                            } : nil,
+                            setUnread: reorderEnabled ? { id, unread in
+                                if let index = workspaces.firstIndex(where: { $0.id == id }) {
+                                    workspaces[index].hasUnread = unread
+                                }
+                            } : nil,
+                            closeWorkspace: reorderEnabled ? { id in
+                                workspaces.removeAll { $0.id == id }
+                            } : nil,
+                            moveWorkspace: reorderEnabled ? { id, groupID, beforeWorkspaceID, movesGroup in
+                                workspaces = workspaces.applyingWorkspaceMoveIntent(
+                                    MobileWorkspaceMoveIntent(
+                                        groupID: groupID,
+                                        beforeWorkspaceID: beforeWorkspaceID,
+                                        movesGroup: movesGroup
+                                    ),
+                                    movedWorkspaceID: id,
+                                    groups: groups
+                                )
+                                return true
+                            } : nil,
+                            searchText: searchText
+                        )
+                        .navigationDestination(item: $fixtureRoute) { route in
+                            VStack(spacing: 12) {
+                                Text(
+                                    workspaces.first(where: { $0.id == route.id })?.name
+                                        ?? route.id.rawValue
+                                )
+                                .font(.title2)
+                                Text("Fixture workspace detail")
+                                    .foregroundStyle(.secondary)
                             }
-                        },
-                        createWorkspace: {},
-                        macSelection: $macSelection,
-                        renameWorkspace: reorderEnabled ? { id, newName in
-                            if let index = workspaces.firstIndex(where: { $0.id == id }) {
-                                workspaces[index].name = newName
-                            }
-                        } : nil,
-                        setPinned: reorderEnabled ? { id, pinned in
-                            if let index = workspaces.firstIndex(where: { $0.id == id }) {
-                                workspaces[index].isPinned = pinned
-                            }
-                        } : nil,
-                        setUnread: reorderEnabled ? { id, unread in
-                            if let index = workspaces.firstIndex(where: { $0.id == id }) {
-                                workspaces[index].hasUnread = unread
-                            }
-                        } : nil,
-                        closeWorkspace: reorderEnabled ? { id in
-                            workspaces.removeAll { $0.id == id }
-                        } : nil,
-                        moveWorkspace: reorderEnabled ? { id, groupID, beforeWorkspaceID, movesGroup in
-                            workspaces = workspaces.applyingWorkspaceMoveIntent(
-                                MobileWorkspaceMoveIntent(
-                                    groupID: groupID,
-                                    beforeWorkspaceID: beforeWorkspaceID,
-                                    movesGroup: movesGroup
-                                ),
-                                movedWorkspaceID: id,
-                                groups: groups
-                            )
-                            return true
-                        } : nil
-                    )
-                    .navigationDestination(item: $fixtureRoute) { route in
-                        VStack(spacing: 12) {
-                            Text(
-                                workspaces.first(where: { $0.id == route.id })?.name
-                                    ?? route.id.rawValue
-                            )
-                            .font(.title2)
-                            Text("Fixture workspace detail")
-                                .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("FixtureWorkspaceDetail")
                         }
-                        .accessibilityIdentifier("FixtureWorkspaceDetail")
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
@@ -251,6 +264,12 @@ public struct WorkspaceListLayoutPreviewView: View {
                     }
                 }
             }
+        }
+        .overlay(alignment: .topLeading) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityIdentifier("MobileWorkspaceListRefreshGeneration-\(refreshGeneration)")
         }
         .task {
             // Fire a REAL local notification (not a drawn banner) so the system
