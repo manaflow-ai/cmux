@@ -961,6 +961,25 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/ClosureDefaultRealClockParameterTests.swift",
+            "func verify(\n"
+            "    clock: ContinuousClock,\n"
+            "    callback: () -> Void = {}\n"
+            ") async {\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/URLBlockCommentBeforeRealClockTests.swift",
+            "/* See https://example.test for the fixture contract. */\n"
+            "let clock = ContinuousClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/QualifiedRealClockInitializerTests.swift",
             "let clock = Swift.ContinuousClock()\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
@@ -1241,6 +1260,16 @@ def _self_test() -> int:
             "let clock = TestRelayClock()\n"
             "try await clock.sleep(until: deadline)\n"
             "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/ClosureDefaultVirtualClockParameterTests.swift",
+            "func verifyVirtual(\n"
+            "    clock: TestRelayClock,\n"
+            "    callback: () -> Void = {}\n"
+            ") async {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
         ),
         # A standard-clock binding in a previous function must not leak into a
         # later function whose same-named clock is injected.
