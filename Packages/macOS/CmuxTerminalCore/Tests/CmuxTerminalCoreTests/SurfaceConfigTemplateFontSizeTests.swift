@@ -20,4 +20,25 @@ import CmuxTerminalCore
 
         #expect(abs(runtimePoints - 24) < 0.001)
     }
+
+    @Test func retainsExplicitFontSizeOwnershipWhileChangingPoints() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(9, isExplicitOverride: true)
+
+        template.fontSize = 11
+
+        #expect(template.fontSizeLineage == TerminalFontSizeLineage(
+            basePoints: 11,
+            isExplicitOverride: true
+        ))
+    }
+
+    @Test func invalidFontSizeClearsLineage() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(9, isExplicitOverride: true)
+
+        template.fontSize = 0
+
+        #expect(template.fontSizeLineage == nil)
+    }
 }

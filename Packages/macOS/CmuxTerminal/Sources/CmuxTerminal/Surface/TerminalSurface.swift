@@ -155,6 +155,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let portOrdinal: Int
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
+    var lastKnownFontSizeLineage: TerminalFontSizeLineage?
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.
@@ -479,6 +480,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
+        self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.portOrdinal = portOrdinal
         self.initialCommand = initialCommand.flatMap {

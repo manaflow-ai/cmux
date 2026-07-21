@@ -1378,6 +1378,8 @@ enum SurfaceResumeBindingScriptStore {
 
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
+    /// Explicit, unscaled surface font override. Nil follows the current config.
+    var fontSize: Float?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
@@ -1392,6 +1394,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
 
     init(
         workingDirectory: String? = nil,
+        fontSize: Float? = nil,
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
@@ -1403,6 +1406,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         wasAgentRunning: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
+        self.fontSize = fontSize
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand

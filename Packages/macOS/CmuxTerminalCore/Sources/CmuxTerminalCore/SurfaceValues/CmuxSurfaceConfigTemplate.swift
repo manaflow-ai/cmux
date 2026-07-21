@@ -7,8 +7,23 @@ public import GhosttyKit
 /// command, environment, initial input) either empty for a fresh surface or
 /// copied from a source surface's inherited C config when splitting.
 public struct CmuxSurfaceConfigTemplate: Sendable {
+    /// The font-size lineage applied to the new surface, or nil for the runtime default.
+    public var fontSizeLineage: TerminalFontSizeLineage? = nil
+
     /// The unscaled base font size in points; `0` means the runtime default.
-    public var fontSize: Float32 = 0
+    public var fontSize: Float32 {
+        get { fontSizeLineage?.basePoints ?? 0 }
+        set {
+            guard newValue.isFinite, newValue > 0 else {
+                fontSizeLineage = nil
+                return
+            }
+            fontSizeLineage = TerminalFontSizeLineage(
+                basePoints: newValue,
+                isExplicitOverride: fontSizeLineage?.isExplicitOverride ?? false
+            )
+        }
+    }
 
     /// The working directory the spawned shell starts in.
     public var workingDirectory: String?
@@ -27,6 +42,26 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
 
     /// Creates an empty template (runtime defaults for every field).
     public init() {}
+
+    /// Sets the template font size and records whether it is a surface-local override.
+    ///
+    /// Invalid or non-positive values clear the font-size lineage and restore
+    /// runtime-default behavior.
+    ///
+    /// - Parameters:
+    ///   - basePoints: The unscaled font size in points.
+    ///   - isExplicitOverride: Whether the new surface should retain this size
+    ///     independently of later terminal config changes.
+    public mutating func setFontSize(_ basePoints: Float32, isExplicitOverride: Bool) {
+        guard basePoints.isFinite, basePoints > 0 else {
+            fontSizeLineage = nil
+            return
+        }
+        fontSizeLineage = TerminalFontSizeLineage(
+            basePoints: basePoints,
+            isExplicitOverride: isExplicitOverride
+        )
+    }
 
     /// Creates a template from a ghostty inherited surface config.
     ///

@@ -299,6 +299,7 @@ extension TerminalSurface {
     /// agent-hibernation resume.
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
+        _ = fontSizeLineageSnapshot()
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
@@ -613,12 +614,15 @@ extension TerminalSurface {
 
         // Some GhosttyKit builds can drop inherited font_size during post-create
         // config/scale reconciliation. Re-apply runtime points so all creation
-        // paths preserve zoom from the source terminal.
-        if let inheritedBaseFontPoints = configTemplate?.fontSize,
-           inheritedBaseFontPoints > 0 {
+        // paths preserve zoom from the source terminal. Explicit lineage is
+        // always applied so Ghostty retains surface-local ownership; otherwise
+        // Cmd+0 could not clear the restored override for the next snapshot.
+        if let inheritedFontSizeLineage = lastKnownFontSizeLineage,
+           inheritedFontSizeLineage.basePoints > 0 {
+            let inheritedBaseFontPoints = inheritedFontSizeLineage.basePoints
             let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())
             let currentFontPoints = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface)
-            let shouldReapply = {
+            let shouldReapply = inheritedFontSizeLineage.isExplicitOverride || {
                 guard let currentFontPoints else { return true }
                 return abs(currentFontPoints - inheritedRuntimeFontPoints) > 0.05
             }()
