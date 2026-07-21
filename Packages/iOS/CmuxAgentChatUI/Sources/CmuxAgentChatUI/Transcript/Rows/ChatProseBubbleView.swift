@@ -13,6 +13,7 @@ public struct ChatProseBubbleView: View {
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
     private let onShowCodeDetail: (String, Int) -> Void
+    private let onCopied: () -> Void
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
@@ -28,18 +29,21 @@ public struct ChatProseBubbleView: View {
     ///   - showsTimestamp: Whether the group timestamp renders under this
     ///     bubble.
     ///   - onShowCodeDetail: Opens full code block text outside the row.
+    ///   - onCopied: Reports a completed copy so the host can confirm it.
     public init(
         prose: ChatProse,
         message: ChatMessage,
         groupPosition: ChatGroupPosition,
         showsTimestamp: Bool,
-        onShowCodeDetail: @escaping (String, Int) -> Void = { _, _ in }
+        onShowCodeDetail: @escaping (String, Int) -> Void = { _, _ in },
+        onCopied: @escaping () -> Void = {}
     ) {
         self.prose = prose
         self.message = message
         self.groupPosition = groupPosition
         self.showsTimestamp = showsTimestamp
         self.onShowCodeDetail = onShowCodeDetail
+        self.onCopied = onCopied
     }
 
     public var body: some View {
@@ -90,6 +94,7 @@ public struct ChatProseBubbleView: View {
     private func copyProse() {
         #if canImport(UIKit)
         UIPasteboard.general.string = prose.text
+        onCopied()
         #endif
     }
 

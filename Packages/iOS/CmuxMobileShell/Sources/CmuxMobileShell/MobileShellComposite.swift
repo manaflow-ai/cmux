@@ -45,11 +45,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .hybrid:
-                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
+                return ["workspace.updated", "mobile.sync.delta", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
+                return ["workspace.updated", "mobile.sync.delta", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
+                return ["workspace.updated", "mobile.sync.delta", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
             }
         }
 
@@ -768,6 +768,42 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var createWorkspaceTaskSpec: MobileWorkspaceCreateSpec?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    /// Mobile state sync v2 (docs/mobile-state-sync-v2.md): full-record mirror
+    /// of the foreground Mac's workspace/group collections plus its cursor.
+    /// Never reset on reconnect; the epoch in every frame invalidates stale
+    /// cursors, so a same-Mac resubscribe catches up with one small delta.
+    let stateSyncMirror = MobileStateSyncMirror()
+    /// The client that earned state-sync authority by a successful
+    /// `mobile.sync.fetch`. v2 is active only while this identity matches the
+    /// CURRENT `remoteClient`, so replacing the client (secondary-to-
+    /// foreground promotion, reconnect) implicitly demotes to legacy until
+    /// the new client's own negotiation completes — no explicit hook needed,
+    /// and a stale client's deltas or fallbacks can never act on its
+    /// successor's authority.
+    var stateSyncAuthorityClientID: ObjectIdentifier?
+    /// Whether state sync v2 owns the list for the CURRENT client. While
+    /// true, `workspace.updated` no longer schedules full-list refetches;
+    /// `mobile.sync.delta` events own the list.
+    var stateSyncActive: Bool {
+        guard let stateSyncAuthorityClientID, let remoteClient else { return false }
+        return stateSyncAuthorityClientID == ObjectIdentifier(remoteClient)
+    }
+    /// Identity of the client the in-flight fetch runner serves; demand for
+    /// the same client coalesces onto the runner instead of cancelling it.
+    var stateSyncFetchClientID: ObjectIdentifier?
+    /// Set while a runner is in flight to request one trailing sweep after it
+    /// settles (a delta arrived that the current fetch's snapshot may miss).
+    var stateSyncFetchFollowUpRequested = false
+    /// Single-flight handle for negotiation and gap-repair fetches, restart-on-
+    /// newest like ``workspaceListRefreshTask``. Bool payload = fetch applied.
+    var stateSyncFetchTask: Task<Bool, Never>?
+    /// Identifies the fetch generation that owns ``stateSyncFetchTask``, so a
+    /// cancelled predecessor's deferred cleanup cannot clear its replacement.
+    var stateSyncFetchGeneration = UUID()
+    /// Number of deadline-abandoned reconnect dials that have not yet
+    /// resolved. Bounds automatic retry scheduling (see
+    /// ``registerAbandonedReconnectDial(_:)``).
+    var abandonedReconnectDialCount = 0
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
@@ -1161,6 +1197,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         suppressNextConnectionOutageEdge = true
         clearAutomaticReconnectBackoff()
+        // The state-sync mirror caches workspace/terminal titles, directories,
+        // and notification previews from the previous account's Macs; it must
+        // not survive an account boundary or leak into the next session's
+        // projections.
+        resetStateSyncForAccountBoundary()
         lastPresenceReconnectEvidence = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
@@ -6746,6 +6787,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                } else if event.topic == "mobile.sync.delta" {
+                    self.handleStateSyncDeltaEvent(event)
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.set_font" {
@@ -6813,6 +6856,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.recordSuccessfulTerminalSubscription()
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            // Negotiate state sync v2 only from the subscription
+            // ACKNOWLEDGEMENT: the ack proves the Mac registered this
+            // connection for `mobile.sync.delta`, so a fetch snapshot taken
+            // now cannot miss a change emitted between fetch and
+            // registration. (A fetch racing the handshake could snapshot rev
+            // N, miss N+1 emitted before the server registered us, and stay
+            // stale until the next unrelated change.)
+            self.beginStateSyncNegotiation(client: client)
             self.scheduleNotificationReconcile(client: client)
         }
     }
@@ -7015,10 +7066,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             reason: "liveness_probe_repaired"
                         )
                     }
-                    // The same registration carries `workspace.updated`, so
-                    // workspace create/rename/delete events emitted during the
-                    // gap were missed too; re-fetch the authoritative list.
-                    self.scheduleWorkspaceListRefreshFromEvent()
+                    // The same registration carries `workspace.updated` and
+                    // `mobile.sync.delta`, so list changes emitted during the
+                    // gap were missed too; repair through the mode-appropriate
+                    // authoritative path.
+                    self.repairMissedEventWindow()
                 } else {
                     MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
                 }
@@ -7855,8 +7907,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 
+    /// Dedicated missed-event-window repair (the watchdog's lost-registration
+    /// branch): events emitted while the host had dropped this connection's
+    /// registration were lost, deltas included. Under v2, repair is a cursor
+    /// fetch; under legacy it is the full-list refetch. Ordinary paired
+    /// `workspace.updated` events never route here.
+    func repairMissedEventWindow() {
+        if stateSyncActive {
+            if let client = remoteClient {
+                requestStateSyncFetch(client: client)
+            }
+            return
+        }
+        scheduleWorkspaceListRefreshFromEvent()
+    }
+
     private func scheduleWorkspaceListRefreshFromEvent() {
         guard remoteClient != nil else { return }
+        // With state sync v2 negotiated, `workspace.updated` is redundant with
+        // the `mobile.sync.delta` stream (the Mac emits both on the same tick
+        // for old and new phones); the delta already carried the change, so
+        // fetching here would add a per-event RPC and Mac-side rebuild, and
+        // its cancel-and-replace slot could starve a genuine gap repair.
+        // "Events were missed" recovery has its own dedicated entry
+        // (``repairMissedEventWindow``); ordinary paired events stay silent.
+        guard !stateSyncActive else { return }
         // Keep the event path's "latest event wins" semantics: a `workspace.updated`
         // arriving mid-fetch restarts the fetch so the applied list reflects the
         // change the Mac pushed *after* this fetch started. This cancels only the

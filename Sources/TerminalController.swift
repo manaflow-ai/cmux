@@ -13886,6 +13886,8 @@ class TerminalController {
             result = v2MobileNotificationFeedMarkAllRead(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
+        case "mobile.sync.fetch":
+            result = v2MobileSyncFetch(params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
