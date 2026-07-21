@@ -92,7 +92,8 @@ extension Workspace {
         screenFrame: CGRect? = nil,
         displaySnapshot: SessionDisplaySnapshot? = nil,
         configFrames: [SessionConfigFrameEntry]? = nil,
-        snapshotWorkspaceId: UUID? = nil
+        snapshotWorkspaceId: UUID? = nil,
+        snapshotWorkspaceStableId: UUID? = nil
     ) -> WorkspaceFloatingDock? {
         guard floatingDocks.count < SessionPersistencePolicy.maxFloatingDocksPerWorkspace,
               canCreateFloatingDockPanel else {
@@ -103,6 +104,14 @@ extension Workspace {
             ? resolvedTitle!
             : Self.defaultFloatingDockTitle(for: initialContent)
         let noteFileURL = floatingDockNoteFileURL(dockId: id)
+        if let snapshotWorkspaceStableId,
+           snapshotWorkspaceStableId != stableId {
+            WorkspaceFloatingDockNoteStorage.restoreManagedNoteIfNeeded(
+                fromWorkspaceStableID: snapshotWorkspaceStableId,
+                toWorkspaceStableID: stableId,
+                dockID: id
+            )
+        }
         let dock = WorkspaceFloatingDock(
             id: id,
             workspaceId: self.id,
@@ -274,7 +283,8 @@ extension Workspace {
 
     func restoreFloatingDocks(
         from snapshots: [SessionFloatingDockSnapshot]?,
-        snapshotWorkspaceId: UUID? = nil
+        snapshotWorkspaceId: UUID? = nil,
+        snapshotWorkspaceStableId: UUID? = nil
     ) {
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
@@ -301,7 +311,8 @@ extension Workspace {
                 screenFrame: snapshot.screenFrame?.cgRect,
                 displaySnapshot: snapshot.display,
                 configFrames: snapshot.configFrames,
-                snapshotWorkspaceId: snapshotWorkspaceId
+                snapshotWorkspaceId: snapshotWorkspaceId,
+                snapshotWorkspaceStableId: snapshotWorkspaceStableId
             ) != nil else { continue }
             remainingPanelBudget -= restoredPanelCost
         }
@@ -418,6 +429,46 @@ enum WorkspaceFloatingDockNoteStorage {
         rootDirectory(applicationSupportDirectory: applicationSupportDirectory)
             .appendingPathComponent(workspaceStableID.uuidString.lowercased(), isDirectory: true)
             .appendingPathComponent("\(dockID.uuidString.lowercased()).md")
+    }
+
+    static func restoreManagedNoteIfNeeded(
+        fromWorkspaceStableID sourceWorkspaceStableID: UUID,
+        toWorkspaceStableID destinationWorkspaceStableID: UUID,
+        dockID: UUID,
+        applicationSupportDirectory: URL? = nil
+    ) {
+        guard sourceWorkspaceStableID != destinationWorkspaceStableID else { return }
+        let source = fileURL(
+            workspaceStableID: sourceWorkspaceStableID,
+            dockID: dockID,
+            applicationSupportDirectory: applicationSupportDirectory
+        )
+        let destination = fileURL(
+            workspaceStableID: destinationWorkspaceStableID,
+            dockID: dockID,
+            applicationSupportDirectory: applicationSupportDirectory
+        )
+        let fileManager = FileManager.default
+        guard !fileManager.fileExists(atPath: destination.path),
+              let sourceValues = try? source.resourceValues(
+                forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]
+              ),
+              sourceValues.isRegularFile == true,
+              sourceValues.isSymbolicLink != true,
+              let fileSize = sourceValues.fileSize,
+              fileSize >= 0,
+              UInt64(fileSize) <= FilePreviewTextLoader.maximumLoadedTextBytes,
+              let data = try? Data(contentsOf: source),
+              UInt64(data.count) <= FilePreviewTextLoader.maximumLoadedTextBytes else { return }
+        do {
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: destination, options: .atomic)
+        } catch {
+            try? fileManager.removeItem(at: destination)
+        }
     }
 
     static func retainedPaths(in snapshot: AppSessionSnapshot) -> Set<String> {

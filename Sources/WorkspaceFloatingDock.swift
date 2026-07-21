@@ -351,7 +351,6 @@ final class WorkspaceFloatingDock: Identifiable {
 
     func reserveNoteMutation() -> (snapshotGeneration: Int, writeSequence: UInt64) {
         noteTextGeneration += 1
-        noteSnapshotIsLoaded = true
         return (noteTextGeneration, noteWriter.reserveSequence())
     }
 
@@ -365,7 +364,8 @@ final class WorkspaceFloatingDock: Identifiable {
 
     func applyLoadedNoteTextSnapshot(_ text: String, generation: Int) -> String {
         guard noteTextGeneration == generation else { return noteTextSnapshot }
-        return text
+        setNoteTextSnapshot(text)
+        return noteTextSnapshot
     }
 
     func applyPersistedNoteText(_ text: String, to panel: FilePreviewPanel?) -> Bool {

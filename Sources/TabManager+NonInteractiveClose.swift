@@ -1,6 +1,10 @@
 import Foundation
 
 extension TabManager {
+    func flushPendingAutosavingNotesSynchronously() -> Bool {
+        tabs.allSatisfy { $0.flushPendingAutosavingNotesSynchronously() }
+    }
+
     /// Closes a socket/API-targeted workspace without an interactive veto.
     ///
     /// Closing a window's last workspace means closing the window. A remote-tmux

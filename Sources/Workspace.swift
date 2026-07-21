@@ -239,7 +239,8 @@ extension Workspace {
         restoreTodoState(from: snapshot)
         restoreFloatingDocks(
             from: snapshot.floatingDocks,
-            snapshotWorkspaceId: snapshot.workspaceId
+            snapshotWorkspaceId: snapshot.workspaceId,
+            snapshotWorkspaceStableId: snapshot.stableId
         )
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
@@ -8487,7 +8488,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Tear down all panels before removing the workspace.
-    func teardownAllPanels() {
+    @discardableResult
+    func teardownAllPanels() -> Bool {
+        guard flushPendingAutosavingNotesSynchronously() else {
+            NSSound.beep()
+            return false
+        }
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -8526,6 +8532,7 @@ final class Workspace: Identifiable, ObservableObject {
         _dockSplit?.closeAllPanels()
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
+        return true
     }
 
     /// Close a panel.

@@ -5732,6 +5732,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
+        guard flushPendingAutosavingNotesSynchronously(windowId: windowId) else {
+            NSSound.beep()
+            return false
+        }
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(windowId)
         }
@@ -5741,6 +5745,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
         guard let window = windowForMainWindowId(windowId) else { return }
+        guard flushPendingAutosavingNotesSynchronously(windowId: windowId) else {
+            NSSound.beep()
+            return
+        }
         closedWindowHistorySuppressedWindowIds.insert(windowId)
         closeMainWindowWithoutInteractiveVeto(window)
     }
@@ -8857,7 +8865,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in
-            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
+            let shouldClose = self?.handleMainTerminalWindowShouldClose(windowId: windowId) ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
                 // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
@@ -16270,13 +16278,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(windowId: UUID) -> Bool {
+        guard flushPendingAutosavingNotesSynchronously(windowId: windowId) else {
+            NSSound.beep()
+            return false
+        }
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
         _ = handleQuitShortcutWarning()
         return false
+    }
+
+    private func flushPendingAutosavingNotesSynchronously(windowId: UUID) -> Bool {
+        guard let manager = tabManagerFor(windowId: windowId),
+              manager.flushPendingAutosavingNotesSynchronously() else { return false }
+        return existingWindowDock(forWindowId: windowId)?
+            .flushPendingAutosavingNotesSynchronously() != false
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
