@@ -112,9 +112,10 @@ import Testing
             createIfMissing: Bool
         ) -> [String] {
             // `--command` runs one command and exits, and `exec` keeps a shell parent out of
-            // the remote process tree. The tmux resolver is still required: a non-login
-            // remote shell has a minimal PATH, which is a property of the remote shell and
-            // not of ssh, so it applies to every transport identically.
+            // the remote process tree. This stand-in keeps the resolver because it says nothing
+            // about how its command reaches the remote shell; the real et profile drops it,
+            // since et types the command into a login shell that both resolves PATH itself and
+            // cannot read a line that long.
             let remote = RemoteTmuxHost.tmuxRemoteCommand(
                 arguments: ["-CC", createIfMissing ? "new-session" : "attach-session", "-t", sessionName]
             )
@@ -377,6 +378,78 @@ import Testing
         #expect(command.contains("touch /tmp/cmux-et-injection"))
         #expect(!command.contains("; touch /tmp/cmux-et-injection'\""))
         #expect(command.hasSuffix("'work '\\''session'\\''; touch /tmp/cmux-et-injection'"))
+    }
+
+    /// The hash keys the attach single-flight, the transport registry, and mirror-to-host
+    /// matching, so anything that changes what the control stream *is* has to be in it. Without
+    /// the transport an ssh host and an et host at one destination are the same endpoint, and an
+    /// attach can be handed a cached connection running the wrong profile or port.
+    @Test func theConnectionHashSeparatesTransportsAndTheirPorts() {
+        let ssh = RemoteTmuxHost(destination: "user@host")
+        let et = RemoteTmuxHost(destination: "user@host", transport: .et)
+        let et2039 = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
+        let et2040 = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2040)
+
+        #expect(ssh.connectionHash != et.connectionHash)
+        #expect(et.connectionHash != et2039.connectionHash)
+        #expect(et2039.connectionHash != et2040.connectionHash, "etserver port must separate endpoints")
+        // The ssh port is a different axis from the transport port and must not alias it.
+        #expect(
+            RemoteTmuxHost(destination: "user@host", port: 2039).connectionHash != et2039.connectionHash
+        )
+    }
+
+    /// And a plain ssh host keeps the hash it has today. It names the shared master's socket path
+    /// and persisted mirror state, so moving it would orphan both on upgrade.
+    @Test func theConnectionHashIsUnchangedForAnSSHHost() {
+        // Naming ssh explicitly, with no transport port, is the same endpoint as saying nothing —
+        // which is what keeps an existing host's socket path and persisted state addressable.
+        #expect(
+            RemoteTmuxHost(destination: "user@host").connectionHash
+                == RemoteTmuxHost(destination: "user@host", transport: .ssh).connectionHash
+        )
+        #expect(
+            RemoteTmuxHost(destination: "user@host", port: 22, identityFile: "/k").connectionHash
+                == RemoteTmuxHost(
+                    destination: "user@host", port: 22, identityFile: "/k", transport: .ssh
+                ).connectionHash
+        )
+    }
+
+    /// A self-reconnecting transport that is alive but no longer answering has to be recovered,
+    /// not waited on. There is no EOF coming — that is the whole point of such a transport — so
+    /// before this the connection stayed `.connected` and the mirror froze permanently.
+    ///
+    /// `.enter` is delivered through the real message path rather than a test-only setter, so the
+    /// transition under test is the one production takes.
+    @MainActor @Test func aStalledSelfReconnectingTransportIsRecoveredRatherThanLeftConnected() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
+            sessionName: "work"
+        )
+        connection.handle(.enter)
+        #expect(!connection.snapshot().recentEvents.contains("liveness-stalled"))
+
+        // Nothing is attached to carry the probe, which is what a wedged transport looks like
+        // from here: alive as far as anyone can see, unable to answer.
+        var reported: Bool?
+        connection.checkLivenessAndRecoverIfStalled { reported = $0 }
+        #expect(reported == false, "a stream that cannot answer must be reported as stalled")
+        #expect(connection.snapshot().recentEvents.contains("liveness-stalled"))
+    }
+
+    /// ssh must be untouched by all of this: it gets an EOF, `handleStreamEnd` already recovers,
+    /// and probing an idle ssh stream would add traffic and a new way to fail.
+    @MainActor @Test func anSSHTransportIsNeverProbedForStalls() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        connection.handle(.enter)
+        var reported: Bool?
+        connection.checkLivenessAndRecoverIfStalled { reported = $0 }
+        #expect(reported == true, "ssh is out of scope for the stall check")
+        #expect(!connection.snapshot().recentEvents.contains("liveness-stalled"))
     }
 
     @Test func etCanTargetAServerWhoseTerminalIsNotOnThePath() {

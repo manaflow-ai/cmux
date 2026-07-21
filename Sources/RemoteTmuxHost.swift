@@ -106,7 +106,20 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// distinct endpoints must never collapse onto one socket and risk routing a
     /// command to the wrong server.
     var connectionHash: String {
-        let fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
+        // The transport and its port belong in the fingerprint because they decide what the
+        // control stream actually is. Everything keyed by this hash — the attach single-flight,
+        // the transport registry, matching a mirror to a host — would otherwise treat an ssh
+        // host and an et host at the same destination as one endpoint, and hand an attach a
+        // cached connection whose profile or port is wrong. Two et hosts on different
+        // etserver ports collide the same way.
+        //
+        // Only appended for a non-default transport, so a plain ssh host keeps the hash it has
+        // today: it names the shared master's socket path and persisted mirror state, and
+        // changing it for existing hosts would orphan both.
+        var fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
+        if transport != .ssh || transportPort != nil {
+            fingerprint += "\u{1f}\(transport.rawValue)\u{1f}\(transportPort.map(String.init) ?? "")"
+        }
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
         for byte in fingerprint.utf8 {
             hash ^= UInt64(byte)
