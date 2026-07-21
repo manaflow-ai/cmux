@@ -160,6 +160,16 @@ public final class BrowserAutomationNavigationCoordinator {
         finish(activeTicket, with: .committed)
     }
 
+    /// Completes the transaction when its main-frame navigation becomes a download.
+    public func didBecomeDownload(instanceID: UUID, url: URL?) {
+        guard let activeTicket, activeTicket.instanceID == instanceID else { return }
+        if activeNavigationID == nil, let activeTargetURL, url != activeTargetURL {
+            finish(activeTicket, with: .superseded)
+            return
+        }
+        finish(activeTicket, with: .downloaded)
+    }
+
     /// Records a commit only when it belongs to the exact active navigation.
     public func didCommit(instanceID: UUID, navigationID: ObjectIdentifier?) {
         finishMatching(instanceID: instanceID, navigationID: navigationID, with: .committed)

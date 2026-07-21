@@ -3,6 +3,9 @@ public enum BrowserAutomationNavigationOutcome: Sendable, Equatable {
     /// The exact navigation started for the transaction committed a document.
     case committed
 
+    /// The exact main-frame navigation became a download instead of a document.
+    case downloaded
+
     /// WebKit reported a terminal navigation failure.
     case failed(String)
 

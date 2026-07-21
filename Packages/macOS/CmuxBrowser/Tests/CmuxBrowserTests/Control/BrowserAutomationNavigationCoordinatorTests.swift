@@ -155,6 +155,21 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .committed)
     }
 
+    @Test("A main-frame download completes the transaction without a document commit")
+    func mainFrameDownloadCompletes() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let navigation = NSObject()
+        let targetURL = URL(string: "https://example.com/archive.zip")!
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+
+        coordinator.didBecomeDownload(instanceID: instanceID, url: targetURL)
+
+        #expect(await coordinator.wait(for: ticket) == .downloaded)
+    }
+
     @Test("A URL-less reload can complete without starting WebKit navigation")
     func reloadWithoutNavigationCompletes() async {
         let coordinator = BrowserAutomationNavigationCoordinator()

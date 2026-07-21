@@ -3878,10 +3878,21 @@ final class BrowserPanel: Panel, ObservableObject {
                 }
             }
         }
-        navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, restoreAttemptID in
+        navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, url, restoreAttemptID in
             MainActor.assumeIsolated {
-                guard isMainFrame, let restoreAttemptID else { return }
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID), restoreAttemptID == self.currentDiscardRestoreAttemptID else { return }
+                guard isMainFrame,
+                      let self,
+                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                    return
+                }
+                self.automationNavigationCoordinator.didBecomeDownload(
+                    instanceID: boundWebViewInstanceID,
+                    url: Self.remoteProxyDisplayURL(for: url) ?? url
+                )
+                guard let restoreAttemptID,
+                      restoreAttemptID == self.currentDiscardRestoreAttemptID else {
+                    return
+                }
                 // A main-frame download is a terminal outcome with no document commit; never restart it on the next reveal.
                 self.hasCommittedDocumentSinceWebViewReplacement = true
                 self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")

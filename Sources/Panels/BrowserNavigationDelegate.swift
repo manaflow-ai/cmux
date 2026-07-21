@@ -12,7 +12,7 @@ import WebKit
     var didFailNavigation: ((WKWebView, String, String, WKNavigation?) -> Void)?
     var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
-    var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
+    var didBecomeDownload: ((WKWebView, Bool, URL?, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -626,7 +626,7 @@ import WebKit
         cmuxDebugLog("download.didBecome source=navigationAction")
         #endif
         NSLog("BrowserPanel download didBecome from navigationAction")
-        didBecomeDownload?(webView, isMainFrame, restoreAttemptID)
+        didBecomeDownload?(webView, isMainFrame, navigationAction.request.url, restoreAttemptID)
         if isMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }
@@ -637,7 +637,12 @@ import WebKit
         cmuxDebugLog("download.didBecome source=navigationResponse")
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
-        didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
+        didBecomeDownload?(
+            webView,
+            navigationResponse.isForMainFrame,
+            navigationResponse.response.url,
+            restoreAttemptID
+        )
         if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }

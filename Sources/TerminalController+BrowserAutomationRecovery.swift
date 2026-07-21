@@ -28,7 +28,7 @@ extension TerminalController {
     ) -> V2CallResult? {
         let data: [String: Any] = ["url": targetURL.absoluteString]
         switch outcome {
-        case .committed:
+        case .committed, .downloaded:
             return nil
         case .failed(let message):
             return .err(code: "navigation_failed", message: message, data: data)
