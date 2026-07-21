@@ -696,6 +696,14 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/InjectedRealClockTests.swift",
+            "func verify(clock: ContinuousClock) async {\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/assert_sleep.py",
             "assert await asyncio.sleep(0.3) is None\n"
             "assert widget.is_rendered()\n",
@@ -883,6 +891,51 @@ def _self_test() -> int:
             "    let clock = ContinuousClock()\n"
             "}\n"
             "func verifyVirtual(clock: TestRelayClock) async {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        # Function modifiers must not hide the scope boundary and let a real
+        # clock binding leak into a later function's injected-clock receiver.
+        (
+            "Packages/CmuxClock/Tests/PrivateScopedVirtualClockTests.swift",
+            "private func makeRealClock() {\n"
+            "    let clock = ContinuousClock()\n"
+            "}\n"
+            "private func verifyVirtual(clock: TestRelayClock) async {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/StaticScopedVirtualClockTests.swift",
+            "static func makeRealClock() {\n"
+            "    let clock = ContinuousClock()\n"
+            "}\n"
+            "static func verifyVirtual(clock: TestRelayClock) async {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        # A binding inside a completed sibling closure or nested block is not
+        # visible at the later injected-clock call site.
+        (
+            "Packages/CmuxClock/Tests/ClosureScopedVirtualClockTests.swift",
+            "let producer = {\n"
+            "    let clock = ContinuousClock()\n"
+            "}\n"
+            "let consumer = { (clock: TestRelayClock) in\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/BlockScopedVirtualClockTests.swift",
+            "func verifyVirtual(clock: TestRelayClock) async {\n"
+            "    if shouldCreateRealClock {\n"
+            "        let clock = ContinuousClock()\n"
+            "        consume(clock)\n"
+            "    }\n"
             "    try await clock.sleep(until: deadline)\n"
             "    #expect(await clockEvents.next() == expected)\n"
             "}\n",
