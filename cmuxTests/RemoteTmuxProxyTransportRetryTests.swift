@@ -399,6 +399,24 @@ import Testing
         )
     }
 
+    /// `.ssh` with a transport port is the case the discriminator's condition admits but nothing
+    /// else does: for ssh the endpoint's port is `port`, so a transport port is meaningless there.
+    /// It must still be its own endpoint rather than aliasing the plain ssh host or the ssh host
+    /// whose *ssh* port happens to match.
+    @Test func anSSHHostWithATransportPortIsItsOwnEndpoint() {
+        let plain = RemoteTmuxHost(destination: "user@host")
+        let sshWithTransportPort = RemoteTmuxHost(destination: "user@host", transport: .ssh, transportPort: 2039)
+        let sshOnThatPort = RemoteTmuxHost(destination: "user@host", port: 2039)
+
+        #expect(sshWithTransportPort.connectionHash != plain.connectionHash)
+        #expect(sshWithTransportPort.connectionHash != sshOnThatPort.connectionHash)
+        #expect(
+            sshWithTransportPort.connectionHash
+                != RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039).connectionHash,
+            "the transport itself must still separate these"
+        )
+    }
+
     /// And a plain ssh host keeps the hash it has today. It names the shared master's socket path
     /// and persisted mirror state, so moving it would orphan both on upgrade.
     @Test func theConnectionHashIsUnchangedForAnSSHHost() {
@@ -435,6 +453,26 @@ import Testing
         var reported: Bool?
         connection.checkLivenessAndRecoverIfStalled { reported = $0 }
         #expect(reported == false, "a stream that cannot answer must be reported as stalled")
+        #expect(connection.snapshot().recentEvents.contains("liveness-stalled"))
+    }
+
+    /// A probe that is written but never answered is the stall this monitor exists for: ET can
+    /// accept stdin while producing no control output. Before the deadline, probes accumulated and
+    /// the connection stayed `.connected` forever — the monitor could not detect the very case it
+    /// was added for.
+    @MainActor @Test func anUnansweredProbeIsTreatedAsAStall() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
+            sessionName: "work"
+        )
+        connection.handle(.enter)
+        // Stand in for a probe that was written and never came back.
+        connection.livenessProbeOutstanding = true
+
+        var reported: Bool?
+        connection.checkLivenessAndRecoverIfStalled { reported = $0 }
+        #expect(reported == false)
+        #expect(connection.snapshot().recentEvents.contains("liveness-unanswered"))
         #expect(connection.snapshot().recentEvents.contains("liveness-stalled"))
     }
 

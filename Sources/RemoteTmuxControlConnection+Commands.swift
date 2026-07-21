@@ -73,8 +73,22 @@ extension RemoteTmuxControlConnection {
             return
         }
         let generation = processGeneration
+        // An unanswered previous probe IS the stall. ET can accept stdin while producing no
+        // control output, so a probe can be written and simply never answered — without this the
+        // probes accumulate, every one of them still pending, and the connection sits
+        // `.connected` forever. The deadline is the next tick rather than a second timer: probe N
+        // must be answered before probe N+1 is due, which is a generous bound on a local
+        // round-trip and needs no clock of its own.
+        if livenessProbeOutstanding {
+            record("liveness-unanswered")
+            recoverFromStalledTransport()
+            completion?(false)
+            return
+        }
+        livenessProbeOutstanding = true
         // A probe that cannot even be enqueued means the stream is already unusable.
         let enqueued = probeLiveness { [weak self] answered in
+            self?.livenessProbeOutstanding = false
             guard let self else { return }
             guard generation == self.processGeneration else {
                 // A respawn overtook this probe; its answer says nothing about the live stream.
@@ -89,6 +103,7 @@ extension RemoteTmuxControlConnection {
             }
         }
         if !enqueued {
+            livenessProbeOutstanding = false
             recoverFromStalledTransport()
             completion?(false)
         }
