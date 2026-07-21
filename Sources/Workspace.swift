@@ -1504,7 +1504,9 @@ extension Workspace {
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId,
-                terminalFontSizeOverrideBasePoints: snapshot.terminal?.fontSize
+                terminalFontSizeCreationPolicy: .sessionRestore(
+                    overrideBasePoints: snapshot.terminal?.fontSize
+                )
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
                 return nil
@@ -7007,7 +7009,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
-        terminalFontSizeOverrideBasePoints: Float? = nil,
+        terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
@@ -7026,7 +7028,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
-            terminalFontSizeOverrideBasePoints: terminalFontSizeOverrideBasePoints,
+            terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
@@ -7050,7 +7052,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
-        terminalFontSizeOverrideBasePoints: Float? = nil,
+        terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
@@ -7099,7 +7101,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
-            terminalFontSizeOverrideBasePoints: terminalFontSizeOverrideBasePoints,
+            terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
@@ -7121,7 +7123,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
-        terminalFontSizeOverrideBasePoints: Float?,
+        terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
         allowTextBoxFocusDefault: Bool
@@ -7130,17 +7132,9 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
-        if let terminalFontSizeOverrideBasePoints,
-           terminalFontSizeOverrideBasePoints.isFinite,
-           terminalFontSizeOverrideBasePoints > 0 {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.setFontSize(
-                terminalFontSizeOverrideBasePoints,
-                isExplicitOverride: true
-            )
-            inheritedConfig = template
-        }
+        var inheritedConfig = terminalFontSizeCreationPolicy.applying(
+            to: inheritedTerminalConfig(inPane: paneId)
+        )
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()

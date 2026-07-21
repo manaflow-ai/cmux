@@ -152,6 +152,29 @@ struct TerminalFontZoomSessionPersistenceTests {
         #expect(surface.sessionFontSizeOverrideBasePoints() == 7)
     }
 
+    @Test("unzoomed session restore clears inherited explicit zoom")
+    func unzoomedRestoreDoesNotBorrowNeighborZoom() throws {
+        let workspace = Workspace()
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let sourcePanel = try #require(workspace.panels[sourcePanelID] as? TerminalPanel)
+        sourcePanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 5.5, isExplicitOverride: true)
+        )
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let restoredPanel = try #require(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore,
+                terminalFontSizeCreationPolicy: .sessionRestore(overrideBasePoints: nil)
+            )
+        )
+
+        #expect(restoredPanel.surface.fontSizeLineageSnapshot() == nil)
+        #expect(restoredPanel.surface.sessionFontSizeOverrideBasePoints() == nil)
+    }
+
     @Test("closing the remembered zoom source discards its explicit lineage")
     func closingZoomSourceClearsWorkspaceFallback() throws {
         let workspace = Workspace()
