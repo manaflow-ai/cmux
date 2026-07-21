@@ -135,6 +135,51 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotDefersAndFullyRestoresFloatingBrowser() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/restored"))
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let pane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(dock.store.newSurface(
+            kind: .browser,
+            inPane: pane,
+            focus: false
+        ))
+        let browser = try XCTUnwrap(dock.store.panels[panelId] as? BrowserPanel)
+        browser.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: browser.profileID,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        var floatingDocks = try XCTUnwrap(snapshot.floatingDocks)
+        var content = try XCTUnwrap(floatingDocks[0].content)
+        let browserIndex = try XCTUnwrap(content.surfaces.firstIndex(where: { $0.id == panelId }))
+        content.surfaces[browserIndex].browser?.pageZoom = 1.75
+        content.surfaces[browserIndex].browser?.developerToolsVisible = true
+        floatingDocks[0].content = content
+        snapshot.floatingDocks = floatingDocks
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredBrowser = try XCTUnwrap(restored.floatingDocks.first?.store.panels.values
+            .compactMap { $0 as? BrowserPanel }
+            .first)
+        XCTAssertNil(restoredBrowser.navigationDelegate?.lastAttemptedURL)
+        XCTAssertFalse(restoredBrowser.shouldRenderWebView)
+        XCTAssertEqual(restoredBrowser.currentPageZoomFactor(), 1.75, accuracy: 0.000_001)
+        XCTAssertTrue(restoredBrowser.isDeveloperToolsVisible())
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)
