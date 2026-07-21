@@ -1,5 +1,9 @@
 use std::fs;
+#[cfg(unix)]
+use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
+use std::os::fd::FromRawFd;
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -49,6 +53,79 @@ impl Drop for HeadlessServer {
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+#[cfg(unix)]
+struct PtyChild {
+    child: Child,
+    _master: File,
+}
+
+#[cfg(unix)]
+impl PtyChild {
+    fn start(args: &[&str]) -> Self {
+        let mut master = -1;
+        let mut slave = -1;
+        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+        let opened = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut size,
+            )
+        };
+        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
+        let master = unsafe { File::from_raw_fd(master) };
+        let slave = unsafe { File::from_raw_fd(slave) };
+        let child = Command::new(bin())
+            .args(args)
+            .env_remove("CMUX_TUI_SOCKET")
+            .stdin(Stdio::from(slave.try_clone().unwrap()))
+            .stdout(Stdio::from(slave.try_clone().unwrap()))
+            .stderr(Stdio::from(slave))
+            .spawn()
+            .unwrap();
+        Self { child, _master: master }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for PtyChild {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn plain_launch_attaches_to_existing_local_session() {
+    let server = HeadlessServer::start("plain-launch-attach");
+    let mut tui = PtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+
+    while Instant::now() < deadline {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            panic!("plain launch exited instead of attaching: {status}");
+        }
+        let clients = cli(&server, &["--json", "list-clients"]);
+        if clients.status.success() {
+            let clients: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+            if clients
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|client| client["kind"].as_str() == Some("tui"))
+            {
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    panic!("plain launch never attached as a TUI client");
 }
 
 #[test]
