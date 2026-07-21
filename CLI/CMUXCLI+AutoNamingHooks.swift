@@ -211,32 +211,45 @@ extension CMUXCLI {
         _ title: String,
         workspaceId: String,
         surfaceId: String,
+        expectedWorkspaceTitle: String? = nil,
         clearStatusOnApply: Bool = true,
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> Result<(workspaceApplied: Bool, panelResolved: Bool), CLIError> {
+    ) -> Result<(workspaceApplied: Bool, targetsResolved: Bool), CLIError> {
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "panel_id": surfaceId,
+            "panel_only_if_multiple": true,
+            "clear_status_on_apply": clearStatusOnApply,
+            "title": title
+        ]
+        if let expectedWorkspaceTitle {
+            params["expected_workspace_title"] = expectedWorkspaceTitle
+        }
         let payload: [String: Any]
         do {
-            payload = try client.sendV2(method: "workspace.set_auto_title", params: [
-                "workspace_id": workspaceId,
-                "panel_id": surfaceId,
-                "panel_only_if_multiple": true,
-                "clear_status_on_apply": clearStatusOnApply,
-                "title": title
-            ])
+            payload = try client.sendV2(method: "workspace.set_auto_title", params: params)
         } catch {
             telemetry.breadcrumb("\(telemetryKey).socket-failed")
             return .failure(CLIError(message: String(describing: error)))
         }
         let workspaceApplied = payload["workspace_applied"] as? Bool == true
+        let workspaceApplySkipped = payload["workspace_apply_skipped"] as? Bool == true
+        let workspaceResolved = workspaceApplied
+            || workspaceApplySkipped
         let panelResolved = payload["panel_applied"] as? Bool != nil
             || payload["panel_apply_skipped"] as? Bool == true
         if workspaceApplied {
             telemetry.breadcrumb("\(telemetryKey).applied")
+        } else if workspaceApplySkipped {
+            telemetry.breadcrumb("\(telemetryKey).preserved-newer-workspace-title")
         } else {
             telemetry.breadcrumb("\(telemetryKey).rejected")
         }
-        return .success((workspaceApplied: workspaceApplied, panelResolved: panelResolved))
+        return .success((
+            workspaceApplied: workspaceApplied,
+            targetsResolved: workspaceResolved && panelResolved
+        ))
     }
 }

@@ -170,9 +170,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.autoNamingMockResponse(
                     line: line,
                     context: context,
-                    workspaceApplied: true,
-                    panelApplied: nil,
-                    panelApplySkipped: true
+                    workspaceApplied: false,
+                    workspaceApplySkipped: true,
+                    panelApplied: true
                 )
             }
         }
@@ -9073,6 +9073,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         line: String,
         context: ClaudeHookContext,
         workspaceApplied: Bool,
+        workspaceApplySkipped: Bool = false,
         panelApplied: Bool? = nil,
         panelApplySkipped: Bool = false
     ) -> String {
@@ -9093,9 +9094,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 ])
             }
             XCTAssertEqual(params["title"] as? String, "Fix auth bug")
+            XCTAssertEqual(params["expected_workspace_title"] as? String, "Fix auth bug")
             XCTAssertEqual(params["clear_status_on_apply"] as? Bool, false)
             return v2Response(id: id, ok: true, result: [
                 "workspace_applied": workspaceApplied,
+                "workspace_apply_skipped": workspaceApplySkipped,
                 "panel_applied": panelApplied ?? NSNull(),
                 "panel_apply_skipped": panelApplySkipped,
             ])
