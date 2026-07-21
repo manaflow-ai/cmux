@@ -87,8 +87,17 @@ public struct BrowserURLResolver: Sendable {
         if isWebURL(compacted) {
             return true
         }
-        guard original.contains(where: \.isNewline) else { return false }
+        guard hasSchemeLessURLEvidenceBeforeFirstLineBreak(in: original) else { return false }
         return isSchemeLessHostWithStructure(compacted)
+    }
+
+    /// Rejects free text whose first URL-like token starts only after a line break.
+    private func hasSchemeLessURLEvidenceBeforeFirstLineBreak(in input: String) -> Bool {
+        guard let lineBreak = input.firstIndex(where: \.isNewline) else { return false }
+        return input[..<lineBreak].contains { character in
+            character == "." || character == ":" || character == "/" ||
+                character == "?" || character == "#"
+        }
     }
 
     private func isWebURL(_ input: String) -> Bool {
