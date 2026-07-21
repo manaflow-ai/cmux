@@ -538,6 +538,41 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
             XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"])
         }
+
+        do {
+            let context = try makeClaudeHookContext(name: "claude-compact-recorded-pane")
+            defer { context.cleanup() }
+            let sessionId = "recorded-pane-compact-session"
+            let transcriptURL = context.root.appendingPathComponent("\(sessionId).jsonl")
+            try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
+                .write(to: transcriptURL, atomically: true, encoding: .utf8)
+            let recordedSurfaceId = "99999999-9999-9999-9999-999999999999"
+            let now = Date().timeIntervalSince1970
+            try seedClaudeAutoNamingStore(
+                context: context,
+                sessionId: sessionId,
+                transcriptURL: transcriptURL,
+                baselineLineCount: try autoNamingGrowthMetric(transcriptURL),
+                lastTitle: "Fix auth bug",
+                lastNamedAt: now - 60,
+                lastAttemptAt: now - 30,
+                inFlightAt: nil,
+                surfaceId: recordedSurfaceId
+            )
+
+            let compact = runClaudeHookListingSurfaces(
+                context: context,
+                surfaceIds: [context.surfaceId, recordedSurfaceId],
+                arguments: ["hooks", "claude", "session-start"],
+                standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+                extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": ""]
+            )
+            XCTAssertFalse(compact.timedOut, compact.stderr)
+            XCTAssertEqual(compact.status, 0, compact.stderr)
+            let apply = try XCTUnwrap(autoNamingApplyRequests(in: context).first)
+            XCTAssertEqual(apply["panel_id"] as? String, recordedSurfaceId)
+            XCTAssertNotEqual(apply["panel_id"] as? String, context.surfaceId)
+        }
     }
 
     func testClaudeAutoNameCompactionDedupesWhileReconciliationIsInFlight() throws {
@@ -9523,13 +9558,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         lastNamedAt: TimeInterval?,
         lastAttemptAt: TimeInterval?,
         inFlightAt: TimeInterval?,
-        activeSessionId: String? = nil
+        activeSessionId: String? = nil,
+        surfaceId: String? = nil
     ) throws {
         let now = Date().timeIntervalSince1970
+        let resolvedSurfaceId = surfaceId ?? context.surfaceId
         var session: [String: Any] = [
             "sessionId": sessionId,
             "workspaceId": context.workspaceId,
-            "surfaceId": context.surfaceId,
+            "surfaceId": resolvedSurfaceId,
             "cwd": context.root.path,
             "transcriptPath": transcriptURL.path,
             "startedAt": now,
@@ -9552,11 +9589,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "sessionId": activeSessionId ?? sessionId,
             "updatedAt": now,
         ]
+        var sessions: [String: Any] = [sessionId: session]
+        if let activeSessionId, activeSessionId != sessionId {
+            sessions[activeSessionId] = [
+                "sessionId": activeSessionId,
+                "workspaceId": context.workspaceId,
+                "surfaceId": resolvedSurfaceId,
+                "cwd": context.root.path,
+                "startedAt": now,
+                "updatedAt": now,
+            ]
+        }
         let store: [String: Any] = [
             "version": 1,
-            "sessions": [sessionId: session],
+            "sessions": sessions,
             "activeSessionsByWorkspace": [context.workspaceId: active],
-            "activeSessionsBySurface": [context.surfaceId: active],
+            "activeSessionsBySurface": [resolvedSurfaceId: active],
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
             .write(
