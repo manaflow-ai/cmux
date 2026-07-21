@@ -9,6 +9,7 @@ extension MobileWorkspacePreview {
             id: ID(rawValue: remote.id),
             windowID: remote.windowID,
             name: remote.title,
+            currentDirectory: remote.currentDirectory,
             isPinned: remote.isPinned ?? false,
             groupID: remote.groupID.map { MobileWorkspaceGroupPreview.ID(rawValue: $0) },
             previewText: remote.preview,
@@ -43,6 +44,7 @@ extension MobileTerminalPreview {
         self.init(
             id: ID(rawValue: remote.id),
             name: remote.title,
+            currentDirectory: remote.currentDirectory,
             isReady: remote.isReady ?? true,
             isFocused: remote.isFocused
         )

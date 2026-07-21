@@ -1,3 +1,5 @@
+import CmuxMobileRPC
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -63,6 +65,130 @@ import Testing
         }
         #expect(store.connectionError == nil)
         #expect(store.connectionErrorGuidance == nil)
+    }
+
+    @Test func specLessCreateReturnsSuccessWhenConnectionChangesAfterHostCreatedWorkspace() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        store.connectionGeneration = UUID()
+        await router.releaseFirstWorkspaceCreate()
+        let result = await create.value
+
+        guard case .success = result else {
+            return #expect(Bool(false), "accepted legacy create must not invite a duplicate retry")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 1)
+    }
+
+    @Test func nonIdempotentSpecCreateReturnsSuccessAfterHostCreatedWorkspace() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest(spec: MobileWorkspaceCreateSpec(title: "Legacy titled create"))
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        store.connectionGeneration = UUID()
+        await router.releaseFirstWorkspaceCreate()
+        let result = await create.value
+
+        guard case .success = result else {
+            return #expect(Bool(false), "accepted non-idempotent create must not invite a duplicate retry")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 1)
+    }
+
+    @Test func specLessDecodedSuccessSurvivesCancellation() {
+        let spec: MobileWorkspaceCreateSpec? = nil
+
+        let disposition = MobileShellComposite.WorkspaceCreatePinnedContext.postResponseDisposition(
+            operationID: spec?.operationID,
+            isCancelled: true,
+            isCurrent: true
+        )
+
+        #expect(disposition == .preserveSuccess)
+    }
+
+    @Test func nonIdempotentSpecDecodedSuccessSurvivesCancellation() {
+        let spec = MobileWorkspaceCreateSpec(title: "Legacy titled create")
+
+        let disposition = MobileShellComposite.WorkspaceCreatePinnedContext.postResponseDisposition(
+            operationID: spec.operationID,
+            isCancelled: true,
+            isCurrent: true
+        )
+
+        #expect(disposition == .preserveSuccess)
+    }
+
+    @Test func specLessCreateCancellationAfterSendDoesNotInviteDuplicateRetry() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        store.cancelRemoteOperationTasks()
+        await router.releaseFirstWorkspaceCreate()
+        let result = await create.value
+
+        guard case .success = result else {
+            return #expect(Bool(false), "ambiguous legacy create must not invite a duplicate retry")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 1)
+    }
+
+    @Test func specLessCreateCancellationRacingHostRejectionStillSurfacesFailure() async {
+        let disposition = await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            #expect(Task.isCancelled)
+            return MobileShellComposite.WorkspaceCreatePinnedContext.caughtErrorDisposition(
+                operationID: nil,
+                error: MobileWorkspaceMutationFailure.rejected(hostDisplayName: "Test Mac")
+            )
+        }.value
+
+        #expect(disposition == .surfaceError)
+    }
+
+    @Test func ambiguousLegacyTransportFailuresPreserveAtMostOnceSuccess() {
+        for error in [
+            MobileShellConnectionError.connectionClosed,
+            MobileShellConnectionError.requestTimedOut,
+            MobileShellConnectionError.invalidResponse,
+        ] {
+            #expect(
+                MobileShellComposite.WorkspaceCreatePinnedContext.caughtErrorDisposition(
+                    operationID: nil,
+                    error: error
+                ) == .preserveSuccess
+            )
+            #expect(
+                MobileShellComposite.WorkspaceCreatePinnedContext.caughtErrorDisposition(
+                    operationID: UUID(),
+                    error: error
+                ) == .failClosed
+            )
+        }
+    }
+
+    @Test func definiteLegacyHostFailureStillSurfaces() {
+        #expect(
+            MobileShellComposite.WorkspaceCreatePinnedContext.caughtErrorDisposition(
+                operationID: nil,
+                error: MobileShellConnectionError.rpcError("rejected", "Host rejected create")
+            ) == .surfaceError
+        )
     }
 
     @Test func differentGroupCreateWorkspaceRequestDoesNotJoinInFlightResult() async throws {

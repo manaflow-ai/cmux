@@ -539,7 +539,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
 
         switch method {
-        case "mobile.workspace.list", "workspace.list":
+        case "mobile.workspace.list", "workspace.list",
+             "mobile.directory.list", "mobile.directory.search":
             return false
         case "workspace.create":
             return false
@@ -571,6 +572,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false
+        case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
+             "notification.feed.mark_all_read":
+            // Feed authority is the authenticated account/peer connection, not
+            // a workspace-selection ticket. Omit an irrelevant scoped attach
+            // token so legacy pairings cannot accidentally narrow the global
+            // feed; Stack auth is still attached to every TCP request.
+            return true
         default:
             return true
         }
