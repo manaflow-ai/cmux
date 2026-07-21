@@ -180,6 +180,74 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testFloatingDockNoteSnapshotRejectsOversizedPersistedFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-bound-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("note.md")
+        FileManager.default.createFile(atPath: noteURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: noteURL)
+        try handle.truncate(atOffset: FilePreviewTextLoader.maximumLoadedTextBytes + 1)
+        try handle.close()
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Oversized note",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            isPresented: false,
+            noteFilePath: noteURL.path,
+            initialContent: nil,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+        XCTAssertEqual(dock.noteTextSnapshot, "")
+    }
+
+    @MainActor
+    func testFloatingDockRestoreCapsDockCountAndAggregatePanels() {
+        func snapshot(index: Int, panelCount: Int) -> SessionFloatingDockSnapshot {
+            let panelIds = (0..<panelCount).map { _ in UUID() }
+            return SessionFloatingDockSnapshot(
+                id: UUID(),
+                title: "Dock \(index)",
+                x: Double(index),
+                y: Double(index),
+                width: 520,
+                height: 380,
+                isPresented: false,
+                content: SessionFloatingDockContentSnapshot(
+                    layout: .pane(SessionPaneLayoutSnapshot(
+                        panelIds: panelIds,
+                        selectedPanelId: panelIds.first
+                    )),
+                    surfaces: panelIds.map {
+                        SessionFloatingDockSurfaceSnapshot(id: $0, kind: .note)
+                    },
+                    focusedPanelId: panelIds.first
+                )
+            )
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        workspace.restoreFloatingDocks(from: (0..<34).map { snapshot(index: $0, panelCount: 1) })
+        XCTAssertEqual(workspace.floatingDocks.count, 32)
+
+        workspace.restoreFloatingDocks(from: [
+            snapshot(index: 0, panelCount: 100),
+            snapshot(index: 1, panelCount: 100),
+        ])
+        XCTAssertEqual(workspace.floatingDocks.count, 2)
+        XCTAssertEqual(workspace.floatingDocks.reduce(0) { $0 + $1.store.panels.count }, 128)
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)

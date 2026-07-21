@@ -146,6 +146,69 @@ struct WindowDockRoutingSocketTests {
         }
     }
 
+    @Test("Floating Dock note writes finish before success and report persistence failures")
+    @MainActor
+    func floatingDockNoteWritesAreAcknowledgedAfterPersistence() throws {
+        try withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-write-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Writable note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: noteURL.path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+
+            let first = try v2Envelope(method: "workspace.float.note.set", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+                "text": "first",
+            ])
+            #expect(first["ok"] as? Bool == true)
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "first")
+
+            let second = try v2Envelope(method: "workspace.float.note.set", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+                "text": "second",
+            ])
+            #expect(second["ok"] as? Bool == true)
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "second")
+
+            let blocker = root.appendingPathComponent("not-a-directory")
+            try "block".write(to: blocker, atomically: true, encoding: .utf8)
+            let blockedDock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Blocked note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: blocker.appendingPathComponent("note.md").path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(blockedDock)
+            let failed = try v2Envelope(method: "workspace.float.note.set", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": blockedDock.id.uuidString,
+                "text": "must not be acknowledged",
+            ])
+            #expect(failed["ok"] as? Bool == false)
+            #expect(blockedDock.noteTextSnapshot.isEmpty)
+        }
+    }
+
     @Test("Window Dock pane routing and focused close stay in their own window's Dock")
     @MainActor
     func dockPaneRoutingAndFocusedCloseStayInDock() async throws {
