@@ -266,20 +266,35 @@ struct PairingView: View {
                 ["entry": .string(initialPresentation.analyticsEntry)]
             )
         }
+        .onChange(of: initialPresentation) { _, presentation in
+            if isPairing {
+                cancelActivePairingTask()
+                cancelPairing()
+            }
+            isShowingScanner = presentation.showsScanner
+            analytics.capture(
+                "ios_pairing_screen_viewed",
+                ["entry": .string(presentation.analyticsEntry)]
+            )
+        }
         #endif
     }
 
     private var cancelButton: some View {
         Button {
-            pairingTask?.cancel()
-            pairingTaskID = nil
-            pairingTask = nil
-            isPairing = false
+            cancelActivePairingTask()
             cancelPairing()
             cancel()
         } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
+    }
+
+    private func cancelActivePairingTask() {
+        pairingTask?.cancel()
+        pairingTaskID = nil
+        pairingTask = nil
+        isPairing = false
     }
 
     #if os(iOS)

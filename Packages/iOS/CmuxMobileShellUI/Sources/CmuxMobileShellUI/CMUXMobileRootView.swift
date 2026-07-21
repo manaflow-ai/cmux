@@ -308,7 +308,6 @@ struct CMUXMobileRootView: View {
             cancelPairing: cancelPairing,
             cancel: dismissAddDeviceSheet
         )
-        .id(pairingPresentation.analyticsEntry)
         #if os(iOS)
         .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
         .presentationDragIndicator(.visible)
