@@ -430,10 +430,20 @@ extension RemoteTmuxController {
         let transport = transport(for: host)
         hostsWaitingForAuth.insert(key)
         authWaitTasks[key]?.cancel()
+        // A waiter must only retract its own registration. Cancelling W1 and storing W2 runs W1's
+        // `defer` afterwards, and an unconditional clear there would delete W2's entry — leaving a
+        // live waiter invisible to both dismissal and teardown, which is worse than the stale
+        // waiter this replacement was meant to fix.
+        authWaitGeneration &+= 1
+        let waiterId = authWaitGeneration
+        authWaitIds[key] = waiterId
         authWaitTasks[key] = Task { @MainActor [weak self] in
             defer {
-                self?.hostsWaitingForAuth.remove(key)
-                self?.authWaitTasks[key] = nil
+                if self?.authWaitIds[key] == waiterId {
+                    self?.hostsWaitingForAuth.remove(key)
+                    self?.authWaitTasks[key] = nil
+                    self?.authWaitIds[key] = nil
+                }
             }
             // Edge-driven, not polled. Completing the login is the user opening the shared ssh
             // master, and opening it creates the socket at cmux's own ControlPath — so the
@@ -451,6 +461,29 @@ extension RemoteTmuxController {
             // reports unrelated churn too (other hosts' masters live in the same directory).
             let watcher = FileWatcher(path: host.controlSocketPath)
             defer { Task { await watcher.stop() } }
+            // A backstop behind the edge, not instead of it. `FileWatcher` returns nil from its
+            // `open(O_EVTONLY)` and carries on, so under fd exhaustion (EMFILE) the stream exists
+            // with no sources attached and can never yield — the login would complete and this
+            // wait would never hear about it. That is a silent, total failure of the edge, so it
+            // gets a slow re-check rather than trust.
+            //
+            // Deliberately slow: this is a safety net for a rare failure, and every tick it takes
+            // to notice is dead time only in the case where the edge is already broken. If this is
+            // what resumes a mirror, something is wrong that a shorter interval would only hide.
+            let backstop = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    if Task.isCancelled { return }
+                    guard let self, self.loginOffers.hasOffer(host: key) else { return }
+                    if await transport.isMasterLive() {
+                        Self.logger.warning(
+                            "reconnect-auth: master found by the backstop, not the watcher — the socket watch did not fire")
+                        self.resumeReconnectAfterAuthentication(host: host)
+                        return
+                    }
+                }
+            }
+            defer { backstop.cancel() }
             // The master may already be live: the user can finish signing in between the failure
             // that parked this connection and this waiter starting, and an edge that already
             // happened is never delivered. Checking once up front is what stops an event-driven
