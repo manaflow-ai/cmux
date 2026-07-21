@@ -46,20 +46,8 @@ public struct TerminalPathResolver: Sendable {
         for token in trimmed.pathResolutionCandidates() {
             let normalizedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalizedToken.isEmpty else { continue }
-
-            let expandedToken = (normalizedToken as NSString).expandingTildeInPath
-            let candidatePath: String
-            if expandedToken.hasPrefix("/") {
-                candidatePath = expandedToken
-            } else {
-                guard let cwd, !cwd.isEmpty else { continue }
-                candidatePath = (cwd as NSString).appendingPathComponent(expandedToken)
-            }
-
-            let standardizedPath = (candidatePath as NSString).standardizingPath
-            guard seenPaths.insert(standardizedPath).inserted else { continue }
-            if fileExists(standardizedPath) {
-                return standardizedPath
+            if let path = standardizedExistingPath(for: normalizedToken, cwd: cwd, seenPaths: &seenPaths) {
+                return path
             }
         }
 
@@ -104,5 +92,132 @@ public struct TerminalPathResolver: Sendable {
         guard !trimmed.isEmpty else { return nil }
         guard URL(string: trimmed)?.scheme == nil else { return nil }
         return resolveQuicklookPath(trimmed, cwd: cwd)
+    }
+
+    /// Resolves an open-URL request payload to an existing file plus an optional
+    /// `line[:column]` reference.
+    ///
+    /// Like ``resolveOpenURLFilePath(_:cwd:)`` but understands the
+    /// `path:line[:column]` convention: each candidate spelling is probed
+    /// as-is first (so a literal path that really contains a colon wins) and
+    /// then with a trailing line reference stripped. `http`/`https` text is
+    /// never treated as a file path, and a line-stripped candidate is only
+    /// probed when it is shaped like a path (has a separator or extension), so
+    /// a bare `host:port` that merely matches a same-named directory in `cwd`
+    /// is not mistaken for a file reference.
+    ///
+    /// - Parameters:
+    ///   - rawText: The raw open-URL text from the runtime.
+    ///   - cwd: The surface's working directory used for relative candidates.
+    /// - Returns: The first existing file reference, or `nil`.
+    public func resolveOpenURLFileReference(_ rawText: String, cwd: String?) -> TerminalFileReference? {
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        // Web URLs are never file paths. Every other spelling — scheme-less
+        // text, or a bogus scheme Foundation parses out of `name:line` — stays
+        // eligible and is gated by the file-existence probe below.
+        let scheme = URL(string: trimmed)?.scheme?.lowercased()
+        guard scheme != "http", scheme != "https" else { return nil }
+
+        var seenPaths: Set<String> = []
+        for token in trimmed.pathResolutionCandidates() {
+            let normalizedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedToken.isEmpty else { continue }
+
+            // Probe the literal token first so a path that really ends in a
+            // colon-number wins over the line-reference reading, then probe the
+            // line-stripped path.
+            if let reference = existingFileReference(
+                token: normalizedToken, line: nil, column: nil, cwd: cwd, seenPaths: &seenPaths
+            ) {
+                return reference
+            }
+            if let split = normalizedToken.splitTerminalPathLineSuffix(),
+               looksLikeFilePath(split.path),
+               let reference = existingFileReference(
+                   token: split.path, line: split.line, column: split.column, cwd: cwd, seenPaths: &seenPaths
+               ) {
+                return reference
+            }
+        }
+
+        return nil
+    }
+
+    /// Whether a line-stripped token is shaped like a file path — it carries a
+    /// separator or a file extension — rather than a bare `host:port` /
+    /// `word:number` token that only happens to name an existing directory in
+    /// the working directory. Bare extension-less names (e.g. `Makefile:12`)
+    /// are intentionally excluded here; those arrive through the cmd-click
+    /// word-under-cursor path, not open-URL.
+    private func looksLikeFilePath(_ token: String) -> Bool {
+        token.contains("/") || !(token as NSString).pathExtension.isEmpty
+    }
+
+    /// Standardizes `token` against `cwd`, dedupes against `seenPaths`, and
+    /// returns a reference carrying `line`/`column` when the file exists.
+    private func existingFileReference(
+        token: String,
+        line: Int?,
+        column: Int?,
+        cwd: String?,
+        seenPaths: inout Set<String>
+    ) -> TerminalFileReference? {
+        guard let path = standardizedExistingPath(for: token, cwd: cwd, seenPaths: &seenPaths) else {
+            return nil
+        }
+        return TerminalFileReference(path: path, line: line, column: column)
+    }
+
+    /// Expands `~`, resolves `token` against `cwd` when relative, standardizes,
+    /// and dedupes against `seenPaths`, returning the standardized path when the
+    /// file exists and has not already been probed. Shared by the QuickLook and
+    /// file-reference resolvers.
+    private func standardizedExistingPath(
+        for token: String,
+        cwd: String?,
+        seenPaths: inout Set<String>
+    ) -> String? {
+        let expandedToken = (token as NSString).expandingTildeInPath
+        let candidatePath: String
+        if expandedToken.hasPrefix("/") {
+            candidatePath = expandedToken
+        } else {
+            guard let cwd, !cwd.isEmpty else { return nil }
+            candidatePath = (cwd as NSString).appendingPathComponent(expandedToken)
+        }
+
+        let standardizedPath = (candidatePath as NSString).standardizingPath
+        guard seenPaths.insert(standardizedPath).inserted else { return nil }
+        guard fileExists(standardizedPath) else { return nil }
+        return standardizedPath
+    }
+}
+
+/// An existing file plus an optional editor `line[:column]` target, carried
+/// from terminal link resolution to the file opener.
+///
+/// The line/column travel to the editor as a URL fragment (`#L<line>` or
+/// `#L<line>:<column>`) so a plain `URL` is enough to cross the package
+/// boundary; ``fileURL`` is the single place that encoding lives.
+public struct TerminalFileReference: Equatable, Sendable {
+    public let path: String
+    public let line: Int?
+    public let column: Int?
+
+    public init(path: String, line: Int?, column: Int?) {
+        self.path = path
+        self.line = line
+        self.column = column
+    }
+
+    /// A `file://` URL for ``path``, carrying the line/column as a `#L…`
+    /// fragment when a line is present.
+    public var fileURL: URL {
+        let base = URL(fileURLWithPath: path)
+        guard let line else { return base }
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        components?.fragment = column.map { "L\(line):\($0)" } ?? "L\(line)"
+        return components?.url ?? base
     }
 }

@@ -114,6 +114,45 @@ extension String {
         return String(output)
     }
 
+    /// Splits a trailing editor line reference (`:line` or `:line:column`) off
+    /// the receiver, returning the base path plus the parsed positive integers.
+    ///
+    /// This is the `path:line[:column]` convention that agents (Claude Code,
+    /// Codex) print for click-to-open. The suffix parses only when the segment
+    /// after the last colon is a positive integer; a leading second colon group
+    /// that is also a positive integer becomes the column. Returns `nil` when
+    /// there is no such trailing group, so a literal path is left untouched and
+    /// resolved as-is by the caller.
+    ///
+    /// - Returns: The base path and its line/optional column, or `nil`.
+    func splitTerminalPathLineSuffix() -> (path: String, line: Int, column: Int?)? {
+        guard let lastColon = lastIndex(of: ":") else { return nil }
+        let lastSuffix = self[index(after: lastColon)...]
+        guard !lastSuffix.isEmpty,
+              lastSuffix.allSatisfy(\.isASCIIDigit),
+              let lastNumber = Int(lastSuffix),
+              lastNumber > 0 else {
+            return nil
+        }
+
+        let beforeLastColon = self[..<lastColon]
+        if let lineColon = beforeLastColon.lastIndex(of: ":") {
+            let lineSuffix = beforeLastColon[beforeLastColon.index(after: lineColon)...]
+            if !lineSuffix.isEmpty,
+               lineSuffix.allSatisfy(\.isASCIIDigit),
+               let lineNumber = Int(lineSuffix),
+               lineNumber > 0 {
+                let path = String(beforeLastColon[..<lineColon])
+                guard !path.isEmpty else { return nil }
+                return (path, lineNumber, lastNumber)
+            }
+        }
+
+        let path = String(beforeLastColon)
+        guard !path.isEmpty else { return nil }
+        return (path, lastNumber, nil)
+    }
+
     /// Candidate path spellings derived from the receiver: the raw text, its
     /// shell-unescaped and shell-unquoted variants, each with and without
     /// trailing terminal punctuation. Order is probe order; duplicates are
@@ -252,6 +291,14 @@ extension ArraySlice<Character> {
             }
         }
         return balance > 0
+    }
+}
+
+extension Character {
+    /// Whether the character is an ASCII digit `0`–`9`, excluding the Unicode
+    /// numerals (`²`, `½`, Devanagari digits, …) that `isNumber` also accepts.
+    fileprivate var isASCIIDigit: Bool {
+        isASCII && isNumber
     }
 }
 
