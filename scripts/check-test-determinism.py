@@ -727,6 +727,29 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/CapturedRealClockTests.swift",
+            "func verify() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    let work = {\n"
+            "        try await clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/RealClockAfterNestedBlockTests.swift",
+            "func verify() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    if shouldPrepare {\n"
+            "        prepare()\n"
+            "    }\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/assert_sleep.py",
             "assert await asyncio.sleep(0.3) is None\n"
             "assert widget.is_rendered()\n",
@@ -967,6 +990,29 @@ def _self_test() -> int:
             "    }\n"
             "    try await clock.sleep(until: deadline)\n"
             "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        # An inner fake clock shadows an outer real clock while that lexical
+        # scope is active, including when it arrives as a closure parameter.
+        (
+            "Packages/CmuxClock/Tests/ShadowedVirtualClockTests.swift",
+            "func verifyVirtual() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    if shouldUseVirtualClock {\n"
+            "        let clock = TestRelayClock()\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await clockEvents.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/ClosureParameterVirtualClockTests.swift",
+            "func verifyVirtual() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    let work = { (clock: TestRelayClock) in\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await clockEvents.next() == expected)\n"
+            "    }\n"
             "}\n",
         ),
     ]
