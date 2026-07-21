@@ -24,14 +24,11 @@ import Observation
 @MainActor
 @Observable
 public final class MobileOnboardingStore {
-    /// The defaults key under which the current milestone is stored.
-    public static let progressKey = "dev.cmux.mobile.onboarding.progress.v2"
-
-    /// The Boolean key used by the original onboarding implementation.
+    /// The defaults key under which this onboarding design's milestone is stored.
     ///
-    /// A completed legacy tour maps to ``MobileOnboardingProgress/complete`` so
-    /// the redesign does not interrupt people who already use the app.
-    public static let legacySeenKey = "dev.cmux.mobile.onboarding.seen.v1"
+    /// This key is intentionally independent from prior onboarding designs so
+    /// completing an older tour does not suppress this one.
+    public static let progressKey = "dev.cmux.mobile.onboarding.redesign.progress.v1"
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
@@ -54,8 +51,6 @@ public final class MobileOnboardingStore {
         } else if let rawValue = defaults.string(forKey: Self.progressKey),
                   let progress = MobileOnboardingProgress(rawValue: rawValue) {
             self.progress = progress
-        } else if defaults.bool(forKey: Self.legacySeenKey) {
-            self.progress = .complete
         } else {
             self.progress = .welcome
         }

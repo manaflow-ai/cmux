@@ -31,16 +31,16 @@ import Testing
         #expect(MobileOnboardingStore(defaults: defaults).progress == .complete)
     }
 
-    @Test func completedLegacyTourDoesNotResurfaceRedesign() {
+    @Test func completedLegacyTourDoesNotSuppressRedesign() {
         let defaults = makeDefaults()
-        defaults.set(true, forKey: MobileOnboardingStore.legacySeenKey)
+        defaults.set(true, forKey: "dev.cmux.mobile.onboarding.seen.v1")
 
-        #expect(MobileOnboardingStore(defaults: defaults).progress == .complete)
+        #expect(MobileOnboardingStore(defaults: defaults).progress == .welcome)
     }
 
-    @Test func currentProgressWinsOverLegacyFlag() {
+    @Test func redesignProgressPersistsIndependentlyFromLegacyFlag() {
         let defaults = makeDefaults()
-        defaults.set(true, forKey: MobileOnboardingStore.legacySeenKey)
+        defaults.set(true, forKey: "dev.cmux.mobile.onboarding.seen.v1")
         defaults.set(
             MobileOnboardingProgress.connect.rawValue,
             forKey: MobileOnboardingStore.progressKey

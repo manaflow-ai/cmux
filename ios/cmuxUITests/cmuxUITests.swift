@@ -55,7 +55,7 @@ final class cmuxUITests: XCTestCase {
         let app = XCUIApplication()
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         let progressOverride = [
-            "-dev.cmux.mobile.onboarding.progress.v2",
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1",
             "welcome",
         ]
         app.launchArguments = baseArguments + progressOverride
