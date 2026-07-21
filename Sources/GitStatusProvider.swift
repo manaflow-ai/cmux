@@ -23,10 +23,15 @@ struct GitStatusProvider: Sendable {
 
     func fetchStatus(directory: String) -> [String: GitFileStatus] {
         guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
+        // git reports the repo root physically (/private/var/...) while the caller may spell
+        // the explorer root through a symlink (/var, /tmp, a symlinked project dir). Resolve
+        // both to one spelling for the containment check, and emit keys under the caller's
+        // spelling so FileExplorerStore lookups match.
         return parseGitStatus(
             output: runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
-            repoRoot: repoRoot,
-            explorerRoot: directory
+            repoRoot: Self.canonicalPath(repoRoot),
+            explorerRoot: Self.canonicalPath(directory),
+            keyRoot: directory
         )
     }
 
@@ -49,16 +54,19 @@ struct GitStatusProvider: Sendable {
         let parts = output.components(separatedBy: "---GIT_STATUS---\n")
         guard parts.count == 2 else { return [:] }
         let repoRoot = parts[0].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory)
+        // Remote paths must not be resolved against the local filesystem, so the comparison
+        // space and the key space are both the caller's spelling here.
+        return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory, keyRoot: directory)
     }
 
     private func parseGitStatus(
-        output: String?, repoRoot: String, explorerRoot: String
+        output: String?, repoRoot: String, explorerRoot: String, keyRoot: String
     ) -> [String: GitFileStatus] {
         guard let output, !output.isEmpty else { return [:] }
         var statusMap: [String: GitFileStatus] = [:]
         let normalizedRepoRoot = Self.pathWithoutTrailingSlashes(repoRoot)
         let normalizedExplorerRoot = Self.pathWithoutTrailingSlashes(explorerRoot)
+        let normalizedKeyRoot = Self.pathWithoutTrailingSlashes(keyRoot)
         let entries = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
 
         var entryIndex = 0
@@ -77,11 +85,22 @@ struct GitStatusProvider: Sendable {
 
             let absolutePath = Self.absolutePath(repoRoot: normalizedRepoRoot, relativePath: path)
             guard Self.path(absolutePath, isContainedIn: normalizedExplorerRoot) else { continue }
+            // Re-spell the key under the caller's root. When the two roots already match
+            // (the common case) the path is used as-is; the root == "/" branch keeps the
+            // leading slash that dropFirst would otherwise eat.
+            let key: String
+            if normalizedKeyRoot == normalizedExplorerRoot {
+                key = absolutePath
+            } else if normalizedExplorerRoot == "/" {
+                key = normalizedKeyRoot + absolutePath
+            } else {
+                key = normalizedKeyRoot + String(absolutePath.dropFirst(normalizedExplorerRoot.count))
+            }
 
-            statusMap[absolutePath] = status
+            statusMap[key] = status
             markParentDirectories(
-                absolutePath: absolutePath,
-                explorerRoot: normalizedExplorerRoot,
+                absolutePath: key,
+                explorerRoot: normalizedKeyRoot,
                 status: status,
                 in: &statusMap
             )
@@ -117,6 +136,10 @@ struct GitStatusProvider: Sendable {
 
     private static func statusUsesSecondPath(index: Character, workTree: Character) -> Bool {
         index == "R" || workTree == "R" || index == "C" || workTree == "C"
+    }
+
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
     private static func absolutePath(repoRoot: String, relativePath: String) -> String {
