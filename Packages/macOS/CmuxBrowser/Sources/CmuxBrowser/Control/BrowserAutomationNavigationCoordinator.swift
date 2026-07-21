@@ -15,10 +15,14 @@ public final class BrowserAutomationNavigationCoordinator {
     private var observedInstanceID: UUID?
     private var activeTicket: BrowserAutomationNavigationTicket?
     private var activeNavigationID: ObjectIdentifier?
-    private var terminalOutcomes: [UUID: BrowserAutomationNavigationOutcome] = [:]
-    private var waiters: [
-        UUID: AsyncStream<BrowserAutomationNavigationOutcome>.Continuation
-    ] = [:]
+    private var terminalOutcome: (
+        ticket: BrowserAutomationNavigationTicket,
+        outcome: BrowserAutomationNavigationOutcome
+    )?
+    private var waiter: (
+        transactionID: UUID,
+        continuation: AsyncStream<BrowserAutomationNavigationOutcome>.Continuation
+    )?
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
     public init(navigationTimeout: Duration = .seconds(8)) {
@@ -54,8 +58,11 @@ public final class BrowserAutomationNavigationCoordinator {
         }
 
         let ticket = BrowserAutomationNavigationTicket(instanceID: instanceID)
+        // One panel has one authoritative automation navigation. Once a newer
+        // transaction begins, an abandoned older outcome is only superseded.
+        terminalOutcome = nil
         guard observedInstanceID == instanceID else {
-            terminalOutcomes[ticket.transactionID] = .superseded
+            terminalOutcome = (ticket, .superseded)
             return ticket
         }
         activeTicket = ticket
@@ -113,8 +120,9 @@ public final class BrowserAutomationNavigationCoordinator {
             cancel(ticket)
             return .cancelled
         }
-        if let outcome = terminalOutcomes.removeValue(forKey: ticket.transactionID) {
-            return outcome
+        if let completed = terminalOutcome, completed.ticket == ticket {
+            terminalOutcome = nil
+            return completed.outcome
         }
         guard activeTicket == ticket else { return .superseded }
 
@@ -122,7 +130,7 @@ public final class BrowserAutomationNavigationCoordinator {
             of: BrowserAutomationNavigationOutcome.self,
             bufferingPolicy: .bufferingNewest(1)
         )
-        waiters[ticket.transactionID] = continuation
+        waiter = (ticket.transactionID, continuation)
         let outcome = await withTaskGroup(
             of: BrowserAutomationNavigationOutcome.self,
             returning: BrowserAutomationNavigationOutcome.self
@@ -147,11 +155,15 @@ public final class BrowserAutomationNavigationCoordinator {
             return first
         }
 
-        waiters.removeValue(forKey: ticket.transactionID)
-        terminalOutcomes.removeValue(forKey: ticket.transactionID)
+        if waiter?.transactionID == ticket.transactionID {
+            waiter = nil
+        }
+        if terminalOutcome?.ticket == ticket {
+            terminalOutcome = nil
+        }
         if activeTicket == ticket {
             finish(ticket, with: Task.isCancelled ? .cancelled : outcome)
-            terminalOutcomes.removeValue(forKey: ticket.transactionID)
+            terminalOutcome = nil
         }
         return Task.isCancelled ? .cancelled : outcome
     }
@@ -177,10 +189,11 @@ public final class BrowserAutomationNavigationCoordinator {
         guard activeTicket == ticket else { return }
         activeTicket = nil
         activeNavigationID = nil
-        terminalOutcomes[ticket.transactionID] = outcome
-        if let waiter = waiters.removeValue(forKey: ticket.transactionID) {
-            waiter.yield(outcome)
-            waiter.finish()
+        terminalOutcome = (ticket, outcome)
+        if let waiter, waiter.transactionID == ticket.transactionID {
+            self.waiter = nil
+            waiter.continuation.yield(outcome)
+            waiter.continuation.finish()
         }
     }
 }
