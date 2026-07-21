@@ -193,7 +193,7 @@ _DURATION_COMPARE = re.compile(
 _SLEEP_CALL = re.compile(
     r"""(?x)
     \btime\.sleep\s*\(
-  | (?<!\.)\bsleep\s*\(                    # unqualified sleep(...) call (C/shell function form)
+  | \bsleep\s*\(                            # qualified or unqualified sleep(...) call
   | \busleep\s*\(
   | \bnanosleep\s*\(
   | Thread\.sleep\s*\(
@@ -446,6 +446,11 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
+    # An assertion may compare a virtual-clock event whose enum case is named
+    # `.sleep(...)`; it is not itself a synchronization delay preceding an
+    # assertion. Keep qualified real sleeps detectable on non-assertion lines.
+    if _is_assertion_line(line):
+        return False
     is_sleep = bool(_SLEEP_CALL.search(line))
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
@@ -644,6 +649,12 @@ def _self_test() -> int:
         (
             "tests/free_sleep.py",
             "sleep(0.3)\nassert widget.is_rendered()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/QualifiedClockTests.swift",
+            "try await ContinuousClock().sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
