@@ -204,9 +204,10 @@ _SLEEP_CALL = re.compile(
     """
 )
 
-_NAMED_SLEEP_CALL = re.compile(r"(?<![.\w])([A-Za-z_]\w*)[?!]?\.sleep\s*\(")
+_NAMED_SLEEP_CALL = re.compile(
+    r"(?<![.\w])(?:(self)\s*\.\s*)?([A-Za-z_]\w*)[?!]?\.sleep\s*\("
+)
 _CONTINUED_SLEEP_CALL = re.compile(r"^\s*[?!]?\s*\.sleep\s*\(")
-_LOCAL_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\b")
 _LOCAL_SCOPE_HEADER = re.compile(
     r"^\s*"
     r"(?:(?:@\w+(?:\([^)]*\))?|[A-Za-z_]\w*(?:\([^)]*\))?)\s+)*"
@@ -561,15 +562,69 @@ def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     return None
 
 
+def _local_receiver_declarations(
+    text: str, receiver: str
+) -> list[tuple[int, str]]:
+    """Return this receiver's individual `let`/`var` declarators on one line."""
+    declarations: list[tuple[int, str]] = []
+
+    for keyword in re.finditer(r"\b(?:let|var)\b", text):
+        segment_start = keyword.end()
+        paren_depth = 0
+        bracket_depth = 0
+        angle_depth = 0
+        segments: list[tuple[int, int]] = []
+        i = segment_start
+
+        while i < len(text):
+            char = text[i]
+            if char == "(":
+                paren_depth += 1
+            elif char == ")" and paren_depth:
+                paren_depth -= 1
+            elif char == "[":
+                bracket_depth += 1
+            elif char == "]" and bracket_depth:
+                bracket_depth -= 1
+            elif char == "<":
+                angle_depth += 1
+            elif char == ">" and angle_depth:
+                angle_depth -= 1
+            elif not (paren_depth or bracket_depth or angle_depth):
+                if char == ",":
+                    segments.append((segment_start, i))
+                    segment_start = i + 1
+                elif char in ";{":
+                    segments.append((segment_start, i))
+                    break
+            i += 1
+        else:
+            segments.append((segment_start, len(text)))
+
+        for start, end in segments:
+            segment = text[start:end]
+            name = re.match(r"\s*([A-Za-z_]\w*)\b", segment)
+            if not name or name.group(1) != receiver:
+                continue
+            name_end = start + name.end()
+            declarations.append((start + name.start(1), text[name_end:end]))
+
+    return declarations
+
+
 def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     """Resolve a named receiver through Swift-like lexical brace scopes."""
     current = masked_lines[idx]
     sleep_match = _NAMED_SLEEP_CALL.search(current)
     sleep_start: int
     if sleep_match:
-        if current[: sleep_match.start()].rstrip().endswith("."):
+        self_receiver = sleep_match.group(1) is not None
+        if (
+            not self_receiver
+            and current[: sleep_match.start()].rstrip().endswith(".")
+        ):
             return False
-        receiver = sleep_match.group(1)
+        receiver = sleep_match.group(2)
         sleep_start = sleep_match.start()
     else:
         continuation = _CONTINUED_SLEEP_CALL.search(current)
@@ -590,13 +645,16 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
         receiver_match = re.search(r"\b([A-Za-z_]\w*)[?!]?\s*$", previous)
         if not receiver_match:
             return False
-        if previous[: receiver_match.start()].rstrip().endswith("."):
+        receiver_prefix = previous[: receiver_match.start()].rstrip()
+        self_receiver = bool(re.search(r"\bself\s*\.\s*$", receiver_prefix))
+        if receiver_prefix.endswith(".") and not self_receiver:
             return False
         receiver = receiver_match.group(1)
         sleep_start = continuation.start()
 
     prefix_lines = masked_lines[:idx] + [current[:sleep_start]]
     scopes: list[dict[str, bool]] = [{}]
+    scope_kinds = ["root"]
     pending_function = False
     pending_parameter: Optional[bool] = None
     pending_conditional: Optional[dict[str, bool]] = None
@@ -613,10 +671,12 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
             if for_binding and for_binding.group(1) == receiver:
                 pending_conditional[receiver] = False
 
-        events: list[tuple[int, str, Optional[re.Match[str]]]] = []
+        events: list[tuple[int, str, Optional[str]]] = []
         events.extend(
-            (match.start(), "binding", match)
-            for match in _LOCAL_BINDING.finditer(candidate)
+            (position, "binding", declaration)
+            for position, declaration in _local_receiver_declarations(
+                candidate, receiver
+            )
         )
         events.extend(
             (pos, brace, None)
@@ -625,10 +685,11 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
         )
         events.sort(key=lambda event: event[0])
 
-        for pos, event, binding in events:
+        for pos, event, declaration in events:
             if event == "{":
                 scope = dict(pending_conditional or {})
                 pending_conditional = None
+                scope_kind = "function" if pending_function else "block"
                 if pending_function:
                     if pending_parameter is not None:
                         scope[receiver] = pending_parameter
@@ -638,11 +699,12 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
                 if closure_kind is not None:
                     scope[receiver] = closure_kind
                 scopes.append(scope)
+                scope_kinds.append(scope_kind)
             elif event == "}":
                 if len(scopes) > 1:
                     scopes.pop()
-            elif binding is not None and binding.group(1) == receiver:
-                declaration = candidate[binding.end() :]
+                    scope_kinds.pop()
+            elif declaration is not None:
                 kind = bool(
                     _REAL_CLOCK_TYPE.search(declaration)
                     or _REAL_CLOCK_INIT.search(declaration)
@@ -652,9 +714,19 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
                 else:
                     scopes[-1][receiver] = kind
 
-    for scope in reversed(scopes):
-        if receiver in scope:
-            return scope[receiver]
+    search_end = len(scopes)
+    if self_receiver:
+        search_end = next(
+            (
+                scope_index
+                for scope_index, kind in enumerate(scope_kinds)
+                if kind == "function"
+            ),
+            search_end,
+        )
+    for scope_index in range(search_end - 1, -1, -1):
+        if receiver in scopes[scope_index]:
+            return scopes[scope_index][receiver]
     return False
 
 
