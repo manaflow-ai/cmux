@@ -5637,29 +5637,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId),
            let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
-           workspace.panels[panelId] != nil,
-           workspace.surfaceIdFromPanelId(panelId) != nil {
+           workspace.containsPanelIncludingDocks(panelId) {
             return (workspace, manager)
         }
 
         if let located = locateSurface(surfaceId: panelId),
            let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-           workspace.panels[panelId] != nil,
-           workspace.surfaceIdFromPanelId(panelId) != nil {
+           workspace.containsPanelIncludingDocks(panelId) {
             return (workspace, located.tabManager)
         }
 
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId) ?? tabManager,
            let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
-           workspace.panels[panelId] != nil,
-           workspace.surfaceIdFromPanelId(panelId) != nil {
+           workspace.containsPanelIncludingDocks(panelId) {
             return (workspace, manager)
+        }
+
+        for context in mainWindowContexts.values {
+            if let workspace = context.tabManager.tabs.first(where: {
+                $0.containsPanelIncludingDocks(panelId)
+            }) {
+                return (workspace, context.tabManager)
+            }
+        }
+        for route in recoverableMainWindowRoutes() {
+            guard let manager = route.tabManager else { continue }
+            if let workspace = manager.tabs.first(where: {
+                $0.containsPanelIncludingDocks(panelId)
+            }) {
+                return (workspace, manager)
+            }
         }
 
         if let manager = tabManager,
            let workspace = manager.tabs.first(where: {
-               $0.panels[panelId] != nil && $0.surfaceIdFromPanelId(panelId) != nil
+               $0.containsPanelIncludingDocks(panelId)
            }) {
             return (workspace, manager)
         }
@@ -16211,7 +16224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func browserPanel(for panelId: UUID) -> BrowserPanel? {
-        return workspaceContainingPanel(panelId: panelId)?.workspace.browserPanel(for: panelId)
+        return workspaceContainingPanel(panelId: panelId)?.workspace.browserPanelIncludingDock(for: panelId)
     }
 
     func browserFindBarIsVisible(for webView: CmuxWebView) -> Bool {

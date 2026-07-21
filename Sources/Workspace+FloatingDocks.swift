@@ -364,6 +364,9 @@ extension Workspace {
                         )
                     }.value
                     restore(noteURL)
+                    if let manager = self.owningTabManager {
+                        AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: manager)
+                    }
                 }
             } else {
                 restore(destination)
