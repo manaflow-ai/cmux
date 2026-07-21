@@ -105,8 +105,15 @@ transport that reconnects internally needs a liveness check instead:
 
 cmux already has the round-trip primitive: a bounded `display-message -p ok` query, used as
 `awaitCommandBarrier` in `RemoteTmuxViewConnection`. Reuse it rather than inventing a
-heartbeat. A genuine transport exit still means the session is over and routes to the
-existing session-gone path.
+heartbeat, and give the probe a deadline: measured against 6.2.11+7, et can accept stdin while
+producing no control output, so an unanswered probe is the stall. The next probe's due time is
+that deadline, which needs no second clock.
+
+A transport exit does **not** mean the session is over, tempting as the symmetry is. Restarting
+only `etserver` ends the stream while `tmux has-session` still succeeds, so acting on it discarded
+live, reattachable sessions. EOF cannot tell "the transport died" from "the session died" for any
+transport, so end-of-stream reconnects and the reattach reports which it was —
+`scripts/remote-tmux-et-conformance.sh` checks this rather than leaving it here as a claim.
 
 There is a bug here worth fixing independently of any new transport.
 `handleStreamEnd`'s classifier only distinguishes "session gone" (end) from everything else
