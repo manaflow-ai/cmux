@@ -25,9 +25,8 @@ struct TerminalFolderTapPolicyTests {
     func enabledOpensWithoutStatting() async {
         let stub = CountingStatStub(kind: .directory)
 
-        let decision = await TerminalFolderTapPolicy.decision(
+        let decision = await TerminalFolderTapPolicy(folderTapEnabled: true).decision(
             for: "/tmp/folder",
-            folderTapEnabled: true,
             stat: { path in await stub.stat(path: path) }
         )
 
@@ -38,9 +37,8 @@ struct TerminalFolderTapPolicyTests {
 
     @Test("disabled lets directory taps fall through to the terminal")
     func disabledDirectoryFocusesTerminal() async {
-        let decision = await TerminalFolderTapPolicy.decision(
+        let decision = await TerminalFolderTapPolicy(folderTapEnabled: false).decision(
             for: "/tmp/folder",
-            folderTapEnabled: false,
             stat: { _ in .directory }
         )
 
@@ -53,23 +51,21 @@ struct TerminalFolderTapPolicyTests {
         .binary,
     ])
     func disabledNonDirectoryOpensArtifact(kind: ChatArtifactKind) async {
-        let decision = await TerminalFolderTapPolicy.decision(
+        let decision = await TerminalFolderTapPolicy(folderTapEnabled: false).decision(
             for: "/tmp/file",
-            folderTapEnabled: false,
             stat: { _ in kind }
         )
 
         #expect(decision == .openArtifact)
     }
 
-    @Test("disabled fails open when stat throws")
-    func disabledStatFailureOpensArtifact() async {
-        let decision = await TerminalFolderTapPolicy.decision(
+    @Test("disabled fails closed when stat throws")
+    func disabledStatFailureFocusesTerminal() async {
+        let decision = await TerminalFolderTapPolicy(folderTapEnabled: false).decision(
             for: "/tmp/file",
-            folderTapEnabled: false,
             stat: { _ in throw StatFailure() }
         )
 
-        #expect(decision == .openArtifact)
+        #expect(decision == .focusTerminal)
     }
 }

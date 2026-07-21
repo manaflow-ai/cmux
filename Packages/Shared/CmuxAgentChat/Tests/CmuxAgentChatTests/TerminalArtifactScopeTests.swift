@@ -25,6 +25,14 @@ struct TerminalArtifactScopeTests {
         #expect(scope.canonicalPath(for: "/safe/other.txt") == nil)
     }
 
+    @Test("denies a path hidden inside a DCS payload")
+    func deniesDCSWrappedPath() {
+        let scope = scope(text: "\u{1B}P/safe/project\u{1B}\\")
+
+        #expect(scope.canonicalPath(for: "/safe/project") == nil)
+        #expect(scope.canonicalDirectoryListPath(for: "/safe/project") == nil)
+    }
+
     @Test("denies unrelated absolute path when absent")
     func deniesEtcPasswdWhenAbsent() {
         let scope = scope(text: "cat /safe/file.txt", files: ["/safe/file.txt", "/etc/passwd"])

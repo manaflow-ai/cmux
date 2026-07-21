@@ -82,6 +82,59 @@ struct TerminalArtifactPathDetectorTests {
         #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/osc-bel/file.txt"])
     }
 
+    @Test(
+        "drops paths inside ST-terminated string controls",
+        arguments: ["P", "_", "^", "X"]
+    )
+    func stringControlPayloadsAreNotDetectable(_ introducer: String) {
+        let text = "\u{1B}\(introducer)/tmp/hidden\u{1B}\\ /tmp/visible.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/visible.txt"])
+    }
+
+    @Test("accepts BEL as a lenient string-control terminator")
+    func belTerminatedStringControlBeforePath() {
+        let text = "\u{1B}P/tmp/hidden\u{07}/tmp/visible.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/visible.txt"])
+    }
+
+    @Test("consumes C1 OSC through C1 ST")
+    func c1OSCBeforePath() {
+        let text = "\u{9D}0;title\u{9C}/tmp/first"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/first"])
+    }
+
+    @Test("drops paths inside C1 DCS")
+    func c1DCSPayloadIsNotDetectable() {
+        let text = "\u{90}/tmp/hidden\u{9C}/tmp/vis.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/vis.txt"])
+    }
+
+    @Test(
+        "drops paths inside every C1 string control",
+        arguments: ["\u{90}", "\u{98}", "\u{9E}", "\u{9F}"]
+    )
+    func c1StringControlPayloadsAreNotDetectable(_ introducer: String) {
+        let text = "\(introducer)/tmp/hidden\u{9C}/tmp/visible.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/visible.txt"])
+    }
+
+    @Test("consumes C1 CSI like ESC CSI")
+    func c1CSIWrappedPath() {
+        let text = "\u{9B}1m/tmp/visible.txt\u{9B}0m"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/visible.txt"])
+    }
+
+    @Test("drops an unterminated string-control payload")
+    func unterminatedStringControlPayloadIsNotDetectable() {
+        #expect(TerminalArtifactPathDetector().paths(in: "\u{1B}P/tmp/hidden").isEmpty)
+    }
+
     @Test("drops an unterminated trailing CSI sequence")
     func unterminatedTrailingCSI() {
         let text = "/tmp/complete/file.txt\u{1B}[38;2"
