@@ -1,25 +1,26 @@
 import Foundation
+import CMUXAgentLaunch
 
 /// An immutable non-decision hook accepted before downstream delivery begins.
 nonisolated struct AgentHookDeliveryEvent: Sendable {
     static let maximumPayloadBytes = 8 * 1024 * 1024
     static let maximumEnvironmentBytes = 256 * 1024
 
-    private static let allowedEnvironmentKeys: Set<String> = [
-        "CLAUDE_CONFIG_DIR", "CODEX_HOME", "HOME", "LANG", "LC_ALL", "LC_CTYPE",
-        "LOGNAME", "PATH", "PWD", "SHELL", "TMPDIR", "USER",
+    private static let allowedHookDataEnvironmentKeys: Set<String> = [
+        "PWD",
         "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
-        "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_BUNDLE_ID", "CMUX_CLAUDE_PID",
+        "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_CLAUDE_PID",
         "CMUX_CODEX_PID", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
-        "CMUX_SURFACE_ID", "CMUX_TAG", "CMUX_WORKSPACE_ID",
+        "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID",
     ]
 
     let agent: String
     let subcommand: String
     let payload: String
     let socketPath: String
+    let relayBacked: Bool
     let environment: [String: String]
 
     /// Events for one socket and surface retain lifecycle order. The agent PID
@@ -44,23 +45,25 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         }
     }
 
-    init?(params: [String: Any]) {
+    init?(params: [String: Any], deliverySocketPath: String? = nil) {
         guard let agent = params["agent"] as? String,
               let subcommand = params["subcommand"] as? String,
               Self.supports(agent: agent, subcommand: subcommand),
               let payload = params["payload"] as? String,
               payload.utf8.count <= Self.maximumPayloadBytes,
-              let socketPath = params["socket_path"] as? String,
+              let socketPath = deliverySocketPath ?? (params["socket_path"] as? String),
               !socketPath.isEmpty,
               socketPath.utf8.count <= 4_096,
               !socketPath.contains("\0"),
-              let environment = Self.validatedEnvironment(params["environment"]) else {
+              params["relay_backed"] == nil || params["relay_backed"] is Bool,
+              let environment = Self.validatedEnvironment(params["environment"], agent: agent) else {
             return nil
         }
         self.agent = agent
         self.subcommand = subcommand
         self.payload = payload
         self.socketPath = socketPath
+        self.relayBacked = params["relay_backed"] as? Bool ?? false
         self.environment = environment
     }
 
@@ -78,11 +81,15 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         }
     }
 
-    private static func validatedEnvironment(_ rawValue: Any?) -> [String: String]? {
+    private static func validatedEnvironment(_ rawValue: Any?, agent: String) -> [String: String]? {
         guard let environment = rawValue as? [String: String] else { return nil }
+        let replaySafeEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: environment,
+            kind: agent
+        )
         var totalBytes = 0
         for (key, value) in environment {
-            guard allowedEnvironmentKeys.contains(key),
+            guard allowedHookDataEnvironmentKeys.contains(key) || replaySafeEnvironment[key] == value,
                   key.utf8.count <= 128,
                   value.utf8.count <= 128 * 1024,
                   !key.contains("\0"),

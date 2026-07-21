@@ -1223,7 +1223,11 @@ class TerminalController {
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "agent.hook.enqueue":
-            guard let event = AgentHookDeliveryEvent(params: request.params) else {
+            guard let localSocketPath = currentSocketPathForRemoteRestore(),
+                  let event = AgentHookDeliveryEvent(
+                      params: request.params,
+                      deliverySocketPath: localSocketPath
+                  ) else {
                 return v2Error(id: request.id, code: "invalid_params", message: "Invalid agent hook event")
             }
             guard agentHookDeliveryQueue.enqueue(event) else {

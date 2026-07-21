@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 extension CMUXCLI {
     private static let agentHookAdmissionResponseTimeoutSeconds = 1
@@ -34,8 +35,11 @@ extension CMUXCLI {
         let subcommand = commandArgs[1].lowercased()
 
         let processEnvironment = ProcessInfo.processInfo.environment
-        var environment: [String: String] = [:]
-        for key in Self.queuedAgentHookEnvironmentKeys {
+        var environment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: processEnvironment,
+            kind: agent
+        )
+        for key in Self.queuedAgentHookDataEnvironmentKeys {
             if let value = processEnvironment[key] {
                 environment[key] = value
             }
@@ -51,6 +55,7 @@ extension CMUXCLI {
                 "subcommand": subcommand,
                 "payload": payload,
                 "socket_path": client.socketPath,
+                "relay_backed": client.isRelayBacked,
                 "environment": environment,
             ],
             responseTimeout: TimeInterval(Self.agentHookAdmissionResponseTimeoutSeconds)
@@ -58,15 +63,14 @@ extension CMUXCLI {
         print("{}")
     }
 
-    private static let queuedAgentHookEnvironmentKeys = [
-        "CLAUDE_CONFIG_DIR", "CODEX_HOME", "HOME", "LANG", "LC_ALL", "LC_CTYPE",
-        "LOGNAME", "PATH", "PWD", "SHELL", "TMPDIR", "USER",
+    private static let queuedAgentHookDataEnvironmentKeys = [
+        "PWD",
         "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
-        "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_BUNDLE_ID", "CMUX_CLAUDE_PID",
+        "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_CLAUDE_PID",
         "CMUX_CODEX_PID", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
-        "CMUX_SURFACE_ID", "CMUX_TAG", "CMUX_WORKSPACE_ID",
+        "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID",
     ]
 
     private static func agentHookPIDEnvironmentVariable(agentName: String) -> String {

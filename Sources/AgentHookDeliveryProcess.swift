@@ -97,14 +97,14 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         }
     }
 
-    private func deliveryEnvironment(
+    func deliveryEnvironment(
         event: AgentHookDeliveryEvent,
         executableURL: URL
     ) -> [String: String] {
         let ambientEnvironment = ProcessInfo.processInfo.environment
         let ambientKeys = [
             "HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER",
-            "CMUX_CLI_SENTRY_DISABLED", "CMUX_SOCKET_PASSWORD",
+            "CMUX_BUNDLE_ID", "CMUX_CLI_SENTRY_DISABLED", "CMUX_SOCKET_PASSWORD", "CMUX_TAG",
         ]
         var environment: [String: String] = [:]
         for key in ambientKeys {
@@ -114,6 +114,11 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         environment["CMUX_SOCKET_PATH"] = event.socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = executableURL.path
         environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"
+        if event.relayBacked {
+            environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] = "1"
+        } else {
+            environment.removeValue(forKey: "CMUX_AGENT_HOOK_RELAY_ORIGIN")
+        }
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "12"
         return environment
     }

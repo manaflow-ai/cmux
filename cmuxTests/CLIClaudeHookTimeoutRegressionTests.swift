@@ -177,6 +177,8 @@ struct CLIClaudeHookTimeoutRegressionTests {
                 "CMUX_BUNDLED_CLI_PATH": cliPath,
                 "CMUX_CLAUDE_PID": "8535",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
+                "ANTHROPIC_BASE_URL": "https://proxy.example.test",
+                "ANTHROPIC_API_KEY": "must-not-cross-admission",
             ],
             standardInput: payload,
             timeout: 2
@@ -192,9 +194,12 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(params["subcommand"] as? String == "prompt-submit")
         #expect(params["payload"] as? String == payload)
         #expect(params["socket_path"] as? String == socketPath)
+        #expect(params["relay_backed"] as? Bool == false)
         let admittedEnvironment = try #require(params["environment"] as? [String: Any])
         #expect(admittedEnvironment["CMUX_SURFACE_ID"] as? String == "surface-8535")
         #expect(admittedEnvironment["CMUX_CLAUDE_PID"] as? String == "8535")
+        #expect(admittedEnvironment["ANTHROPIC_BASE_URL"] as? String == "https://proxy.example.test")
+        #expect(admittedEnvironment["ANTHROPIC_API_KEY"] == nil)
     }
 
     @Test("Claude prompt hook fails open before its declared timeout")
@@ -246,6 +251,67 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
+    }
+
+    @Test(
+        "Relay-origin delivery skips local PID and TTY routing",
+        arguments: [("claude", "CMUX_CLAUDE_PID"), ("codex", "CMUX_CODEX_PID")]
+    )
+    func relayOriginSkipsLocalProcessRouting(agent: String, pidKey: String) throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-relay-hook-routing-\(agent)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let socketPath = makeCodexHookSocketPath("relay-route")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: "22222222-2222-2222-2222-222222222222",
+            connectionLimit: 1
+        )
+        let environment = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+            "CMUX_CLI_TTY_NAME": "ttys-local-collision",
+            "CMUX_AGENT_HOOK_RELAY_ORIGIN": "1",
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            pidKey: "8535",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", agent, "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"relay-session","source":"clear"}"#,
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+
+        let requests = capturedCommands.snapshot().compactMap(codexHookJSONObject)
+        #expect(requests.contains { $0["method"] as? String == "surface.list" })
+        #expect(!requests.contains { $0["method"] as? String == "system.top" })
+        #expect(!requests.contains { $0["method"] as? String == "debug.terminals" })
+        let deliveryTargetRequests = requests.filter {
+            $0["method"] as? String == "agent.resolve_delivery_target"
+        }
+        #expect(deliveryTargetRequests.allSatisfy { request in
+            (request["params"] as? [String: Any])?["pid"] == nil
+        })
     }
 
     private var repositoryRoot: URL {

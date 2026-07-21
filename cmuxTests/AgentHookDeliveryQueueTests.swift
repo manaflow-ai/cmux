@@ -178,6 +178,52 @@ struct AgentHookDeliveryQueueTests {
         #expect(unsupportedEnvironment == nil)
     }
 
+    @Test("Queued delivery preserves replay-safe environment and relay provenance")
+    func eventTransportAndEnvironmentBoundary() throws {
+        let params: [String: Any] = [
+            "agent": "claude",
+            "subcommand": "prompt-submit",
+            "payload": "{}",
+            "socket_path": "127.0.0.1:64007",
+            "relay_backed": true,
+            "environment": [
+                "ANTHROPIC_BASE_URL": "https://relay.example.test",
+                "CMUX_CLAUDE_PID": "8535",
+                "CMUX_SURFACE_ID": "surface-a",
+            ],
+        ]
+        let event = try #require(AgentHookDeliveryEvent(
+            params: params,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ))
+        #expect(event.socketPath == "/tmp/cmux-local.sock")
+        #expect(event.relayBacked)
+        #expect(event.environment["ANTHROPIC_BASE_URL"] == "https://relay.example.test")
+
+        let process = AgentHookDeliveryProcess(executableURLProvider: { nil })
+        let environment = process.deliveryEnvironment(
+            event: event,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(environment["CMUX_SOCKET_PATH"] == "/tmp/cmux-local.sock")
+        #expect(environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
+
+        var unsafeParams = params
+        unsafeParams["environment"] = ["ANTHROPIC_API_KEY": "secret"]
+        #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)
+        unsafeParams["environment"] = ["CMUX_AGENT_HOOK_RELAY_ORIGIN": "1"]
+        #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)
+
+        var directParams = params
+        directParams["relay_backed"] = false
+        let directEvent = try #require(AgentHookDeliveryEvent(params: directParams))
+        let directEnvironment = process.deliveryEnvironment(
+            event: directEvent,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(directEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == nil)
+    }
+
     private func makeEvent(
         agent: String = "claude",
         subcommand: String = "prompt-submit",

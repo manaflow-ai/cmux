@@ -23754,9 +23754,11 @@ struct CMUXCLI {
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
+        let relayOrigin = ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1"
         var callerTTYBindingCache: CallerTerminalBinding?
         var didResolveCallerTTYBinding = false
         func callerTTYBinding() -> CallerTerminalBinding? {
+            guard !relayOrigin else { return nil }
             if !didResolveCallerTTYBinding {
                 didResolveCallerTTYBinding = true
                 let ttyBinding = uniqueCallerTerminalBindingByTTY(
@@ -23784,8 +23786,8 @@ struct CMUXCLI {
             }
             return callerTTYBindingCache
         }
-        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting ? callerTTYBinding : nil
-        let hookRouting = ClaudeHookRoutingContext(
+        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting && !relayOrigin ? callerTTYBinding : nil
+        var hookRouting = ClaudeHookRoutingContext(
             workspaceArg: workspaceArg,
             surfaceArg: surfaceArg,
             surfaceFlagIsExplicit: hookSurfaceFlag != nil,
@@ -23793,6 +23795,7 @@ struct CMUXCLI {
             callerTerminalBinding: callerTTYBindingProvider,
             agentPid: claudeAgentPID(from: ProcessInfo.processInfo.environment)
         )
+        hookRouting.allowsPidProbe = !relayOrigin
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
@@ -30078,6 +30081,7 @@ export default CMUXSessionRestore;
         var processBindingCache: CallerTerminalBinding?
         var didResolveProcessBinding = false
         func processBinding() -> CallerTerminalBinding? {
+            guard env["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else { return nil }
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
                 // Always resolve the agent process's own terminal binding (TTY first, then PID), even
