@@ -204,11 +204,10 @@ extension RemoteTmuxControlConnection {
 
     func notifyReconnectReadyIfSeedBatchDrained() {
         guard connectionState == .connected, pendingReconnectSeedIDs.isEmpty else { return }
-        // The re-applied size is usually a no-op (the server kept the window at
-        // our size across the drop), so a TUI may still need the attach redraw
-        // kick. Queue it only after every authoritative seed has landed; otherwise
-        // its redraw can race a slow transport's still-pending capture.
-        scheduleAttachRedrawKickIfNeeded()
+        // Reconnect readiness follows an authoritative full-history seed. Do not
+        // run the first-attach rows-minus-one redraw kick here: its shrink moves
+        // the first visible primary-screen row into local scrollback, and the
+        // restore repaint would duplicate that row at the viewport boundary.
         observers.notifyReconnectReady()
     }
 

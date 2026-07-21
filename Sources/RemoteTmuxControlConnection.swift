@@ -753,12 +753,12 @@ final class RemoteTmuxControlConnection {
             if connectionState != .connected {
                 let wasReconnecting = connectionState == .reconnecting
                 connectionState = .connected
-                // Arm the one-shot attach redraw kick: if the upcoming size apply is
-                // a no-op (window already at our size), a running TUI gets no SIGWINCH
-                // and would keep showing its stale pre-attach frame. Consumed by the
-                // first size apply (debounced send, reconnect re-seed, or the
-                // first-connect list-windows result).
-                pendingAttachRedrawKick = true
+                // Only a first attach needs the rows-minus-one redraw kick. A
+                // reconnect keeps the existing tmux grid and replaces the mirror
+                // with an authoritative full-history seed; kicking after that seed
+                // would shrink the local primary grid, move its first visible row
+                // into scrollback, then paint that row again on restore.
+                pendingAttachRedrawKick = !wasReconnecting
                 reconnectAttemptCount = 0
                 reconnectTask?.cancel()
                 reconnectTask = nil
