@@ -1,8 +1,25 @@
 public import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
+internal import Foundation
 
 extension MobileShellComposite {
+    private nonisolated static func decodePaneMapPreviewResponse(
+        _ data: Data
+    ) async throws -> MobileTerminalReplayResponse {
+        let decodeTask = Task.detached(priority: Task.currentPriority) { [data] in
+            try Task.checkCancellation()
+            let payload = try MobileTerminalReplayResponse.decode(data)
+            try Task.checkCancellation()
+            return payload
+        }
+        return try await withTaskCancellationHandler {
+            try await decodeTask.value
+        } onCancel: {
+            decodeTask.cancel()
+        }
+    }
+
     /// Fetches a read-only render-grid snapshot for one pane-map terminal preview.
     ///
     /// This side channel deliberately omits the mobile terminal client and viewport
@@ -28,13 +45,18 @@ extension MobileShellComposite {
                 ]
             )
             let data = try await client.sendRequest(request)
+            try Task.checkCancellation()
             guard remoteClient === client else { return nil }
-            let payload = try MobileTerminalReplayResponse.decode(data)
+            let payload = try await Self.decodePaneMapPreviewResponse(data)
+            try Task.checkCancellation()
+            guard remoteClient === client else { return nil }
             let grid = payload.renderGrid
             MobileDebugLog.anchormux(
                 "CMUX_PANEMAP preview surface=\(surfaceID) grid=\(grid != nil) gridSurface=\(grid?.surfaceID ?? "nil") spans=\(grid?.rowSpans.count ?? -1) bytes=\(payload.dataBase64?.count ?? 0)"
             )
             return grid
+        } catch is CancellationError {
+            return nil
         } catch {
             MobileDebugLog.anchormux("CMUX_PANEMAP preview surface=\(surfaceID) error=\(error)")
             return nil
@@ -56,43 +78,14 @@ extension MobileShellComposite {
         selectedSurfaceIDs: [String],
         remainingSurfaceIDs: [String]
     ) async -> [String: MobileTerminalRenderGridFrame] {
-        var seenSurfaceIDs: Set<String> = []
-        let orderedSurfaceIDs = (selectedSurfaceIDs + remainingSurfaceIDs).filter {
-            seenSurfaceIDs.insert($0).inserted
-        }
-        guard !orderedSurfaceIDs.isEmpty else { return [:] }
-
-        return await withTaskGroup(
-            of: (String, MobileTerminalRenderGridFrame?).self,
-            returning: [String: MobileTerminalRenderGridFrame].self
-        ) { group in
-            var nextIndex = 0
-
-            func enqueueNext() {
-                guard nextIndex < orderedSurfaceIDs.count else { return }
-                let surfaceID = orderedSurfaceIDs[nextIndex]
-                nextIndex += 1
-                group.addTask { [weak self] in
-                    let grid = await self?.fetchPaneMapPreviewGrid(
-                        remoteWorkspaceID: remoteWorkspaceID,
-                        surfaceID: surfaceID
-                    )
-                    return (surfaceID, grid)
-                }
-            }
-
-            for _ in 0..<min(4, orderedSurfaceIDs.count) {
-                enqueueNext()
-            }
-
-            var gridsBySurfaceID: [String: MobileTerminalRenderGridFrame] = [:]
-            while let (surfaceID, grid) = await group.next() {
-                if let grid {
-                    gridsBySurfaceID[surfaceID] = grid
-                }
-                enqueueNext()
-            }
-            return gridsBySurfaceID
+        await PaneMapPreviewFetcher().fetch(
+            selectedSurfaceIDs: selectedSurfaceIDs,
+            remainingSurfaceIDs: remainingSurfaceIDs
+        ) { [weak self] surfaceID in
+            await self?.fetchPaneMapPreviewGrid(
+                remoteWorkspaceID: remoteWorkspaceID,
+                surfaceID: surfaceID
+            )
         }
     }
 }

@@ -316,7 +316,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             return
         }
 
-        guard let widths = sourceCellWidths(for: span.text, targetWidth: span.gridCellWidth) else {
+        guard let widths = span.resolvedCharacterCellWidths else {
             appendCursor(row: row, column: span.column, to: &bytes)
             if let style {
                 bytes.append(sgrBytes(for: style))
@@ -347,59 +347,6 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         let characterCount = span.text.count
         guard characterCount > 1 else { return false }
         return true
-    }
-
-    private func sourceCellWidths(
-        for text: String,
-        targetWidth: Int
-    ) -> [Int]? {
-        guard !text.isEmpty, targetWidth > 0 else { return nil }
-        var widths: [Int] = []
-        var expandable: [Bool] = []
-        var hasUntrustedExpansionCandidate = false
-        widths.reserveCapacity(text.count)
-        expandable.reserveCapacity(text.count)
-        for character in text {
-            let width = character.renderGridEstimatedCellWidth
-            let canExpand = character.canExpandForAmbiguousRenderGridWidth
-            widths.append(width)
-            expandable.append(canExpand)
-            if width == 1,
-               !canExpand,
-               character.unicodeScalars.contains(where: {
-                   $0.value > 0x7F
-                       && !$0.isRenderGridZeroWidthScalar
-               }) {
-                hasUntrustedExpansionCandidate = true
-            }
-        }
-        let total = widths.reduce(0, +)
-        if total < targetWidth {
-            guard !hasUntrustedExpansionCandidate else {
-                return nil
-            }
-            var remaining = targetWidth - total
-            for index in widths.indices where remaining > 0 && widths[index] < 2 {
-                guard expandable[index] else {
-                    continue
-                }
-                widths[index] += 1
-                remaining -= 1
-            }
-            guard remaining == 0 else {
-                return nil
-            }
-        } else if total > targetWidth {
-            var excess = total - targetWidth
-            for index in widths.indices.reversed() where excess > 0 && widths[index] > 1 {
-                widths[index] -= 1
-                excess -= 1
-            }
-            guard excess == 0 else {
-                return nil
-            }
-        }
-        return widths
     }
 
     private func appendCursor(row: Int?, column: Int, to bytes: inout Data) {
