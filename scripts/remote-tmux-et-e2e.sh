@@ -55,29 +55,51 @@ log "=== attaching session '$SESSION' over the et transport"
 # mirroring whatever else happens to be on the host's default tmux server.
 # `cmux rpc` is the raw v2 call; a named attach avoids mirroring whatever else happens to
 # be on the host's default tmux server.
+#
+# The etserver port goes in transport_port, not port. `port` is the ssh port, and one-shot
+# discovery still rides ssh, so putting 2039 there sends ssh at the etserver and it answers
+# with `kex_exchange_identification: Connection reset by peer`.
 RESULT="$(cli rpc remote.tmux.attach \
-  "{\"host\":\"$HOST\",\"session\":\"$SESSION\",\"port\":$PORT,\"transport\":\"et\"}" 2>&1)"
+  "{\"host\":\"$HOST\",\"session\":\"$SESSION\",\"transport\":\"et\",\"transport_port\":$PORT}" 2>&1)"
 log "attach result: $(printf '%s' "$RESULT" | head -c 300)"
 
-# The decisive evidence is a live et process carrying tmux for this host, spawned by
-# the app rather than by this script.
-et_stream_live() {
-  pgrep -f "attach-session" 2>/dev/null | while read -r p; do
-    ps -o command= -p "$p" 2>/dev/null | grep -q "et " && echo x
-  done | grep -q x
-}
-if await "an et-carried control stream spawned by cmux" 60 et_stream_live; then
-  pass "cmux spawned a control stream over et"
+case "$RESULT" in
+  *'"attached"'*) pass "the attach returned a result rather than an error" ;;
+  *) fail "attach did not succeed: $(printf '%s' "$RESULT" | head -c 120)" ;;
+esac
+
+# The decisive evidence is the app's own view of the stream, not a process listing. A live
+# process proves something was spawned; only these fields prove the control protocol crossed
+# et and was understood — the two bugs this harness found both left a live process behind.
+#
+#   enter    the ESC P 1000 p handshake was parsed. cmux withholds commands until it arrives,
+#            and et delivers it mid-line behind the login shell's echo.
+#   windows  a real `list-windows` result came back over the stream and was applied.
+state() { cli rpc remote.tmux.state "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}"; }
+stream_entered() { state | grep -q '"enter_received" : true'; }
+stream_has_windows() { state | grep -qE '"window_count" : [1-9]'; }
+
+if await "the control stream to reach control mode over et" 60 stream_entered; then
+  pass "cmux parsed the control-mode handshake over et"
 else
-  fail "no et-carried control stream appeared"
+  fail "no control-mode handshake over et (enter_received stayed false)"
+fi
+if await "a window to arrive over the et-carried stream" 60 stream_has_windows; then
+  pass "tmux windows arrived over the et-carried stream"
+else
+  fail "no windows arrived over the et-carried stream"
 fi
 
-# And it must be under a pty: a bare pipe spawn is exactly what produces no output.
-pty_wrapped() { pgrep -fl "script -q /dev/null" >/dev/null 2>&1; }
-if pty_wrapped; then
-  pass "the transport was spawned under a pseudo-terminal"
+# And the transport must be this host's et, under a pty: a bare pipe spawn is exactly what
+# produces no output. Match the whole shape so another agent's `script` or `et` cannot pass
+# this for us.
+pty_wrapped_et() {
+  pgrep -f "script -q /dev/null .*et -p $PORT .*$HOST" >/dev/null 2>&1
+}
+if pty_wrapped_et; then
+  pass "this host's et was spawned under a pseudo-terminal"
 else
-  fail "no pty wrapper around the transport (et emits nothing on pipes)"
+  fail "no pty-wrapped et for $HOST:$PORT (et emits nothing on pipes)"
 fi
 
 log "=== $FAILURES failed check(s)"
