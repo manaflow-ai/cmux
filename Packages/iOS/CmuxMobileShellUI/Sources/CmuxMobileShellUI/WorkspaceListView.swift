@@ -251,7 +251,15 @@ struct WorkspaceListView: View {
             visibleSelection: currentVisibleMacSelection
         )
         #if os(iOS)
+        // SwiftUI fits a UIViewRepresentable inside the safe area, so without
+        // this the table's frame starts below the search drawer and ends above
+        // the tab bar: rows hard-clip at the chrome and no scroll edge effect
+        // can render. Extending under the vertical bars restores the native
+        // underlap; the real UIKit bars still contribute safe area, so the
+        // table's automatic content-inset adjustment keeps rows and indicators
+        // clear of the chrome. The keyboard region stays respected.
         let baseList = workspaceTable
+            .ignoresSafeArea(.container, edges: .vertical)
         #else
         let baseList = List {
             switch connectionChrome {
