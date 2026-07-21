@@ -59,6 +59,16 @@ struct TerminalFolderTapPolicyTests {
         #expect(decision == .openArtifact)
     }
 
+    @Test("disabled lets the artifact viewer handle forbidden paths")
+    func disabledForbiddenPathOpensArtifact() async {
+        let decision = await TerminalFolderTapPolicy(folderTapEnabled: false).decision(
+            for: "data.csv",
+            stat: { _ in throw ChatArtifactError.forbidden }
+        )
+
+        #expect(decision == .openArtifact)
+    }
+
     @Test("disabled fails closed when stat throws")
     func disabledStatFailureFocusesTerminal() async {
         let decision = await TerminalFolderTapPolicy(folderTapEnabled: false).decision(
