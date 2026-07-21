@@ -17,6 +17,7 @@ extension TaskComposerSheet {
 
     func restoreSubmittedDraft(_ snapshot: MobileTaskSubmissionSnapshot) {
         prompt = snapshot.prompt
+        workspaceName = snapshot.workspaceName
         selectedTemplateID = snapshot.templateID
         selectedMacDeviceID = snapshot.macDeviceID
         directory = snapshot.directory
@@ -71,6 +72,7 @@ extension TaskComposerSheet {
             macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
             directory: directory,
             didEditDirectory: didEditDirectory,
+            workspaceName: workspaceName,
             operationID: resolved?.operationID ?? submissionIdentity.id,
             completedOperationID: completedOperationRecovery?.submittedSnapshot.operationID
         )
@@ -83,6 +85,7 @@ extension TaskComposerSheet {
             prompt: prompt,
             macDeviceID: selectedMacDeviceID,
             directory: directory,
+            workspaceName: workspaceName,
             didEditDirectory: didEditDirectory,
             operationID: operationID
         )

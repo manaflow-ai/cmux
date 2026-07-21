@@ -9605,6 +9605,40 @@
         }
       }
     },
+    "mobile.taskComposer.workspaceName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.workspaceName.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace name (optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名（任意）"
+          }
+        }
+      }
+    },
     "mobile.toolbar.editor.addTitle": {
       "extractionState": "manual",
       "localizations": {

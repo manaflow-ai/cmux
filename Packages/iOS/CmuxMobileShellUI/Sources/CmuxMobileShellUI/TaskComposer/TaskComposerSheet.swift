@@ -14,6 +14,7 @@ struct TaskComposerSheet: View {
     @Bindable var store: CMUXMobileShellStore
 
     @State var prompt = ""
+    @State var workspaceName = ""
     @State private var templates: [MobileTaskTemplate]
     @State var selectedTemplateID: MobileTaskTemplate.ID?
     @State var selectedMacDeviceID: String
@@ -124,6 +125,7 @@ struct TaskComposerSheet: View {
                 && canRestoreDraftDirectory
         ) ? draft?.operationID : nil
         let initialPrompt = draft?.prompt ?? ""
+        let initialWorkspaceName = draft?.workspaceName ?? ""
         let initialOperationID = restoredOperationID ?? UUID()
         let initialRequest = selectedTemplate.map {
             MobileTaskSubmissionSnapshot(
@@ -131,6 +133,7 @@ struct TaskComposerSheet: View {
                 prompt: initialPrompt,
                 macDeviceID: selectedMacID,
                 directory: initialDirectory,
+                workspaceName: initialWorkspaceName,
                 didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
                 operationID: initialOperationID
             )
@@ -145,6 +148,7 @@ struct TaskComposerSheet: View {
                 initialRequest?.withOperationID(operationID)
             }
         _prompt = State(initialValue: initialPrompt)
+        _workspaceName = State(initialValue: initialWorkspaceName)
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
@@ -189,6 +193,7 @@ struct TaskComposerSheet: View {
                     VStack(spacing: 12) {
                         TaskComposerPromptCard(
                             prompt: promptBinding,
+                            workspaceName: workspaceNameBinding,
                             placeholder: promptPlaceholder,
                             isDisabled: submissionPhase.disablesRequestEditing,
                             templates: templates,
@@ -439,6 +444,18 @@ struct TaskComposerSheet: View {
                     prompt = newValue
                 }
                 failureText = nil
+            }
+        )
+    }
+
+    private var workspaceNameBinding: Binding<String> {
+        Binding(
+            get: { workspaceName },
+            set: { newValue in
+                guard !submissionPhase.disablesRequestEditing else { return }
+                updateSubmissionRequest {
+                    workspaceName = newValue
+                }
             }
         )
     }

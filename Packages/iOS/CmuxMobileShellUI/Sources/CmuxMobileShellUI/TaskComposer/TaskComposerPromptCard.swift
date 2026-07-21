@@ -9,6 +9,7 @@ struct TaskComposerPromptCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @Binding var prompt: String
+    @Binding var workspaceName: String
     let placeholder: String
     let isDisabled: Bool
     let templates: [MobileTaskTemplate]
@@ -42,6 +43,37 @@ struct TaskComposerPromptCard: View {
                 .accessibilityLabel(L10n.string("mobile.taskComposer.prompt", defaultValue: "Prompt"))
                 .accessibilityHint(placeholder)
                 .accessibilityIdentifier("MobileTaskComposerPrompt")
+
+            Divider()
+
+            HStack(spacing: 9) {
+                Image(systemName: "rectangle.and.pencil.and.ellipsis")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+
+                TextField(
+                    L10n.string(
+                        "mobile.taskComposer.workspaceName.placeholder",
+                        defaultValue: "Workspace name (optional)"
+                    ),
+                    text: $workspaceName
+                )
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+                .lineLimit(1)
+                .textInputAutocapitalization(.words)
+                .submitLabel(.done)
+                .disabled(isDisabled)
+                .accessibilityLabel(
+                    L10n.string(
+                        "mobile.taskComposer.workspaceName",
+                        defaultValue: "Workspace name"
+                    )
+                )
+                .accessibilityIdentifier("MobileTaskComposerWorkspaceName")
+            }
+            .frame(minHeight: 28)
         }
         .padding(14)
         .mobileGlassField(cornerRadius: 26)

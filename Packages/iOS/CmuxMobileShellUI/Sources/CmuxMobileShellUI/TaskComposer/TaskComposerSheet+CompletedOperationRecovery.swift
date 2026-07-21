@@ -77,7 +77,7 @@ extension TaskComposerSheet {
         for snapshot: MobileTaskSubmissionSnapshot
     ) -> MobileWorkspaceCreateSpec {
         MobileWorkspaceCreateSpec(
-            title: snapshot.composition.title,
+            title: snapshot.workspaceTitle,
             workingDirectory: snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
             initialCommand: snapshot.composition.initialCommand,
             initialEnv: snapshot.composition.initialEnv.isEmpty ? nil : snapshot.composition.initialEnv,
