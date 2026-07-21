@@ -293,6 +293,38 @@ import Testing
         }
     }
 
+    @Test func reapplyingSameAutoTitleRepairsCompactionProjectionReset() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+                let params: [String: Any] = [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "title": "Fix auth bug"
+                ]
+
+                _ = try call(method: "workspace.set_auto_title", params: params)
+                #expect(workspace.bonsplitController.tab(tabId)?.title == "Fix auth bug")
+
+                // Claude compaction can redraw the process-level title while the
+                // auto-naming store still remembers the same desired custom title.
+                // Reconciliation must repair the projection even though the model
+                // value itself has not changed.
+                workspace.bonsplitController.updateTab(tabId, title: "Claude Code")
+                #expect(workspace.panelCustomTitles[panelId] == "Fix auth bug")
+                #expect(workspace.bonsplitController.tab(tabId)?.title == "Claude Code")
+
+                let envelope = try call(method: "workspace.set_auto_title", params: params)
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(result["panel_applied"] as? Bool == true)
+                #expect(workspace.bonsplitController.tab(tabId)?.title == "Fix auth bug")
+            }
+        }
+    }
+
     @Test func malformedParamsProduceCleanErrors() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
