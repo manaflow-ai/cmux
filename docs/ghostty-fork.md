@@ -12,11 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `0768b05d2`. It adds indented hard-newline
-link continuations on top of `bb30526cd` and is published through
+Current cmux pinned fork patch head: `8eb1857c4`. It combines indented
+hard-newline link continuations with the presentation-token runtime from
+`24284c3ba` and is published through
 https://github.com/manaflow-ai/ghostty/pull/124.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0768b05d2be4886185ecde1a6bee27d201546a65-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-8eb1857c40a403e42fe7bb51c46c1a64ad31edf9-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Indented hard-newline link continuations
@@ -30,6 +31,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `eb9004aa8` (fix: resolve wrapped links from exact terminal cells)
   - `4267fc865` (test: preserve copy-link space trimming)
   - `0768b05d2` (fix: honor copy-link whitespace trimming)
+  - `ae379642e` (merge the presentation-token runtime)
+  - `828bb0b73` (test: preserve wrapped-path trailing spaces)
+  - `8eb1857c4` (fix: retain wrapped-path trailing spaces)
 - Files:
   - `src/Surface.zig`
   - `src/config/Config.zig`
