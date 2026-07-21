@@ -1825,6 +1825,138 @@ enum BrowserInsecureHTTPNavigationIntent {
     case newTab
 }
 
+@MainActor
+final class DiffViewerSchemeTaskLifecycle {
+    struct Registration: Sendable {
+        fileprivate let taskID: ObjectIdentifier
+        fileprivate let generation: UUID
+    }
+
+    private var registrationByTask: [ObjectIdentifier: Registration] = [:]
+
+    @discardableResult
+    func register(_ taskID: ObjectIdentifier) -> Registration {
+        let registration = Registration(taskID: taskID, generation: UUID())
+        registrationByTask[taskID] = registration
+        return registration
+    }
+
+    @discardableResult
+    func deliver(_ registration: Registration, _ callback: () -> Void) -> Bool {
+        guard registrationByTask[registration.taskID]?.generation == registration.generation else {
+            return false
+        }
+        callback()
+        return registrationByTask[registration.taskID]?.generation == registration.generation
+    }
+
+    func finish(_ registration: Registration) {
+        guard registrationByTask[registration.taskID]?.generation == registration.generation else {
+            return
+        }
+        registrationByTask.removeValue(forKey: registration.taskID)
+    }
+
+    @discardableResult
+    func stop(_ taskID: ObjectIdentifier) -> Registration? {
+        let entry = registrationByTask.removeValue(forKey: taskID)
+        return entry
+    }
+}
+
+actor DiffViewerAssetStreamLimiter {
+    private struct Waiter {
+        let key: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    #if DEBUG
+    private struct QueueCountWaiter {
+        let count: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+    #endif
+
+    private var availablePermits: Int
+    private let queueLimit: Int
+    private var waiters: [Waiter] = []
+    #if DEBUG
+    private var queueCountWaiters: [QueueCountWaiter] = []
+    #endif
+
+    init(limit: Int, queueLimit: Int = 64) {
+        precondition(limit > 0 && queueLimit > 0)
+        availablePermits = limit
+        self.queueLimit = queueLimit
+    }
+
+    func withPermit(_ operation: @Sendable () async -> Void) async {
+        _ = await withPermit(key: UUID(), operation)
+    }
+
+    @discardableResult
+    func withPermit(
+        key: UUID,
+        _ operation: @Sendable () async -> Void
+    ) async -> Bool {
+        guard await acquire(key: key) else { return false }
+        await operation()
+        release()
+        return true
+    }
+
+    func cancel(_ key: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.key == key }) else { return }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(returning: false)
+    }
+
+    #if DEBUG
+    func waitUntilQueued(count: Int) async {
+        guard waiters.count < count else { return }
+        await withCheckedContinuation { continuation in
+            queueCountWaiters.append(QueueCountWaiter(count: count, continuation: continuation))
+        }
+    }
+    #endif
+
+    private func acquire(key: UUID) async -> Bool {
+        if availablePermits > 0 {
+            availablePermits -= 1
+            return true
+        }
+        guard waiters.count < queueLimit else { return false }
+        return await withCheckedContinuation { continuation in
+            waiters.append(Waiter(key: key, continuation: continuation))
+            #if DEBUG
+            resumeSatisfiedQueueCountWaiters()
+            #endif
+        }
+    }
+
+    private func release() {
+        guard !waiters.isEmpty else {
+            availablePermits += 1
+            return
+        }
+        let waiter = waiters.removeFirst()
+        waiter.continuation.resume(returning: true)
+    }
+
+    #if DEBUG
+    private func resumeSatisfiedQueueCountWaiters() {
+        var remaining: [QueueCountWaiter] = []
+        for waiter in queueCountWaiters {
+            if waiters.count >= waiter.count {
+                waiter.continuation.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        queueCountWaiters = remaining
+    }
+    #endif
+}
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
@@ -1861,19 +1993,14 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    private final class SchemeTaskState: @unchecked Sendable {
-        let condition = NSCondition()
-        var isStopped = false
-        var callbacksInFlight = 0
-    }
-
     private let lock = NSLock()
     private var sessions: [String: Session] = [:]
-    private var activeSchemeTasks: [ObjectIdentifier: SchemeTaskState] = [:]
-    private let streamQueue = DispatchQueue(label: "com.manaflow.cmux.diff-viewer-stream", qos: .userInitiated)
+    private let taskLifecycle = DiffViewerSchemeTaskLifecycle()
+    private let assetStreamLimiter = DiffViewerAssetStreamLimiter(limit: 2)
+    private static let assetStreamChunkBytes = 1024 * 1024
     // Branch picker routes shell out to the bundled CLI (git). Run them on a
-    // dedicated concurrent queue, NOT the serial file-serving streamQueue, so a
-    // slow/hung git invocation cannot stall restored diff-viewer file serving.
+    // dedicated concurrent queue so a slow Git invocation cannot stall asset
+    // reads or another picker request.
     private let pickerQueue = DispatchQueue(
         label: "com.manaflow.cmux.diff-viewer-picker",
         qos: .userInitiated,
@@ -2115,16 +2242,13 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         // stopped and every later callback (failure or success) no-ops instead of
         // touching a torn-down WKURLSchemeTask.
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        let state = SchemeTaskState()
-        lock.lock()
-        activeSchemeTasks[taskID] = state
-        lock.unlock()
+        let registration = taskLifecycle.register(taskID)
 
         pickerQueue.async { [weak self] in
             guard let self else { return }
             let query = self.diffViewerQueryItems(from: requestURL)
             guard let repo = query["repo"], !repo.isEmpty else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorBadURL)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorBadURL)
                 return
             }
             // Thread the request token so the CLI binds refs enumeration to a
@@ -2134,10 +2258,11 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                 args += ["--base", base]
             }
             guard let result = self.runBundledDiffViewerCommand(args), result.status == 0 else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
                 return
             }
             self.respondScheme(
+                registration: registration,
                 urlSchemeTask: urlSchemeTask,
                 requestURL: requestURL,
                 statusCode: 200,
@@ -2162,10 +2287,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         // makes every later callback no-op instead of crashing on a torn-down
         // task.
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        let state = SchemeTaskState()
-        lock.lock()
-        activeSchemeTasks[taskID] = state
-        lock.unlock()
+        let registration = taskLifecycle.register(taskID)
 
         pickerQueue.async { [weak self] in
             guard let self else { return }
@@ -2173,7 +2295,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let group = query["group"], !group.isEmpty,
                   let repo = query["repo"], !repo.isEmpty,
                   let base = query["base"], !base.isEmpty else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorBadURL)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorBadURL)
                 return
             }
             // Thread the request token so the CLI binds regeneration to the
@@ -2183,7 +2305,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                   let viewerURLString = String(data: result.stdout, encoding: .utf8)?
                       .trimmingCharacters(in: .whitespacesAndNewlines),
                   !viewerURLString.isEmpty else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
                 return
             }
             // Defense in depth: the produced viewer URL must be a custom-scheme
@@ -2192,7 +2314,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let viewerURL = URL(string: viewerURLString),
                   viewerURL.scheme == Self.scheme,
                   viewerURL.host == token else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorBadServerResponse)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorBadServerResponse)
                 return
             }
             // WKURLSchemeTask cannot drive a top-level 302 the browser follows, so
@@ -2209,6 +2331,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             <body><script>window.location.replace("\(jsEscaped)");</script></body></html>
             """
             self.respondScheme(
+                registration: registration,
                 urlSchemeTask: urlSchemeTask,
                 requestURL: requestURL,
                 statusCode: 200,
@@ -2223,20 +2346,17 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    /// Responds to a scheme task that is ALREADY registered in
-    /// `activeSchemeTasks` (the caller registers it before dispatching the async
-    /// picker work). Every WebKit callback is routed through the guarded
-    /// `performSchemeTaskCallback`, so a task stopped/cancelled while the bundled
-    /// CLI ran is never touched.
+    /// Responds to a scheme task that is already registered with
+    /// `taskLifecycle`. WebKit delivery is serialized on the main actor, so stop
+    /// can synchronously remove the task without waiting for background work.
     private func respondScheme(
+        registration: DiffViewerSchemeTaskLifecycle.Registration,
         urlSchemeTask: WKURLSchemeTask,
         requestURL: URL,
         statusCode: Int,
         headers: [String: String],
         body: Data
     ) {
-        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-
         var responseHeaders = headers
         responseHeaders["Content-Length"] = "\(body.count)"
         let response = HTTPURLResponse(
@@ -2246,30 +2366,36 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             headerFields: responseHeaders
         ) ?? URLResponse(url: requestURL, mimeType: headers["Content-Type"], expectedContentLength: body.count, textEncodingName: "utf-8")
 
-        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didReceive(response) }) else { return }
-        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didReceive(body) }) else { return }
-        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didFinish() }) else { return }
-        finishSchemeTask(taskID)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard taskLifecycle.deliver(registration, { urlSchemeTask.didReceive(response) }) else { return }
+            guard taskLifecycle.deliver(registration, { urlSchemeTask.didReceive(body) }) else { return }
+            guard taskLifecycle.deliver(registration, { urlSchemeTask.didFinish() }) else { return }
+            taskLifecycle.finish(registration)
+        }
     }
 
-    /// Fails an ALREADY-registered scheme task through the guarded callback path,
-    /// then clears it from `activeSchemeTasks`. A no-op if the task was already
-    /// stopped/cancelled, so a `didFailWithError` is never delivered to a task
-    /// WebKit already tore down.
+    /// Fails an already-registered task on the main actor. A stopped task has
+    /// already been removed, so the late failure becomes a no-op.
     private func failSchemeTask(
-        _ taskID: ObjectIdentifier,
+        _ registration: DiffViewerSchemeTaskLifecycle.Registration,
         _ urlSchemeTask: WKURLSchemeTask,
         code: Int
     ) {
-        _ = performSchemeTaskCallback(taskID, {
-            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
-        })
-        finishSchemeTask(taskID)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = taskLifecycle.deliver(registration, {
+                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
+            })
+            taskLifecycle.finish(registration)
+        }
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        stopSchemeTask(taskID)
+        if let registration = taskLifecycle.stop(taskID) {
+            Task { await assetStreamLimiter.cancel(registration.generation) }
+        }
     }
 
     static func registeredFile(from object: [String: Any]) -> RegisteredFile? {
@@ -2449,112 +2575,63 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         urlSchemeTask: WKURLSchemeTask
     ) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        let state = SchemeTaskState()
-        lock.lock()
-        activeSchemeTasks[taskID] = state
-        lock.unlock()
+        let registration = taskLifecycle.register(taskID)
+        let lifecycle = taskLifecycle
+        let streamLimiter = assetStreamLimiter
+        let chunkBytes = Self.assetStreamChunkBytes
+        let response = HTTPURLResponse(
+            url: requestURL,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: responseHeaders(for: file)
+        ) ?? URLResponse(
+            url: requestURL,
+            mimeType: file.mimeType,
+            expectedContentLength: Self.fileSize(for: file.fileURL),
+            textEncodingName: "utf-8"
+        )
 
-        streamQueue.async { [weak self] in
-            guard let self else { return }
-            do {
-                let response = HTTPURLResponse(
-                    url: requestURL,
-                    statusCode: 200,
-                    httpVersion: "HTTP/1.1",
-                    headerFields: self.responseHeaders(for: file)
-                ) ?? URLResponse(
-                    url: requestURL,
-                    mimeType: file.mimeType,
-                    expectedContentLength: Self.fileSize(for: file.fileURL),
-                    textEncodingName: "utf-8"
-                )
-
-                guard self.performSchemeTaskCallback(taskID, {
-                    urlSchemeTask.didReceive(response)
-                }) else { return }
-
-                let reader = try DiffViewerAssetReader(fileURL: file.fileURL)
-                defer {
-                    try? reader.close()
-                }
-
-                while self.isSchemeTaskActive(taskID) {
-                    let data = try reader.read(upToCount: 64 * 1024)
-                    if data.isEmpty {
-                        break
-                    }
-                    guard self.performSchemeTaskCallback(taskID, {
-                        urlSchemeTask.didReceive(data)
+        Task.detached(priority: .userInitiated) {
+            let admitted = await streamLimiter.withPermit(key: registration.generation) {
+                do {
+                    guard await lifecycle.deliver(registration, {
+                        urlSchemeTask.didReceive(response)
                     }) else { return }
+
+                    let reader = try DiffViewerAssetReader(fileURL: file.fileURL)
+                    defer {
+                        try? reader.close()
+                    }
+
+                    while true {
+                        let data = try reader.read(upToCount: chunkBytes)
+                        if data.isEmpty {
+                            break
+                        }
+                        guard await lifecycle.deliver(registration, {
+                            urlSchemeTask.didReceive(data)
+                        }) else { return }
+                    }
+
+                    guard await lifecycle.deliver(registration, {
+                        urlSchemeTask.didFinish()
+                    }) else { return }
+                    await lifecycle.finish(registration)
+                } catch {
+                    guard await lifecycle.deliver(registration, {
+                        urlSchemeTask.didFailWithError(error)
+                    }) else { return }
+                    await lifecycle.finish(registration)
                 }
-
-                guard self.performSchemeTaskCallback(taskID, {
-                    urlSchemeTask.didFinish()
-                }) else { return }
-                self.finishSchemeTask(taskID)
-            } catch {
-                guard self.performSchemeTaskCallback(taskID, {
-                    urlSchemeTask.didFailWithError(error)
-                }) else { return }
-                self.finishSchemeTask(taskID)
             }
+            guard !admitted else { return }
+            guard await lifecycle.deliver(registration, {
+                urlSchemeTask.didFailWithError(
+                    NSError(domain: NSURLErrorDomain, code: NSURLErrorResourceUnavailable)
+                )
+            }) else { return }
+            await lifecycle.finish(registration)
         }
-    }
-
-    private func isSchemeTaskActive(_ taskID: ObjectIdentifier) -> Bool {
-        lock.lock()
-        let state = activeSchemeTasks[taskID]
-        lock.unlock()
-        guard let state else { return false }
-
-        state.condition.lock()
-        let active = !state.isStopped
-        state.condition.unlock()
-        return active
-    }
-
-    private func performSchemeTaskCallback(_ taskID: ObjectIdentifier, _ callback: () -> Void) -> Bool {
-        lock.lock()
-        let state = activeSchemeTasks[taskID]
-        lock.unlock()
-        guard let state else { return false }
-
-        state.condition.lock()
-        guard !state.isStopped else {
-            state.condition.unlock()
-            return false
-        }
-        state.callbacksInFlight += 1
-        state.condition.unlock()
-
-        callback()
-
-        state.condition.lock()
-        state.callbacksInFlight -= 1
-        if state.callbacksInFlight == 0 {
-            state.condition.broadcast()
-        }
-        let active = !state.isStopped
-        state.condition.unlock()
-        return active
-    }
-
-    private func finishSchemeTask(_ taskID: ObjectIdentifier) {
-        stopSchemeTask(taskID)
-    }
-
-    private func stopSchemeTask(_ taskID: ObjectIdentifier) {
-        lock.lock()
-        let state = activeSchemeTasks.removeValue(forKey: taskID)
-        lock.unlock()
-        guard let state else { return }
-
-        state.condition.lock()
-        state.isStopped = true
-        while state.callbacksInFlight > 0 {
-            state.condition.wait()
-        }
-        state.condition.unlock()
     }
 
     private static func fileSize(for url: URL) -> Int {
@@ -2801,6 +2878,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
+    var diffViewerImmediatePresentationHost: NSView?
+    var diffViewerLoadingOverlay: NSView?
+    var diffViewerLoadingOperationID: UUID?
+    var diffViewerLoadingOwnedOpeningURL: String?
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
     let automationWatchdog = BrowserAutomationWatchdog()
     let automationDocumentReadiness = BrowserAutomationDocumentReadiness()
@@ -3425,6 +3506,12 @@ final class BrowserPanel: Panel, ObservableObject {
             area: leasePolicy.area(for: bounds)
         )
 
+        // The real portal is ready to adopt the presentation view. Retire the
+        // temporary diff-loading host before portal synchronization reparents it.
+        if leasePolicy.isUsable(next), diffViewerImmediatePresentationHost != nil {
+            closeDiffViewerImmediatePresentationHost()
+        }
+
         if let current = activePortalHostLease {
             if let lock = lockedPortalHost,
                (lock.hostId != current.hostId || lock.paneId != current.paneId) {
@@ -3688,6 +3775,10 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             self.scheduleBrowserViewportHostRestoration(reason: "webViewHierarchyChanged")
         }
+        webView.onDiffViewerRendererReadyChanged = { [weak self, weak webView] ready in
+            guard ready, let self, self.webView === webView else { return }
+            self.closeDiffViewerLoadingOverlay()
+        }
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
@@ -3778,6 +3869,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.designModeController.webViewWillNavigate()
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
+                self.reconcileDiffViewerLoadingOverlayAfterNavigationCommit(to: webView.url)
                 self.isMainFrameProvisionalNavigationActive = false
                 self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
                 // An about:blank placeholder leaves the restore-stall detector armed.
@@ -3816,6 +3908,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failedNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
+                self.closeDiffViewerLoadingOverlay()
                 self.isMainFrameProvisionalNavigationActive = false
                 if let url = URL(string: failedURL) {
                     self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
@@ -3865,6 +3958,22 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
             }
         }
+    }
+
+    func reconcileDiffViewerLoadingOverlayAfterNavigationCommit(to url: URL?) {
+        if let url,
+           url != DiffViewerLoadingPage.url,
+           url.absoluteString != diffViewerLoadingOwnedOpeningURL,
+           !browserIsTemporaryHistoryURL(url) {
+            diffViewerLoadingOperationID = nil
+            diffViewerLoadingOwnedOpeningURL = nil
+        }
+        guard diffViewerLoadingOverlay != nil,
+              url != DiffViewerLoadingPage.url,
+              !browserIsTemporaryHistoryURL(url) else {
+            return
+        }
+        closeDiffViewerLoadingOverlay()
     }
 
     private func publishCommittedURL(from webView: WKWebView) {
@@ -5351,6 +5460,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         cancelHiddenWebViewDiscard()
+        closeDiffViewerImmediatePresentationHost()
+        closeDiffViewerLoadingOverlay()
         isClosingWebViewLifecycle = true
         automationDocumentReadiness.invalidate()
         automationWatchdog.invalidate()

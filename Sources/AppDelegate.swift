@@ -39,6 +39,24 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
+enum DiffViewerDeadlineResult<Value: Sendable>: Sendable {
+    case value(Value)
+    case timedOut
+}
+
+@MainActor
+private final class DiffViewerProcessStore {
+    private var processes: [Int32: Process] = [:]
+
+    func retain(_ process: Process) {
+        processes[process.processIdentifier] = process
+    }
+
+    func remove(processIdentifier: Int32) {
+        processes.removeValue(forKey: processIdentifier)
+    }
+}
+
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -946,12 +964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
 
-    /// Live `cmux diff` viewer subprocesses, keyed by pid, retained until they exit.
-    /// Declared outside `#if DEBUG` because process retention is production behavior.
-    private var diffViewerProcesses: [Int32: Process] = [:]
-    /// In-flight agent-aware diff launches, keyed so repeated shortcuts do not fan out large baseline parses.
-    var openDiffViewerAgentContextTasks: [String: Task<Void, Never>] = [:]
-    var openDiffViewerAgentContextPendingRequests: [String: OpenDiffViewerAgentContextRequest] = [:]
+    private let diffViewerProcessStore = DiffViewerProcessStore()
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -1289,6 +1302,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+            Task { @MainActor in
+                await Task.yield()
+                DiffViewerLoadingPage.prewarm()
+            }
         }
 
         claimAuthCallbackURLSchemes()
@@ -2001,6 +2018,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
+        DiffSidecarBridge.shutdown()
         MobileHostService.shared.stop()
         TerminalController.shared.stop()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
@@ -6026,8 +6044,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return activeCommandPaletteWindow()
     }
 
-    /// Opens the diff viewer for the focused workspace of `tabManager` by spawning the
-    /// bundled `cmux diff` CLI. This is the single shared diff-open path: both the
+    /// Opens a prewarmed loading surface for the focused workspace, then spawns the
+    /// bundled `cmux diff` CLI to populate it. This is the single shared diff-open path: both the
     /// command-palette entries and the Open Diff Viewer keyboard shortcut funnel through
     /// here so neither duplicates diff-open logic. Returns `false` (caller beeps) when
     /// there is no focused workspace or the bundled CLI is missing.
@@ -6052,7 +6070,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 #endif
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            return false
+        }
         guard let workspace = tabManager?.selectedWorkspace,
+              let sourceSurfaceId = workspace.focusedPanelId,
               let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             return false
@@ -6062,65 +6084,210 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let fallbackCwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        if preferAgentContext,
-           let surfaceId = workspace.focusedPanelId,
-           let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
-           let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) {
-            let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
-                snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
-            )
-            let storeURL = Self.agentTurnDiffBaselineStoreURL()
-            let workspaceId = workspace.id
-            let originWindowId = tabManager.flatMap { manager in
-                mainWindowContexts.values.first { $0.tabManager === manager }?.windowId
+        let loadingURL = DiffViewerLoadingPage.url
+        let attachStartedAt = CFAbsoluteTimeGetCurrent()
+        let immediateTarget = workspace.diffViewerImmediatePresentationTarget(
+            from: sourceSurfaceId
+        )
+        let immediateLoadingPresentation = DiffViewerInitialLoadingPresentation(
+            target: immediateTarget
+        )
+#if DEBUG
+        let attachMilliseconds = (CFAbsoluteTimeGetCurrent() - attachStartedAt) * 1_000
+        cmuxDebugLog(
+            "diffViewer.placeholder.attached elapsedMs=\(String(format: "%.1f", attachMilliseconds)) " +
+            "source=\(sourceSurfaceId.uuidString.prefix(5)) " +
+            "immediate=\(immediateLoadingPresentation.isPresented ? 1 : 0)"
+        )
+#endif
+        let workspaceId = workspace.id
+        let freshSnapshotTask: Task<SessionRestorableAgentSnapshot?, Never>? = preferAgentContext
+            ? Task { @MainActor in
+                await SharedLiveAgentIndex.shared.freshSnapshot(
+                    workspaceId: workspaceId,
+                    panelId: sourceSurfaceId
+                )
             }
-            let taskKey = Self.openDiffViewerAgentContextTaskKey(
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId
+            : nil
+
+        Task { @MainActor [weak self, weak tabManager, weak workspace] in
+            await Task.yield()
+            guard let self,
+                  let workspace,
+                  tabManager?.selectedWorkspace?.id == workspaceId,
+                  workspace.focusedPanelId == sourceSurfaceId,
+                  workspace.panels[sourceSurfaceId] != nil else {
+                freshSnapshotTask?.cancel()
+                immediateLoadingPresentation.close()
+                return
+            }
+            guard let placement = workspace.openBrowserOnRight(
+                from: sourceSurfaceId,
+                url: loadingURL,
+                focus: true,
+                creationPolicy: .automationPreload,
+                omnibarVisible: false,
+                transparentBackground: true,
+                bypassRemoteProxy: true
+            ) else {
+                freshSnapshotTask?.cancel()
+                immediateLoadingPresentation.close()
+                NSSound.beep()
+                return
+            }
+            let targetSurfaceId = placement.panel.id
+            let loadingOperationID = placement.panel.beginDiffViewerLoadingOperation()
+            if placement.createdSplit, let immediateTarget {
+                _ = placement.panel.presentDiffViewerLoadingImmediately(
+                    relativeTo: immediateTarget.referenceView,
+                    placement: .futureRightSplit
+                )
+            } else if !placement.createdSplit {
+                let presentationReference = placement.immediatePresentationReferenceView
+                    ?? placement.panel.webView.cmuxBrowserViewportPresentationView
+                _ = placement.panel.presentDiffViewerLoadingImmediately(
+                    relativeTo: presentationReference,
+                    placement: .existingTargetPane
+                )
+            }
+            immediateLoadingPresentation.close()
+
+            let freshSnapshot: SessionRestorableAgentSnapshot?
+            if let freshSnapshotTask {
+                switch await Self.valueBeforeDiffViewerDeadline(
+                    from: freshSnapshotTask,
+                    timeout: .seconds(1)
+                ) {
+                case .value(let snapshot):
+                    freshSnapshot = snapshot
+                case .timedOut:
+                    freshSnapshot = nil
+#if DEBUG
+                    cmuxDebugLog("diffViewer.agentSnapshot.timedOut fallback=unstaged")
+#endif
+                }
+            } else {
+                freshSnapshot = nil
+            }
+            let closeTargetIfStillOwnedByOperation = {
+                guard let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel,
+                      targetPanel.isShowingDiffViewerLoadingState(
+                        expectedURL: loadingURL.absoluteString,
+                        operationID: loadingOperationID
+                      ) else {
+                    return
+                }
+                _ = workspace.closePanel(targetSurfaceId, force: true)
+            }
+            guard tabManager?.selectedWorkspace?.id == workspaceId,
+                  workspace.panels[sourceSurfaceId] != nil else {
+                closeTargetIfStillOwnedByOperation()
+                return
+            }
+            guard let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel else {
+                return
+            }
+            guard targetPanel.isShowingDiffViewerLoadingState(
+                expectedURL: loadingURL.absoluteString,
+                operationID: loadingOperationID
+            ) else {
+                // The user navigated this browser while agent identity was loading.
+                // It no longer belongs to the diff-open operation.
+                return
+            }
+            let launchContext = Self.openDiffViewerLaunchContext(
+                preferAgentContext: preferAgentContext,
+                fallbackCwd: fallbackCwd,
+                sessionId: freshSnapshot?.sessionId,
+                agentProvider: freshSnapshot?.kind.diffTrajectoryProvider,
+                agentWorkingDirectory: freshSnapshot?.workingDirectory
+                    ?? freshSnapshot?.launchCommand?.workingDirectory
             )
-            let request = OpenDiffViewerAgentContextRequest(
+            let launched = self.launchDiffViewerProcess(
                 cliURL: cliURL,
                 socketPath: socketPath,
-                fallbackCwd: fallbackCwd,
-                snapshotWorkingDirectory: snapshotWorkingDirectory,
-                storeURL: storeURL,
+                cwd: launchContext.cwd,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId,
-                originWindowId: originWindowId
+                surfaceId: sourceSurfaceId,
+                useLastTurnSource: launchContext.useLastTurnSource,
+                sessionId: launchContext.sessionId,
+                agentProvider: launchContext.agentProvider,
+                targetSurfaceId: targetSurfaceId,
+                targetExpectedURL: loadingURL.absoluteString,
+                targetOperationID: loadingOperationID
             )
-            if openDiffViewerAgentContextTasks[taskKey] != nil {
-                openDiffViewerAgentContextPendingRequests[taskKey] = request
-            } else {
-                startOpenDiffViewerAgentContextTask(request, taskKey: taskKey)
+            if !launched {
+                closeTargetIfStillOwnedByOperation()
             }
-            return true
         }
-        let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
-        return launchDiffViewerProcess(
-            cliURL: cliURL,
-            socketPath: socketPath,
-            cwd: agentDiffContext?.cwd ?? fallbackCwd,
-            workspaceId: workspace.id,
-            surfaceId: workspace.focusedPanelId,
-            useLastTurnSource: false,
-            sessionId: agentDiffContext?.sessionId
-        )
+        return true
     }
 
-    private func focusedAgentWorkingDirectoryContext(for workspace: Workspace) -> (cwd: String, sessionId: String?)? {
-        guard let surfaceId = workspace.focusedPanelId else { return nil }
-        guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
-            return nil
+    nonisolated static func valueBeforeDiffViewerDeadline<Value: Sendable>(
+        from task: Task<Value, Never>,
+        timeout: Duration
+    ) async -> DiffViewerDeadlineResult<Value> {
+        let stream = AsyncStream<DiffViewerDeadlineResult<Value>> { continuation in
+            let valueWaiter = Task {
+                continuation.yield(.value(await task.value))
+                continuation.finish()
+            }
+            let deadlineWaiter = Task {
+                do {
+                    try await Task.sleep(for: timeout)
+                } catch {
+                    return
+                }
+                continuation.yield(.timedOut)
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                valueWaiter.cancel()
+                deadlineWaiter.cancel()
+            }
         }
-        let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId)
-        if let workingDirectory = Self.normalizedOpenDiffViewerPath(
-            snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
-           ) {
-            return (cwd: workingDirectory, sessionId: sessionId)
+        let result = await stream.first(where: { _ in true }) ?? .timedOut
+        if case .timedOut = result {
+            task.cancel()
         }
-        return nil
+        return result
+    }
+
+    nonisolated static func openDiffViewerLaunchContext(
+        preferAgentContext: Bool,
+        fallbackCwd: String,
+        sessionId: String?,
+        agentProvider: String?,
+        agentWorkingDirectory: String?
+    ) -> (cwd: String, useLastTurnSource: Bool, sessionId: String?, agentProvider: String?) {
+        let sessionId = normalizedOpenDiffViewerSessionId(sessionId)
+        let agentProvider = agentProvider?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        if preferAgentContext, let sessionId, let agentProvider {
+            return (
+                normalizedOpenDiffViewerPath(agentWorkingDirectory) ?? fallbackCwd,
+                true,
+                sessionId,
+                agentProvider
+            )
+        }
+        let cwd = preferAgentContext
+            ? normalizedOpenDiffViewerPath(agentWorkingDirectory) ?? fallbackCwd
+            : fallbackCwd
+        return (cwd, false, nil, nil)
+    }
+
+    nonisolated static func normalizedOpenDiffViewerSessionId(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    nonisolated static func normalizedOpenDiffViewerPath(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
     }
 
     @discardableResult
@@ -6132,7 +6299,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceId: UUID?,
         useLastTurnSource: Bool,
         sessionId: String?,
-        focus: Bool = true
+        agentProvider: String? = nil,
+        focus: Bool = true,
+        targetSurfaceId: UUID? = nil,
+        targetExpectedURL: String? = nil,
+        targetOperationID: UUID? = nil
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
@@ -6149,6 +6320,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if useLastTurnSource, let sessionId {
             arguments.append(contentsOf: ["--session", sessionId])
+        }
+        if useLastTurnSource, let agentProvider {
+            arguments.append(contentsOf: ["--agent", agentProvider])
+        }
+        if let targetSurfaceId {
+            arguments.append(contentsOf: ["--target-surface", targetSurfaceId.uuidString])
+        }
+        if let targetExpectedURL {
+            arguments.append(contentsOf: ["--target-expected-url", targetExpectedURL])
+        }
+        if let targetOperationID {
+            arguments.append(contentsOf: ["--target-operation-id", targetOperationID.uuidString])
         }
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
@@ -6173,13 +6356,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
-                AppDelegate.shared?.diffViewerProcesses.removeValue(forKey: processIdentifier)
+                AppDelegate.shared?.diffViewerProcessStore.remove(
+                    processIdentifier: processIdentifier
+                )
                 guard terminationStatus != 0 else { return }
 #if DEBUG
                 // Log only non-sensitive metadata: the child's stdout/stderr can echo
                 // repo paths and file contents, so report a byte count, not the text.
                 cmuxDebugLog("openDiffViewer exited status=\(terminationStatus) outputBytes=\(output.utf8.count)")
 #endif
+                if let targetSurfaceId,
+                   let targetExpectedURL,
+                   let targetOperationID,
+                   let appDelegate = AppDelegate.shared,
+                   let workspace = appDelegate.workspaceFor(tabId: workspaceId),
+                   let panel = workspace.panels[targetSurfaceId] as? BrowserPanel,
+                   panel.isShowingPendingDiffViewerLoadingState(
+                       expectedURL: targetExpectedURL,
+                       operationID: targetOperationID
+                   ) {
+                    _ = workspace.closePanel(targetSurfaceId, force: true)
+                }
                 NSSound.beep()
             }
         }
@@ -6187,9 +6384,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         do {
             try process.run()
             let processIdentifier = process.processIdentifier
-            diffViewerProcesses[processIdentifier] = process
+            diffViewerProcessStore.retain(process)
             if !process.isRunning {
-                diffViewerProcesses.removeValue(forKey: processIdentifier)
+                diffViewerProcessStore.remove(processIdentifier: processIdentifier)
             }
 #if DEBUG
             cmuxDebugLog("openDiffViewer pid=\(process.processIdentifier)")

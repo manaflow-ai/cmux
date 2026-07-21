@@ -100,6 +100,17 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         return nil
     }
 
+    var diffTrajectoryProvider: String? {
+        switch self {
+        case .codex, .claude:
+            return rawValue
+        case .opencode:
+            return "openCode"
+        default:
+            return nil
+        }
+    }
+
     var displayName: String {
         switch self {
         case .claude: return "Claude Code"

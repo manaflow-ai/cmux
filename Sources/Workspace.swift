@@ -1969,6 +1969,14 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
 final class Workspace: Identifiable, ObservableObject {
+    struct BrowserRightPlacement {
+        let panel: BrowserPanel
+        let sourcePaneID: PaneID?
+        let targetPaneID: PaneID?
+        let createdSplit: Bool
+        let immediatePresentationReferenceView: NSView?
+    }
+
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -1980,6 +1988,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         var preloadsInitialNavigationInBackground: Bool {
             self == .automationPreload
+        }
+
+        var opensURLExternallyWhenDisabled: Bool {
+            self == .userInitiated
         }
     }
 
@@ -7751,6 +7763,93 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
+    /// Places a browser using the shared automation policy: reuse the preferred
+    /// right-side pane when one exists, otherwise create a horizontal split.
+    @discardableResult
+    func openBrowserOnRight(
+        from sourceSurfaceID: UUID,
+        url: URL?,
+        focus: Bool,
+        creationPolicy: BrowserPanelCreationPolicy,
+        omnibarVisible: Bool,
+        transparentBackground: Bool,
+        bypassRemoteProxy: Bool
+    ) -> BrowserRightPlacement? {
+        guard panels[sourceSurfaceID] != nil else { return nil }
+        let sourcePaneID = paneId(forPanelId: sourceSurfaceID)
+        let panel: BrowserPanel?
+        let createdSplit: Bool
+        let immediatePresentationReferenceView: NSView?
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: sourceSurfaceID) {
+            immediatePresentationReferenceView = selectedPresentationView(inPane: targetPane)
+            panel = newBrowserSurface(
+                inPane: targetPane,
+                url: url,
+                focus: focus,
+                selectWhenNotFocused: true,
+                creationPolicy: creationPolicy,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy
+            )
+            createdSplit = false
+        } else {
+            immediatePresentationReferenceView = nil
+            panel = newBrowserSplit(
+                from: sourceSurfaceID,
+                orientation: .horizontal,
+                url: url,
+                focus: focus,
+                creationPolicy: creationPolicy,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy
+            )
+            createdSplit = true
+        }
+        guard let panel else { return nil }
+        return BrowserRightPlacement(
+            panel: panel,
+            sourcePaneID: sourcePaneID,
+            targetPaneID: paneId(forPanelId: panel.id),
+            createdSplit: createdSplit,
+            immediatePresentationReferenceView: immediatePresentationReferenceView
+        )
+    }
+
+    func diffViewerImmediatePresentationTarget(
+        from sourceSurfaceID: UUID
+    ) -> (referenceView: NSView, placement: DiffViewerImmediatePresentationPlacement)? {
+        guard panels[sourceSurfaceID] != nil else { return nil }
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: sourceSurfaceID),
+           let referenceView = selectedPresentationView(inPane: targetPane) {
+            return (referenceView, .existingTargetPane)
+        }
+        guard let sourcePanel = panels[sourceSurfaceID] else { return nil }
+        if let terminal = sourcePanel as? TerminalPanel {
+            return (terminal.hostedView, .futureRightSplit)
+        }
+        if let browser = sourcePanel as? BrowserPanel {
+            return (browser.webView.cmuxBrowserViewportPresentationView, .futureRightSplit)
+        }
+        return nil
+    }
+
+    private func selectedPresentationView(inPane paneID: PaneID) -> NSView? {
+        guard let surfaceID = bonsplitController.selectedTab(inPane: paneID)?.id,
+              let panelID = panelIdFromSurfaceId(surfaceID),
+              let panel = panels[panelID] else {
+            return nil
+        }
+        if let terminal = panel as? TerminalPanel {
+            return terminal.hostedView
+        }
+        if let browser = panel as? BrowserPanel {
+            return browser.webView.cmuxBrowserViewportPresentationView
+        }
+        return nil
+    }
+
     /// Create a new browser surface in the specified pane.
     /// - Parameter focus: nil = focus only if the target pane is already focused (default UI behavior),
     ///                    true = force focus/selection of the new surface,
@@ -7777,7 +7876,8 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if creationPolicy.opensURLExternallyWhenDisabled,
+               let externalURL = url ?? initialRequest?.url {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil

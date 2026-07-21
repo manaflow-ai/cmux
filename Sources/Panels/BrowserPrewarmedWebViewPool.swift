@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import WebKit
 
-/// Single-slot pool of a hidden, pre-navigated browser webview.
+/// Small pool of hidden, pre-navigated browser webviews.
 ///
 /// Upgrade entrypoints call ``prewarm(url:profileID:)`` on hover so the
 /// pricing page is already loaded by the time the user clicks. The
@@ -19,7 +19,7 @@ import WebKit
 /// a click costs one background page load and is reclaimed.
 @MainActor
 final class BrowserPrewarmedWebViewPool: NSObject {
-    static let shared = BrowserPrewarmedWebViewPool()
+    static let shared = BrowserPrewarmedWebViewPool(capacity: 2)
 
     private enum LoadState {
         case loading
@@ -27,23 +27,34 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         case failed
     }
 
+    private struct EntryKey: Hashable {
+        let url: String
+        let profileID: UUID
+    }
+
     private struct Entry {
         let webView: CmuxWebView
         let url: URL
         let profileID: UUID
         let hostWindow: NSWindow
+        let expiresAfter: Duration?
         var loadState: LoadState
+        var lastRequestedAt: ContinuousClock.Instant
     }
 
-    private var entry: Entry?
-    private var expiryTask: Task<Void, Never>?
+    private var entries: [EntryKey: Entry] = [:]
+    private var expiryTasks: [EntryKey: Task<Void, Never>] = [:]
+    private let capacity: Int
     private let timeToLive: Duration
+    private let trustedInlineTimeToLive: Duration
     private let makeWebView: @MainActor (UUID) -> CmuxWebView
     private let startLoad: @MainActor (CmuxWebView, URLRequest) -> Void
     private let expirySleep: @Sendable (Duration) async throws -> Void
 
     init(
+        capacity: Int = 1,
         timeToLive: Duration = .seconds(180),
+        trustedInlineTimeToLive: Duration = .seconds(30),
         makeWebView: @escaping @MainActor (UUID) -> CmuxWebView = { profileID in
             BrowserPanel.makeWebView(profileID: profileID)
         },
@@ -54,7 +65,9 @@ final class BrowserPrewarmedWebViewPool: NSObject {
             try await Task.sleep(for: duration)
         }
     ) {
+        self.capacity = max(1, capacity)
         self.timeToLive = timeToLive
+        self.trustedInlineTimeToLive = trustedInlineTimeToLive
         self.makeWebView = makeWebView
         self.startLoad = startLoad
         self.expirySleep = expirySleep
@@ -63,12 +76,12 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     /// Whether a live entry exists for the URL + profile, regardless of load
     /// state. Used to make repeat hovers cheap no-ops.
     func hasEntry(url: URL, profileID: UUID) -> Bool {
-        guard let entry else { return false }
-        return entry.url.absoluteString == url.absoluteString && entry.profileID == profileID
+        entries[entryKey(url: url, profileID: profileID)] != nil
     }
 
-    /// Starts (or keeps) a hidden webview loading `url`. Replaces any entry
-    /// for a different URL or profile; restarts the expiry clock either way.
+    /// Starts (or keeps) a hidden webview loading `url`. Evicts the oldest
+    /// entry only when the bounded pool is full; restarts this entry's expiry
+    /// clock either way.
     ///
     /// Web URLs only, and never a URL the panel's insecure-HTTP interstitial
     /// would intercept: the hidden load runs without the panel's navigation
@@ -80,24 +93,43 @@ final class BrowserPrewarmedWebViewPool: NSObject {
               !browserShouldBlockInsecureHTTPURL(url) else {
             return
         }
-        if hasEntry(url: url, profileID: profileID) {
-            scheduleExpiry()
+        prewarmValidated(url: url, profileID: profileID, expiresAfter: timeToLive)
+    }
+
+    /// Prewarms an app-authored inline page. The caller must supply a data URL;
+    /// arbitrary local or custom-scheme URLs never enter the pool through this path.
+    func prewarmTrustedInlinePage(url: URL, profileID: UUID) {
+        guard url.scheme?.lowercased() == "data" else { return }
+        prewarmValidated(
+            url: url,
+            profileID: profileID,
+            expiresAfter: trustedInlineTimeToLive
+        )
+    }
+
+    private func prewarmValidated(url: URL, profileID: UUID, expiresAfter: Duration?) {
+        let key = entryKey(url: url, profileID: profileID)
+        if entries[key] != nil {
+            entries[key]?.lastRequestedAt = ContinuousClock.now
+            scheduleExpiry(for: key)
             return
         }
-        discard(reason: "replaced")
+        evictOldestEntryIfNeeded()
 
         let webView = makeWebView(profileID)
         webView.navigationDelegate = self
         let hostWindow = Self.makeHiddenHostWindow(for: webView)
-        entry = Entry(
+        entries[key] = Entry(
             webView: webView,
             url: url,
             profileID: profileID,
             hostWindow: hostWindow,
-            loadState: .loading
+            expiresAfter: expiresAfter,
+            loadState: .loading,
+            lastRequestedAt: ContinuousClock.now
         )
         startLoad(webView, URLRequest(url: url))
-        scheduleExpiry()
+        scheduleExpiry(for: key)
 #if DEBUG
         cmuxDebugLog("browser.prewarmPool.start url=\(url.absoluteString) profile=\(profileID.uuidString.prefix(5))")
 #endif
@@ -108,14 +140,11 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     /// consumed either way: once a matching panel is being created, a
     /// still-loading or failed entry is useless and would otherwise linger.
     func claim(url: URL, profileID: UUID, websiteDataStore: WKWebsiteDataStore) -> CmuxWebView? {
-        guard let entry,
-              entry.url.absoluteString == url.absoluteString,
-              entry.profileID == profileID else {
-            return nil
-        }
+        let key = entryKey(url: url, profileID: profileID)
+        guard let entry = entries[key] else { return nil }
         guard entry.loadState == .finished,
               entry.webView.configuration.websiteDataStore === websiteDataStore else {
-            discard(reason: entry.loadState == .finished ? "datastore-mismatch" : "not-finished")
+            discard(key: key, reason: entry.loadState == .finished ? "datastore-mismatch" : "not-finished")
             return nil
         }
         let webView = entry.webView
@@ -123,9 +152,8 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         webView.removeFromSuperview()
         webView.browserPortalPrepareForHiddenHostAdoption()
         entry.hostWindow.close()
-        self.entry = nil
-        expiryTask?.cancel()
-        expiryTask = nil
+        entries.removeValue(forKey: key)
+        expiryTasks.removeValue(forKey: key)?.cancel()
 #if DEBUG
         cmuxDebugLog("browser.prewarmPool.claim url=\(url.absoluteString)")
 #endif
@@ -133,32 +161,51 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     }
 
     func discard(reason: String) {
-        expiryTask?.cancel()
-        expiryTask = nil
-        guard let entry else { return }
+        let keys = Array(entries.keys)
+        for key in keys {
+            discard(key: key, reason: reason)
+        }
+    }
+
+    private func discard(key: EntryKey, reason: String) {
+        expiryTasks.removeValue(forKey: key)?.cancel()
+        guard let entry = entries.removeValue(forKey: key) else { return }
         entry.webView.navigationDelegate = nil
         entry.webView.stopLoading()
         entry.webView.removeFromSuperview()
         entry.hostWindow.close()
-        self.entry = nil
 #if DEBUG
         cmuxDebugLog("browser.prewarmPool.discard reason=\(reason)")
 #endif
     }
 
-    private func scheduleExpiry() {
-        expiryTask?.cancel()
-        let ttl = timeToLive
+    private func scheduleExpiry(for key: EntryKey) {
+        expiryTasks.removeValue(forKey: key)?.cancel()
+        guard let ttl = entries[key]?.expiresAfter else { return }
         let sleep = expirySleep
-        expiryTask = Task { [weak self] in
+        expiryTasks[key] = Task { [weak self] in
             do {
                 try await sleep(ttl)
             } catch {
                 return
             }
             guard !Task.isCancelled else { return }
-            self?.discard(reason: "expired")
+            self?.discard(key: key, reason: "expired")
         }
+    }
+
+    private func entryKey(url: URL, profileID: UUID) -> EntryKey {
+        EntryKey(url: url.absoluteString, profileID: profileID)
+    }
+
+    private func evictOldestEntryIfNeeded() {
+        guard entries.count >= capacity else { return }
+        let expiringEntries = entries.filter { $0.value.expiresAfter != nil }
+        let candidates = expiringEntries.isEmpty ? entries : expiringEntries
+        guard let oldest = candidates.min(by: {
+            $0.value.lastRequestedAt < $1.value.lastRequestedAt
+        })?.key else { return }
+        discard(key: oldest, reason: "capacity")
     }
 
     /// Offscreen, non-activating host so WebKit treats the webview as
@@ -196,9 +243,14 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     }
 
     private func updateLoadState(for webView: WKWebView, to state: LoadState) {
-        guard var entry, entry.webView === webView else { return }
+        guard let key = entries.first(where: { $0.value.webView === webView })?.key,
+              var entry = entries[key] else { return }
         entry.loadState = state
-        self.entry = entry
+        entries[key] = entry
+    }
+
+    private func entryKey(for webView: WKWebView) -> EntryKey? {
+        entries.first(where: { $0.value.webView === webView })?.key
     }
 }
 
@@ -208,8 +260,8 @@ extension BrowserPrewarmedWebViewPool: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        guard let entry, entry.webView === webView else { return }
-        discard(reason: "load-failed")
+        guard let key = entryKey(for: webView) else { return }
+        discard(key: key, reason: "load-failed")
     }
 
     func webView(
@@ -217,12 +269,12 @@ extension BrowserPrewarmedWebViewPool: WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
-        guard let entry, entry.webView === webView else { return }
-        discard(reason: "provisional-load-failed")
+        guard let key = entryKey(for: webView) else { return }
+        discard(key: key, reason: "provisional-load-failed")
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        guard let entry, entry.webView === webView else { return }
-        discard(reason: "webcontent-terminated")
+        guard let key = entryKey(for: webView) else { return }
+        discard(key: key, reason: "webcontent-terminated")
     }
 }

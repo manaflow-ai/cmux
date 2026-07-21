@@ -106,6 +106,38 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func deferredDiffViewerNavigationReusesRegisteredSessionWithoutRegistrationMetadata() throws {
+        let token = UUID().uuidString.lowercased()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-deferred-viewer-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let html = root.appendingPathComponent("completed.html", isDirectory: false)
+        try "<html></html>".write(to: html, atomically: true, encoding: .utf8)
+        try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [.init(requestPath: "/completed.html", fileURL: html, mimeType: "text/html")]
+        )
+
+        let completedURL = try #require(URL(string: "cmux-diff-viewer://\(token)/completed.html"))
+        #expect(TerminalController.shared.v2AuthorizeDiffViewerNavigation(
+            params: [:],
+            url: completedURL
+        ) == nil)
+    }
+
+    @Test
+    func deferredDiffViewerNavigationRejectsUnregisteredSessionWithoutMetadata() throws {
+        let token = UUID().uuidString.lowercased()
+        let url = try #require(URL(string: "cmux-diff-viewer://\(token)/completed.html"))
+
+        #expect(TerminalController.shared.v2AuthorizeDiffViewerNavigation(
+            params: [:],
+            url: url
+        ) != nil)
+    }
+
+    @Test
     func sidecarProcessPoolCancelsQueuedWorkWithoutLeakingPermit() async throws {
         let pool = DiffSidecarProcessPool(limit: 1)
         let counter = SidecarPoolTestCounter()
@@ -136,12 +168,106 @@ struct ViewerNavigationTests {
         await #expect(throws: CancellationError.self) {
             try await cancelled.value
         }
-        #expect(await counter.value == 1)
+        let countAfterCancellation = await counter.value
+        #expect(countAfterCancellation == 1)
 
         try await pool.withPermit {
             await counter.increment()
         }
-        #expect(await counter.value == 2)
+        let countAfterReuse = await counter.value
+        #expect(countAfterReuse == 2)
+    }
+
+    @Test
+    func sidecarSupervisorDrainsRepeatedRepliesFromLongLivedProcess() async throws {
+        enum Timeout: Error { case elapsed }
+
+        let supervisor = DiffSidecarProcessSupervisor()
+        defer {
+            Task { await supervisor.shutdown() }
+        }
+
+        for index in 0..<64 {
+            let requestID = "repeated-sidecar-\(index)"
+            let request = try JSONSerialization.data(withJSONObject: [
+                "id": requestID,
+                "version": 1,
+                "method": "protocolHandshake",
+            ])
+            let response = try await withThrowingTaskGroup(of: Data.self) { group in
+                group.addTask {
+                    try await supervisor.run(request: request)
+                }
+                group.addTask {
+                    try await ContinuousClock().sleep(for: .seconds(2))
+                    throw Timeout.elapsed
+                }
+                let first = try await group.next()!
+                group.cancelAll()
+                return first
+            }
+            let object = try #require(JSONSerialization.jsonObject(with: response) as? [String: Any])
+            #expect(object["id"] as? String == requestID)
+            #expect(object["error"] is NSNull)
+        }
+    }
+
+    @Test
+    func sidecarProcessExitSignalReplaysExitWithoutBlocking() async {
+        let signal = DiffSidecarProcessExitSignal()
+        let waiter = Task { await signal.wait() }
+
+        await signal.markExited()
+        await waiter.value
+        await signal.wait()
+    }
+
+    @Test
+    func sidecarTerminationEscalatesAndReapsUncooperativeProcess() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [
+            "-c",
+            "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)",
+        ]
+        try process.run()
+
+        await DiffSidecarProcessSupervisor.terminateAndReap(
+            process,
+            gracePeriod: .milliseconds(100)
+        )
+
+        #expect(!process.isRunning)
+        #expect(process.terminationReason == .uncaughtSignal)
+        #expect(process.terminationStatus == SIGKILL)
+    }
+
+    @Test
+    func sidecarTerminationHandleSignalsBeforeAsyncActorCleanup() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+        let handle = DiffSidecarSynchronousTerminationHandle()
+        handle.register(processID: process.processIdentifier)
+
+        handle.terminateSynchronously()
+        process.waitUntilExit()
+
+        #expect(!process.isRunning)
+        #expect(process.terminationReason == .uncaughtSignal)
+        #expect(process.terminationStatus == SIGTERM)
+    }
+
+    @Test
+    func sidecarBridgeNormalizesViewerInstanceIdentity() {
+        let identifier = UUID()
+        let body: [String: Any] = [
+            "params": ["viewerInstanceId": identifier.uuidString.uppercased()]
+        ]
+
+        #expect(DiffSidecarBridge.viewerInstanceID(from: body) == identifier.uuidString.lowercased())
+        #expect(DiffSidecarBridge.viewerInstanceID(from: ["params": ["viewerInstanceId": "invalid"]]) == nil)
     }
 
     @Test

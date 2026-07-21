@@ -2,66 +2,6 @@ import CryptoKit
 import Darwin
 import Foundation
 
-struct CMUXAgentTurnDiffBaselineRecord: Codable {
-    var workspaceId: String
-    var surfaceId: String
-    var sessionId: String
-    var turnId: String?
-    var agent: String
-    var repoRoot: String
-    var baseCommit: String
-    var untrackedPaths: [String]?
-    var untrackedPathHashes: [String: String]?
-    var untrackedSnapshotId: String?
-    var capturedAt: TimeInterval
-}
-
-struct CMUXAgentTurnDiffBaselineStore: Codable {
-    var version: Int = 1
-    var records: [CMUXAgentTurnDiffBaselineRecord] = []
-}
-
-private enum CMUXAgentTurnUntrackedSnapshotLimits {
-    static let maxFiles = 64
-    static let maxFileBytes: UInt64 = 1 * 1024 * 1024
-    static let maxTotalBytes: UInt64 = 4 * 1024 * 1024
-}
-
-enum CMUXAgentTurnDiffBaselineFile {
-    static func path(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
-        if let overrideDirectory = normalized(env["CMUX_AGENT_HOOK_STATE_DIR"]) {
-            return URL(fileURLWithPath: homeExpandedPath(overrideDirectory, env: env), isDirectory: true)
-                .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
-                .path
-        }
-        return homeExpandedPath("~/.cmuxterm/agent-turn-diff-baselines.json", env: env)
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
-    }
-
-    private static func homeExpandedPath(_ rawPath: String, env: [String: String]) -> String {
-        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed == "~" || trimmed.hasPrefix("~/") else {
-            return trimmed
-        }
-        guard let home = normalized(env["HOME"]) else {
-            return trimmed
-        }
-        if trimmed == "~" {
-            return home
-        }
-        return URL(fileURLWithPath: home, isDirectory: true)
-            .appendingPathComponent(String(trimmed.dropFirst(2)), isDirectory: false)
-            .path
-    }
-}
-
 enum CMUXDiffViewerLocalization {
     static func string(
         _ key: String,
@@ -74,6 +14,10 @@ enum CMUXDiffViewerLocalization {
             return localized
         }
         return bundle.localizedString(forKey: key, value: defaultValue, table: nil)
+    }
+
+    static func format(_ key: String, defaultValue: String, _ arguments: CVarArg...) -> String {
+        String(format: string(key, defaultValue: defaultValue), locale: Locale.current, arguments: arguments)
     }
 
     static func localizationBundle(
@@ -155,6 +99,9 @@ extension CMUXCLI {
         var workspace: String?
         var window: String?
         var surface: String?
+        var targetSurface: String?
+        var targetExpectedURL: String?
+        var targetOperationID: String?
         var focus: String?
         var noFocus = false
         var title: String?
@@ -163,6 +110,7 @@ extension CMUXCLI {
         var cwd: String?
         var branchBase: String?
         var sessionId: String?
+        var agentProvider: String?
         var source: DiffSource?
         var inputs: [String] = []
     }
@@ -187,6 +135,7 @@ extension CMUXCLI {
         var sessionId: String?
         var repoRoot: String?
         var branchBaseRef: String?
+        var agentProvider: String? = nil
     }
 
     struct DiffViewerWriteResult {
@@ -436,11 +385,19 @@ extension CMUXCLI {
     /// is validated against, and the exact layout/appearance/title/workspace
     /// context so the regenerated page matches the original visually and
     /// behaviorally. Written next to the manifest as `.branch-session-<group>.json`.
+    struct DiffViewerAgentTurnAuthorization: Codable, Equatable {
+        var provider: String
+        var sessionId: String
+        var hookStateDir: String?
+        var claudeHookStatePath: String?
+    }
+
     struct DiffViewerBranchSession: Codable {
         var token: String
         var groupID: String
         var repoRoot: String
         var allowedRepoRoots: [String]
+        var allowedAgentTurns: [DiffViewerAgentTurnAuthorization]
         var layout: String
         var layoutSource: String
         var appearance: DiffViewerAppearance
@@ -459,6 +416,7 @@ extension CMUXCLI {
             case groupID
             case repoRoot
             case allowedRepoRoots
+            case allowedAgentTurns
             case layout
             case layoutSource
             case appearance
@@ -473,6 +431,7 @@ extension CMUXCLI {
             groupID: String,
             repoRoot: String,
             allowedRepoRoots: [String],
+            allowedAgentTurns: [DiffViewerAgentTurnAuthorization] = [],
             layout: String,
             layoutSource: String,
             appearance: DiffViewerAppearance,
@@ -485,6 +444,7 @@ extension CMUXCLI {
             self.groupID = groupID
             self.repoRoot = repoRoot
             self.allowedRepoRoots = allowedRepoRoots
+            self.allowedAgentTurns = allowedAgentTurns
             self.layout = layout
             self.layoutSource = layoutSource
             self.appearance = appearance
@@ -500,6 +460,10 @@ extension CMUXCLI {
             groupID = try container.decode(String.self, forKey: .groupID)
             repoRoot = try container.decode(String.self, forKey: .repoRoot)
             allowedRepoRoots = try container.decode([String].self, forKey: .allowedRepoRoots)
+            allowedAgentTurns = try container.decodeIfPresent(
+                [DiffViewerAgentTurnAuthorization].self,
+                forKey: .allowedAgentTurns
+            ) ?? []
             layout = try container.decode(String.self, forKey: .layout)
             layoutSource = try container.decode(String.self, forKey: .layoutSource)
             appearance = try container.decode(DiffViewerAppearance.self, forKey: .appearance)
@@ -939,6 +903,7 @@ extension CMUXCLI {
         var windowHandle: String?
         var workspaceHandle: String?
         var surfaceHandle: String?
+        var targetSurfaceHandle: String?
         defer { client?.close() }
 
         func connectedClient() throws -> SocketClient {
@@ -962,6 +927,21 @@ extension CMUXCLI {
             workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: activeClient, windowHandle: windowHandle)
             let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: activeClient, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
+            if let targetSurface = parsedArgs.targetSurface {
+                guard let normalized = try normalizeSurfaceHandle(
+                    targetSurface,
+                    client: activeClient,
+                    workspaceHandle: workspaceHandle,
+                    windowHandle: windowHandle
+                ) else {
+                    throw CLIError(message: CMUXDiffViewerLocalization.format(
+                        "cli.diff.error.targetSurfaceNotFound",
+                        defaultValue: "Target browser surface not found: %@",
+                        targetSurface
+                    ))
+                }
+                targetSurfaceHandle = normalized
+            }
             didResolveTarget = true
         }
 
@@ -970,10 +950,21 @@ extension CMUXCLI {
             surfaceId: nil,
             sessionId: parsedArgs.sessionId,
             repoRoot: nil,
-            branchBaseRef: parsedArgs.branchBase
+            branchBaseRef: parsedArgs.branchBase,
+            agentProvider: parsedArgs.agentProvider
         )
         if let cwd = parsedArgs.cwd {
-            diffSourceContext.repoRoot = try gitRepoRoot(startingAt: resolvePath(cwd))
+            if parsedArgs.source == .lastTurn {
+                let resolvedCwd = resolvePath(cwd)
+                diffSourceContext.repoRoot = (try? gitRepoRoot(startingAt: resolvedCwd))
+                    ?? standardizedDiffSourcePath(resolvedCwd)
+            } else {
+                diffSourceContext.repoRoot = try gitRepoRoot(startingAt: resolvePath(cwd))
+            }
+        } else if parsedArgs.source == .lastTurn {
+            let currentDirectory = FileManager.default.currentDirectoryPath
+            diffSourceContext.repoRoot = (try? gitRepoRoot(startingAt: currentDirectory))
+                ?? standardizedDiffSourcePath(currentDirectory)
         } else if parsedArgs.source == nil {
             // Piped patches get a best-effort repo root from the CLI's cwd so
             // diff comments can persist per repository.
@@ -992,6 +983,7 @@ extension CMUXCLI {
             sourceContext.repoRoot = diffSourceContext.repoRoot
             sourceContext.sessionId = diffSourceContext.sessionId
             sourceContext.branchBaseRef = diffSourceContext.branchBaseRef
+            sourceContext.agentProvider = diffSourceContext.agentProvider
             diffSourceContext = sourceContext
             workspaceHandle = sourceContext.workspaceId ?? workspaceHandle
             surfaceHandle = sourceContext.surfaceId ?? surfaceHandle
@@ -1029,22 +1021,35 @@ extension CMUXCLI {
         }
         if let windowHandle { params["window_id"] = windowHandle }
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
-        if let surfaceHandle { params["surface_id"] = surfaceHandle }
-
-        let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
+        let payload: [String: Any]
+        if let targetSurfaceHandle {
+            params["surface_id"] = targetSurfaceHandle
+            if let targetExpectedURL = parsedArgs.targetExpectedURL {
+                params["expected_url"] = targetExpectedURL
+            }
+            if let targetOperationID = parsedArgs.targetOperationID {
+                params["expected_operation_id"] = targetOperationID
+            }
+            payload = try activeClient.sendV2(method: "browser.navigate", params: params)
+        } else {
+            if let surfaceHandle { params["surface_id"] = surfaceHandle }
+            payload = try activeClient.sendV2(method: "browser.open_split", params: params)
+        }
         let completedViewer: DiffViewerWriteResult
         do {
             completedViewer = try completeDeferredDiffViewer(viewer)
         } catch {
             try navigateCompletedDiffViewerIfNeeded(
                 viewer.completeDeferred != nil, viewer.url.scheme, payload,
-                viewer.url, viewer.url, socketPath, explicitPassword
+                viewer.url, viewer.url, parsedArgs.targetOperationID,
+                socketPath, explicitPassword
             )
             throw error
         }
         try navigateCompletedDiffViewerIfNeeded(
             viewer.completeDeferred != nil, viewer.url.scheme, payload,
-            viewer.url, completedViewer.url, socketPath, explicitPassword
+            viewer.url, completedViewer.url, parsedArgs.targetOperationID,
+            socketPath, explicitPassword
         )
 
         if jsonOutput {
@@ -1315,6 +1320,25 @@ extension CMUXCLI {
                     parsed.surface = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--target-surface":
+                    parsed.targetSurface = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--target-expected-url":
+                    parsed.targetExpectedURL = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--target-operation-id":
+                    let value = try openOptionValue(commandArgs, index: index, name: arg)
+                    guard UUID(uuidString: value) != nil else {
+                        throw CLIError(message: CMUXDiffViewerLocalization.string(
+                            "cli.diff.error.targetOperationIDInvalid",
+                            defaultValue: "--target-operation-id must be a UUID"
+                        ))
+                    }
+                    parsed.targetOperationID = value
+                    index += 2
+                    continue
                 case "--session", "--agent-session":
                     parsed.sessionId = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
@@ -1347,10 +1371,28 @@ extension CMUXCLI {
                     parsed.branchBase = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--agent":
+                    let providerInput = try openOptionValue(commandArgs, index: index, name: arg)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                    guard ["codex", "claude", "opencode"].contains(providerInput) else {
+                        throw CLIError(message: CMUXDiffViewerLocalization.format(
+                            "cli.diff.error.unknownAgent",
+                            defaultValue: "Unknown diff agent '%@'. Expected codex, claude, or opencode.",
+                            providerInput
+                        ))
+                    }
+                    parsed.agentProvider = providerInput == "opencode" ? "openCode" : providerInput
+                    index += 2
+                    continue
                 case "--source":
                     let rawSource = try openOptionValue(commandArgs, index: index, name: arg)
                     guard let source = DiffSource(rawValue: rawSource) else {
-                        throw CLIError(message: "Unknown diff source '\(rawSource)'. Expected unstaged, staged, branch, or last-turn.")
+                        throw CLIError(message: CMUXDiffViewerLocalization.format(
+                            "cli.diff.error.unknownSource",
+                            defaultValue: "Unknown diff source '%@'. Expected unstaged, staged, branch, or last-turn.",
+                            rawSource
+                        ))
                     }
                     try setDiffSource(source, parsed: &parsed)
                     index += 2
@@ -1373,13 +1415,31 @@ extension CMUXCLI {
                     continue
                 default:
                     if arg.hasPrefix("-"), arg != "-" {
-                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--session <id>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
+                        throw CLIError(message: CMUXDiffViewerLocalization.format(
+                            "cli.diff.error.unknownFlag",
+                            defaultValue: "diff: unknown flag '%@'. Run 'cmux diff --help' for usage.",
+                            arg
+                        ))
                     }
                 }
             }
 
             parsed.inputs.append(arg)
             index += 1
+        }
+
+        if parsed.targetExpectedURL != nil, parsed.targetSurface == nil {
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.targetExpectedURLRequiresSurface",
+                defaultValue: "--target-expected-url requires --target-surface"
+            ))
+        }
+        if parsed.targetOperationID != nil,
+           parsed.targetSurface == nil || parsed.targetExpectedURL == nil {
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.targetOperationIDRequiresTarget",
+                defaultValue: "--target-operation-id requires --target-surface and --target-expected-url"
+            ))
         }
 
         return parsed
@@ -1493,7 +1553,10 @@ extension CMUXCLI {
 
         guard let rawInput, rawInput != "-" else {
             guard isatty(STDIN_FILENO) == 0 else {
-                throw CLIError(message: "diff requires a patch file, piped stdin, or a git source. Usage: cmux diff <patch-file>|-|--unstaged|--staged|--branch|--last-turn")
+                throw CLIError(message: CMUXDiffViewerLocalization.string(
+                    "cli.diff.error.inputRequired",
+                    defaultValue: "diff requires a patch file, piped stdin, or a source. Run 'cmux diff --help' for usage."
+                ))
             }
             let data = FileHandle.standardInput.readDataToEndOfFile()
             return DiffInput(
@@ -1581,32 +1644,10 @@ extension CMUXCLI {
             patch = try gitStdout(gitDiffPatchArguments([mergeBase, "--"]), in: repoRoot)
             sourceLabel = "git branch \(baseRef)"
         case .lastTurn:
-            guard let workspaceId = normalizedDiffSourceValue(context.workspaceId),
-                  let surfaceId = normalizedDiffSourceValue(context.surfaceId) else {
-                throw CLIError(message: "cmux diff --last-turn requires a workspace and surface context. Run it from a cmux terminal or pass --workspace and --surface.")
-            }
-            let sessionId = normalizedDiffSourceValue(context.sessionId)
-            let env = ProcessInfo.processInfo.environment
-            let baselineStorePath = CMUXAgentTurnDiffBaselineFile.path(env: env)
-            if let record = try latestAgentTurnDiffBaseline(
-                repoRoot: repoRoot,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId,
-                env: env
-            ) {
-                _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
-                patch = try joinedGitDiffPatches([
-                    gitStdout(gitDiffPatchArguments([record.baseCommit, "--"]), in: repoRoot),
-                    gitUntrackedPatchSinceBaseline(record: record, in: repoRoot, storePath: baselineStorePath)
-                ])
-            } else {
-                // No last-turn baseline recorded yet: emit an empty patch so the
-                // viewer renders the friendly empty diff state (with the source
-                // switcher) instead of throwing a developer-facing CLI error.
-                patch = ""
-            }
-            sourceLabel = "git last-turn \(workspaceId) \(surfaceId)"
+            throw EmptyDiffSourceError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.sidecarRequired",
+                defaultValue: "Last-turn diffs require agent trajectory support."
+            ))
         }
         return DiffInput(
             patch: patch,
@@ -2581,853 +2622,6 @@ extension CMUXCLI {
         return result.stdout
     }
 
-    private func gitStdoutData(
-        _ arguments: [String],
-        in directory: String,
-        timeout: TimeInterval = 60,
-        allowedExitStatuses: Set<Int32> = [0]
-    ) throws -> Data {
-        let result = CLIProcessRunner.runProcessData(
-            executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", directory] + arguments,
-            timeout: timeout
-        )
-        if result.timedOut {
-            throw CLIError(message: "git \(arguments.joined(separator: " ")) timed out")
-        }
-        guard allowedExitStatuses.contains(result.status) else {
-            let command = (["git"] + arguments).joined(separator: " ")
-            throw CLIError(message: "\(command) failed with status \(result.status)")
-        }
-        return result.stdout
-    }
-
-    private func gitUntrackedPaths(in repoRoot: String) throws -> [String] {
-        let output = try gitStdout(["ls-files", "--others", "--exclude-standard", "-z"], in: repoRoot)
-        return output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
-    }
-
-    private func gitUntrackedPatchSinceBaseline(
-        record: CMUXAgentTurnDiffBaselineRecord,
-        in repoRoot: String,
-        storePath: String
-    ) throws -> String {
-        let baselinePaths = Set(record.untrackedPaths ?? [])
-        let baselineHashes = record.untrackedPathHashes ?? [:]
-        let currentPaths = try gitUntrackedPaths(in: repoRoot)
-        let currentPathSet = Set(currentPaths)
-        var patches: [String] = []
-        for path in currentPaths {
-            guard baselinePaths.contains(path) else {
-                patches.append(try gitAddedUntrackedPatch(path: path, in: repoRoot))
-                continue
-            }
-            guard let baselineHash = baselineHashes[path] else {
-                continue
-            }
-            guard try gitUntrackedPathHash(path, in: repoRoot) != baselineHash else {
-                continue
-            }
-            if let baselineFileURL = agentTurnDiffBaselineSnapshotFileURL(
-                path: path,
-                record: record,
-                storePath: storePath
-            ), let patch = try gitChangedUntrackedPatch(path: path, baselineFileURL: baselineFileURL, in: repoRoot) {
-                patches.append(patch)
-            } else if let patch = try gitChangedUntrackedPatchFromGitObject(
-                path: path,
-                baselineHash: baselineHash,
-                in: repoRoot
-            ) {
-                patches.append(patch)
-            }
-        }
-        for path in baselinePaths.subtracting(currentPathSet).sorted() {
-            guard !repoPathExists(path, in: repoRoot) else {
-                continue
-            }
-            guard let baselineHash = baselineHashes[path] else {
-                continue
-            }
-            let patch: String?
-            if let baselineFileURL = agentTurnDiffBaselineSnapshotFileURL(
-                path: path,
-                record: record,
-                storePath: storePath
-            ) {
-                patch = try gitDeletedUntrackedPatch(path: path, baselineFileURL: baselineFileURL)
-            } else {
-                patch = try gitDeletedUntrackedPatchFromGitObject(path: path, baselineHash: baselineHash, in: repoRoot)
-            }
-            guard let patch else { continue }
-            patches.append(patch)
-        }
-        return joinedGitDiffPatches(patches)
-    }
-
-    private func gitAddedUntrackedPatch(path: String, in repoRoot: String) throws -> String {
-        try gitStdout(
-            gitDiffPatchArguments(["--no-index", "--", "/dev/null", path]),
-            in: repoRoot,
-            allowedExitStatuses: [0, 1]
-        )
-    }
-
-    private func gitChangedUntrackedPatch(
-        path: String,
-        baselineFileURL: URL,
-        in repoRoot: String
-    ) throws -> String? {
-        guard let tempPathURL = safeTemporaryGitPathURL(relativePath: path) else {
-            return nil
-        }
-        guard FileManager.default.fileExists(atPath: baselineFileURL.path) else {
-            return nil
-        }
-
-        let tempRoot = tempPathURL.root
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
-        let baselineFile = tempRoot
-            .appendingPathComponent("baseline", isDirectory: true)
-            .appendingPathComponent(path, isDirectory: false)
-        let currentFile = tempRoot
-            .appendingPathComponent("current", isDirectory: true)
-            .appendingPathComponent(path, isDirectory: false)
-        try FileManager.default.createDirectory(
-            at: baselineFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: currentFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.copyItem(at: baselineFileURL, to: baselineFile)
-        guard let currentURL = safeRepoPathURL(relativePath: path, repoRoot: repoRoot) else {
-            return nil
-        }
-        try FileManager.default.copyItem(
-            at: currentURL,
-            to: currentFile
-        )
-
-        let patch = try gitStdout(
-            gitDiffPatchArguments(["--no-index", "--", "baseline/\(path)", "current/\(path)"]),
-            in: tempRoot.path,
-            allowedExitStatuses: [0, 1]
-        )
-        return rewriteChangedUntrackedPatch(patch)
-    }
-
-    private func gitChangedUntrackedPatchFromGitObject(
-        path: String,
-        baselineHash: String,
-        in repoRoot: String
-    ) throws -> String? {
-        guard let tempPathURL = safeTemporaryGitPathURL(relativePath: path) else {
-            return nil
-        }
-        let objectCheck = CLIProcessRunner.runProcess(
-            executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", repoRoot, "cat-file", "-e", "\(baselineHash)^{blob}"],
-            timeout: 30
-        )
-        guard !objectCheck.timedOut, objectCheck.status == 0 else {
-            return nil
-        }
-
-        let tempRoot = tempPathURL.root
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
-        let baselineFile = tempRoot
-            .appendingPathComponent("baseline", isDirectory: true)
-            .appendingPathComponent(path, isDirectory: false)
-        let currentFile = tempRoot
-            .appendingPathComponent("current", isDirectory: true)
-            .appendingPathComponent(path, isDirectory: false)
-        try FileManager.default.createDirectory(
-            at: baselineFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: currentFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let baselineContent = try gitStdoutData(["cat-file", "blob", baselineHash], in: repoRoot)
-        try baselineContent.write(to: baselineFile, options: .atomic)
-        guard let currentURL = safeRepoPathURL(relativePath: path, repoRoot: repoRoot) else {
-            return nil
-        }
-        try FileManager.default.copyItem(
-            at: currentURL,
-            to: currentFile
-        )
-
-        let patch = try gitStdout(
-            gitDiffPatchArguments(["--no-index", "--", "baseline/\(path)", "current/\(path)"]),
-            in: tempRoot.path,
-            allowedExitStatuses: [0, 1]
-        )
-        return rewriteChangedUntrackedPatch(patch)
-    }
-
-    private func gitDeletedUntrackedPatch(
-        path: String,
-        baselineFileURL: URL
-    ) throws -> String? {
-        guard let tempPathURL = safeTemporaryGitPathURL(relativePath: path) else {
-            return nil
-        }
-        guard FileManager.default.fileExists(atPath: baselineFileURL.path) else {
-            return nil
-        }
-
-        let tempRoot = tempPathURL.root
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
-        try FileManager.default.createDirectory(
-            at: tempPathURL.file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.copyItem(at: baselineFileURL, to: tempPathURL.file)
-        return try gitStdout(
-            gitDiffPatchArguments(["--no-index", "--", path, "/dev/null"]),
-            in: tempRoot.path,
-            allowedExitStatuses: [0, 1]
-        )
-    }
-
-    private func gitDeletedUntrackedPatchFromGitObject(
-        path: String,
-        baselineHash: String,
-        in repoRoot: String
-    ) throws -> String? {
-        guard let tempPathURL = safeTemporaryGitPathURL(relativePath: path) else {
-            return nil
-        }
-        let objectCheck = CLIProcessRunner.runProcess(
-            executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", repoRoot, "cat-file", "-e", "\(baselineHash)^{blob}"],
-            timeout: 30
-        )
-        guard !objectCheck.timedOut, objectCheck.status == 0 else {
-            return nil
-        }
-
-        let tempRoot = tempPathURL.root
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
-        try FileManager.default.createDirectory(
-            at: tempPathURL.file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let content = try gitStdoutData(["cat-file", "blob", baselineHash], in: repoRoot)
-        try content.write(to: tempPathURL.file, options: .atomic)
-        return try gitStdout(
-            gitDiffPatchArguments(["--no-index", "--", path, "/dev/null"]),
-            in: tempRoot.path,
-            allowedExitStatuses: [0, 1]
-        )
-    }
-
-    private func rewriteChangedUntrackedPatch(_ patch: String) -> String {
-        patch
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { rawLine -> String in
-                var line = String(rawLine)
-                if line.hasPrefix("diff --git ") {
-                    replaceFirstOccurrence(in: &line, of: "a/baseline/", with: "a/")
-                    replaceFirstOccurrence(in: &line, of: "b/current/", with: "b/")
-                } else if line.hasPrefix("--- ") {
-                    replaceFirstOccurrence(in: &line, of: "a/baseline/", with: "a/")
-                } else if line.hasPrefix("+++ ") {
-                    replaceFirstOccurrence(in: &line, of: "b/current/", with: "b/")
-                }
-                return line
-            }
-            .joined(separator: "\n")
-    }
-
-    private func replaceFirstOccurrence(in line: inout String, of target: String, with replacement: String) {
-        guard let range = line.range(of: target) else { return }
-        line.replaceSubrange(range, with: replacement)
-    }
-
-    private func safeTemporaryGitPathURL(relativePath: String) -> (root: URL, file: URL)? {
-        guard let components = safeRelativePathComponents(relativePath) else {
-            return nil
-        }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-diff-untracked-\(UUID().uuidString)", isDirectory: true)
-        let file = components.reduce(root) { partial, component in
-            partial.appendingPathComponent(component, isDirectory: false)
-        }
-        return (root, file)
-    }
-
-    private func repoPathExists(_ relativePath: String, in repoRoot: String) -> Bool {
-        guard let url = safeRepoPathURL(relativePath: relativePath, repoRoot: repoRoot) else {
-            return true
-        }
-        return FileManager.default.fileExists(atPath: url.path)
-    }
-
-    private func safeRepoPathURL(relativePath: String, repoRoot: String) -> URL? {
-        guard let components = safeRelativePathComponents(relativePath) else {
-            return nil
-        }
-        let root = URL(fileURLWithPath: repoRoot, isDirectory: true)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-        let url = components
-            .reduce(root) { partial, component in
-                partial.appendingPathComponent(component, isDirectory: false)
-            }
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-        guard url.path.hasPrefix(root.path + "/") else {
-            return nil
-        }
-        return url
-    }
-
-    private func safeRelativePathComponents(_ relativePath: String) -> [String]? {
-        guard !relativePath.hasPrefix("/") else { return nil }
-        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard !components.isEmpty,
-              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
-            return nil
-        }
-        return components
-    }
-
-    private func agentTurnDiffBaselineSnapshotRootURL(storePath: String) -> URL {
-        URL(fileURLWithPath: storePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("agent-turn-diff-baseline-snapshots", isDirectory: true)
-    }
-
-    private func agentTurnDiffBaselineSnapshotStagingRootURL(storePath: String) -> URL {
-        URL(fileURLWithPath: storePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("agent-turn-diff-baseline-snapshots-staging", isDirectory: true)
-    }
-
-    private func agentTurnDiffBaselineSnapshotDirectoryURL(
-        snapshotId: String,
-        storePath: String
-    ) -> URL? {
-        guard snapshotId.range(of: #"^[A-Fa-f0-9-]{36}$"#, options: .regularExpression) != nil else {
-            return nil
-        }
-        return agentTurnDiffBaselineSnapshotRootURL(storePath: storePath)
-            .appendingPathComponent(snapshotId, isDirectory: true)
-    }
-
-    private func agentTurnDiffBaselineStagedSnapshotDirectoryURL(
-        snapshotId: String,
-        storePath: String
-    ) -> URL? {
-        guard snapshotId.range(of: #"^[A-Fa-f0-9-]{36}$"#, options: .regularExpression) != nil else {
-            return nil
-        }
-        return agentTurnDiffBaselineSnapshotStagingRootURL(storePath: storePath)
-            .appendingPathComponent(snapshotId, isDirectory: true)
-    }
-
-    private func agentTurnDiffBaselineSnapshotFileURL(
-        path: String,
-        record: CMUXAgentTurnDiffBaselineRecord,
-        storePath: String
-    ) -> URL? {
-        guard let snapshotId = record.untrackedSnapshotId,
-              let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
-                snapshotId: snapshotId,
-                storePath: storePath
-              ),
-              let components = safeRelativePathComponents(path) else {
-            return nil
-        }
-        let filesRoot = snapshotDirectory.appendingPathComponent("files", isDirectory: true)
-        let file = components.reduce(filesRoot) { partial, component in
-            partial.appendingPathComponent(component, isDirectory: false)
-        }
-        let standardizedRoot = filesRoot.standardizedFileURL.resolvingSymlinksInPath()
-        let standardizedFile = file.standardizedFileURL.resolvingSymlinksInPath()
-        guard standardizedFile.path.hasPrefix(standardizedRoot.path + "/") else {
-            return nil
-        }
-        return standardizedFile
-    }
-
-    private func gitUntrackedPathHash(_ path: String, in repoRoot: String) throws -> String {
-        try gitSingleLine(["hash-object", "--no-filters", "--", path], in: repoRoot)
-    }
-
-    private func gitUntrackedSnapshotFileHash(_ url: URL, in repoRoot: String) throws -> String {
-        try gitSingleLine(["hash-object", "--no-filters", "--", url.path], in: repoRoot)
-    }
-
-    private func posixError(_ errnoValue: Int32) -> POSIXError {
-        POSIXError(POSIXErrorCode(rawValue: errnoValue) ?? .EIO)
-    }
-
-    private func setPrivateDirectoryPermissions(at url: URL) throws {
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
-    }
-
-    private func createPrivateDirectory(at url: URL) throws {
-        try FileManager.default.createDirectory(
-            at: url,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        try setPrivateDirectoryPermissions(at: url)
-    }
-
-    private func copyPrivateFile(from sourceURL: URL, to destinationURL: URL) throws {
-        let data = try Data(contentsOf: sourceURL)
-        let fd = Darwin.open(
-            destinationURL.path,
-            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
-            mode_t(S_IRUSR | S_IWUSR)
-        )
-        guard fd >= 0 else {
-            throw posixError(errno)
-        }
-        var shouldClose = true
-        do {
-            try data.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else {
-                    return
-                }
-                var offset = 0
-                while offset < rawBuffer.count {
-                    let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
-                    if written < 0 {
-                        if errno == EINTR {
-                            continue
-                        }
-                        throw posixError(errno)
-                    }
-                    if written == 0 {
-                        throw POSIXError(.EIO)
-                    }
-                    offset += written
-                }
-            }
-            if Darwin.fchmod(fd, mode_t(S_IRUSR | S_IWUSR)) != 0 {
-                throw posixError(errno)
-            }
-            if Darwin.close(fd) != 0 {
-                shouldClose = false
-                throw posixError(errno)
-            }
-            shouldClose = false
-        } catch {
-            if shouldClose {
-                Darwin.close(fd)
-            }
-            try? FileManager.default.removeItem(at: destinationURL)
-            throw error
-        }
-    }
-
-    private func gitUntrackedPathHashes(
-        paths: [String],
-        in repoRoot: String,
-        storePath: String
-    ) throws -> (snapshotId: String?, hashes: [String: String]) {
-        guard !paths.isEmpty else {
-            return (nil, [:])
-        }
-        let snapshotId = UUID().uuidString
-        guard let snapshotDirectory = agentTurnDiffBaselineStagedSnapshotDirectoryURL(
-            snapshotId: snapshotId,
-            storePath: storePath
-        ) else {
-            return (nil, [:])
-        }
-        try createPrivateDirectory(at: agentTurnDiffBaselineSnapshotStagingRootURL(storePath: storePath))
-        try createPrivateDirectory(at: snapshotDirectory)
-        let filesRoot = snapshotDirectory.appendingPathComponent("files", isDirectory: true)
-        try createPrivateDirectory(at: filesRoot)
-        var hashes: [String: String] = [:]
-        var capturedBytes: UInt64 = 0
-        for path in paths {
-            guard hashes.count < CMUXAgentTurnUntrackedSnapshotLimits.maxFiles,
-                  let sourceURL = safeRepoPathURL(relativePath: path, repoRoot: repoRoot),
-                  let components = safeRelativePathComponents(path) else {
-                continue
-            }
-            guard let attributes = try? FileManager.default.attributesOfItem(atPath: sourceURL.path),
-                  attributes[.type] as? FileAttributeType == .typeRegular else {
-                continue
-            }
-            let fileSize = UInt64((attributes[.size] as? NSNumber)?.int64Value ?? 0)
-            guard fileSize <= CMUXAgentTurnUntrackedSnapshotLimits.maxFileBytes,
-                  capturedBytes + fileSize <= CMUXAgentTurnUntrackedSnapshotLimits.maxTotalBytes else {
-                continue
-            }
-            do {
-                let destinationURL = components.reduce(filesRoot) { partial, component in
-                    partial.appendingPathComponent(component, isDirectory: false)
-                }
-                try createPrivateDirectory(at: destinationURL.deletingLastPathComponent())
-                if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    try FileManager.default.removeItem(at: destinationURL)
-                }
-                try copyPrivateFile(from: sourceURL, to: destinationURL)
-                let hash = try gitUntrackedSnapshotFileHash(destinationURL, in: repoRoot)
-                hashes[path] = hash
-                capturedBytes += fileSize
-            } catch {
-                continue
-            }
-        }
-        if hashes.isEmpty {
-            try? FileManager.default.removeItem(at: snapshotDirectory)
-            return (nil, [:])
-        }
-        return (snapshotId, hashes)
-    }
-
-    private func publishAgentTurnDiffBaselineSnapshot(snapshotId: String, storePath: String) throws {
-        guard let stagedDirectory = agentTurnDiffBaselineStagedSnapshotDirectoryURL(
-            snapshotId: snapshotId,
-            storePath: storePath
-        ), let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
-            snapshotId: snapshotId,
-            storePath: storePath
-        ) else {
-            return
-        }
-        guard FileManager.default.fileExists(atPath: stagedDirectory.path) else {
-            return
-        }
-        try createPrivateDirectory(at: snapshotDirectory.deletingLastPathComponent())
-        if FileManager.default.fileExists(atPath: snapshotDirectory.path) {
-            try FileManager.default.removeItem(at: snapshotDirectory)
-        }
-        try FileManager.default.moveItem(at: stagedDirectory, to: snapshotDirectory)
-        try setPrivateDirectoryPermissions(at: snapshotDirectory)
-    }
-
-    private func removeAgentTurnDiffBaselineSnapshot(snapshotId: String, storePath: String) {
-        if let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
-            snapshotId: snapshotId,
-            storePath: storePath
-        ) {
-            try? FileManager.default.removeItem(at: snapshotDirectory)
-        }
-        if let stagedDirectory = agentTurnDiffBaselineStagedSnapshotDirectoryURL(
-            snapshotId: snapshotId,
-            storePath: storePath
-        ) {
-            try? FileManager.default.removeItem(at: stagedDirectory)
-        }
-    }
-
-    private func joinedGitDiffPatches(_ patches: [String]) -> String {
-        let trimmed = patches.map { $0.trimmingCharacters(in: .newlines) }.filter { !$0.isEmpty }
-        guard !trimmed.isEmpty else { return "" }
-        return trimmed.joined(separator: "\n") + "\n"
-    }
-
-    func recordAgentTurnDiffBaseline(
-        agent: String,
-        sessionId: String,
-        turnId: String?,
-        cwd: String?,
-        workspaceId: String,
-        surfaceId: String,
-        env: [String: String] = ProcessInfo.processInfo.environment,
-        preserveExistingTurnBaseline: Bool = false
-    ) throws {
-        guard let cwd = normalizedDiffSourceValue(cwd),
-              let workspaceId = normalizedDiffSourceValue(workspaceId),
-              let surfaceId = normalizedDiffSourceValue(surfaceId) else {
-            return
-        }
-        let repoRoot = try gitRepoRoot(startingAt: cwd)
-        let baseCommit = try agentTurnDiffBaselineCommit(in: repoRoot)
-        let untrackedPaths = try gitUntrackedPaths(in: repoRoot)
-        let storePath = CMUXAgentTurnDiffBaselineFile.path(env: env)
-        let untrackedSnapshot = try gitUntrackedPathHashes(
-            paths: untrackedPaths,
-            in: repoRoot,
-            storePath: storePath
-        )
-        let record = CMUXAgentTurnDiffBaselineRecord(
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            sessionId: normalizedDiffSourceValue(sessionId) ?? "",
-            turnId: normalizedDiffSourceValue(turnId),
-            agent: normalizedDiffSourceValue(agent) ?? "agent",
-            repoRoot: repoRoot,
-            baseCommit: baseCommit,
-            untrackedPaths: untrackedPaths.isEmpty ? nil : untrackedPaths,
-            untrackedPathHashes: untrackedSnapshot.hashes.isEmpty ? nil : untrackedSnapshot.hashes,
-            untrackedSnapshotId: untrackedSnapshot.snapshotId,
-            capturedAt: Date().timeIntervalSince1970
-        )
-        do {
-            var removedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
-            var shouldRemoveNewSnapshot = untrackedSnapshot.snapshotId != nil
-            try updateAgentTurnDiffBaselineStore(path: storePath, update: { store in
-                func matchesCurrentScope(_ existing: CMUXAgentTurnDiffBaselineRecord) -> Bool {
-                    standardizedDiffSourcePath(existing.repoRoot) == repoRoot &&
-                        diffScopeIdentifierEquals(existing.workspaceId, workspaceId) &&
-                        diffScopeIdentifierEquals(existing.surfaceId, surfaceId) &&
-                        existing.sessionId == record.sessionId
-                }
-
-                let previousRecords = store.records
-                if preserveExistingTurnBaseline,
-                   let turnId = record.turnId,
-                   store.records.contains(where: { matchesCurrentScope($0) && $0.turnId == turnId }) {
-                    pruneAgentTurnDiffBaselineStore(&store)
-                    removedRecords = previousRecords.filter { previous in
-                        !store.records.contains { agentTurnDiffBaselineRecordEquals($0, previous) }
-                    }
-                    removedRecords.append(record)
-                    return
-                }
-
-                if let snapshotId = untrackedSnapshot.snapshotId {
-                    try publishAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
-                    shouldRemoveNewSnapshot = false
-                }
-                store.records.removeAll { existing in
-                    guard matchesCurrentScope(existing) else {
-                        return false
-                    }
-                    if let turnId = record.turnId {
-                        return existing.turnId == turnId
-                    }
-                    return existing.turnId == nil
-                }
-                store.records.append(record)
-                pruneAgentTurnDiffBaselineStore(&store)
-                removedRecords = previousRecords.filter { previous in
-                    !store.records.contains { agentTurnDiffBaselineRecordEquals($0, previous) }
-                }
-            }, afterWrite: { store in
-                pruneAgentTurnDiffBaselineArtifacts(
-                    storePath: storePath,
-                    removedRecords: removedRecords,
-                    retainedRecords: store.records
-                )
-            })
-            if shouldRemoveNewSnapshot, let snapshotId = untrackedSnapshot.snapshotId {
-                removeAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
-            }
-        } catch {
-            if let snapshotId = untrackedSnapshot.snapshotId {
-                removeAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
-            }
-            throw error
-        }
-    }
-
-    private func agentTurnDiffBaselineCommit(in repoRoot: String) throws -> String {
-        let stashResult = CLIProcessRunner.runProcess(
-            executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", repoRoot, "stash", "create", "cmux last turn baseline"],
-            timeout: 60
-        )
-        if stashResult.timedOut {
-            throw CLIError(message: "git stash create timed out")
-        }
-        if stashResult.status == 0,
-           let stashCommit = normalizedDiffSourceValue(stashResult.stdout) {
-            _ = try gitStdout(["update-ref", agentTurnDiffBaselineRefName(for: stashCommit), stashCommit], in: repoRoot)
-            return stashCommit
-        }
-        if let headCommit = try? gitSingleLine(["rev-parse", "HEAD"], in: repoRoot) {
-            return headCommit
-        }
-        return try gitSingleLine(["hash-object", "-t", "tree", "/dev/null"], in: repoRoot)
-    }
-
-    private func agentTurnDiffBaselineRefName(for commit: String) -> String {
-        "refs/cmux/last-turn/\(commit)"
-    }
-
-    private func agentTurnDiffBaselineUntrackedRefName(for blob: String) -> String {
-        "refs/cmux/last-turn/untracked/\(blob)"
-    }
-
-    /// Returns the most recent last-turn diff baseline recorded for the given
-    /// workspace/surface, or `nil` when no baseline has been recorded yet.
-    ///
-    /// A missing baseline is not an error: it means there is simply nothing to
-    /// diff for the last turn, so callers render the friendly empty diff state
-    /// (with the source switcher) rather than surfacing a raw CLI error.
-    private func latestAgentTurnDiffBaseline(
-        repoRoot: String,
-        workspaceId: String,
-        surfaceId: String,
-        sessionId: String?,
-        env: [String: String]
-    ) throws -> CMUXAgentTurnDiffBaselineRecord? {
-        let store = try readAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env))
-        let repoRoot = standardizedDiffSourcePath(repoRoot)
-        let candidates = store.records.filter { record in
-            standardizedDiffSourcePath(record.repoRoot) == repoRoot
-                && diffScopeIdentifierEquals(record.workspaceId, workspaceId)
-                && diffScopeIdentifierEquals(record.surfaceId, surfaceId)
-                && (sessionId == nil || record.sessionId == sessionId)
-        }
-        return candidates.max(by: { $0.capturedAt < $1.capturedAt })
-    }
-
-    private func readAgentTurnDiffBaselineStore(path: String) throws -> CMUXAgentTurnDiffBaselineStore {
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return CMUXAgentTurnDiffBaselineStore()
-        }
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(CMUXAgentTurnDiffBaselineStore.self, from: data)
-    }
-
-    private func updateAgentTurnDiffBaselineStore(
-        path: String,
-        update: (inout CMUXAgentTurnDiffBaselineStore) throws -> Void,
-        afterWrite: ((CMUXAgentTurnDiffBaselineStore) -> Void)? = nil
-    ) throws {
-        let url = URL(fileURLWithPath: path)
-        try createPrivateDirectory(at: url.deletingLastPathComponent())
-        let lockPath = path + ".lock"
-        let fd = open(lockPath, O_CREAT | O_RDWR | O_NOFOLLOW, mode_t(S_IRUSR | S_IWUSR))
-        if fd < 0 {
-            throw CLIError(message: "Failed to open diff baseline lock: \(lockPath)")
-        }
-        defer { Darwin.close(fd) }
-
-        if flock(fd, LOCK_EX) != 0 {
-            throw CLIError(message: "Failed to lock diff baseline store: \(path)")
-        }
-        defer { _ = flock(fd, LOCK_UN) }
-        if Darwin.fchmod(fd, mode_t(S_IRUSR | S_IWUSR)) != 0 {
-            throw posixError(errno)
-        }
-
-        var store = (try? readAgentTurnDiffBaselineStore(path: path)) ?? CMUXAgentTurnDiffBaselineStore()
-        try update(&store)
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(store).write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        afterWrite?(store)
-    }
-
-    private func pruneAgentTurnDiffBaselineStore(_ store: inout CMUXAgentTurnDiffBaselineStore) {
-        let cutoff = Date().timeIntervalSince1970 - 60 * 60 * 24 * 7
-        store.records = store.records
-            .filter { $0.capturedAt >= cutoff }
-            .sorted { $0.capturedAt > $1.capturedAt }
-        if store.records.count > 200 {
-            store.records.removeSubrange(200..<store.records.count)
-        }
-    }
-
-    private func pruneAgentTurnDiffBaselineArtifacts(
-        storePath: String,
-        removedRecords: [CMUXAgentTurnDiffBaselineRecord],
-        retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
-    ) {
-        pruneAgentTurnDiffBaselineRefs(
-            removedRecords: removedRecords,
-            retainedRecords: retainedRecords
-        )
-        pruneAgentTurnDiffBaselineSnapshots(storePath: storePath, retainedRecords: retainedRecords)
-    }
-
-    private func pruneAgentTurnDiffBaselineRefs(
-        removedRecords: [CMUXAgentTurnDiffBaselineRecord],
-        retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
-    ) {
-        var deletedKeys: Set<String> = []
-        for record in removedRecords {
-            let repoRoot = standardizedDiffSourcePath(record.repoRoot)
-            let key = "\(repoRoot)\u{0}\(record.baseCommit)"
-            guard deletedKeys.insert(key).inserted else { continue }
-            let stillRetained = retainedRecords.contains { retained in
-                standardizedDiffSourcePath(retained.repoRoot) == repoRoot
-                    && retained.baseCommit == record.baseCommit
-            }
-            guard !stillRetained else { continue }
-            _ = CLIProcessRunner.runProcess(
-                executablePath: "/usr/bin/env",
-                arguments: ["git", "-C", repoRoot, "update-ref", "-d", agentTurnDiffBaselineRefName(for: record.baseCommit)],
-                timeout: 30
-            )
-        }
-        var deletedBlobKeys: Set<String> = []
-        for record in removedRecords {
-            let repoRoot = standardizedDiffSourcePath(record.repoRoot)
-            let blobs = Set(record.untrackedPathHashes.map { Array($0.values) } ?? [])
-            for blob in blobs {
-                let key = "\(repoRoot)\u{0}\(blob)"
-                guard deletedBlobKeys.insert(key).inserted else { continue }
-                let stillRetained = retainedRecords.contains { retained in
-                    standardizedDiffSourcePath(retained.repoRoot) == repoRoot
-                        && (retained.untrackedPathHashes?.values.contains(blob) ?? false)
-                }
-                guard !stillRetained else { continue }
-                _ = CLIProcessRunner.runProcess(
-                    executablePath: "/usr/bin/env",
-                    arguments: ["git", "-C", repoRoot, "update-ref", "-d", agentTurnDiffBaselineUntrackedRefName(for: blob)],
-                    timeout: 30
-                )
-            }
-        }
-    }
-
-    private func pruneAgentTurnDiffBaselineSnapshots(
-        storePath: String,
-        retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
-    ) {
-        let rootURL = agentTurnDiffBaselineSnapshotRootURL(storePath: storePath)
-        let retainedSnapshotIds = Set(retainedRecords.compactMap(\.untrackedSnapshotId))
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-        for entry in entries {
-            guard !retainedSnapshotIds.contains(entry.lastPathComponent) else {
-                continue
-            }
-            try? FileManager.default.removeItem(at: entry)
-        }
-    }
-
-    private func agentTurnDiffBaselineRecordEquals(
-        _ lhs: CMUXAgentTurnDiffBaselineRecord,
-        _ rhs: CMUXAgentTurnDiffBaselineRecord
-    ) -> Bool {
-        standardizedDiffSourcePath(lhs.repoRoot) == standardizedDiffSourcePath(rhs.repoRoot)
-            && diffScopeIdentifierEquals(lhs.workspaceId, rhs.workspaceId)
-            && diffScopeIdentifierEquals(lhs.surfaceId, rhs.surfaceId)
-            && lhs.sessionId == rhs.sessionId
-            && lhs.turnId == rhs.turnId
-            && lhs.agent == rhs.agent
-            && lhs.baseCommit == rhs.baseCommit
-            && lhs.untrackedPaths == rhs.untrackedPaths
-            && lhs.untrackedPathHashes == rhs.untrackedPathHashes
-            && lhs.untrackedSnapshotId == rhs.untrackedSnapshotId
-            && lhs.capturedAt == rhs.capturedAt
-    }
-
-    private func diffScopeIdentifierEquals(_ lhs: String, _ rhs: String) -> Bool {
-        if let lhsUUID = UUID(uuidString: lhs),
-           let rhsUUID = UUID(uuidString: rhs) {
-            return lhsUUID == rhsUUID
-        }
-        return lhs == rhs
-    }
-
     func normalizedDiffSourceValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -3963,19 +3157,14 @@ extension CMUXCLI {
         runtime: URL?
     ) throws -> DiffViewerWriteResult {
         let target = try makeDiffViewerGitHTMLSetTarget(runtime: runtime)
-        if selectedSource != .lastTurn,
+        if selectedSource == .lastTurn,
            !diffViewerUsesTypedSidecar(runtime: target.runtime) {
-            return try writeOpeningGitDiffViewerHTMLSet(
-                selectedSource: selectedSource,
-                titleOverride: titleOverride,
-                layout: layout,
-                layoutSource: layoutSource,
-                appearance: appearance,
-                context: context,
-                target: target
-            )
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.sidecarRequired",
+                defaultValue: "Last-turn diffs require agent trajectory support."
+            ))
         }
-        return try writeCompleteGitDiffViewerHTMLSet(
+        return try writeOpeningGitDiffViewerHTMLSet(
             selectedSource: selectedSource,
             titleOverride: titleOverride,
             layout: layout,
@@ -4022,7 +3211,11 @@ extension CMUXCLI {
         let directory = target.directory
         let mapper = target.mapper
         let groupID = target.groupID
-        let repoRoot = try gitRepoRootForDiff(context)
+        let repoRoot: String? = if selectedSource == .lastTurn {
+            nil
+        } else {
+            try gitRepoRootForDiff(context)
+        }
         let openingFileURL = directory.appendingPathComponent(
             "diff-\(groupID)-opening.html",
             isDirectory: false
@@ -4030,11 +3223,9 @@ extension CMUXCLI {
         let openingURL = try mapper.viewerURL(for: openingFileURL)
         let sourceLabel = "git \(selectedSource.slug)"
         let title = titleOverride ?? selectedSource.title
-        let message = diffViewerLoadingDiffMessage(selectedSource.menuLabel)
         try writeDiffViewerOpeningHTML(
             to: openingFileURL,
             title: title,
-            message: message,
             appearance: appearance
         )
         let allowedFiles = [try mapper.allowedFile(fileURL: openingFileURL, mimeType: "text/html")]
@@ -4106,23 +3297,42 @@ extension CMUXCLI {
                     return completed
                 } catch {
                     let message = diffViewerErrorMessage(error)
-                    try? writeDiffViewerStatusHTML(
-                        to: openingFileURL,
-                        title: title,
-                        sourceLabel: sourceLabel,
-                        message: message,
-                        isError: true,
-                        pollForReplacement: false,
-                        layout: layout,
-                        layoutSource: layoutSource,
-                        appearance: appearance,
-                        sourceOptions: [],
-                        repoOptions: [],
-                        baseOptions: [],
-                        repoRoot: repoRoot,
-                        branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
-                        runtime: target.runtime
-                    )
+                    do {
+                        let assets = try ensureDiffViewerAssets(
+                            nextTo: openingFileURL,
+                            runtime: target.runtime
+                        )
+                        let errorAllowedFiles = try diffViewerAllowedFiles(
+                            pageURLs: [openingFileURL],
+                            assets: assets,
+                            mapper: mapper
+                        )
+                        try writeDiffViewerHTTPManifest(
+                            token: mapper.token,
+                            files: errorAllowedFiles,
+                            rootDirectory: directory
+                        )
+                        try writeDiffViewerStatusHTML(
+                            to: openingFileURL,
+                            title: title,
+                            sourceLabel: sourceLabel,
+                            message: message,
+                            isError: true,
+                            pollForReplacement: false,
+                            layout: layout,
+                            layoutSource: layoutSource,
+                            appearance: appearance,
+                            sourceOptions: [],
+                            repoOptions: [],
+                            baseOptions: [],
+                            repoRoot: repoRoot,
+                            branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
+                            assets: assets,
+                            runtime: target.runtime
+                        )
+                    } catch {
+                        // Preserve the original completion error for the caller.
+                    }
                     throw error
                 }
             }
@@ -5497,8 +4707,6 @@ extension CMUXCLI {
         var candidateURLs: [URL] = [selectedURL]
         let parentURL = selectedURL.deletingLastPathComponent()
 
-        candidateURLs.append(contentsOf: agentTurnDiffBaselineRepoURLs(context: context))
-
         if parentURL.lastPathComponent == "worktrees" {
             let hqURL = parentURL.deletingLastPathComponent()
             let primaryRepoURL = hqURL.appendingPathComponent("repo", isDirectory: true)
@@ -5536,32 +4744,6 @@ extension CMUXCLI {
                 label: gitDiffViewerRepoLabel(root, selectedRepoRoot: selectedRepoRoot)
             )
         }
-    }
-
-    private func agentTurnDiffBaselineRepoURLs(context: DiffSourceContext) -> [URL] {
-        guard let workspaceId = normalizedDiffSourceValue(context.workspaceId),
-              let surfaceId = normalizedDiffSourceValue(context.surfaceId),
-              let store = try? readAgentTurnDiffBaselineStore(
-                path: CMUXAgentTurnDiffBaselineFile.path(env: ProcessInfo.processInfo.environment)
-              ) else {
-            return []
-        }
-        let sessionId = normalizedDiffSourceValue(context.sessionId)
-        let matchingRecords = store.records
-            .filter { record in
-                diffScopeIdentifierEquals(record.workspaceId, workspaceId) &&
-                    diffScopeIdentifierEquals(record.surfaceId, surfaceId) &&
-                    (sessionId == nil || record.sessionId == sessionId)
-            }
-            .sorted { $0.capturedAt > $1.capturedAt }
-        var seen: Set<String> = []
-        var urls: [URL] = []
-        for record in matchingRecords {
-            let repoRoot = standardizedDiffSourcePath(record.repoRoot)
-            guard seen.insert(repoRoot).inserted else { continue }
-            urls.append(URL(fileURLWithPath: repoRoot, isDirectory: true).standardizedFileURL)
-        }
-        return urls
     }
 
     private func gitChildRepoURLs(in directoryURL: URL) -> [URL] {
@@ -6368,8 +5550,8 @@ extension CMUXCLI {
         // Branch regeneration runs on concurrent connection queues, so two
         // concurrent base selections can race this read-modify-write: the later
         // write would drop the earlier page from the manifest and 404 it.
-        // Serialize the whole sequence under a per-manifest flock, matching the
-        // flock pattern used by updateAgentTurnDiffBaselineStore.
+        // Serialize the whole sequence under a per-manifest flock so concurrent
+        // branch regenerations cannot overwrite each other's allowlist entries.
         let lockPath = url.path + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR | O_NOFOLLOW, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
@@ -7566,7 +6748,9 @@ extension CMUXCLI {
 
     func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: URL? = nil) throws -> DiffViewerAssets {
         let sourceDirectory = try diffViewerBundledAssetDirectory(runtime: runtime)
-        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
+        let assetManifest = diffViewerBundledAssetManifest(in: sourceDirectory)
+        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4" +
+            (assetManifest.map { "-" + String($0.contentKey.prefix(12)) } ?? "")
         let targetDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
@@ -7586,17 +6770,24 @@ extension CMUXCLI {
               assetPaths.contains("worker-pool/worker-portable.js") else {
             throw CLIError(message: "Bundled diff viewer entry assets not found")
         }
-        let copiedAssetURLs = try assetPaths.map {
-            try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
-        }
+        let copiedAssetURLs = try prepareDiffViewerAssets(
+            relativePaths: assetPaths,
+            manifest: assetManifest,
+            from: sourceDirectory,
+            to: targetDirectory
+        )
 
+        let appAssetManifest = diffViewerBundledAssetManifest(in: appAssets.sourceDirectory)
         let appAssetPaths = try diffViewerBundledAssetRelativePaths(in: appAssets.sourceDirectory)
         guard appAssetPaths.contains("main.mjs") else {
             throw CLIError(message: "Bundled cmux diff viewer app entry asset not found")
         }
-        let copiedAppAssetURLs = try appAssetPaths.map {
-            try copyDiffViewerAsset(relativePath: $0, from: appAssets.sourceDirectory, to: targetAppDirectory)
-        }
+        let copiedAppAssetURLs = try prepareDiffViewerAssets(
+            relativePaths: appAssetPaths,
+            manifest: appAssetManifest,
+            from: appAssets.sourceDirectory,
+            to: targetAppDirectory
+        )
 
         return DiffViewerAssets(
             appModuleURL: "./assets/\(appAssetDirectoryName)/main.mjs",
@@ -7606,6 +6797,74 @@ extension CMUXCLI {
             workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.js",
             files: copiedAssetURLs + copiedAppAssetURLs
         )
+    }
+
+    private func prepareDiffViewerAssets(
+        relativePaths: [String],
+        manifest: DiffViewerBundledAssetManifest?,
+        from sourceDirectory: URL,
+        to targetDirectory: URL
+    ) throws -> [URL] {
+        let storedPathsByLogicalPath = Dictionary(
+            uniqueKeysWithValues: manifest?.files.map { ($0.logicalPath, $0.storedPath) } ?? []
+        )
+        let targetURLs = try relativePaths.map { relativePath -> URL in
+            if let storedPath = storedPathsByLogicalPath[relativePath] {
+                return targetDirectory.appendingPathComponent(storedPath, isDirectory: false)
+            }
+            let sourceURL = try diffViewerBundledAssetFileURL(
+                relativePath: relativePath,
+                in: sourceDirectory
+            )
+            let storedPath = sourceURL.path.hasSuffix(".deflate")
+                ? relativePath + ".deflate"
+                : relativePath
+            return targetDirectory.appendingPathComponent(storedPath, isDirectory: false)
+        }
+
+        if let manifest {
+            let markerURL = targetDirectory.appendingPathComponent(".cmux-assets.complete", isDirectory: false)
+            if let cachedKey = try? String(contentsOf: markerURL, encoding: .utf8),
+               cachedKey == manifest.contentKey,
+               diffViewerAssetCacheIsCurrent(
+                   relativePaths: relativePaths,
+                   targetURLs: targetURLs,
+                   sourceDirectory: sourceDirectory
+               ) {
+                return targetURLs
+            }
+
+            let copied = try relativePaths.map {
+                try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
+            }
+            try manifest.contentKey.write(to: markerURL, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: markerURL.path)
+            return copied
+        }
+
+        return try relativePaths.map {
+            try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
+        }
+    }
+
+    private func diffViewerAssetCacheIsCurrent(
+        relativePaths: [String],
+        targetURLs: [URL],
+        sourceDirectory: URL
+    ) -> Bool {
+        guard relativePaths.count == targetURLs.count else { return false }
+        return zip(relativePaths, targetURLs).allSatisfy { relativePath, targetURL in
+            guard let sourceURL = try? diffViewerBundledAssetFileURL(
+                relativePath: relativePath,
+                in: sourceDirectory
+            ),
+            let sourceValues = try? sourceURL.resourceValues(
+                forKeys: [.fileSizeKey, .contentModificationDateKey]
+            ) else {
+                return false
+            }
+            return isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: sourceValues)
+        }
     }
 
     private func diffViewerBundledAppAssetDirectory(
@@ -7637,6 +6896,9 @@ extension CMUXCLI {
     }
 
     private func diffViewerAppAssetContentKey(directory: URL) throws -> String {
+        if let manifest = diffViewerBundledAssetManifest(in: directory) {
+            return String(manifest.contentKey.prefix(12))
+        }
         var hasher = SHA256()
         for relativePath in try diffViewerBundledAssetRelativePaths(in: directory).sorted() {
             hasher.update(data: Data(relativePath.utf8))
@@ -7670,7 +6932,12 @@ extension CMUXCLI {
             isDirectory: false
         )
         do {
-            try fileManager.copyItem(at: sourceURL, to: temporaryURL)
+            // Bundled assets are immutable. A hard link makes the cold cache fill
+            // metadata-only on the normal same-volume app + /tmp layout; copying
+            // remains the portable fallback for cross-volume or restricted files.
+            if Darwin.link(sourceURL.path, temporaryURL.path) != 0 {
+                try fileManager.copyItem(at: sourceURL, to: temporaryURL)
+            }
             if rename(temporaryURL.path, targetURL.path) != 0 {
                 let code = Int(errno)
                 throw NSError(domain: NSPOSIXErrorDomain, code: code)
@@ -7864,6 +7131,75 @@ extension CMUXCLI {
                 try? FileManager.default.removeItem(at: entry)
             }
         }
+        pruneDiffViewerAssetDirectories(in: directory, now: now)
+    }
+
+    func pruneDiffViewerAssetDirectories(in directory: URL, now: Date = Date()) {
+        let fileManager = FileManager.default
+        let assetsDirectory = directory.appendingPathComponent("assets", isDirectory: true)
+        guard let assetEntries = try? fileManager.contentsOfDirectory(
+            at: assetsDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        let assetsPath = assetsDirectory.standardizedFileURL.path
+        let assetsPrefix = assetsPath.hasSuffix("/") ? assetsPath : assetsPath + "/"
+        var referencedDirectories: Set<String> = []
+        if let rootEntries = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: []
+        ) {
+            for manifestURL in rootEntries
+                where manifestURL.lastPathComponent.hasPrefix(".manifest-")
+                    && manifestURL.pathExtension == "json" {
+                guard let data = try? Data(contentsOf: manifestURL),
+                      let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let files = manifest["files"] as? [[String: Any]] else {
+                    continue
+                }
+                for file in files {
+                    guard file["remote_url"] == nil || file["remote_url"] is NSNull,
+                          let path = file["file_path"] as? String else {
+                        continue
+                    }
+                    let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+                    guard standardizedPath.hasPrefix(assetsPrefix) else { continue }
+                    let remainder = standardizedPath.dropFirst(assetsPrefix.count)
+                    guard let directoryName = remainder.split(separator: "/", maxSplits: 1).first else {
+                        continue
+                    }
+                    referencedDirectories.insert(
+                        assetsDirectory.appendingPathComponent(String(directoryName), isDirectory: true)
+                            .standardizedFileURL.path
+                    )
+                }
+            }
+        }
+
+        let sortedDirectories = assetEntries.compactMap { url -> (url: URL, date: Date)? in
+            guard let values = try? url.resourceValues(
+                forKeys: [.contentModificationDateKey, .creationDateKey, .isDirectoryKey]
+            ), values.isDirectory == true else {
+                return nil
+            }
+            return (url, values.contentModificationDate ?? values.creationDate ?? .distantPast)
+        }.sorted { $0.date > $1.date }
+
+        // Keep the newest four versions even without a manifest so a concurrent
+        // launch can finish writing its manifest. Older unreferenced versions
+        // expire after 24h, with a hard cap of sixteen recent versions.
+        for (index, entry) in sortedDirectories.enumerated() {
+            guard index >= 4,
+                  !referencedDirectories.contains(entry.url.standardizedFileURL.path),
+                  index >= 16 || now.timeIntervalSince(entry.date) > 24 * 60 * 60 else {
+                continue
+            }
+            try? fileManager.removeItem(at: entry.url)
+        }
     }
 
     func openSubcommandUsage() -> String {
@@ -7892,7 +7228,7 @@ extension CMUXCLI {
     }
 
     func diffSubcommandUsage() -> String {
-        """
+        CMUXDiffViewerLocalization.string("cli.diff.usage", defaultValue: """
         Usage: cmux diff [patch-file|-] [options]
 
         Render a unified diff or patch in a cmux browser split.
@@ -7903,10 +7239,13 @@ extension CMUXCLI {
           --unstaged                   Show unstaged git changes
           --staged                     Show staged git changes
           --branch                     Show current branch against merge base
-          --last-turn                  Show changes since this surface's last agent-turn baseline
+          --last-turn                  Show patches recorded in the agent's latest turn
+          --agent <name>               Agent provider: codex, claude, opencode
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
           --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID)
-          --session <id>               Scope --last-turn to one agent session
+          --target-surface <id|ref|index>
+                                       Populate an existing browser surface instead of opening a split
+          --session <id>               Agent session for --last-turn
           --window <id|ref|index>      Target window
           --cwd, --repo <path>          Git repository or worktree path for git sources
           --base <ref>                  Base ref for --branch (default: origin/HEAD or main)
@@ -7923,9 +7262,9 @@ extension CMUXCLI {
           cmux diff --staged
           cmux diff --branch
           cmux diff --branch --base upstream/main --repo ../repo
-          cmux diff --last-turn
+          cmux diff --last-turn --agent codex --session <id>
           cmux diff pr.patch --layout unified --font-size 15 --focus true
-        """
+        """)
     }
 
     private func openCommandSummary(

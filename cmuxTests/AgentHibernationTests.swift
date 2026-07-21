@@ -257,6 +257,37 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
+    func testStaleAgentPIDCleanupPreservesRunningReplacementOnSamePanel() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.recordAgentPID(
+            key: "codex.current-session",
+            pid: 222,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        expectFalse(
+            workspace.clearAgentPID(
+                key: "codex.stale-session",
+                panelId: panelId,
+                clearStatus: true,
+                refreshPorts: false
+            )
+        )
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
+        expectEqual(
+            SidebarAgentActivitySummary.activeCodingAgentCount(
+                statesByPanelId: workspace.agentLifecycleStatesByPanelId
+            ),
+            1
+        )
+    }
+
+    @MainActor
+    @Test
     func testClearingAgentPIDByPanelClearsOnlyThatPanelLifecycleWhenSameStatusKeyRemains() throws {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)

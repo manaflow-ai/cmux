@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Darwin
+import os
 import Testing
 import CmuxBrowser
 
@@ -59,6 +60,22 @@ private final class BrowserPanelTestScriptMessageHandler: NSObject, WKScriptMess
         body = message.body
         expectation.fulfill()
     }
+}
+
+private actor DiffViewerStreamConcurrencyProbe {
+    private var active = 0
+    private var peak = 0
+
+    func started() {
+        active += 1
+        peak = max(peak, active)
+    }
+
+    func finished() {
+        active -= 1
+    }
+
+    func peakCount() -> Int { peak }
 }
 
 @MainActor
@@ -599,6 +616,152 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
+    func testDiffViewerImmediateLoadingAttachesSynchronously() throws {
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let sourceView = NSView(frame: NSRect(x: 240, y: 0, width: 760, height: 644))
+        contentView.addSubview(sourceView)
+        let window = NSWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer { window.close() }
+
+        let presentation = try XCTUnwrap(DiffViewerImmediateLoadingPresentation(
+            relativeTo: sourceView,
+            placement: .futureRightSplit
+        ))
+        defer { presentation.close() }
+
+        let host = try XCTUnwrap(contentView.subviews.first {
+            $0.identifier?.rawValue == "cmux.diffViewerImmediateLoading"
+        })
+        XCTAssertEqual(host.frame, NSRect(x: 620.5, y: 0, width: 379.5, height: 644))
+    }
+
+    func testDiffViewerOpenContinuesWithoutImmediatePresentationTarget() {
+        let presentation = DiffViewerInitialLoadingPresentation(target: nil)
+
+        XCTAssertFalse(presentation.isPresented)
+        presentation.close()
+    }
+
+    func testDiffViewerImmediatePresentationUsesFutureRightSplitFrame() throws {
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let sourceView = NSView(frame: NSRect(x: 240, y: 0, width: 760, height: 644))
+        contentView.addSubview(sourceView)
+        let window = NSWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer { window.close() }
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer {
+            panel.closeDiffViewerLoadingOverlay()
+            panel.closeDiffViewerImmediatePresentationHost()
+            panel.close()
+        }
+        XCTAssertTrue(panel.presentDiffViewerLoadingImmediately(relativeTo: sourceView))
+        let immediateHost = try XCTUnwrap(panel.diffViewerImmediatePresentationHost)
+        XCTAssertEqual(immediateHost.frame, NSRect(x: 620.5, y: 0, width: 379.5, height: 644))
+        XCTAssertTrue(panel.webView.window === window)
+        let loadingOverlay = try XCTUnwrap(panel.diffViewerLoadingOverlay)
+        XCTAssertTrue(loadingOverlay.superview === panel.webView.cmuxBrowserViewportPresentationView)
+    }
+
+    func testDiffViewerImmediatePresentationUsesReusedTargetFrame() throws {
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let targetView = NSView(frame: NSRect(x: 620, y: 0, width: 380, height: 644))
+        contentView.addSubview(targetView)
+        let window = NSWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer { window.close() }
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer {
+            panel.closeDiffViewerLoadingOverlay()
+            panel.closeDiffViewerImmediatePresentationHost()
+            panel.close()
+        }
+        XCTAssertTrue(panel.presentDiffViewerLoadingImmediately(
+            relativeTo: targetView,
+            placement: .existingTargetPane
+        ))
+        let immediateHost = try XCTUnwrap(panel.diffViewerImmediatePresentationHost)
+        XCTAssertEqual(immediateHost.frame, targetView.frame)
+    }
+
+    func testDiffViewerPortalClaimRetiresImmediateHostButKeepsLoadingOverlay() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let immediateHost = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        let presentationView = NSView(frame: immediateHost.bounds)
+        let loadingOverlay = NSView(frame: presentationView.bounds)
+        immediateHost.addSubview(presentationView)
+        presentationView.addSubview(loadingOverlay)
+        panel.diffViewerImmediatePresentationHost = immediateHost
+        panel.diffViewerLoadingOverlay = loadingOverlay
+
+        let portalDestination = NSView(frame: immediateHost.bounds)
+        XCTAssertTrue(panel.claimPortalHost(
+            hostId: ObjectIdentifier(portalDestination),
+            paneId: PaneID(),
+            inWindow: true,
+            bounds: portalDestination.bounds,
+            reason: "test.diffViewerHandoff"
+        ))
+        XCTAssertNil(panel.diffViewerImmediatePresentationHost)
+        XCTAssertNil(immediateHost.superview)
+        XCTAssertTrue(loadingOverlay.superview === presentationView)
+    }
+
+    func testDiffViewerLoadingOverlayWaitsForRendererReady() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        let loadingOverlay = NSView(frame: container.bounds)
+        container.addSubview(loadingOverlay)
+        panel.diffViewerLoadingOverlay = loadingOverlay
+        let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        cmuxWebView.diffViewerFocusStateDidChange(viewer: true, editable: false, rendererReady: false)
+        XCTAssertTrue(panel.diffViewerLoadingOverlay === loadingOverlay)
+        XCTAssertTrue(loadingOverlay.superview === container)
+        cmuxWebView.diffViewerFocusStateDidChange(viewer: true, editable: false, rendererReady: true)
+        XCTAssertNil(panel.diffViewerLoadingOverlay)
+        XCTAssertNil(loadingOverlay.superview)
+    }
+
+    func testDiffViewerLoadingOverlayClosesWhenAnotherPageCommits() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        let loadingOverlay = NSView(frame: container.bounds)
+        container.addSubview(loadingOverlay)
+        panel.diffViewerLoadingOverlay = loadingOverlay
+
+        panel.reconcileDiffViewerLoadingOverlayAfterNavigationCommit(
+            to: DiffViewerLoadingPage.url
+        )
+        XCTAssertTrue(panel.diffViewerLoadingOverlay === loadingOverlay)
+
+        panel.reconcileDiffViewerLoadingOverlayAfterNavigationCommit(
+            to: try XCTUnwrap(URL(string: "https://example.com/destination"))
+        )
+        XCTAssertNil(panel.diffViewerLoadingOverlay)
+        XCTAssertNil(loadingOverlay.superview)
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(
@@ -701,6 +864,236 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         )
 
         XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
+    }
+
+    func testDiffViewerSchemeLifecycleDropsCallbacksAfterSynchronousStop() {
+        let lifecycle = DiffViewerSchemeTaskLifecycle()
+        let taskID = ObjectIdentifier(NSObject())
+        var callbackCount = 0
+
+        let registration = lifecycle.register(taskID)
+        XCTAssertTrue(lifecycle.deliver(registration) {
+            XCTAssertTrue(Thread.isMainThread)
+            callbackCount += 1
+        })
+
+        lifecycle.stop(taskID)
+
+        XCTAssertFalse(lifecycle.deliver(registration) {
+            callbackCount += 1
+        })
+        XCTAssertEqual(callbackCount, 1)
+    }
+
+    func testDiffViewerSchemeLifecycleRejectsStaleIdentifierGeneration() {
+        let lifecycle = DiffViewerSchemeTaskLifecycle()
+        let reusedTaskID = ObjectIdentifier(NSObject())
+        let staleRegistration = lifecycle.register(reusedTaskID)
+        let currentRegistration = lifecycle.register(reusedTaskID)
+        var delivered = 0
+
+        XCTAssertFalse(lifecycle.deliver(staleRegistration) {
+            delivered += 1
+        })
+        XCTAssertTrue(lifecycle.deliver(currentRegistration) {
+            delivered += 1
+        })
+        lifecycle.finish(staleRegistration)
+        XCTAssertTrue(lifecycle.deliver(currentRegistration) {
+            delivered += 1
+        })
+        XCTAssertEqual(delivered, 2)
+    }
+
+    func testDiffViewerSchemeLifecycleSerializesDeliveryOnMainActor() async {
+        let lifecycle = DiffViewerSchemeTaskLifecycle()
+        let registration = lifecycle.register(ObjectIdentifier(NSObject()))
+        let delivered = expectation(description: "callback delivered on main actor")
+
+        Task.detached {
+            let didDeliver = await lifecycle.deliver(registration) {
+                XCTAssertTrue(Thread.isMainThread)
+            }
+            XCTAssertTrue(didDeliver)
+            delivered.fulfill()
+        }
+
+        await fulfillment(of: [delivered], timeout: 1)
+    }
+
+    func testDiffViewerAssetStreamLimiterBoundsConcurrentReaders() async {
+        let limiter = DiffViewerAssetStreamLimiter(limit: 2)
+        let probe = DiffViewerStreamConcurrencyProbe()
+        let tasks = (0..<8).map { _ in
+            Task {
+                await limiter.withPermit {
+                    await probe.started()
+                    try? await Task.sleep(for: .milliseconds(25))
+                    await probe.finished()
+                }
+            }
+        }
+
+        for task in tasks {
+            await task.value
+        }
+
+        let peak = await probe.peakCount()
+        XCTAssertEqual(peak, 2)
+    }
+
+    func testDiffViewerAssetStreamLimiterCancelsQueuedWaiterAndKeepsFIFOOrder() async {
+        let limiter = DiffViewerAssetStreamLimiter(limit: 1, queueLimit: 2)
+        let firstKey = UUID()
+        let cancelledKey = UUID()
+        let finalKey = UUID()
+        let firstStarted = AsyncStream<Void>.makeStream()
+        let releaseFirst = AsyncStream<Void>.makeStream()
+        let order = OSAllocatedUnfairLock(initialState: [String]())
+
+        let first = Task {
+            await limiter.withPermit(key: firstKey) {
+                order.withLock { $0.append("first") }
+                firstStarted.continuation.yield()
+                for await _ in releaseFirst.stream { return }
+            }
+        }
+        var firstStartedIterator = firstStarted.stream.makeAsyncIterator()
+        _ = await firstStartedIterator.next()
+
+        let cancelled = Task {
+            await limiter.withPermit(key: cancelledKey) {
+                order.withLock { $0.append("cancelled") }
+            }
+        }
+        let final = Task {
+            await limiter.withPermit(key: finalKey) {
+                order.withLock { $0.append("final") }
+            }
+        }
+        await limiter.waitUntilQueued(count: 2)
+        await limiter.cancel(cancelledKey)
+        releaseFirst.continuation.yield()
+        releaseFirst.continuation.finish()
+
+        let firstResult = await first.value
+        let cancelledResult = await cancelled.value
+        let finalResult = await final.value
+        XCTAssertTrue(firstResult)
+        XCTAssertFalse(cancelledResult)
+        XCTAssertTrue(finalResult)
+        XCTAssertEqual(order.withLock { $0 }, ["first", "final"])
+    }
+
+    func testDiffViewerAssetStreamLimiterRejectsWorkBeyondQueueBound() async {
+        let limiter = DiffViewerAssetStreamLimiter(limit: 1, queueLimit: 1)
+        let firstStarted = AsyncStream<Void>.makeStream()
+        let releaseFirst = AsyncStream<Void>.makeStream()
+        let first = Task {
+            await limiter.withPermit(key: UUID()) {
+                firstStarted.continuation.yield()
+                for await _ in releaseFirst.stream { return }
+            }
+        }
+        var firstStartedIterator = firstStarted.stream.makeAsyncIterator()
+        _ = await firstStartedIterator.next()
+
+        let queued = Task { await limiter.withPermit(key: UUID()) {} }
+        await limiter.waitUntilQueued(count: 1)
+        let rejected = await limiter.withPermit(key: UUID()) {}
+        releaseFirst.continuation.yield()
+        releaseFirst.continuation.finish()
+
+        XCTAssertFalse(rejected)
+        let firstResult = await first.value
+        let queuedResult = await queued.value
+        XCTAssertTrue(firstResult)
+        XCTAssertTrue(queuedResult)
+    }
+
+    func testDiffViewerLoadingOwnershipIncludesDeferredOpeningPage() throws {
+        let token = UUID().uuidString.lowercased()
+        let unrelatedToken = UUID().uuidString.lowercased()
+        let openingURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: token,
+            requestPath: "/diff-group-opening.html"
+        ))
+        let unrelatedOpeningURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: unrelatedToken,
+            requestPath: "/diff-group-opening.html"
+        ))
+        let completedURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: token,
+            requestPath: "/diff-group-viewer.html"
+        ))
+        let expectedURL = DiffViewerLoadingPage.url.absoluteString
+
+        XCTAssertTrue(DiffViewerLoadingPage.owns(
+            url: DiffViewerLoadingPage.url,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString
+        ))
+        XCTAssertTrue(DiffViewerLoadingPage.owns(
+            url: openingURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString
+        ))
+        XCTAssertFalse(DiffViewerLoadingPage.owns(
+            url: unrelatedOpeningURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString
+        ))
+        XCTAssertFalse(DiffViewerLoadingPage.owns(
+            url: completedURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString
+        ))
+    }
+
+    func testDiffViewerLoadingOwnershipYieldsToProvisionalUserNavigation() throws {
+        let expectedURL = DiffViewerLoadingPage.url.absoluteString
+        let userURL = try XCTUnwrap(URL(string: "https://example.com/user-navigation"))
+
+        let ownershipURL = DiffViewerLoadingPage.ownershipURL(
+            committedURL: DiffViewerLoadingPage.url,
+            provisionalURL: userURL,
+            isProvisionalNavigationActive: true
+        )
+
+        XCTAssertEqual(ownershipURL, userURL)
+        XCTAssertFalse(DiffViewerLoadingPage.owns(
+            url: ownershipURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: nil
+        ))
+    }
+
+    func testDiffViewerPendingOwnershipPreservesRenderedOpeningPageError() throws {
+        let token = UUID().uuidString.lowercased()
+        let openingURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: token,
+            requestPath: "/diff-group-opening.html"
+        ))
+        let expectedURL = DiffViewerLoadingPage.url.absoluteString
+
+        XCTAssertTrue(DiffViewerLoadingPage.isPending(
+            url: DiffViewerLoadingPage.url,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString,
+            openingDocumentHasPendingMarker: false
+        ))
+        XCTAssertTrue(DiffViewerLoadingPage.isPending(
+            url: openingURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString,
+            openingDocumentHasPendingMarker: true
+        ))
+        XCTAssertFalse(DiffViewerLoadingPage.isPending(
+            url: openingURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: openingURL.absoluteString,
+            openingDocumentHasPendingMarker: false
+        ))
     }
 
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {

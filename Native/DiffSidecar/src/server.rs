@@ -27,15 +27,19 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 #[cfg(feature = "http-server")]
 use axum::{Json, Router};
-use fs2::FileExt;
 #[cfg(feature = "http-server")]
 use futures_util::StreamExt;
 #[cfg(feature = "http-server")]
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(test)]
+use tokio::io::AsyncRead;
+use tokio::io::{
+    AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
+};
 use tokio::process::Command;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{Mutex as AsyncMutex, RwLock, Semaphore, mpsc, watch};
+use tokio::task::JoinSet;
 #[cfg(feature = "http-server")]
 use tokio_util::io::ReaderStream;
 
@@ -46,6 +50,11 @@ use crate::manifest::{
 use crate::protocol::{
     BranchListResult, DiffCommand, DiffRequest, DiffResourceRef, DiffResponse, DiffResult,
     DiffSource, NavigationResult, OpenSessionRequest, SessionOpened, SessionRequest, handshake,
+};
+use crate::trajectory::{
+    AgentTurnGeneration, AgentTurnIdentity, AgentTurnLocation, ResolvedTurnPatch,
+    TrajectoryCancellation, TrajectoryError, TrajectoryRoots,
+    resolve_agent_turn_location_cancellable, resolve_last_turn_patch_at_location_cancellable,
 };
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
@@ -65,6 +74,47 @@ struct AppState {
     port: u16,
     manifests: Arc<RwLock<HashMap<String, CachedManifest>>>,
     child_processes: Arc<Semaphore>,
+    trajectory_scans: Arc<AsyncMutex<TrajectoryScans>>,
+}
+
+type TrajectoryScanResult = Result<ResolvedTurnPatch, TrajectoryError>;
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct TrajectoryScanKey {
+    identity: AgentTurnIdentity,
+    roots: TrajectoryRoots,
+    working_directory: PathBuf,
+    generation: AgentTurnGeneration,
+}
+
+impl TrajectoryScanKey {
+    fn new(
+        identity: AgentTurnIdentity,
+        roots: &TrajectoryRoots,
+        location: &AgentTurnLocation,
+    ) -> Self {
+        Self {
+            identity,
+            roots: roots.clone(),
+            working_directory: location.working_directory().to_owned(),
+            generation: location.generation().clone(),
+        }
+    }
+}
+
+type TrajectoryScans = HashMap<TrajectoryScanKey, watch::Sender<Option<TrajectoryScanResult>>>;
+
+fn remove_trajectory_scan_if_current(
+    scans: &mut TrajectoryScans,
+    key: &TrajectoryScanKey,
+    sender: &watch::Sender<Option<TrajectoryScanResult>>,
+) -> bool {
+    let is_current = scans
+        .get(key)
+        .is_some_and(|current| current.same_channel(sender));
+    if is_current {
+        scans.remove(key);
+    }
+    is_current
 }
 
 #[derive(Clone)]
@@ -86,6 +136,19 @@ struct BranchSessionAuthorization {
     #[serde(rename = "groupID")]
     group_id: String,
     allowed_repo_roots: Vec<String>,
+    #[serde(default)]
+    allowed_agent_turns: Vec<AgentTurnAuthorization>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentTurnAuthorization {
+    provider: crate::protocol::AgentProvider,
+    session_id: String,
+    #[serde(default)]
+    hook_state_dir: Option<String>,
+    #[serde(default)]
+    claude_hook_state_path: Option<String>,
 }
 
 const MAX_CACHED_MANIFESTS: usize = 64;
@@ -96,11 +159,12 @@ const RPC_STDIN_READ_TIMEOUT: Duration = Duration::from_secs(10);
 const UNTRUSTED_RPC_REQUEST_ID: &str = "__cmux_untrusted_request__";
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
 const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
-const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
-const SESSION_OPEN_TIMEOUT: Duration = Duration::from_secs(120);
+const SESSION_GIT_TIMEOUT: Duration = Duration::from_mins(1);
+const SESSION_OPEN_TIMEOUT: Duration = Duration::from_mins(2);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
-const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
-const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_mins(2);
+const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_hours(24);
+const ORPHAN_SESSION_SWEEP_INTERVAL: Duration = Duration::from_hours(1);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
 const MAX_ORPHAN_REMOVALS: usize = 64;
 const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
@@ -111,10 +175,11 @@ struct SessionOwner {
     session_id: String,
     capability_token: String,
 }
+
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
 // the page, patch, assets, and manifest. Keep the outer safety deadline above
 // that complete contract while still releasing a stuck child eventually.
-const BRANCH_CHANGE_CHILD_TIMEOUT: Duration = Duration::from_secs(120);
+const BRANCH_CHANGE_CHILD_TIMEOUT: Duration = Duration::from_mins(2);
 
 #[cfg(feature = "http-server")]
 #[derive(Serialize)]
@@ -179,7 +244,7 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
             Some(
                 reqwest::Client::builder()
                     .redirect(reqwest::redirect::Policy::limited(5))
-                    .timeout(Duration::from_secs(120))
+                    .timeout(Duration::from_mins(2))
                     .build()
                     .map_err(|error| error.to_string())?,
             )
@@ -187,6 +252,7 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
         port,
         manifests: Arc::new(RwLock::new(HashMap::new())),
         child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
+        trajectory_scans: Arc::new(AsyncMutex::new(HashMap::new())),
     })
 }
 
@@ -197,12 +263,14 @@ fn app_state(config: ServerConfig, port: u16) -> AppState {
         port,
         manifests: Arc::new(RwLock::new(HashMap::new())),
         child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
+        trajectory_scans: Arc::new(AsyncMutex::new(HashMap::new())),
     }
 }
 
-/// Handles one typed request from standard input and writes one response to
-/// standard output. This is the native `WebKit` transport boundary: it performs
-/// no bind, connect, or listen operation.
+/// Handles typed newline-delimited requests over standard input until EOF and
+/// writes one matching response per request to standard output. This is the
+/// native `WebKit` transport boundary: it performs no bind, connect, or listen
+/// operation.
 ///
 /// # Errors
 ///
@@ -210,52 +278,137 @@ fn app_state(config: ServerConfig, port: u16) -> AppState {
 /// is invalid.
 pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
     validate_root(&config.root).await?;
-    prune_orphaned_session_temp_files(
-        &config.root,
-        ORPHAN_SESSION_TEMP_MIN_AGE,
-        ORPHAN_SESSION_FINAL_MIN_AGE,
-        MAX_ORPHAN_SCAN_ENTRIES,
-    )
-    .await;
+    prepare_rpc_root(&config.root).await;
+    let sweep_root = config.root.clone();
+    let rpc_session = async move {
+        tokio::select! {
+            result = run_rpc_session(config) => result,
+            () = sweep_orphaned_sessions_periodically(
+                sweep_root,
+                ORPHAN_SESSION_SWEEP_INTERVAL,
+                ORPHAN_SESSION_TEMP_MIN_AGE,
+                ORPHAN_SESSION_FINAL_MIN_AGE,
+                MAX_ORPHAN_SCAN_ENTRIES,
+            ) => Err("RPC orphan sweeper stopped".to_owned()),
+        }
+    };
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|error| error.to_string())?;
     #[cfg(unix)]
     tokio::select! {
-        result = run_rpc_request(config) => result,
+        result = rpc_session => result,
         _ = terminate.recv() => Err("RPC request was cancelled".to_owned()),
     }
     #[cfg(not(unix))]
-    run_rpc_request(config).await
+    rpc_session.await
 }
 
-async fn run_rpc_request(config: ServerConfig) -> Result<(), String> {
-    let response = match read_rpc_request(tokio::io::stdin(), RPC_STDIN_READ_TIMEOUT).await? {
-        RpcRequestRead::Request(request) => {
-            #[cfg(feature = "http-server")]
-            let state = app_state(config, 0)?;
-            #[cfg(not(feature = "http-server"))]
-            let state = app_state(config, 0);
-            handle_protocol_request(request, Some(&state)).await
+async fn prepare_rpc_root(root: &Path) {
+    prune_orphaned_session_temp_files(
+        root,
+        ORPHAN_SESSION_TEMP_MIN_AGE,
+        ORPHAN_SESSION_FINAL_MIN_AGE,
+        MAX_ORPHAN_SCAN_ENTRIES,
+    )
+    .await;
+}
+
+async fn run_rpc_session(config: ServerConfig) -> Result<(), String> {
+    #[cfg(feature = "http-server")]
+    let state = app_state(config, 0)?;
+    #[cfg(not(feature = "http-server"))]
+    let state = app_state(config, 0);
+    let mut input = BufReader::new(tokio::io::stdin());
+    let (response_sender, response_receiver) = mpsc::channel(MAX_CONCURRENT_CHILD_PROCESSES * 2);
+    let mut output_task = tokio::spawn(write_rpc_responses(response_receiver));
+    let mut requests = JoinSet::new();
+    let mut abort_handles: HashMap<String, tokio::task::AbortHandle> = HashMap::new();
+    let mut accepting_requests = true;
+
+    while accepting_requests || !requests.is_empty() {
+        tokio::select! {
+            writer_result = &mut output_task => {
+                requests.abort_all();
+                return match writer_result {
+                    Ok(Ok(())) => Err("RPC output closed".to_owned()),
+                    Ok(Err(error)) => Err(error),
+                    Err(error) => Err(error.to_string()),
+                };
+            }
+            frame = read_rpc_frame(&mut input, RPC_STDIN_READ_TIMEOUT), if accepting_requests => {
+                match frame? {
+                    RpcRequestRead::EndOfStream => accepting_requests = false,
+                    RpcRequestRead::Cancel(request_id) => {
+                        if let Some(abort_handle) = abort_handles.remove(&request_id) {
+                            abort_handle.abort();
+                        }
+                    }
+                    RpcRequestRead::Rejected(response) => {
+                        response_sender.send(response).await.map_err(|_| "RPC output closed".to_owned())?;
+                    }
+                    RpcRequestRead::Request(request) => {
+                        let request_id = request.id.clone();
+                        if abort_handles.contains_key(&request_id) {
+                            response_sender.send(DiffResponse::failure(
+                                request_id,
+                                "duplicateRequest",
+                                "An RPC request with this ID is already running",
+                            )).await.map_err(|_| "RPC output closed".to_owned())?;
+                            continue;
+                        }
+                        let request_state = state.clone();
+                        let request_sender = response_sender.clone();
+                        let completed_id = request_id.clone();
+                        let abort_handle = requests.spawn(async move {
+                            let response = handle_protocol_request(request, Some(&request_state)).await;
+                            let _ = request_sender.send(response).await;
+                            completed_id
+                        });
+                        abort_handles.insert(request_id, abort_handle);
+                    }
+                }
+            }
+            completed = requests.join_next(), if !requests.is_empty() => {
+                if let Some(Ok(request_id)) = completed {
+                    abort_handles.remove(&request_id);
+                }
+            }
         }
-        RpcRequestRead::Rejected(response) => response,
-    };
-    write_rpc_response(&response).await
+    }
+
+    drop(response_sender);
+    output_task.await.map_err(|error| error.to_string())?
 }
 
 enum RpcRequestRead {
+    EndOfStream,
+    Cancel(String),
     Request(DiffRequest),
     Rejected(DiffResponse),
 }
 
+#[cfg(test)]
 async fn read_rpc_request<R>(reader: R, timeout: Duration) -> Result<RpcRequestRead, String>
 where
-    R: tokio::io::AsyncRead + Unpin,
+    R: AsyncRead + Unpin,
 {
-    let mut input = Vec::new();
-    let mut limited_reader = reader.take((MAX_RPC_REQUEST_BYTES + 1) as u64);
-    let read = limited_reader.read_to_end(&mut input);
-    match tokio::time::timeout(timeout, read).await {
+    read_rpc_frame(&mut BufReader::new(reader), timeout).await
+}
+
+async fn read_rpc_frame<R>(reader: &mut R, timeout: Duration) -> Result<RpcRequestRead, String>
+where
+    R: AsyncBufRead + Unpin,
+{
+    if reader
+        .fill_buf()
+        .await
+        .map_err(|error| error.to_string())?
+        .is_empty()
+    {
+        return Ok(RpcRequestRead::EndOfStream);
+    }
+    let input = match tokio::time::timeout(timeout, read_rpc_frame_bytes(reader)).await {
         Err(_) => {
             return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
                 UNTRUSTED_RPC_REQUEST_ID.to_owned(),
@@ -263,17 +416,41 @@ where
                 "Timed out waiting for a complete RPC request",
             )));
         }
-        Ok(Err(error)) => return Err(error.to_string()),
-        Ok(Ok(_)) => {}
-    }
-    if input.len() > MAX_RPC_REQUEST_BYTES {
+        Ok(result) => result?,
+    };
+    let Some(input) = input else {
         return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
             UNTRUSTED_RPC_REQUEST_ID.to_owned(),
             "requestTooLarge",
             "RPC request exceeds 1 MiB",
         )));
+    };
+    let input = input.strip_suffix(b"\n").unwrap_or(&input);
+    let value: serde_json::Value = match serde_json::from_slice(input) {
+        Ok(value) => value,
+        Err(error) => {
+            return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
+                UNTRUSTED_RPC_REQUEST_ID.to_owned(),
+                "invalidRequest",
+                &format!("Invalid RPC request: {error}"),
+            )));
+        }
+    };
+    if value.get("control").and_then(serde_json::Value::as_str) == Some("cancel") {
+        let Some(request_id) = value
+            .get("requestId")
+            .and_then(serde_json::Value::as_str)
+            .filter(|request_id| !request_id.is_empty())
+        else {
+            return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
+                UNTRUSTED_RPC_REQUEST_ID.to_owned(),
+                "invalidRequest",
+                "Cancel control frame requires a non-empty requestId",
+            )));
+        };
+        return Ok(RpcRequestRead::Cancel(request_id.to_owned()));
     }
-    match serde_json::from_slice(&input) {
+    match serde_json::from_value(value) {
         Ok(request) => Ok(RpcRequestRead::Request(request)),
         Err(error) => Ok(RpcRequestRead::Rejected(DiffResponse::failure(
             UNTRUSTED_RPC_REQUEST_ID.to_owned(),
@@ -283,21 +460,60 @@ where
     }
 }
 
-async fn write_rpc_response(response: &DiffResponse) -> Result<(), String> {
+async fn read_rpc_frame_bytes<R>(reader: &mut R) -> Result<Option<Vec<u8>>, String>
+where
+    R: AsyncBufRead + Unpin,
+{
+    let mut input = Vec::new();
+    let mut too_large = false;
+    loop {
+        let available = reader.fill_buf().await.map_err(|error| error.to_string())?;
+        if available.is_empty() {
+            return Ok((!too_large).then_some(input));
+        }
+        let frame_end = available.iter().position(|byte| *byte == b'\n');
+        let consumed = frame_end.map_or(available.len(), |index| index + 1);
+        if !too_large {
+            let maximum_frame_bytes = MAX_RPC_REQUEST_BYTES + usize::from(frame_end.is_some());
+            if input.len() + consumed > maximum_frame_bytes {
+                too_large = true;
+                input.clear();
+            } else {
+                input.extend_from_slice(&available[..consumed]);
+            }
+        }
+        reader.consume(consumed);
+        if frame_end.is_some() {
+            return Ok((!too_large).then_some(input));
+        }
+    }
+}
+
+async fn write_rpc_responses(mut responses: mpsc::Receiver<DiffResponse>) -> Result<(), String> {
+    let mut stdout = tokio::io::stdout();
+    while let Some(response) = responses.recv().await {
+        write_rpc_response_to(&mut stdout, &response).await?;
+    }
+    Ok(())
+}
+
+async fn write_rpc_response_to<W>(writer: &mut W, response: &DiffResponse) -> Result<(), String>
+where
+    W: AsyncWrite + Unpin,
+{
     let bytes = serde_json::to_vec(&response).map_err(|error| error.to_string())?;
     if bytes.len() > MAX_RPC_RESPONSE_BYTES {
         return Err("response exceeds 32 MiB".to_owned());
     }
-    let mut stdout = tokio::io::stdout();
-    stdout
+    writer
         .write_all(&bytes)
         .await
         .map_err(|error| error.to_string())?;
-    stdout
+    writer
         .write_all(b"\n")
         .await
         .map_err(|error| error.to_string())?;
-    stdout.flush().await.map_err(|error| error.to_string())
+    writer.flush().await.map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "http-server")]
@@ -531,6 +747,87 @@ enum SessionOpenError {
     Failed,
 }
 
+struct CancelTrajectoryOnDrop(TrajectoryCancellation);
+
+impl Drop for CancelTrajectoryOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+async fn resolve_agent_turn_coalesced(
+    state: &AppState,
+    identity: AgentTurnIdentity,
+    roots: TrajectoryRoots,
+    location: AgentTurnLocation,
+) -> Result<ResolvedTurnPatch, TrajectoryError> {
+    let key = TrajectoryScanKey::new(identity.clone(), &roots, &location);
+    let (mut receiver, producer) = {
+        let mut scans = state.trajectory_scans.lock().await;
+        if let Some(sender) = scans.get(&key).filter(|sender| !sender.is_closed()) {
+            (sender.subscribe(), None)
+        } else {
+            scans.remove(&key);
+            let (sender, receiver) = watch::channel(None);
+            scans.insert(key.clone(), sender.clone());
+            (receiver, Some(sender))
+        }
+    };
+
+    if let Some(sender) = producer {
+        let scans = Arc::clone(&state.trajectory_scans);
+        let child_processes = Arc::clone(&state.child_processes);
+        let map_key = key;
+        let worker_location = location;
+        let worker_roots = roots;
+        tokio::spawn(async move {
+            let cancellation = TrajectoryCancellation::default();
+            let cancellation_monitor = cancellation.clone();
+            let closed_sender = sender.clone();
+            let closed_scans = Arc::clone(&scans);
+            let closed_key = map_key.clone();
+            let monitor = tokio::spawn(async move {
+                closed_sender.closed().await;
+                let mut active_scans = closed_scans.lock().await;
+                remove_trajectory_scan_if_current(&mut active_scans, &closed_key, &closed_sender);
+                drop(active_scans);
+                cancellation_monitor.cancel();
+            });
+            let worker_identity = map_key.identity.clone();
+            let result = match child_processes.try_acquire_owned() {
+                Ok(permit) => tokio::task::spawn_blocking(move || {
+                    // Blocking tasks outlive an aborted async waiter, so the work
+                    // itself owns the permit until its transcript scan finishes.
+                    let _permit = permit;
+                    resolve_last_turn_patch_at_location_cancellable(
+                        &worker_identity,
+                        &worker_roots,
+                        &worker_location,
+                        &cancellation,
+                    )
+                })
+                .await
+                .map_or(Err(TrajectoryError::Unavailable), |result| result),
+                Err(_) => Err(TrajectoryError::Unavailable),
+            };
+            monitor.abort();
+            sender.send_replace(Some(result));
+            let mut active_scans = scans.lock().await;
+            remove_trajectory_scan_if_current(&mut active_scans, &map_key, &sender);
+        });
+    }
+
+    loop {
+        if let Some(result) = { receiver.borrow().clone() } {
+            return result;
+        }
+        receiver
+            .changed()
+            .await
+            .map_err(|_| TrajectoryError::Unavailable)?;
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 async fn open_session(
     state: &AppState,
@@ -566,25 +863,104 @@ async fn open_session(
                 revision: 1,
             },
             source: params.source,
+            repo_root: None,
         });
     }
-    let _permit = state
-        .child_processes
-        .try_acquire()
+    let authorized_agent_turn = if let DiffSource::AgentTurn {
+        provider,
+        session_id,
+    } = &params.source
+    {
+        let authorizations = load_token_authorizations(state, &params.capability_token)
+            .await
+            .ok_or(SessionOpenError::Unauthorized)?;
+        let identity = AgentTurnIdentity::new(*provider, session_id.clone());
+        let authorization = agent_turn_authorization(&authorizations, &identity)
+            .ok_or(SessionOpenError::Unauthorized)?
+            .clone();
+        let roots = TrajectoryRoots::from_environment()
+            .map_err(|_| SessionOpenError::Failed)?
+            .with_hook_state_overrides(
+                authorization.hook_state_dir.as_deref(),
+                authorization.claude_hook_state_path.as_deref(),
+            );
+        let worker_identity = identity.clone();
+        let worker_roots = roots.clone();
+        let cancellation = TrajectoryCancellation::default();
+        let worker_cancellation = cancellation.clone();
+        let permit = state
+            .child_processes
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| SessionOpenError::Failed)?;
+        let cancellation_guard = CancelTrajectoryOnDrop(cancellation);
+        let location = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            resolve_agent_turn_location_cancellable(
+                &worker_identity,
+                &worker_roots,
+                &worker_cancellation,
+            )
+        })
+        .await
+        .map_err(|_| SessionOpenError::Failed)?
         .map_err(|_| SessionOpenError::Failed)?;
-
-    let repo = match &params.source {
-        DiffSource::Unstaged { repo_root }
-        | DiffSource::Staged { repo_root }
-        | DiffSource::Branch { repo_root, .. } => repo_root,
-        DiffSource::Patch { .. } => unreachable!(),
+        drop(cancellation_guard);
+        Some((identity, roots, location))
+    } else {
+        None
     };
-    if !authorize_repo_for_token(state, &params.capability_token, repo).await {
+    let resolved_turn = if let Some((identity, roots, location)) = authorized_agent_turn {
+        let authorized_repo_root = location.repo_root().to_owned();
+        let resolved = resolve_agent_turn_coalesced(state, identity, roots, location)
+            .await
+            .map_err(|error| match error {
+                TrajectoryError::Empty => SessionOpenError::Empty,
+                TrajectoryError::Unavailable | TrajectoryError::Invalid => SessionOpenError::Failed,
+            })?;
+        if resolved.repo_root != authorized_repo_root {
+            return Err(SessionOpenError::Unauthorized);
+        }
+        Some(resolved)
+    } else {
+        None
+    };
+    let _git_permit = if resolved_turn.is_none() {
+        Some(
+            state
+                .child_processes
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| SessionOpenError::Failed)?,
+        )
+    } else {
+        None
+    };
+    let repo = match (&params.source, &resolved_turn) {
+        (
+            DiffSource::Unstaged { repo_root }
+            | DiffSource::Staged { repo_root }
+            | DiffSource::Branch { repo_root, .. },
+            _,
+        ) => repo_root.as_str(),
+        (DiffSource::AgentTurn { .. }, Some(resolved)) => resolved
+            .repo_root
+            .to_str()
+            .ok_or(SessionOpenError::Unauthorized)?,
+        (DiffSource::AgentTurn { .. }, None) | (DiffSource::Patch { .. }, _) => unreachable!(),
+    };
+    if resolved_turn.is_none()
+        && !authorize_repo_for_token(state, &params.capability_token, repo).await
+    {
         return Err(SessionOpenError::Unauthorized);
     }
-    let canonical_repo = tokio::fs::canonicalize(repo)
-        .await
-        .map_err(|_| SessionOpenError::Unauthorized)?;
+    let canonical_repo = if let Some(resolved) = &resolved_turn {
+        resolved.repo_root.clone()
+    } else {
+        tokio::fs::canonicalize(repo)
+            .await
+            .map_err(|_| SessionOpenError::Unauthorized)?
+    };
     let session_id = match params.session_id {
         Some(session_id) if uuid::Uuid::parse_str(&session_id).is_ok() => session_id,
         Some(_) => return Err(SessionOpenError::Unauthorized),
@@ -609,7 +985,11 @@ async fn open_session(
     );
 
     let source = resolve_session_source(state, params.source, &canonical_repo).await?;
-    run_git_patch(&source, &canonical_repo, &temporary_path).await?;
+    if let Some(resolved) = resolved_turn {
+        write_resolved_turn_patch(&resolved, &temporary_path).await?;
+    } else {
+        run_git_patch(&source, &canonical_repo, &temporary_path).await?;
+    }
     rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
         .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
@@ -645,6 +1025,7 @@ async fn open_session(
             revision: 1,
         },
         source,
+        repo_root: Some(canonical_repo.to_string_lossy().into_owned()),
     })
 }
 
@@ -750,6 +1131,18 @@ async fn run_git_patch(
     run_git_patch_with_limit(source, repo, output_path, MAX_SESSION_PATCH_BYTES).await
 }
 
+async fn write_resolved_turn_patch(
+    resolved: &ResolvedTurnPatch,
+    output_path: &Path,
+) -> Result<(), SessionOpenError> {
+    if resolved.patch.is_empty() || resolved.patch.len() as u64 > MAX_SESSION_PATCH_BYTES {
+        return Err(SessionOpenError::Failed);
+    }
+    tokio::fs::write(output_path, resolved.patch.as_bytes())
+        .await
+        .map_err(|_| SessionOpenError::Failed)
+}
+
 async fn run_git_patch_with_limit(
     source: &DiffSource,
     repo: &Path,
@@ -788,7 +1181,9 @@ async fn run_git_patch_with_limit(
             arguments.push(merge_base);
             arguments.push("--".to_owned());
         }
-        DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
+        DiffSource::Branch { base_ref: None, .. }
+        | DiffSource::Patch { .. }
+        | DiffSource::AgentTurn { .. } => {
             return Err(SessionOpenError::Failed);
         }
     }
@@ -946,6 +1341,28 @@ async fn prune_orphaned_session_temp_files(
     .await;
 }
 
+async fn sweep_orphaned_sessions_periodically(
+    root: PathBuf,
+    interval: Duration,
+    temporary_minimum_age: Duration,
+    final_minimum_age: Duration,
+    scan_limit: usize,
+) {
+    let first_sweep = tokio::time::Instant::now() + interval;
+    let mut ticker = tokio::time::interval_at(first_sweep, interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        prune_orphaned_session_temp_files(
+            &root,
+            temporary_minimum_age,
+            final_minimum_age,
+            scan_limit,
+        )
+        .await;
+    }
+}
+
 fn reconcile_session_owners(root: &Path, minimum_age: Duration, scan_limit: usize) {
     let Ok(entries) = std::fs::read_dir(session_owner_directory(root)) else {
         return;
@@ -1069,13 +1486,17 @@ fn session_lease_is_active(root: &Path, token: &str) -> bool {
     else {
         return false;
     };
-    match lock.try_lock_exclusive() {
-        Ok(()) => {
-            let _ = FileExt::unlock(&lock);
-            false
-        }
-        Err(error) => error.kind() == std::io::ErrorKind::WouldBlock,
+    let result = lock.try_lock();
+    if result.is_ok() {
+        let _ = lock.unlock();
     }
+    session_lease_lock_is_active(&result)
+}
+
+fn session_lease_lock_is_active(result: &Result<(), std::fs::TryLockError>) -> bool {
+    // Cleanup must fail closed. A contended lease and a platform error both
+    // preserve the private session file for a later pass.
+    result.is_err()
 }
 
 fn valid_session_temp_name(name: &str) -> bool {
@@ -1227,7 +1648,7 @@ fn mutate_temp_index<T>(
         .write(true)
         .open(root.join(".diff-session-temp-index.lock"))
         .map_err(|error| error.to_string())?;
-    FileExt::lock_exclusive(&lock).map_err(|error| error.to_string())?;
+    lock.lock().map_err(|error| error.to_string())?;
     let index_path = root.join(".diff-session-temp-index");
     let contents = std::fs::read_to_string(&index_path).unwrap_or_default();
     let mut entries: Vec<String> = contents
@@ -1324,7 +1745,7 @@ fn mutate_manifest<T>(
         .write(true)
         .open(lock_path)
         .map_err(|error| error.to_string())?;
-    FileExt::lock_exclusive(&lock).map_err(|error| error.to_string())?;
+    lock.lock().map_err(|error| error.to_string())?;
     let manifest_path = root.join(format!(".manifest-{token}.json"));
     let bytes = std::fs::read(&manifest_path).map_err(|error| error.to_string())?;
     let mut manifest: Manifest =
@@ -1690,15 +2111,26 @@ fn trusted_browser_request(headers: &HeaderMap, port: u16) -> bool {
 }
 
 async fn authorize_repo_for_token(state: &AppState, token: &str, repo: &str) -> bool {
-    if !valid_token(token) {
-        return false;
-    }
     let Ok(canonical_repo) = tokio::fs::canonicalize(repo).await else {
         return false;
     };
-    let Ok(mut entries) = tokio::fs::read_dir(&state.config.root).await else {
+    let Some(authorizations) = load_token_authorizations(state, token).await else {
         return false;
     };
+    authorizations_allow_repo(&authorizations, &canonical_repo).await
+}
+
+async fn load_token_authorizations(
+    state: &AppState,
+    token: &str,
+) -> Option<Vec<BranchSessionAuthorization>> {
+    if !valid_token(token) {
+        return None;
+    }
+    let Ok(mut entries) = tokio::fs::read_dir(&state.config.root).await else {
+        return None;
+    };
+    let mut authorizations = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -1708,11 +2140,35 @@ async fn authorize_repo_for_token(state: &AppState, token: &str, repo: &str) -> 
         let Ok(session) = read_branch_session(&entry.path()).await else {
             continue;
         };
-        if session.token == token && session_allows_repo(&session, &canonical_repo).await {
+        if session.token == token {
+            authorizations.push(session);
+        }
+    }
+    (!authorizations.is_empty()).then_some(authorizations)
+}
+
+async fn authorizations_allow_repo(
+    authorizations: &[BranchSessionAuthorization],
+    canonical_repo: &Path,
+) -> bool {
+    for authorization in authorizations {
+        if session_allows_repo(authorization, canonical_repo).await {
             return true;
         }
     }
     false
+}
+
+fn agent_turn_authorization<'a>(
+    authorizations: &'a [BranchSessionAuthorization],
+    identity: &AgentTurnIdentity,
+) -> Option<&'a AgentTurnAuthorization> {
+    authorizations
+        .iter()
+        .flat_map(|authorization| &authorization.allowed_agent_turns)
+        .find(|allowed| {
+            allowed.provider == identity.provider && allowed.session_id == identity.session_id
+        })
 }
 
 async fn authorize_branch_change(state: &AppState, token: &str, group: &str, repo: &str) -> bool {
@@ -1933,20 +2389,134 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
     use std::process::Command;
     use std::time::Duration;
 
     use tokio::io::AsyncWriteExt;
+    use tokio::sync::watch;
 
     use crate::PROTOCOL_VERSION;
-    use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
+    use crate::protocol::{AgentProvider, DiffCommand, DiffRequest, DiffResult};
+    use crate::trajectory::{AgentTurnGeneration, AgentTurnIdentity, TrajectoryRoots};
 
     use super::{
-        AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
-        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
-        prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
-        reserve_session_owner, run_git_patch_with_limit, valid_group_id,
+        AllowedFile, DiffSource, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
+        TemporaryPatchFile, TrajectoryScanKey, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
+        prepare_rpc_root, prune_orphaned_session_temp_files, read_rpc_request,
+        register_session_temp, remove_trajectory_scan_if_current, reserve_session_owner,
+        run_git_patch_with_limit, session_lease_lock_is_active,
+        sweep_orphaned_sessions_periodically, valid_group_id,
     };
+
+    #[tokio::test]
+    async fn startup_maintenance_preserves_legacy_state_for_older_builds() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-legacy-baseline-migration-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let home = root.join("home");
+        let state = home.join(".cmuxterm");
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&state).expect("create state directory");
+        std::fs::create_dir_all(&repo).expect("create repo");
+        let run_git = |arguments: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&repo)
+                .args(arguments)
+                .output()
+                .expect("run git");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).expect("git stdout")
+        };
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "cmux tests"]);
+        run_git(&["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(repo.join("tracked.txt"), b"baseline\n").expect("write tracked file");
+        run_git(&["add", "tracked.txt"]);
+        run_git(&["commit", "-m", "baseline"]);
+        let commit = run_git(&["rev-parse", "HEAD"]).trim().to_owned();
+        run_git(&[
+            "update-ref",
+            &format!("refs/cmux/last-turn/{commit}"),
+            &commit,
+        ]);
+        let snapshot = state.join("agent-turn-diff-baseline-snapshots/snapshot");
+        let staging = state.join("agent-turn-diff-baseline-snapshots-staging/staging");
+        std::fs::create_dir_all(&snapshot).expect("create snapshot");
+        std::fs::create_dir_all(&staging).expect("create staging snapshot");
+        std::fs::write(snapshot.join("untracked.txt"), b"private").expect("write snapshot");
+        std::fs::write(staging.join("untracked.txt"), b"private").expect("write staging");
+        let store = state.join("agent-turn-diff-baselines.json");
+        std::fs::write(
+            &store,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "records": [{"repoRoot": repo}]
+            }))
+            .expect("encode store"),
+        )
+        .expect("write store");
+
+        prepare_rpc_root(&root).await;
+
+        assert!(store.exists());
+        assert!(state.join("agent-turn-diff-baseline-snapshots").exists());
+        assert!(
+            state
+                .join("agent-turn-diff-baseline-snapshots-staging")
+                .exists()
+        );
+        assert!(
+            run_git(&["for-each-ref", "--format=%(refname)", "refs/cmux/last-turn"])
+                .trim()
+                .starts_with("refs/cmux/last-turn/")
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn canceled_trajectory_scan_is_evicted_without_removing_replacement() {
+        let identity = AgentTurnIdentity::new(AgentProvider::Codex, "replacement-session");
+        let canceled_key = TrajectoryScanKey {
+            identity: identity.clone(),
+            roots: TrajectoryRoots::for_home(PathBuf::from("/tmp/cmux-test-home")),
+            working_directory: PathBuf::from("/tmp/cmux-test-home/repo"),
+            generation: AgentTurnGeneration::for_test(1),
+        };
+        let (canceled_sender, canceled_receiver) = watch::channel(None);
+        let mut scans = HashMap::from([(canceled_key.clone(), canceled_sender.clone())]);
+        drop(canceled_receiver);
+
+        assert!(remove_trajectory_scan_if_current(
+            &mut scans,
+            &canceled_key,
+            &canceled_sender
+        ));
+        assert!(!scans.contains_key(&canceled_key));
+
+        let replacement_key = TrajectoryScanKey {
+            identity,
+            roots: TrajectoryRoots::for_home(PathBuf::from("/tmp/cmux-test-home")),
+            working_directory: PathBuf::from("/tmp/cmux-test-home/repo"),
+            generation: AgentTurnGeneration::for_test(2),
+        };
+        let (replacement_sender, _replacement_receiver) = watch::channel(None);
+        scans.insert(replacement_key.clone(), replacement_sender);
+        assert!(!remove_trajectory_scan_if_current(
+            &mut scans,
+            &canceled_key,
+            &canceled_sender
+        ));
+        assert!(scans.contains_key(&replacement_key));
+    }
 
     #[tokio::test]
     async fn handshake_reports_transport_capabilities() {
@@ -2077,7 +2647,7 @@ mod tests {
             .write(true)
             .open(root.join(format!(".session-lease-{active_token}.lock")))
             .expect("open active lease");
-        FileExt::lock_shared(&active_lease).expect("hold active lease");
+        active_lease.lock_shared().expect("hold active lease");
         std::fs::write(&unrelated, b"keep").expect("write unrelated file");
 
         for _ in 0..6 {
@@ -2087,11 +2657,49 @@ mod tests {
         assert!(orphans.iter().all(|orphan| !orphan.exists()));
         assert!(!final_orphan.exists());
         assert!(active_final.exists());
-        FileExt::unlock(&active_lease).expect("release active lease");
+        active_lease.unlock().expect("release active lease");
         prune_orphaned_session_temp_files(&root, Duration::ZERO, Duration::ZERO, 16).await;
         assert!(!active_final.exists());
         assert!(unrelated.exists());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn periodic_sweeper_prunes_orphans_without_restarting_rpc() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-periodic-orphan-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let orphan = root.join(format!("diff-session-{}.patch", uuid::Uuid::new_v4()));
+        std::fs::write(&orphan, b"abandoned diff").expect("write orphan");
+        register_session_temp(&root, &orphan).expect("register orphan");
+
+        let sweeper = tokio::spawn(sweep_orphaned_sessions_periodically(
+            root.clone(),
+            Duration::from_millis(5),
+            Duration::ZERO,
+            Duration::ZERO,
+            16,
+        ));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while orphan.exists() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("periodic sweep removes orphan");
+        sweeper.abort();
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn session_lease_lock_errors_preserve_session_files() {
+        assert!(session_lease_lock_is_active(&Err(
+            std::fs::TryLockError::Error(std::io::Error::other("lock state unavailable"))
+        )));
     }
 
     #[tokio::test]

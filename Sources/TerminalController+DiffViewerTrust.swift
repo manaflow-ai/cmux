@@ -45,4 +45,19 @@ extension TerminalController {
             )
         }
     }
+
+    /// Authorizes navigation to a diff viewer URL. The first navigation must
+    /// carry registration metadata. Later navigations in the same trusted
+    /// session may omit it, which is how a deferred loading page advances to
+    /// the completed viewer without weakening the URL trust boundary.
+    func v2AuthorizeDiffViewerNavigation(params: [String: Any], url: URL?) -> V2CallResult? {
+        guard let url, v2IsDiffViewerURL(url) else { return nil }
+        if params["diff_viewer_token"] != nil {
+            return v2RegisterDiffViewerURLIfNeeded(params: params, url: url)
+        }
+        guard DiffViewerSessionTrustRegistry.shared.isTrustedDiffViewerURL(url) else {
+            return .err(code: "invalid_params", message: "Missing trusted diff viewer session", data: nil)
+        }
+        return nil
+    }
 }

@@ -85,7 +85,11 @@ extension CMUXCLI {
         target: DiffViewerGitHTMLSetTarget,
         extraAllowedPageURL: URL?
     ) throws -> DiffViewerWriteResult {
-        let repoRoot = try gitRepoRootForDiff(context)
+        let repoRoot: String? = if selectedSource == .lastTurn {
+            try? gitRepoRootForDiff(context)
+        } else {
+            try gitRepoRootForDiff(context)
+        }
         let fileURL = target.directory.appendingPathComponent(
             "diff-\(target.groupID)-viewer.html",
             isDirectory: false
@@ -97,12 +101,32 @@ extension CMUXCLI {
             shortcuts: diffViewerShortcutPayload(),
             generatedAt: ISO8601DateFormatter().string(from: Date())
         )
-        let repoCandidates = gitDiffViewerRepoOptions(selectedRepoRoot: repoRoot, context: context)
+        let repoCandidates: [DiffViewerRepoOption] = repoRoot.map {
+            gitDiffViewerRepoOptions(selectedRepoRoot: $0, context: context)
+        } ?? []
+        let allowedAgentTurns: [DiffViewerAgentTurnAuthorization]
+        if let providerInput = normalizedDiffSourceValue(context.agentProvider),
+           let sessionId = normalizedDiffSourceValue(context.sessionId) {
+            let provider = providerInput.lowercased()
+            allowedAgentTurns = [DiffViewerAgentTurnAuthorization(
+                provider: provider == "opencode" ? "openCode" : provider,
+                sessionId: sessionId,
+                hookStateDir: normalizedDiffSourceValue(
+                    ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_STATE_DIR"]
+                ),
+                claudeHookStatePath: normalizedDiffSourceValue(
+                    ProcessInfo.processInfo.environment["CMUX_CLAUDE_HOOK_STATE_PATH"]
+                )
+            )]
+        } else {
+            allowedAgentTurns = []
+        }
         let session = DiffViewerBranchSession(
             token: target.mapper.token,
             groupID: target.groupID,
-            repoRoot: repoRoot,
+            repoRoot: repoRoot ?? "",
             allowedRepoRoots: repoCandidates.map(\.repoRoot),
+            allowedAgentTurns: allowedAgentTurns,
             layout: layout,
             layoutSource: layoutSource,
             appearance: appearance,
@@ -111,15 +135,16 @@ extension CMUXCLI {
             surfaceId: context.surfaceId
         )
         try writeDiffViewerBranchSession(session, rootDirectory: target.directory)
-        let lastTurnInput = try? readGitDiffInput(source: .lastTurn, context: context)
-
-        func sessionSource(_ source: DiffSource, repo: String) -> [String: Any]? {
+        func sessionSource(_ source: DiffSource, repo: String?) -> [String: Any]? {
             switch source {
             case .unstaged:
+                guard let repo else { return nil }
                 return ["kind": "unstaged", "repoRoot": repo]
             case .staged:
+                guard let repo else { return nil }
                 return ["kind": "staged", "repoRoot": repo]
             case .branch:
+                guard let repo else { return nil }
                 var payload: [String: Any] = ["kind": "branch", "repoRoot": repo]
                 if repo == repoRoot,
                    let base = normalizedDiffSourceValue(context.branchBaseRef) {
@@ -127,10 +152,15 @@ extension CMUXCLI {
                 }
                 return payload
             case .lastTurn:
-                guard lastTurnInput != nil else { return nil }
+                guard let providerInput = normalizedDiffSourceValue(context.agentProvider),
+                      let sessionId = normalizedDiffSourceValue(context.sessionId) else {
+                    return nil
+                }
+                let provider = providerInput.lowercased() == "opencode" ? "openCode" : providerInput
                 return [
-                    "kind": "patch",
-                    "path": "/\(diffViewerPatchFileURL(for: fileURL).lastPathComponent)",
+                    "kind": "agentTurn",
+                    "provider": provider,
+                    "sessionId": sessionId,
                 ]
             }
         }
@@ -148,7 +178,8 @@ extension CMUXCLI {
             )
         }
         let repoOptions: [DiffViewerSourceOption]
-        if repoCandidates.count > 1 {
+        if let repoRoot, repoCandidates.count > 1 {
+            let repoSelectionSource: DiffSource = selectedSource == .lastTurn ? .unstaged : selectedSource
             repoOptions = repoCandidates.map { option in
                 DiffViewerSourceOption(
                     value: option.repoRoot,
@@ -158,102 +189,48 @@ extension CMUXCLI {
                     disabled: false,
                     message: option.repoRoot,
                     sourceLabel: nil,
-                    sessionSource: sessionSource(selectedSource, repo: option.repoRoot)
+                    sessionSource: sessionSource(repoSelectionSource, repo: option.repoRoot)
                 )
             }
         } else {
             repoOptions = []
         }
 
-        var responseInput: DiffInput
-        if selectedSource == .lastTurn {
-            do {
-                responseInput = try nonEmptyGitDiffInput(source: selectedSource, context: context)
-                try writeDiffViewerHTML(
-                    to: fileURL,
-                    patch: responseInput.patch,
-                    title: titleOverride ?? responseInput.defaultTitle,
-                    sourceLabel: responseInput.sourceLabel,
-                    externalURL: responseInput.externalURL,
-                    remotePatchURL: responseInput.remotePatchURL,
-                    layout: layout,
-                    layoutSource: layoutSource,
-                    appearance: appearance,
-                    sourceOptions: sourceOptions,
-                    repoOptions: repoOptions,
-                    repoRoot: repoRoot,
-                    sessionSource: sessionSource(.lastTurn, repo: repoRoot),
-                    capabilityToken: target.mapper.token,
-                    assets: assets,
-                    sharedPayload: sharedPayload,
-                    runtime: target.runtime
-                )
-            } catch let error as EmptyDiffSourceError {
-                responseInput = DiffInput(
-                    patch: "",
-                    sourceLabel: "git \(selectedSource.slug)",
-                    defaultTitle: selectedSource.title,
-                    emptyMessage: error.message,
-                    externalURL: nil
-                )
-                try writeDiffViewerStatusHTML(
-                    to: fileURL,
-                    title: titleOverride ?? selectedSource.title,
-                    sourceLabel: responseInput.sourceLabel,
-                    message: error.message,
-                    isError: false,
-                    pollForReplacement: false,
-                    layout: layout,
-                    layoutSource: layoutSource,
-                    appearance: appearance,
-                    sourceOptions: sourceOptions,
-                    repoOptions: repoOptions,
-                    repoRoot: repoRoot,
-                    sessionSource: sessionSource(.lastTurn, repo: repoRoot),
-                    capabilityToken: target.mapper.token,
-                    assets: assets,
-                    sharedPayload: sharedPayload,
-                    runtime: target.runtime
-                )
-            }
-        } else {
-            let selectedSessionSource = sessionSource(selectedSource, repo: repoRoot)
-            responseInput = DiffInput(
-                patch: "",
-                sourceLabel: "git \(selectedSource.slug)",
-                defaultTitle: selectedSource.title,
-                emptyMessage: selectedSource.emptyMessage,
-                externalURL: nil
-            )
-            try writeDiffViewerStatusHTML(
-                to: fileURL,
-                title: titleOverride ?? selectedSource.title,
-                sourceLabel: responseInput.sourceLabel,
-                message: diffViewerLoadingDiffMessage(selectedSource.menuLabel),
-                emptyMessage: selectedSource.emptyMessage,
-                isError: false,
-                pollForReplacement: true,
-                layout: layout,
-                layoutSource: layoutSource,
-                appearance: appearance,
-                sourceOptions: sourceOptions,
-                repoOptions: repoOptions,
-                repoRoot: repoRoot,
-                branchBaseRef: context.branchBaseRef,
-                sessionSource: selectedSessionSource,
-                capabilityToken: target.mapper.token,
-                assets: assets,
-                sharedPayload: sharedPayload,
-                runtime: target.runtime
-            )
-            if let lastTurnInput {
-                try lastTurnInput.patch.write(
-                    to: diffViewerPatchFileURL(for: fileURL),
-                    atomically: true,
-                    encoding: .utf8
-                )
-            }
+        let selectedSessionSource = sessionSource(selectedSource, repo: repoRoot)
+        if selectedSource == .lastTurn, selectedSessionSource == nil {
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.agentSessionRequired",
+                defaultValue: "cmux diff --last-turn requires --agent and --session."
+            ))
         }
+        let responseInput = DiffInput(
+            patch: "",
+            sourceLabel: "git \(selectedSource.slug)",
+            defaultTitle: selectedSource.title,
+            emptyMessage: selectedSource.emptyMessage,
+            externalURL: nil
+        )
+        try writeDiffViewerStatusHTML(
+            to: fileURL,
+            title: titleOverride ?? selectedSource.title,
+            sourceLabel: responseInput.sourceLabel,
+            message: diffViewerLoadingDiffMessage(selectedSource.menuLabel),
+            emptyMessage: selectedSource.emptyMessage,
+            isError: false,
+            pollForReplacement: true,
+            layout: layout,
+            layoutSource: layoutSource,
+            appearance: appearance,
+            sourceOptions: sourceOptions,
+            repoOptions: repoOptions,
+            repoRoot: repoRoot,
+            branchBaseRef: repoRoot == nil ? nil : context.branchBaseRef,
+            sessionSource: selectedSessionSource,
+            capabilityToken: target.mapper.token,
+            assets: assets,
+            sharedPayload: sharedPayload,
+            runtime: target.runtime
+        )
 
         var pageURLs = [fileURL]
         if let extraAllowedPageURL { pageURLs.append(extraAllowedPageURL) }
@@ -282,11 +259,9 @@ extension CMUXCLI {
     func writeDiffViewerOpeningHTML(
         to viewerURL: URL,
         title: String,
-        message: String,
         appearance: DiffViewerAppearance
     ) throws {
         let escapedTitle = htmlEscaped(title)
-        let escapedMessage = htmlEscaped(message)
         let html = """
         <!doctype html>
         <html data-cmux-diff-pending="true">
@@ -297,16 +272,16 @@ extension CMUXCLI {
           \(diffViewerPrepaintStyle(appearance: appearance))
           <style>
             body { margin: 0; color: var(--cmux-diff-fg); font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
-            .loading { display: flex; align-items: center; gap: 10px; margin: 20px 16px; opacity: .72; }
-            .spinner { width: 16px; height: 16px; border: 3px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
             .skeleton { margin: 38px 20px; display: grid; gap: 20px; opacity: .12; }
             .skeleton i { display: block; height: 14px; border-radius: 6px; background: currentColor; }
-            .skeleton i:nth-child(2n) { width: 72%; }
-            @keyframes spin { to { transform: rotate(360deg); } }
+            .skeleton i:nth-child(2) { width: 72%; }
+            .skeleton i:nth-child(3) { width: 88%; }
+            .skeleton i:nth-child(4) { width: 64%; }
+            .skeleton i:nth-child(5) { width: 94%; }
+            .skeleton i:nth-child(6) { width: 76%; }
           </style>
         </head>
         <body>
-          <div class="loading"><span class="spinner"></span><span>\(escapedMessage)</span></div>
           <div class="skeleton"><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </body>
         </html>

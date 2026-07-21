@@ -760,6 +760,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1FFC0DE000000000000E002 /* DiffSidecarBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000E001 /* DiffSidecarBridge.swift */; };
 		D1FFC0DE000000000000F002 /* DiffViewerAssetReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000F001 /* DiffViewerAssetReader.swift */; };
 		A28B087F0000000000000001 /* DiffViewerEditableFocusMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000002 /* DiffViewerEditableFocusMessageHandler.swift */; };
+		DF1380000000000000000001 /* DiffViewerFinalReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1380000000000000000002 /* DiffViewerFinalReviewRegressionTests.swift */; };
 		A28B087F0000000000000019 /* DiffViewerLiveHTTPSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000018 /* DiffViewerLiveHTTPSession.swift */; };
 		A28B087F0000000000000017 /* DiffViewerNavigationDocumentSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000016 /* DiffViewerNavigationDocumentSnapshot.swift */; };
 		A28B087F000000000000000D /* DiffViewerNavigationDocumentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F000000000000000E /* DiffViewerNavigationDocumentState.swift */; };
@@ -1175,8 +1176,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */; };
 		A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */; };
 		A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000019 /* OpenCodeProcessOutputDisposition.swift */; };
-		ODBG00010000000000000001 /* OpenDiffViewerAgentBaselineLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ODBG00010000000000000002 /* OpenDiffViewerAgentBaselineLookup.swift */; };
-		ODBG00020000000000000001 /* OpenDiffViewerAgentContextRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = ODBG00020000000000000002 /* OpenDiffViewerAgentContextRequest.swift */; };
 		A6AC72040000000000000001 /* OverlayComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72040000000000000002 /* OverlayComparison.swift */; };
 		E3B7A4000000000000000021 /* PaneChromeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000022 /* PaneChromeSettings.swift */; };
 		D0B752900000000000000002 /* PaneDropRoutingRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B752900000000000000001 /* PaneDropRoutingRegistration.swift */; };
@@ -2877,6 +2876,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1FFC0DE000000000000E001 /* DiffSidecarBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffSidecarBridge.swift; sourceTree = "<group>"; };
 		D1FFC0DE000000000000F001 /* DiffViewerAssetReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerAssetReader.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000002 /* DiffViewerEditableFocusMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerEditableFocusMessageHandler.swift; sourceTree = "<group>"; };
+		DF1380000000000000000002 /* DiffViewerFinalReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffViewerFinalReviewRegressionTests.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000018 /* DiffViewerLiveHTTPSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerLiveHTTPSession.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000016 /* DiffViewerNavigationDocumentSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerNavigationDocumentSnapshot.swift; sourceTree = "<group>"; };
 		A28B087F000000000000000E /* DiffViewerNavigationDocumentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerNavigationDocumentState.swift; sourceTree = "<group>"; };
@@ -3288,8 +3288,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeEventTextAccumulator.swift; sourceTree = "<group>"; };
 		A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeHookRegressionTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000019 /* OpenCodeProcessOutputDisposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeProcessOutputDisposition.swift; sourceTree = "<group>"; };
-		ODBG00010000000000000002 /* OpenDiffViewerAgentBaselineLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenDiffViewerAgentBaselineLookup.swift; sourceTree = "<group>"; };
-		ODBG00020000000000000002 /* OpenDiffViewerAgentContextRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenDiffViewerAgentContextRequest.swift; sourceTree = "<group>"; };
 		A6AC72040000000000000002 /* OverlayComparison.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayComparison.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000022 /* PaneChromeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneChromeSettings.swift; sourceTree = "<group>"; };
 		D0B752900000000000000001 /* PaneDropRoutingRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingRegistration.swift; sourceTree = "<group>"; };
@@ -5281,8 +5279,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				737100000000000000000004 /* AppDelegate+NonInteractiveWindowClose.swift */,
 				C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */,
 				A5FB1304 /* TerminalForegroundCommandCapture.swift */,
-				ODBG00010000000000000002 /* OpenDiffViewerAgentBaselineLookup.swift */,
-				ODBG00020000000000000002 /* OpenDiffViewerAgentContextRequest.swift */,
 				C10D00020000000000000002 /* CloudVMActionLauncher.swift */,
 				B37A00000000000000000006 /* MainWindowFocusTypes.swift */,
 				2F0C05000000000000000001 /* MainWindowFocusController.swift */,
@@ -6307,6 +6303,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */,
 				604500100000000000000004 /* WindowTitleTemplateTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
+				DF1380000000000000000002 /* DiffViewerFinalReviewRegressionTests.swift */,
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
@@ -6858,6 +6855,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				"$(SRCROOT)/Native/DiffSidecar/src/manifest.rs",
 				"$(SRCROOT)/Native/DiffSidecar/src/protocol.rs",
 				"$(SRCROOT)/Native/DiffSidecar/src/server.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/trajectory.rs",
 				"$(SRCROOT)/scripts/build-diff-sidecar.sh",
 				"$(SRCROOT)/scripts/run-diff-sidecar-cargo.sh",
 				"$(SRCROOT)/scripts/verify-diff-sidecar-artifact.sh",
@@ -7591,8 +7589,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
 				A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */,
 				A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */,
-				ODBG00010000000000000001 /* OpenDiffViewerAgentBaselineLookup.swift in Sources */,
-				ODBG00020000000000000001 /* OpenDiffViewerAgentContextRequest.swift in Sources */,
 					A6AC72040000000000000001 /* OverlayComparison.swift in Sources */,
 				E3B7A4000000000000000021 /* PaneChromeSettings.swift in Sources */,
 				D0B752900000000000000002 /* PaneDropRoutingRegistration.swift in Sources */,
@@ -8604,6 +8600,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */,
 				DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */,
 				D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */,
+				DF1380000000000000000001 /* DiffViewerFinalReviewRegressionTests.swift in Sources */,
 				DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */,
 				D7529001A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift in Sources */,
 				D77800010000000000000001 /* DockPortalReconcileTests.swift in Sources */,

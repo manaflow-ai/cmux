@@ -30460,24 +30460,6 @@ export default CMUXSessionRestore;
                 return
             }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            if !suppressVisibleMutations {
-                if codexSessionStartWentStaleAfterAccept() {
-                    telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
-                    didSendFeedTelemetry = true
-                    print("{}")
-                    return
-                }
-                try? recordAgentTurnDiffBaseline(
-                    agent: def.name,
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    env: env,
-                    preserveExistingTurnBaseline: true
-                )
-            }
             if !sessionId.isEmpty {
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
@@ -30522,7 +30504,6 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
-
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -30542,7 +30523,6 @@ export default CMUXSessionRestore;
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
             let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
-            let activePromptDepth = max(mapped?.activePromptDepth ?? 0, activePromptTurnStack.count)
             let incomingTurnId = normalizedHookValue(input.turnId)
             let terminalPromptTurnIds = Set((mapped?.terminalPromptTurnIds ?? []).compactMap { normalizedHookValue($0) })
             let incomingCodexTurnIsTerminal = def.name == "codex" &&
@@ -30702,23 +30682,6 @@ export default CMUXSessionRestore;
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
-            if !suppressVisibleMutations && !incomingCodexTurnIsTerminal {
-                if codexPromptTurnWentTerminal() {
-                    stopStaleCodexPromptSubmit()
-                    return
-                }
-                try? recordAgentTurnDiffBaseline(
-                    agent: def.name,
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    env: env,
-                    preserveExistingTurnBaseline: activePromptDepth > 0 &&
-                        (normalizedHookValue(input.turnId).map { $0 == activePromptTurnId } ?? false)
-                )
-            }
             if incomingCodexTurnIsTerminal || codexPromptTurnWentTerminal() {
                 stopStaleCodexPromptSubmit()
                 return
@@ -30855,7 +30818,6 @@ export default CMUXSessionRestore;
                     telemetry: telemetry
                 )
             }
-
         case .stop:
             if def.name == "codex", !sessionId.isEmpty {
                 let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -35061,7 +35023,7 @@ export default CMUXSessionRestore;
           agent-hibernation <on|off>
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
-          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--agent <codex|claude|opencode>] [--session <id>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--target-surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
@@ -35184,7 +35146,7 @@ export default CMUXSessionRestore;
           display-message [-p|--print] <text>
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
-          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--agent <codex|claude|opencode>] [--session <id>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status

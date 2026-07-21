@@ -33,9 +33,12 @@ pub struct OpenSessionRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub viewer_instance_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -58,6 +61,19 @@ pub enum DiffSource {
         #[ts(optional)]
         base_ref: Option<String>,
     },
+    AgentTurn {
+        provider: AgentProvider,
+        session_id: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "protocol.ts")]
+pub enum AgentProvider {
+    Codex,
+    Claude,
+    OpenCode,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
@@ -66,6 +82,9 @@ pub enum DiffSource {
 pub struct SessionRequest {
     pub session_id: String,
     pub capability_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub viewer_instance_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
@@ -198,6 +217,9 @@ pub struct SessionOpened {
     pub session_id: String,
     pub patch: DiffResourceRef,
     pub source: DiffSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repo_root: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]

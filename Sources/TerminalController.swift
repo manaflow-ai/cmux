@@ -6572,47 +6572,29 @@ class TerminalController {
                 return
             }
 
-            let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
             let transparentBackground = v2Bool(params, "transparent_background") ?? false
             let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
-            var createdSplit = true
-            var placementStrategy = "split_right"
-            let createdPanel: BrowserPanel?
-            if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(
-                    inPane: targetPane,
-                    url: url,
-                    focus: focus,
-                    selectWhenNotFocused: true,
-                    creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible,
-                    transparentBackground: transparentBackground,
-                    bypassRemoteProxy: bypassRemoteProxy
-                )
-                createdSplit = false
-                placementStrategy = "reuse_right_sibling"
-            } else {
-                createdPanel = ws.newBrowserSplit(
-                    from: sourceSurfaceId,
-                    orientation: .horizontal,
-                    url: url,
-                    focus: focus,
-                    creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible,
-                    transparentBackground: transparentBackground,
-                    bypassRemoteProxy: bypassRemoteProxy
-                )
-            }
-
-            guard let browserPanelId = createdPanel?.id else {
+            guard let placement = ws.openBrowserOnRight(
+                from: sourceSurfaceId,
+                url: url,
+                focus: focus,
+                creationPolicy: .automationPreload,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy
+            ) else {
                 result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
                 return
             }
 
-            let targetPaneUUID = ws.paneId(forPanelId: browserPanelId)?.id
+            let createdPanel = placement.panel
+            let browserPanelId = createdPanel.id
+            let sourcePaneUUID = placement.sourcePaneID?.id
+            let targetPaneUUID = placement.targetPaneID?.id
+            let placementStrategy = placement.createdSplit ? "split_right" : "reuse_right_sibling"
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -6629,9 +6611,9 @@ class TerminalController {
                 "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                "created_split": createdSplit,
+                "created_split": placement.createdSplit,
                 "placement_strategy": placementStrategy,
-                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "show_omnibar": createdPanel.isOmnibarVisible,
                 "transparent_background": transparentBackground,
                 "bypass_remote_proxy": bypassRemoteProxy
             ])
@@ -6659,7 +6641,35 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
-            if !context.browserPanel.navigateFromCLI(url, expectedURL: v2String(params, "expected_url")) { resolutionError = .err(code: "stale_state", message: "Browser URL changed before navigation", data: nil); return }
+            let expectedURL = v2String(params, "expected_url")
+            let expectedOperationID = v2UUID(params, "expected_operation_id")
+            guard context.browserPanel.canAcceptCLINavigation(
+                expectedURL: expectedURL,
+                expectedOperationID: expectedOperationID
+            ) else {
+                resolutionError = .err(
+                    code: "stale_state",
+                    message: "Browser URL changed before navigation",
+                    data: nil
+                )
+                return
+            }
+            if let parsedURL = URL(string: url) {
+                if let registrationError = v2AuthorizeDiffViewerNavigation(params: params, url: parsedURL) {
+                    resolutionError = registrationError
+                    return
+                }
+            }
+            if !context.browserPanel.navigateFromCLI(
+                url,
+                expectedURL: expectedURL,
+                expectedOperationID: expectedOperationID
+            ) { resolutionError = .err(code: "stale_state", message: "Browser URL changed before navigation", data: nil); return }
+            if let parsedURL = URL(string: url), v2IsDiffViewerURL(parsedURL) {
+                // Navigation has been handed to WebKit. Refill the separate
+                // loading-shell pool deterministically before leaving MainActor.
+                DiffViewerLoadingPage.prewarm()
+            }
             if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
                 basePayload = v2WindowDockBrowserActionPayload(context)
             } else {

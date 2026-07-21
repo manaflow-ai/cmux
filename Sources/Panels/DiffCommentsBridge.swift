@@ -271,25 +271,109 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
 }
 
 extension BrowserPanel {
+    private var diffViewerLoadingOwnershipURL: URL? {
+        DiffViewerLoadingPage.ownershipURL(
+            committedURL: webView.url ?? currentURL,
+            provisionalURL: navigationDelegate?.lastAttemptedURL,
+            isProvisionalNavigationActive: isMainFrameProvisionalNavigationActive
+        )
+    }
+
     func hasCurrentURL(_ expectedURL: String) -> Bool {
-        (webView.url ?? currentURL)?.absoluteString == expectedURL
+        diffViewerLoadingOwnershipURL?.absoluteString == expectedURL
     }
 
     @discardableResult
-    func navigateFromCLI(_ url: String, expectedURL: String? = nil) -> Bool {
-        guard expectedURL.map(hasCurrentURL) != false else { return false }
+    func beginDiffViewerLoadingOperation() -> UUID {
+        let operationID = UUID()
+        diffViewerLoadingOperationID = operationID
+        diffViewerLoadingOwnedOpeningURL = nil
+        return operationID
+    }
+
+    func isShowingDiffViewerLoadingState(expectedURL: String, operationID: UUID) -> Bool {
+        guard diffViewerLoadingOperationID == operationID else { return false }
+        return DiffViewerLoadingPage.owns(
+            url: diffViewerLoadingOwnershipURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: diffViewerLoadingOwnedOpeningURL
+        )
+    }
+
+    func isShowingPendingDiffViewerLoadingState(expectedURL: String, operationID: UUID) -> Bool {
+        guard diffViewerLoadingOperationID == operationID else { return false }
+        let visibleURL = diffViewerLoadingOwnershipURL
+        let openingDocumentHasPendingMarker = visibleURL.flatMap {
+            CmuxDiffViewerURLSchemeHandler.shared.documentHasPendingMarker(for: $0)
+        } ?? false
+        return DiffViewerLoadingPage.isPending(
+            url: visibleURL,
+            expectedURL: expectedURL,
+            ownedOpeningURL: diffViewerLoadingOwnedOpeningURL,
+            openingDocumentHasPendingMarker: openingDocumentHasPendingMarker
+        )
+    }
+
+    @discardableResult
+    func navigateFromCLI(
+        _ url: String,
+        expectedURL: String? = nil,
+        expectedOperationID: UUID? = nil
+    ) -> Bool {
+        guard canAcceptCLINavigation(
+            expectedURL: expectedURL,
+            expectedOperationID: expectedOperationID
+        ) else { return false }
         if let internalURL = URL(string: url),
            internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
             guard CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: internalURL) else { return false }
+            if expectedOperationID != nil,
+               CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: internalURL)?
+                .requestPath
+                .hasSuffix("-opening.html") == true {
+                diffViewerLoadingOwnedOpeningURL = internalURL.absoluteString
+            }
             navigate(to: internalURL)
         } else {
             navigateSmart(url)
         }
         return true
     }
+
+    func canAcceptCLINavigation(expectedURL: String?, expectedOperationID: UUID?) -> Bool {
+        guard expectedOperationID.map({ diffViewerLoadingOperationID == $0 }) != false else {
+            return false
+        }
+        guard let expectedURL else { return true }
+        if hasCurrentURL(expectedURL) {
+            return true
+        }
+        guard expectedOperationID != nil,
+              expectedURL == diffViewerLoadingOwnedOpeningURL else {
+            return false
+        }
+        return DiffViewerLoadingPage.owns(
+            url: diffViewerLoadingOwnershipURL,
+            expectedURL: DiffViewerLoadingPage.url.absoluteString,
+            ownedOpeningURL: diffViewerLoadingOwnedOpeningURL
+        )
+    }
 }
 
 extension CmuxDiffViewerURLSchemeHandler {
+    func documentHasPendingMarker(for url: URL) -> Bool? {
+        guard let file = registeredFile(for: url),
+              let handle = try? FileHandle(forReadingFrom: file.fileURL) else {
+            return nil
+        }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 8192),
+              let text = String(data: head, encoding: .utf8) else {
+            return nil
+        }
+        return text.contains("data-cmux-diff-pending=\"true\"")
+    }
+
     func allowsNavigation(to url: URL) -> Bool {
         guard url.scheme == Self.scheme,
               url.user == nil,

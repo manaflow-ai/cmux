@@ -12,6 +12,7 @@ import WebKit
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
+    var onDiffViewerRendererReadyChanged: ((Bool) -> Void)?
 
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
@@ -386,6 +387,7 @@ final class CmuxWebView: WKWebView {
 
     func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool, rendererReady: Bool) {
         diffViewerDocumentState.update(viewer: viewer, editable: editable, rendererReady: rendererReady)
+        onDiffViewerRendererReadyChanged?(viewer && rendererReady)
         if !viewer || editable {
             diffViewerNavigationKeyRouter.reset()
         }

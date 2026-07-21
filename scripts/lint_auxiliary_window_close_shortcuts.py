@@ -23,6 +23,9 @@ IGNORED_IDENTIFIERS = {
     "cmux.browserPrewarmPool",
     # Hidden WebKit visual automation host; it renders offscreen and never becomes key/main.
     "cmux.browserVisualAutomationRender",
+    # Transient diff loading child views; neither identifier belongs to an NSWindow/NSPanel.
+    "cmux.diffViewerImmediateLoading",
+    "cmux.diffViewerImmediatePresentation",
     "cmux.bootstrap",
     # Cursor-anchored textbox completion popup; it never becomes key/main.
     "cmux.textbox.mentionCompletionPanel",
