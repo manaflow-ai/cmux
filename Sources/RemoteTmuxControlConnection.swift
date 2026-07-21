@@ -746,6 +746,17 @@ final class RemoteTmuxControlConnection {
             // reconnection: for ssh it is a transport loss cmux recovers from, but a
             // transport that reconnects internally does not end for a network drop, so its
             // exit is the session genuinely ending.
+            // A transport that could not start will not start on the next try either, and
+            // retrying hides the reason: end-of-stream no longer implies the session is over, so
+            // without this the mirror waits out the attach timeout with nothing to explain it.
+            if RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer) {
+                record("stream-end-unrecoverable")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+                return
+            }
             switch RemoteTmuxStreamEndDisposition.forStreamEnd() {
             case .reconnect:
                 // Keep the mirror frozen and reconnect.
@@ -768,19 +779,22 @@ final class RemoteTmuxControlConnection {
             // stop or stderr overflow aborting this reconnect attempt).
             guard generation == processGeneration,
                   connectionState == .reconnecting else { return }
-            // Classify into three outcomes, not two. A session/server found gone is a
-            // genuine end. A host asking for interactive authentication is NOT
-            // transient: the reconnect runs `BatchMode=yes` on pipes with no tty, so
-            // no number of retries can ever satisfy a password / MFA / FIDO touch —
-            // retrying forever leaves the mirror frozen with nothing on screen to
-            // explain why. Everything else (unreachable, refused) stays transient.
+            // Classify into four outcomes, not two. A session/server found gone is a genuine end.
+            // A transport that cannot run at all is equally terminal, and looping on it burns the
+            // backoff forever while hiding the reason. A host asking for interactive authentication
+            // is NOT transient: the reconnect runs `BatchMode=yes` on pipes with no tty, so no
+            // number of retries can satisfy a password / MFA / FIDO touch — retrying forever leaves
+            // the mirror frozen with nothing on screen to explain why. Everything else (unreachable,
+            // refused) stays transient and keeps retrying.
             let disposition = RemoteTmuxReconnectDisposition.classify(
                 stderr: stderrBuffer,
                 preControlOutput: preControlOutputBuffer,
                 decoding: decoding
             )
+            let unrecoverable = RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer)
             teardownProcessHandles()
-            if disposition == .sessionGone {
+            if disposition == .sessionGone || unrecoverable {
+                if unrecoverable { record("reconnect-unrecoverable") }
                 record("reconnect-session-gone")
                 connectionState = .ended
                 reconnectTask?.cancel()
