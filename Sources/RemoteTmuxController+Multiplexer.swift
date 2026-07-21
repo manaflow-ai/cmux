@@ -247,6 +247,13 @@ extension RemoteTmuxController {
         view.onEnded = { [weak self] in
             self?.teardownMultiplexedHost(host: host)
         }
+        // Same login path the GA (one-connection-per-session) mirrors use. Without this a
+        // multiplexed host that parks on authentication offers no login at all and every session
+        // on it stays frozen, because the parked stream is the shared view connection rather than
+        // any one session's own.
+        view.onAuthRequired = { [weak self] sshArgv in
+            self?.presentReconnectAuthentication(host: host, sshArgv: sshArgv) ?? false
+        }
         multiplexedViewsByHost[host.connectionHash] = view
         do {
             try await view.start()
