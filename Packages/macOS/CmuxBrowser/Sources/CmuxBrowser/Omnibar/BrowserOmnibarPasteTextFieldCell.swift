@@ -18,6 +18,10 @@ public final class BrowserOmnibarPasteTextFieldCell: NSTextFieldCell {
         super.init(coder: coder)
     }
 
+    /// Supplies the field editor that sanitizes raw pasted URL text.
+    ///
+    /// - Parameter controlView: The text field beginning an editing session.
+    /// - Returns: The cell's reusable omnibar paste field editor.
     public override func fieldEditor(for controlView: NSView) -> NSTextView? {
         pasteFieldEditor
     }

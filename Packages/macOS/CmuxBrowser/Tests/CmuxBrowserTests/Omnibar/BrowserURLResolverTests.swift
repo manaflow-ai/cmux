@@ -31,11 +31,13 @@ import Testing
         let pasteboard = NSPasteboard(name: .init("cmux.omnibar.tests.\(UUID().uuidString)"))
         pasteboard.clearContents()
         pasteboard.setString(padded, forType: .string)
-        let editor = BrowserOmnibarPasteFieldEditor()
+        let cell = BrowserOmnibarPasteTextFieldCell(textCell: "")
+        let editor = try #require(
+            cell.fieldEditor(for: NSView()) as? BrowserOmnibarPasteFieldEditor
+        )
 
         #expect(editor.readSelection(from: pasteboard))
         #expect(editor.string == expected)
-        let cell = BrowserOmnibarPasteTextFieldCell(textCell: "")
         #expect(cell.isEditable)
         #expect(cell.isSelectable)
     }
