@@ -34427,6 +34427,14 @@ export default CMUXSessionRestore;
             )
             return true
 
+        case "claude":
+            let action = commandArgs.dropFirst().first?.lowercased()
+            guard action == "inject-settings" else {
+                return false
+            }
+            try emitClaudeWrapperInjectSettings()
+            return true
+
         default:
             guard let def = Self.agentDef(named: first) else {
                 if first == "feed" || first == "claude" {

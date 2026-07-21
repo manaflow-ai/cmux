@@ -156,7 +156,7 @@ extension CMUXCLI {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
         let inline: String
         if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
-            inline = codexFireAndForgetAgentHookShellCommand(command, for: def)
+            inline = fireAndForgetAgentHookShellCommand(command, for: def)
         } else {
             inline = agentHookShellCommand(command, for: def)
         }
