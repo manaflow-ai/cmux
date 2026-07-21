@@ -71,14 +71,20 @@ struct AgentHookDeliveryQueueTests {
             payload: "tool",
             surfaceID: "surface-a"
         )))
-        #expect(queue.enqueue(try makeEvent(
-            subcommand: "prompt-submit",
-            payload: "prompt",
+        #expect(!queue.enqueue(try makeEvent(
+            subcommand: "push-notification",
+            payload: "claude-tool-overflow",
             surfaceID: "surface-a"
         )))
         #expect(!queue.enqueue(try makeEvent(
-            subcommand: "pre-tool-use",
-            payload: "tool-overflow",
+            agent: "codex",
+            subcommand: "post-tool-use",
+            payload: "codex-tool-overflow",
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: "prompt",
             surfaceID: "surface-a"
         )))
 

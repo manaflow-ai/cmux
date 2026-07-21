@@ -108,10 +108,11 @@ actor AgentHookDeliveryQueue {
     nonisolated func enqueue(_ event: AgentHookDeliveryEvent) -> Bool {
         let admissionClass: AdmissionClass
         let result: AsyncStream<AgentHookDeliveryEvent>.Continuation.YieldResult
-        if event.subcommand == "pre-tool-use" || event.subcommand == "post-tool-use" {
+        switch event.subcommand {
+        case "pre-tool-use", "post-tool-use", "push-notification":
             admissionClass = .replaceableTool
             result = toolAdmissionContinuation.yield(event)
-        } else {
+        default:
             admissionClass = .lifecycle
             result = lifecycleAdmissionContinuation.yield(event)
         }
