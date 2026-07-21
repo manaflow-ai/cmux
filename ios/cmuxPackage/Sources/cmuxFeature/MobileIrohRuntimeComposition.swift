@@ -596,6 +596,10 @@ public final class MobileIrohRuntimeComposition:
     /// never delivers a background transition still leaves the previous
     /// launch's events exportable.
     public func archiveDiagnostics() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .appLifecycleChanged,
+            a: DiagnosticAppLifecyclePhase.inactive.rawValue
+        ))
         if previousLaunchDiagnosticReport == nil {
             previousLaunchDiagnosticReport = .some(diagnosticArchive?.load())
         }
@@ -606,6 +610,10 @@ public final class MobileIrohRuntimeComposition:
     }
 
     public func didEnterBackground() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .appLifecycleChanged,
+            a: DiagnosticAppLifecyclePhase.background.rawValue
+        ))
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
         // Cache the previous launch's archived report before the save below
@@ -628,6 +636,10 @@ public final class MobileIrohRuntimeComposition:
 
     /// Health-checks and refreshes the preserved endpoint on foreground return.
     public func didBecomeActive() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .appLifecycleChanged,
+            a: DiagnosticAppLifecyclePhase.active.rawValue
+        ))
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
         let auth = auth
