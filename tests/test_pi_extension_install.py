@@ -206,6 +206,7 @@ for (const name of [
   "session_start",
   "before_agent_start",
   "agent_end",
+  "agent_settled",
   "session_shutdown",
   "tool_execution_start",
   "tool_execution_end",
@@ -226,6 +227,13 @@ const ctx = {
     getSessionId() { return "pi-session-test"; }
   }
 };
+async function completionHookCount() {
+  // Count observable completion commands so lifecycle timing is tested without source inspection.
+  const path = process.env.CMUX_TEST_PI_ARGS_LOG;
+  if (!path || !Bun.file(path).size) return 0;
+  const lines = (await Bun.file(path).text()).split("\\n");
+  return lines.filter((line) => line.includes("hooks pi notification") || line.includes("hooks pi stop")).length;
+}
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
 await handlers.get("tool_execution_start")({
@@ -241,6 +249,15 @@ await handlers.get("tool_execution_end")({
   result: { content: [{ type: "text", text: "ok" }] },
   isError: false
 }, ctx);
+let completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "hello pi" },
+    { role: "assistant", content: [{ type: "text", text: "intermediate" }] }
+  ],
+  stopReason: "retrying"
+}, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("agent_end emitted completion before settlement");
 await handlers.get("agent_end")({
   messages: [
     { role: "user", content: "hello pi" },
@@ -248,6 +265,12 @@ await handlers.get("agent_end")({
   ],
   stopReason: "completed"
 }, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("repeated agent_end emitted completion before settlement");
+await handlers.get("agent_settled")({}, ctx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("agent_settled did not emit notification and stop");
+await handlers.get("agent_settled")({}, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("duplicate agent_settled emitted completion twice");
 await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
 const interruptedCtx = {
   cwd: "/tmp/pi-project",
@@ -257,7 +280,17 @@ const interruptedCtx = {
 };
 await handlers.get("session_start")({}, interruptedCtx);
 await handlers.get("before_agent_start")({ prompt: "interrupt me" }, interruptedCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "not yet settled" }],
+  stopReason: "completed"
+}, interruptedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("interrupted agent emitted completion before settlement");
 await handlers.get("session_shutdown")({ reason: "terminated" }, interruptedCtx);
+completionCount += 1;
+if (await completionHookCount() !== completionCount) throw new Error("interrupted shutdown did not emit one stop");
+await handlers.get("agent_settled")({}, interruptedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("late settlement emitted completion after shutdown");
 process.env.CMUX_PI_HOOKS_DISABLED = "1";
 const disabledCtx = {
   cwd: "/tmp/pi-project",
@@ -276,6 +309,7 @@ const notificationFailureCtx = {
 };
 await handlers.get("session_start")({}, notificationFailureCtx);
 await handlers.get("before_agent_start")({ prompt: "finish without routed notification" }, notificationFailureCtx);
+completionCount = await completionHookCount();
 await handlers.get("agent_end")({
   messages: [
     { role: "user", content: "finish without routed notification" },
@@ -283,6 +317,12 @@ await handlers.get("agent_end")({
   ],
   stopReason: "completed"
 }, notificationFailureCtx);
+if (await completionHookCount() !== completionCount) throw new Error("failed notification was attempted before settlement");
+await handlers.get("agent_settled")({}, notificationFailureCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("settlement did not attempt failed notification and stop");
+await handlers.get("agent_settled")({}, notificationFailureCtx);
+if (await completionHookCount() !== completionCount) throw new Error("failed notification was retried after duplicate settlement");
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
