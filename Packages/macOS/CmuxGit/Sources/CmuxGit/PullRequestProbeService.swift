@@ -41,28 +41,19 @@ public struct PullRequestProbeService: Sendable {
     ///
     /// - Parameters:
     ///   - commandRunner: Runs `gh auth token`; tests pass a fake.
+    ///   - requestCoordinator: Shared GitHub transport/cache/backoff policy.
+    ///     Defaults to a process-scoped coordinator; injected (like
+    ///     `commandRunner`) so tests can supply one backed by a stub
+    ///     `URLSession` without contacting GitHub.
     ///   - debugLog: Optional diagnostics sink; defaults to a no-op.
     public init(
         commandRunner: any CommandRunning = CommandRunner(),
+        requestCoordinator: GitHubPullRequestRequestCoordinator? = nil,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.commandRunner = commandRunner
         self.authHeaderCache = GitHubAuthHeaderCache()
-        self.requestCoordinator = GitHubPullRequestRequestCoordinator()
-        self.debugLog = debugLog
-    }
-
-    /// Test seam: injects a request coordinator (typically one backed by a stub
-    /// `URLSession`) so the network fetch layer can be exercised deterministically
-    /// without contacting GitHub.
-    init(
-        commandRunner: any CommandRunning,
-        requestCoordinator: GitHubPullRequestRequestCoordinator,
-        debugLog: @escaping @Sendable (String) -> Void = { _ in }
-    ) {
-        self.commandRunner = commandRunner
-        self.authHeaderCache = GitHubAuthHeaderCache()
-        self.requestCoordinator = requestCoordinator
+        self.requestCoordinator = requestCoordinator ?? GitHubPullRequestRequestCoordinator()
         self.debugLog = debugLog
     }
 

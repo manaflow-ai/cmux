@@ -12,7 +12,7 @@ private func githubAuthorizationFingerprint(for authHeader: String) -> Data {
 /// coalescing, and a bounded transport pool. Keeping these concerns here
 /// prevents per-window pollers from independently consuming the same GitHub
 /// rate-limit pool.
-actor GitHubPullRequestRequestCoordinator {
+public actor GitHubPullRequestRequestCoordinator {
     private static let maximumConcurrentTransportCount = 3
     private static let maximumRateLimitIdentityCount = 32
 

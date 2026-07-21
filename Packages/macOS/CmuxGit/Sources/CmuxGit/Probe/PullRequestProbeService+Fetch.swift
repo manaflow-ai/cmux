@@ -55,7 +55,7 @@ extension PullRequestProbeService {
                         repoSlug: repoSlug,
                         candidateBranches: candidateBranchesByRepo[repoSlug] ?? [],
                         cachedEntry: cacheBySlug[repoSlug],
-                        useCachedRecentWindow: allowCachedResults
+                        useFreshCache: allowCachedResults
                             && (cacheBySlug[repoSlug].map {
                                 now.timeIntervalSince($0.fetchedAt) < Self.repoCacheLifetime
                             } ?? false),
@@ -87,14 +87,14 @@ extension PullRequestProbeService {
         repoSlug: String,
         candidateBranches: Set<String>,
         cachedEntry: WorkspacePullRequestRepoCacheEntry?,
-        useCachedRecentWindow: Bool,
+        useFreshCache: Bool,
         authHeader: String
     ) async -> WorkspacePullRequestRepoFetchResult {
         let normalizedCandidateBranches = Set(
             candidateBranches.compactMap(GitMetadataService.normalizedBranchName)
         )
 
-        if useCachedRecentWindow,
+        if useFreshCache,
            let cachedEntry {
             let unresolvedBranches = Self.unresolvedBranches(
                 normalizedCandidateBranches,
@@ -249,14 +249,21 @@ extension PullRequestProbeService {
             return .transientFailure
         }
 
-        // A 404 here is repo-level, not branch-level: the pulls list endpoint
-        // returns `200 []` for a branch with no matching PR, so a 404 means the
-        // repo was renamed/deleted or is no longer visible to this credential
-        // (auth failures surface as 401/403 and are handled by the coordinator).
-        // Resolving `.notFound` folds the branch into `knownAbsentBranches` so it
-        // stops re-polling on the fast loop; a cache-bypassing refresh
-        // (branchChange/shellPrompt/commandHint) or cache eviction clears that,
-        // so regained access is picked up on the next non-cached pass.
+        // A 404 on this `head=` lookup is repo-level, not branch-level: the pulls
+        // list endpoint returns `200 []` (handled below as `.notFound`) for a
+        // branch with no matching PR, so a 404 means the repo is not readable
+        // under this credential right now — renamed, deleted, or not visible.
+        // That last case is not necessarily permanent: GitHub also returns 404
+        // (rather than 403) when a token is missing a scope or SSO authorization
+        // for a private repo, to avoid disclosing the repo's existence. We still
+        // resolve `.notFound` so the branch folds into `knownAbsentBranches` and
+        // stops re-polling on the fast loop, but that suppression is bounded: it
+        // only applies while a cache entry stays fresh (`< repoCacheLifetime`).
+        // The cold path rebuilds with an empty known-absent set, and a
+        // cache-bypassing refresh (branchChange/shellPrompt/commandHint) or cache
+        // eviction clears it sooner — so a transiently-inaccessible repo (or
+        // regained access) re-resolves within one cache window instead of being
+        // hidden. The `200 []` no-PR case below shares this same bounded backoff.
         if response.statusCode == 404 {
             debugLog(
                 "workspace.prRefresh.branch.notFound repo=\(repoSlug) branch=\(branch)"
@@ -279,6 +286,8 @@ extension PullRequestProbeService {
         if let preferredPullRequest = Self.preferredPullRequest(from: matchingPullRequests) {
             return .found(preferredPullRequest)
         }
+        // `200` with no PR matching this branch's head: same `.notFound` /
+        // bounded known-absent backoff as the repo-level 404 above.
         return .notFound
     }
 
