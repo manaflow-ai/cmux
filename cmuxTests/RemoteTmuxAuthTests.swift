@@ -171,7 +171,9 @@ import Testing
         // executable name and not-found sentinel before the forwarded arguments. Pin both
         // halves: the command goes through the resolver, and what it forwards is the tmux
         // attach for this session.
-        #expect(remoteCommand.contains("'cmux-remote-executable' 'tmux'"))
+        #expect(
+            remoteCommand.contains(
+                "'cmux-remote-executable' 'tmux' '\(RemoteTmuxHost.tmuxNotFoundSentinel)'"))
         #expect(remoteCommand.hasSuffix("'-CC' 'attach-session' '-t' 'work session'"))
     }
 
