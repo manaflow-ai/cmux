@@ -110,6 +110,10 @@ final class SidebarRowChecklistSection: NSView {
         isHidden = !mounted
         guard mounted else {
             if popoverPresenter.isShown { popoverPresenter.close() }
+            // Recycled cells must not retain the previous workspace through
+            // configured children: field closures and action bundles capture
+            // the Workspace strongly.
+            resetTransientChildren()
             return
         }
 
@@ -152,6 +156,11 @@ final class SidebarRowChecklistSection: NSView {
         Self.pool(&itemLines, count: orderedItems.count, parent: itemsDocumentView) {
             SidebarRowChecklistItemLine()
         }
+        // Surplus pooled lines are only hidden by the pool helper — clear
+        // their captured item/action state so they stop retaining workspaces.
+        for line in itemLines.dropFirst(orderedItems.count) {
+            line.resetForReuse()
+        }
         for (index, item) in orderedItems.enumerated() {
             itemLines[index].configure(
                 item,
@@ -165,8 +174,11 @@ final class SidebarRowChecklistSection: NSView {
 
         let isAdding = showsExpandedList && canAddItems && model.checklistAddFieldActivationToken > 0
         addRow.isHidden = !(showsExpandedList && canAddItems)
-        if !addRow.isHidden {
+        if addRow.isHidden {
+            addRow.resetForReuse()
+        } else {
             addRow.configure(
+                workspaceId: model.workspaceId,
                 model: model,
                 secondary: secondary,
                 primary: primary,
@@ -331,6 +343,13 @@ final class SidebarRowChecklistSection: NSView {
             removeAttachment: actions.checklistRemoveAttachment,
             openAttachments: actions.checklistOpenAttachments
         )
+    }
+
+    private func resetTransientChildren() {
+        for line in itemLines {
+            line.resetForReuse()
+        }
+        addRow.resetForReuse()
     }
 
     // MARK: Measurement + layout
@@ -905,6 +924,27 @@ final class SidebarRowChecklistItemLine: NSView {
         removeButton.isHidden = true
     }
 
+    /// Reuse teardown: drop the item, action bundle, editor, and click
+    /// closures so a hidden pooled line stops retaining its previous
+    /// workspace.
+    func resetForReuse() {
+        guard item != nil || actions != nil || editField != nil else { return }
+        editField?.removeFromSuperview()
+        editField = nil
+        editFieldBridge = nil
+        editingItemId = nil
+        isEditing = false
+        item = nil
+        model = nil
+        actions = nil
+        checkbox.onClick = nil
+        removeButton.onClick = nil
+        removeButton.isHidden = true
+        textClickOverlay.onClick = nil
+        textLabel.stringValue = ""
+        attachmentButton.resetForReuse()
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let item, let actions else { return super.menu(for: event) }
         let menu = NSMenu()
@@ -942,6 +982,7 @@ final class SidebarRowChecklistAddRow: NSView {
     private var addField: FocusGrabbingTextField?
     private var addFieldBridge: SidebarRowChecklistFieldBridge?
     private var lastArmToken = 0
+    private var lastArmWorkspaceId: UUID?
     private var isAdding = false
     private var model: SidebarWorkspaceRowModel?
     private var primary: NSColor = .labelColor
@@ -963,6 +1004,7 @@ final class SidebarRowChecklistAddRow: NSView {
     }
 
     func configure(
+        workspaceId: UUID,
         model: SidebarWorkspaceRowModel,
         secondary: NSColor,
         primary: NSColor,
@@ -997,14 +1039,31 @@ final class SidebarRowChecklistAddRow: NSView {
                 systemName: "plus.circle", pointSize: model.scaled(8), weight: nil
             )
             plusIconView.contentTintColor = secondary
-            if addField == nil || armToken != lastArmToken {
+            // Key the armed editor by workspace AND token: per-workspace
+            // tokens commonly collide (both start at 1), and a recycled cell
+            // must never keep the previous workspace's draft or bridge.
+            if addField == nil || armToken != lastArmToken || workspaceId != lastArmWorkspaceId {
                 rearmField()
             }
         } else {
             teardownField()
         }
         lastArmToken = armToken
+        lastArmWorkspaceId = workspaceId
         needsLayout = true
+    }
+
+    /// Reuse teardown: drop the editor and every workspace-bound closure so
+    /// a hidden pooled row stops retaining its previous workspace.
+    func resetForReuse() {
+        guard onCommit != nil || onCancel != nil || addField != nil else { return }
+        teardownField()
+        onCommit = nil
+        onCancel = nil
+        model = nil
+        isAdding = false
+        lastArmToken = 0
+        lastArmWorkspaceId = nil
     }
 
     /// Creates a fresh, empty, focus-grabbing add field (legacy bumps the
@@ -1232,6 +1291,11 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func resetForReuse() {
+        item = nil
+        actions = nil
     }
 
     func configure(
