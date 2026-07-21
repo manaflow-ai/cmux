@@ -58,11 +58,10 @@ def expect_scrubbed_mcp_env(
     args: list[str],
     failures: list[str],
     context: str,
-    *,
-    helper_owned: bool,
 ) -> None:
     embedded = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED=")
     daemon_app = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DAEMON_APP=")
+    no_relaunch = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_NO_RELAUNCH=")
     force_proxy = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_FORCE_PROXY=")
     external_flow = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=")
     default_session = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=")
@@ -75,8 +74,9 @@ def expect_scrubbed_mcp_env(
     state_dir = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_DIR=")
     node_options = arg_value(args, "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=")
     bun_options = arg_value(args, "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=")
-    expect(embedded is None, f"{context}: computer use must never be embedded: {args}", failures)
-    expect(daemon_app is None, f"{context}: wrapper must not launch the helper daemon: {args}", failures)
+    expect(embedded is not None, f"{context}: missing embedded-mode clamp: {args}", failures)
+    expect(daemon_app is not None, f"{context}: missing daemon-app clamp: {args}", failures)
+    expect(no_relaunch is not None, f"{context}: missing relaunch clamp: {args}", failures)
     expect(permissions_gate is None, f"{context}: proxy must not own the daemon permission gate: {args}", failures)
     expect(force_proxy is not None, f"{context}: missing forced proxy config in {args}", failures)
     expect(external_flow is not None, f"{context}: missing external permission flow config in {args}", failures)
@@ -90,7 +90,11 @@ def expect_scrubbed_mcp_env(
     expect(node_options is not None, f"{context}: missing NODE_OPTIONS scrub config in {args}", failures)
     expect(bun_options is not None, f"{context}: missing BUN_OPTIONS scrub config in {args}", failures)
     if embedded is not None:
-        expect(json.loads(embedded) == "1", f"{context}: expected embedded env, got {embedded}", failures)
+        expect(json.loads(embedded) == "0", f"{context}: expected embedded mode disabled, got {embedded}", failures)
+    if daemon_app is not None:
+        expect(json.loads(daemon_app) == "", f"{context}: expected daemon app disabled, got {daemon_app}", failures)
+    if no_relaunch is not None:
+        expect(json.loads(no_relaunch) == "0", f"{context}: expected cmux-owned relaunch, got {no_relaunch}", failures)
     if default_session is not None:
         expect(json.loads(default_session).startswith("cmux-"), f"{context}: expected cmux- default session, got {default_session}", failures)
     if permissions_gate is not None:
@@ -327,32 +331,13 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
                 f"expected short per-user daemon socket, got {mcp_args[2]!r}",
                 failures,
             )
-    expect_scrubbed_mcp_env(args, failures, "bundled cua-driver", helper_owned=True)
+    expect_scrubbed_mcp_env(args, failures, "bundled cua-driver")
 
     computer_use_command_index = args.index("-c") if "-c" in args else -1
     prompt_index = args.index("hello") if "hello" in args else -1
     expect(
         0 <= computer_use_command_index < prompt_index,
         f"expected computer-use config before user argv, got {args}",
-        failures,
-    )
-
-
-def test_codex_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None:
-    source = SOURCE_WRAPPER.read_text(encoding="utf-8")
-    expect(
-        "cmux_computer_use_standalone_helper" not in source,
-        "codex wrapper must not install or replace the standalone helper",
-        failures,
-    )
-    expect(
-        "CUA_DRIVER_DAEMON_APP" not in source,
-        "codex wrapper must not own helper daemon launch",
-        failures,
-    )
-    expect(
-        "CUA_DRIVER_RS_MCP_FORCE_PROXY" in source,
-        "codex wrapper must force the shared daemon proxy path",
         failures,
     )
 
@@ -383,7 +368,7 @@ def test_codex_uses_trusted_cua_driver_override(failures: list[str]) -> None:
     if cmd is not None:
         command = json.loads(cmd)
         expect(Path(command).name == "echo", f"expected override driver command, got {cmd}", failures)
-    expect_scrubbed_mcp_env(args, failures, "override cua-driver", helper_owned=False)
+    expect_scrubbed_mcp_env(args, failures, "override cua-driver")
 
 
 def test_codex_fork_gets_hooks_and_cua_driver(failures: list[str]) -> None:
@@ -513,7 +498,7 @@ def test_codex_gets_cua_driver_when_hook_injection_fails(failures: list[str]) ->
             f"expected bundled driver command after hook failure, got {cmd}",
             failures,
         )
-    expect_scrubbed_mcp_env(args, failures, "hook-injection failure", helper_owned=True)
+    expect_scrubbed_mcp_env(args, failures, "hook-injection failure")
 
 
 def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
@@ -526,7 +511,6 @@ def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_codex_gets_cmux_cua_driver(failures)
-    test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_uses_trusted_cua_driver_override(failures)
     test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)

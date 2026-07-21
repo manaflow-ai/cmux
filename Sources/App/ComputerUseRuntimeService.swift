@@ -16,10 +16,20 @@ final class ComputerUseRuntimeService {
     let applicationName: String
 
     private let bundledHelperAppURL: URL?
+    private let helperBundleIdentifier: String?
     private let transport: SocketTransport
     private var installedHelperURL: URL?
     private var installationTask: Task<URL?, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.missing
+    private var helperTerminationTask: Task<Void, Never>?
+    private var monitoredHelperProcessIdentifier: pid_t?
+    private lazy var helperSupervisor = ComputerUseHelperSupervisor(
+        helperAppURL: paths.installedHelperAppURL,
+        helperBundleIdentifier: helperBundleIdentifier
+    ) { [weak self] in
+        guard let self else { return }
+        await self.startIfNeeded()
+    }
 
     init(
         bundle: Bundle = .main,
@@ -32,9 +42,11 @@ final class ComputerUseRuntimeService {
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app", isDirectory: true)
         if FileManager.default.fileExists(atPath: nestedURL.path) {
             bundledHelperAppURL = nestedURL
+            helperBundleIdentifier = Bundle(url: nestedURL)?.bundleIdentifier
             applicationName = Self.displayName(for: nestedURL)
         } else {
             bundledHelperAppURL = nil
+            helperBundleIdentifier = nil
             applicationName = Self.helperAppName
         }
     }
@@ -53,6 +65,7 @@ final class ComputerUseRuntimeService {
 
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
     func setEnabled(_ newValue: Bool) async {
+        helperSupervisor.setEnabled(newValue)
         if newValue {
             await startIfNeeded()
         } else {
@@ -108,6 +121,9 @@ final class ComputerUseRuntimeService {
             paths: paths,
             transport: transport
         ) ?? .missing
+        if let application = Self.runningHelperApplication(at: helperURL) {
+            await monitorHelper(application)
+        }
         return status()
     }
 
@@ -144,12 +160,25 @@ final class ComputerUseRuntimeService {
 
     private func startIfNeeded() async {
         guard let helperURL = await ensureStandaloneHelperInstalled() else { return }
-        guard !(await Self.isDaemonListening(paths: paths, transport: transport)) else { return }
+        if await Self.isDaemonListening(paths: paths, transport: transport) {
+            if let application = Self.runningHelperApplication(at: helperURL) {
+                await monitorHelper(application)
+                return
+            }
+
+            // A listening daemon without the exact LaunchServices app instance
+            // is not lifecycle-owned by cmux. Replace it with a monitored helper.
+            await stopDaemon()
+        }
         await launchHelper(at: helperURL)
-        _ = await Self.waitForDaemonStart(paths: paths, transport: transport)
+        guard await Self.waitForDaemonStart(paths: paths, transport: transport) else { return }
+        if let application = Self.runningHelperApplication(at: helperURL) {
+            await monitorHelper(application)
+        }
     }
 
     private func stopDaemon() async {
+        cancelHelperMonitoring()
         guard await Self.isDaemonListening(paths: paths, transport: transport) else { return }
         _ = await Self.sendDaemonRequest(
             ["method": "shutdown"],
@@ -176,14 +205,70 @@ final class ComputerUseRuntimeService {
         configuration.createsNewApplicationInstance = true
         configuration.arguments = launch.arguments
         configuration.environment = launch.environment
-        await withCheckedContinuation { continuation in
+        let application = await withCheckedContinuation { continuation in
             NSWorkspace.shared.openApplication(
                 at: helperURL,
                 configuration: configuration
-            ) { _, _ in
-                continuation.resume()
+            ) { application, _ in
+                continuation.resume(returning: application)
             }
         }
+        guard let application else { return }
+        await monitorHelper(application)
+    }
+
+    private func monitorHelper(_ application: NSRunningApplication) async {
+        cancelHelperMonitoring()
+        let processIdentifier = application.processIdentifier
+        let bundleURL = application.bundleURL
+        let bundleIdentifier = application.bundleIdentifier
+        monitoredHelperProcessIdentifier = processIdentifier
+        helperSupervisor.helperDidLaunch(
+            bundleURL: bundleURL,
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: processIdentifier
+        )
+
+        let exitEvents = Self.processExitEvents(processIdentifier: processIdentifier)
+        helperTerminationTask = Task { @MainActor [weak self] in
+            for await exitedProcessIdentifier in exitEvents {
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                await monitoredHelperDidTerminate(
+                    bundleURL: bundleURL,
+                    bundleIdentifier: bundleIdentifier,
+                    processIdentifier: exitedProcessIdentifier
+                )
+                return
+            }
+        }
+        if application.isTerminated {
+            await monitoredHelperDidTerminate(
+                bundleURL: bundleURL,
+                bundleIdentifier: bundleIdentifier,
+                processIdentifier: processIdentifier
+            )
+        }
+    }
+
+    private func monitoredHelperDidTerminate(
+        bundleURL: URL?,
+        bundleIdentifier: String?,
+        processIdentifier: pid_t
+    ) async {
+        guard monitoredHelperProcessIdentifier == processIdentifier else { return }
+        cancelHelperMonitoring()
+        await helperSupervisor.helperDidTerminate(
+            bundleURL: bundleURL,
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: processIdentifier
+        )
+    }
+
+    private func cancelHelperMonitoring() {
+        helperTerminationTask?.cancel()
+        helperTerminationTask = nil
+        monitoredHelperProcessIdentifier = nil
     }
 
     private func openSystemSettings(_ deepLink: String) {
@@ -240,6 +325,15 @@ final class ComputerUseRuntimeService {
         }
         let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? helperAppName : trimmed
+    }
+
+    private static func runningHelperApplication(at helperAppURL: URL) -> NSRunningApplication? {
+        guard let bundleIdentifier = Bundle(url: helperAppURL)?.bundleIdentifier else { return nil }
+        let expectedURL = helperAppURL.resolvingSymlinksInPath().standardizedFileURL
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first { application in
+            guard !application.isTerminated, let bundleURL = application.bundleURL else { return false }
+            return bundleURL.resolvingSymlinksInPath().standardizedFileURL == expectedURL
+        }
     }
 
     nonisolated private static func isDaemonListening(
@@ -413,6 +507,28 @@ final class ComputerUseRuntimeService {
             }
             source.setCancelHandler {
                 Darwin.close(descriptor)
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                source.cancel()
+            }
+            source.resume()
+        }
+    }
+
+    nonisolated static func processExitEvents(processIdentifier: pid_t) -> AsyncStream<pid_t> {
+        AsyncStream { continuation in
+            // DispatchSource is Darwin's event-driven process-exit primitive; callers see only an AsyncStream.
+            let source = DispatchSource.makeProcessSource(
+                identifier: processIdentifier,
+                eventMask: .exit,
+                queue: .global(qos: .userInitiated)
+            )
+            source.setEventHandler {
+                continuation.yield(processIdentifier)
+                continuation.finish()
+            }
+            source.setCancelHandler {
                 continuation.finish()
             }
             continuation.onTermination = { _ in

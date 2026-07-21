@@ -1059,8 +1059,6 @@ def expect_computer_use_env_scrubbed(
     server: dict,
     failures: list[str],
     context: str,
-    *,
-    helper_owned: bool,
 ) -> None:
     env = server.get("env")
     expect(isinstance(env, dict), f"{context}: expected MCP env, got {server}", failures)
@@ -1070,6 +1068,9 @@ def expect_computer_use_env_scrubbed(
         "CUA_DRIVER_DEFAULT_SESSION": "cmux-surface:test",
         "CUA_DRIVER_RS_MCP_FORCE_PROXY": "1",
         "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "1",
+        "CUA_DRIVER_DAEMON_APP": "",
+        "CUA_DRIVER_EMBEDDED": "0",
+        "CUA_DRIVER_RS_MCP_NO_RELAUNCH": "0",
         "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
         "CUA_DRIVER_RS_UPDATE_CHECK": "false",
         "CUA_DRIVER_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
@@ -1086,9 +1087,7 @@ def expect_computer_use_env_scrubbed(
         f"{context}: unexpected state directory {state_dir!r}",
         failures,
     )
-    expect("CUA_DRIVER_EMBEDDED" not in env, f"{context}: computer use must never be embedded: {env}", failures)
     expect("CUA_DRIVER_RS_PERMISSIONS_GATE" not in env, f"{context}: proxy must not own the daemon gate: {env}", failures)
-    expect("CUA_DRIVER_DAEMON_APP" not in env, f"{context}: proxy must not launch the helper: {env}", failures)
 
 
 def expect_cua_driver_config(
@@ -1096,8 +1095,6 @@ def expect_cua_driver_config(
     failures: list[str],
     context: str,
     expected_name: str,
-    *,
-    helper_owned: bool,
 ) -> None:
     expect(config is not None, f"{context}: expected --mcp-config=<json>", failures)
     if config is None:
@@ -1126,7 +1123,7 @@ def expect_cua_driver_config(
         f"{context}: proxy command must not execute from the helper app, got {command}",
         failures,
     )
-    expect_computer_use_env_scrubbed(server, failures, context, helper_owned=helper_owned)
+    expect_computer_use_env_scrubbed(server, failures, context)
 
 
 def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> None:
@@ -1148,7 +1145,6 @@ def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> 
         failures,
         "computer use inject",
         "cmux-cua-driver",
-        helper_owned=True,
     )
     inject_index = injected_mcp_config_index(real_argv)
     expect(
@@ -1162,25 +1158,6 @@ def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> 
     expect(
         injected_mcp_config_index(captured) is None and "--mcp-config" not in captured,
         f"computer use inject: captured launch argv must not include the injected flag, got {captured}",
-        failures,
-    )
-
-
-def test_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None:
-    source = SOURCE_WRAPPER.read_text(encoding="utf-8")
-    expect(
-        "cmux_computer_use_standalone_helper" not in source,
-        "computer use wrapper must not install or replace the standalone helper",
-        failures,
-    )
-    expect(
-        "CUA_DRIVER_DAEMON_APP" not in source,
-        "computer use wrapper must not own helper daemon launch",
-        failures,
-    )
-    expect(
-        "CUA_DRIVER_RS_MCP_FORCE_PROXY" in source,
-        "computer use wrapper must force the shared daemon proxy path",
         failures,
     )
 
@@ -1234,7 +1211,6 @@ def test_computer_use_driver_does_not_require_external_runtime_auth(failures: li
         failures,
         "computer use no external auth",
         "cmux-cua-driver",
-        helper_owned=True,
     )
 
 
@@ -1251,7 +1227,6 @@ def test_computer_use_uses_trusted_cua_driver_override(failures: list[str]) -> N
         failures,
         "computer use override",
         "echo",
-        helper_owned=False,
     )
 
 
@@ -2406,7 +2381,6 @@ def main() -> int:
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cua_driver_when_available(failures)
-    test_computer_use_wrapper_is_a_pure_proxy(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_driver_does_not_require_external_runtime_auth(failures)
     test_computer_use_uses_trusted_cua_driver_override(failures)

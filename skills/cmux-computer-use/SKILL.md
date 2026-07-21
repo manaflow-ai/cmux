@@ -98,14 +98,17 @@ driver build.
 While an agent is driving, the **Computer Use menu-bar item** lists live agent
 sessions:
 
-- **Focus terminal** — reveal the workspace + surface running that agent (shared
-  reveal path with notifications).
-- **Focus target** — bring forward the app the agent is driving, read from the
-  driver's per-session state files under
-  `~/Library/Application Support/cmux/computer-use/runtime/<scope>/state/`.
+- **View Computer Use** — bring forward the app the agent is driving and resume
+  following newly driven targets, read from the driver's per-session state files
+  under `~/Library/Application Support/cmux/computer-use/runtime/<scope>/state/`.
+- **Continue in Background** — reveal the exact workspace + surface running that
+  agent (through the shared terminal-focus path) and stop automatically fronting
+  later targets. The agent keeps working through the driver's background-first
+  delivery; an explicit foreground fallback briefly acts and restores the terminal.
 
-The item hides when there is no live or recent session. Toggle visibility in
-Settings → Computer Use.
+The menu shows a checkmark for the active view/background mode. Background mode
+resets after all live sessions end. The item hides when there is no live or recent
+session. Toggle visibility in Settings → Computer Use.
 
 ## Troubleshooting
 

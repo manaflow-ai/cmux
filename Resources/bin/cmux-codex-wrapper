@@ -244,8 +244,8 @@ cmux_codex_emit_computer_use_args() {
     runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
     runtime_uid="$(/usr/bin/id -u)"
-    cua_socket="${CMUX_CUA_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cua.sock}"
-    state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state}"
+    cua_socket="/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cua.sock"
+    state_dir="${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state"
     printf '%s\0' \
         "-c" \
         "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$driver")\"" \
@@ -255,6 +255,12 @@ cmux_codex_emit_computer_use_args() {
         'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_FORCE_PROXY="1"' \
         "-c" \
         'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1"' \
+        "-c" \
+        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_DAEMON_APP=""' \
+        "-c" \
+        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED="0"' \
+        "-c" \
+        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_NO_RELAUNCH="0"' \
         "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \

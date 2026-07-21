@@ -276,6 +276,67 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test @MainActor func unexpectedHelperTerminationRestartsOnlyWhileEnabled() async {
+        let helperURL = URL(fileURLWithPath: "/Applications/cmux Computer Use.app")
+        var restartCount = 0
+        let supervisor = ComputerUseHelperSupervisor(
+            helperAppURL: helperURL,
+            helperBundleIdentifier: "com.cmuxterm.app.debug.test.computer-use"
+        ) {
+            restartCount += 1
+        }
+
+        supervisor.setEnabled(true)
+        supervisor.helperDidLaunch(
+            bundleURL: helperURL,
+            bundleIdentifier: "com.cmuxterm.app.debug.test.computer-use",
+            processIdentifier: 101
+        )
+        await supervisor.helperDidTerminate(
+            bundleURL: helperURL,
+            bundleIdentifier: "com.cmuxterm.app.debug.test.computer-use",
+            processIdentifier: 202
+        )
+        #expect(restartCount == 1)
+
+        await supervisor.helperDidTerminate(
+            bundleURL: URL(fileURLWithPath: "/Applications/CuaDriver.app"),
+            bundleIdentifier: "com.trycua.driver",
+            processIdentifier: 303
+        )
+        #expect(restartCount == 1, "another computer-use bundle must not enter the cmux restart path")
+
+        supervisor.setEnabled(false)
+        await supervisor.helperDidTerminate(
+            bundleURL: helperURL,
+            bundleIdentifier: "com.cmuxterm.app.debug.test.computer-use",
+            processIdentifier: 404
+        )
+        #expect(restartCount == 1, "an intentional disabled state must not self-relaunch")
+    }
+
+    @Test func helperProcessExitSignalReportsTheExitedProcessWithoutPolling() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+
+        let processIdentifier = process.processIdentifier
+        let exitEvents = ComputerUseRuntimeService.processExitEvents(
+            processIdentifier: processIdentifier
+        )
+        process.terminate()
+
+        var iterator = exitEvents.makeAsyncIterator()
+        #expect(await iterator.next() == processIdentifier)
+    }
+
     @Test func taggedRuntimeSocketFitsDarwinUnixPathLimit() {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/\(String(repeating: "long-home-", count: 10))"),
@@ -397,6 +458,32 @@ struct ComputerUseUXTests {
         #expect(ComputerUseWatchTargetDecision.activation(current: 100, lastActivated: 100) == nil)
         // A different app starts being driven -> front it once.
         #expect(ComputerUseWatchTargetDecision.activation(current: 200, lastActivated: 100) == 200)
+    }
+
+    @Test func backgroundModeSuppressesAutomaticTargetFrontingUntilResumed() {
+        #expect(ComputerUseWatchTargetDecision.activation(
+            current: 200,
+            lastActivated: 100,
+            automaticActivationEnabled: false
+        ) == nil)
+        #expect(ComputerUseWatchTargetDecision.activation(
+            current: 200,
+            lastActivated: 100,
+            automaticActivationEnabled: true
+        ) == 200)
+    }
+
+    @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() {
+        let controller = ComputerUseWatchTargetController(
+            stateDirectoryURL: FileManager.default.temporaryDirectory,
+            featureEnabled: { true }
+        )
+
+        #expect(!controller.isRunningInBackground)
+        controller.continueInBackground()
+        #expect(controller.isRunningInBackground)
+        controller.resetPresentationMode()
+        #expect(!controller.isRunningInBackground)
     }
 
     @Test func watchTargetDoesNotReFrontAfterUserFocusAwayOrIdleGap() {

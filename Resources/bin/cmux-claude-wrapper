@@ -932,12 +932,12 @@ cmux_computer_use_config() {
     runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
     runtime_uid="$(/usr/bin/id -u)"
-    state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state}"
-    cua_socket="${CMUX_CUA_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cua.sock}"
+    state_dir="${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state"
+    cua_socket="/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cua.sock"
     # Stable per-terminal session id so the branded agent cursor survives helper
     # restarts in the same surface.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
-    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CUA_DRIVER_RS_MCP_FORCE_PROXY":"1","CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"1","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CUA_DRIVER_RS_MCP_FORCE_PROXY":"1","CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"1","CUA_DRIVER_DAEMON_APP":"","CUA_DRIVER_EMBEDDED":"0","CUA_DRIVER_RS_MCP_NO_RELAUNCH":"0","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
         "$(cmux_computer_use_json_escape "$driver")" \
         "$(cmux_computer_use_json_escape "$cua_socket")" \
         "$(cmux_computer_use_json_escape "$default_session")" \
