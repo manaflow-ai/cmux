@@ -783,6 +783,15 @@ def _self_test() -> int:
             "            time.sleep(0.3)\n"
             "        _must('ok' in body, body)\n",
         ),
+        # A fake-clock event named `.sleep` is data, not a real delay. The
+        # following assertions consume causal AsyncStream signals directly.
+        (
+            "Packages/CmuxClock/Tests/VirtualClockTests.swift",
+            "#expect(await clockEvents.next() == .sleep(initialRefresh))\n"
+            "clock.advance(to: initialRefresh)\n"
+            "#expect(await clockEvents.next() == .sleep(replacementRefresh))\n"
+            "#expect(await broker.requests() == 1)\n",
+        ),
     ]
 
     failures: list[str] = []
