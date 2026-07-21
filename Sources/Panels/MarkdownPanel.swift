@@ -345,7 +345,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         switch Self.loadMarkdownFile(at: filePath) {
         case .loaded(let newContent, let encoding):
             applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
-        case .unavailable:
+        case .missing, .unavailable:
             guard replacingDirtyContent || !isDirty else {
                 isFileUnavailable = true
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
@@ -384,6 +384,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     private static func loadMarkdownFile(at path: String) -> FilePreviewTextLoader.Result {
+        guard FileManager.default.fileExists(atPath: path) else {
+            return .missing
+        }
         guard let data = FileManager.default.contents(atPath: path) else {
             return .unavailable
         }

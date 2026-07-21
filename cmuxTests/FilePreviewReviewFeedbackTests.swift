@@ -455,6 +455,17 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
     }
 
+    func testTextLoaderDistinguishesMissingFileFromReadFailure() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-missing-note-\(UUID().uuidString)")
+            .appendingPathExtension("md")
+
+        guard case .missing = FilePreviewTextLoader.loadSynchronously(url: url) else {
+            XCTFail("Expected a distinct missing-file result")
+            return
+        }
+    }
+
     @MainActor
     func testAutosavingNoteDoesNotOverwriteExistingFileAfterLoadFailure() async throws {
         let url = FileManager.default.temporaryDirectory

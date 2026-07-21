@@ -129,10 +129,15 @@ extension AppDelegate {
     }
 
     func flushPendingAutosavingNotes() async -> Bool {
-        for panel in autosavingNotePanelsForLifecycle() {
-            guard await panel.flushPendingAutosave() else { return false }
+        while true {
+            for panel in autosavingNotePanelsForLifecycle() where panel.needsAutosaveFlush {
+                guard await panel.flushPendingAutosave() else { return false }
+            }
+            guard !autosavingNotePanelsForLifecycle().contains(where: \.needsAutosaveFlush) else {
+                continue
+            }
+            return true
         }
-        return true
     }
 
     static func pendingTerminateReply(

@@ -452,6 +452,47 @@ struct WindowDockRoutingSocketTests {
         }
     }
 
+    @Test("Floating Dock note get fails closed for an unreadable persisted note")
+    @MainActor
+    func floatingDockNoteGetDoesNotReportUnreadableFileAsEmpty() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-unreadable-get-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            _ = FileManager.default.createFile(atPath: noteURL.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: noteURL)
+            try handle.truncate(atOffset: FilePreviewTextLoader.maximumLoadedTextBytes + 1)
+            try handle.close()
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Unreadable note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: noteURL.path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+
+            let envelope = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.get", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+
+            #expect(envelope["ok"] as? Bool == false)
+            #expect(dock.loadedNoteTextSnapshot == nil)
+            #expect(
+                try noteURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
+                    == Int(FilePreviewTextLoader.maximumLoadedTextBytes + 1)
+            )
+        }
+    }
+
     @Test("Socket note updates follow a managed note in another window")
     @MainActor
     func socketNoteUpdatesFollowManagedNoteInAnotherWindow() async throws {

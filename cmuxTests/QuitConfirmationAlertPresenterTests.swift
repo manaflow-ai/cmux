@@ -150,14 +150,18 @@ struct QuitConfirmationAlertPresenterTests {
         try "first original".write(to: firstURL, atomically: true, encoding: .utf8)
         try "second original".write(to: secondURL, atomically: true, encoding: .utf8)
 
-        let firstSaver = LifecycleNoteSaveProbe()
-        let secondSaver = LifecycleNoteSaveGate()
+        let saveCoordinator = LifecycleNoteSaveCoordinator()
         let firstPanel = FilePreviewPanel(
             workspaceId: UUID(),
             filePath: firstURL.path,
             presentation: .note(title: "First"),
             textSaver: { content, url, encoding, _ in
-                await firstSaver.save(content: content, url: url, encoding: encoding)
+                await saveCoordinator.save(
+                    panel: .first,
+                    content: content,
+                    url: url,
+                    encoding: encoding
+                )
             },
             autosaveDelayNanoseconds: 60_000_000_000
         )
@@ -166,7 +170,12 @@ struct QuitConfirmationAlertPresenterTests {
             filePath: secondURL.path,
             presentation: .note(title: "Second"),
             textSaver: { content, url, encoding, _ in
-                await secondSaver.save(content: content, url: url, encoding: encoding)
+                await saveCoordinator.save(
+                    panel: .second,
+                    content: content,
+                    url: url,
+                    encoding: encoding
+                )
             },
             autosaveDelayNanoseconds: 60_000_000_000
         )
@@ -189,54 +198,51 @@ struct QuitConfirmationAlertPresenterTests {
         let flushTask = Task { @MainActor in
             await appDelegate.flushPendingAutosavingNotes()
         }
-        await secondSaver.waitUntilSaveStarts()
-        firstPanel.updateTextContent("first edited while second saves")
-        await secondSaver.finishSave()
+        await saveCoordinator.waitUntilSecondPanelSaveStarts()
+        let earlierPanel = await saveCoordinator.firstSavedPanel()
+        let earlierEditor = earlierPanel == .first ? firstPanel : secondPanel
+        let earlierURL = earlierPanel == .first ? firstURL : secondURL
+        earlierEditor.updateTextContent("earlier note edited while later note saves")
+        await saveCoordinator.finishSecondPanelSave()
 
         #expect(await flushTask.value)
-        #expect(await firstSaver.saveCount() == 2)
+        #expect(await saveCoordinator.saveCount(for: earlierPanel) == 2)
         #expect(
-            try String(contentsOf: firstURL, encoding: .utf8)
-                == "first edited while second saves"
+            try String(contentsOf: earlierURL, encoding: .utf8)
+                == "earlier note edited while later note saves"
         )
     }
 }
 
-private actor LifecycleNoteSaveProbe {
-    private var saves = 0
-
-    func save(
-        content: String,
-        url: URL,
-        encoding: String.Encoding
-    ) -> FilePreviewTextSaver.Result {
-        saves += 1
-        return FilePreviewTextSaver.saveSynchronously(
-            content: content,
-            to: url,
-            encoding: encoding
-        )
-    }
-
-    func saveCount() -> Int { saves }
+private enum LifecycleNotePanel: Hashable, Sendable {
+    case first
+    case second
 }
 
-private actor LifecycleNoteSaveGate {
-    private var saveStarted = false
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var finishContinuation: CheckedContinuation<Void, Never>?
+private actor LifecycleNoteSaveCoordinator {
+    private var firstSaved: LifecycleNotePanel?
+    private var saves: [LifecycleNotePanel: Int] = [:]
+    private var secondSaveStarted = false
+    private var secondSaveStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var secondSaveContinuation: CheckedContinuation<Void, Never>?
 
     func save(
+        panel: LifecycleNotePanel,
         content: String,
         url: URL,
         encoding: String.Encoding
     ) async -> FilePreviewTextSaver.Result {
-        saveStarted = true
-        let waiters = startWaiters
-        startWaiters.removeAll()
-        waiters.forEach { $0.resume() }
-        await withCheckedContinuation { continuation in
-            finishContinuation = continuation
+        saves[panel, default: 0] += 1
+        if firstSaved == nil {
+            firstSaved = panel
+        } else if panel != firstSaved, !secondSaveStarted {
+            secondSaveStarted = true
+            let waiters = secondSaveStartWaiters
+            secondSaveStartWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { continuation in
+                secondSaveContinuation = continuation
+            }
         }
         return FilePreviewTextSaver.saveSynchronously(
             content: content,
@@ -245,16 +251,24 @@ private actor LifecycleNoteSaveGate {
         )
     }
 
-    func waitUntilSaveStarts() async {
-        if saveStarted { return }
+    func waitUntilSecondPanelSaveStarts() async {
+        if secondSaveStarted { return }
         await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
+            secondSaveStartWaiters.append(continuation)
         }
     }
 
-    func finishSave() {
-        finishContinuation?.resume()
-        finishContinuation = nil
+    func firstSavedPanel() -> LifecycleNotePanel {
+        firstSaved ?? .first
+    }
+
+    func saveCount(for panel: LifecycleNotePanel) -> Int {
+        saves[panel, default: 0]
+    }
+
+    func finishSecondPanelSave() {
+        secondSaveContinuation?.resume()
+        secondSaveContinuation = nil
     }
 }
 

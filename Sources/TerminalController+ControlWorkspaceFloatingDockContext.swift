@@ -195,8 +195,10 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         switch target.loader.loadSynchronously() {
         case .loaded(let text, _):
             loadedText = text
-        case .unavailable:
+        case .missing:
             loadedText = ""
+        case .unavailable:
+            return .operationFailed("note read failed")
         }
 
         return v2MainSync {
