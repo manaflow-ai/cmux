@@ -49,9 +49,9 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         guard inet_ntop(AF_INET, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
         let canonical = decode(buffer)
-        // Older Darwin inet_pton accepts leading-zero octets as decimal while
-        // the dialer's inet_aton reads them as octal. Refuse any non-canonical
-        // spelling so classification never diverges from dialing, on any macOS.
+        // Darwin's inet_pton accepts leading-zero octets as decimal while the
+        // dialer's inet_aton reads them as octal. Refuse any non-canonical
+        // spelling so classification never diverges from dialing.
         guard canonical == value else { return nil }
         return (canonical, bytes)
     }
