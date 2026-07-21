@@ -74,13 +74,15 @@ extension TerminalSurface {
 
     /// Resolves the Swift-owned template used to create this surface's runtime.
     ///
-    /// Live non-explicit lineage remains available to descendants, but must not
-    /// seed this surface after hibernation because Cmd+0 and ordinary unzoomed
+    /// Initial non-explicit lineage seeds the first native runtime. After a
+    /// native lifetime, non-explicit lineage remains available to descendants
+    /// but must not seed this surface again because Cmd+0 and ordinary unzoomed
     /// terminals follow the then-current terminal config.
     @MainActor
     func runtimeCreationConfigTemplate() -> CmuxSurfaceConfigTemplate {
         var template = configTemplate ?? CmuxSurfaceConfigTemplate()
-        if lastKnownFontSizeLineage?.isExplicitOverride == false {
+        if lastKnownFontSizeLineage?.isExplicitOverride == false,
+           runtimeSurfaceGeneration > 0 {
             template.fontSizeLineage = nil
         } else if let lastKnownFontSizeLineage {
             template.fontSizeLineage = lastKnownFontSizeLineage
