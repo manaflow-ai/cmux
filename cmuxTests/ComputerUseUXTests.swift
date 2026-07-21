@@ -460,6 +460,32 @@ struct ComputerUseUXTests {
         #expect(ComputerUseWatchTargetDecision.activation(current: 200, lastActivated: 100) == 200)
     }
 
+    @Test func backgroundModeSuppressesAutomaticTargetFrontingUntilResumed() {
+        #expect(ComputerUseWatchTargetDecision.activation(
+            current: 200,
+            lastActivated: 100,
+            automaticActivationEnabled: false
+        ) == nil)
+        #expect(ComputerUseWatchTargetDecision.activation(
+            current: 200,
+            lastActivated: 100,
+            automaticActivationEnabled: true
+        ) == 200)
+    }
+
+    @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() {
+        let controller = ComputerUseWatchTargetController(
+            stateDirectoryURL: FileManager.default.temporaryDirectory,
+            featureEnabled: { true }
+        )
+
+        #expect(!controller.isRunningInBackground)
+        controller.continueInBackground()
+        #expect(controller.isRunningInBackground)
+        controller.resetPresentationMode()
+        #expect(!controller.isRunningInBackground)
+    }
+
     @Test func watchTargetDoesNotReFrontAfterUserFocusAwayOrIdleGap() {
         // The user manually clicks into cmux mid-session. The driver keeps driving
         // the same target pid, so `current` stays equal to `lastActivated` and we
