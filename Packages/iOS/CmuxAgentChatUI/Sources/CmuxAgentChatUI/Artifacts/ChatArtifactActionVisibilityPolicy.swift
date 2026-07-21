@@ -1,5 +1,7 @@
 /// Selects file actions without coupling visibility rules to SwiftUI rendering.
 struct ChatArtifactActionVisibilityPolicy: Equatable {
+    static let imageActions: [ChatArtifactAction] = [.share, .save, .copyImage]
+
     let actions: [ChatArtifactAction]
     let inlineStateIdentity: String?
 
@@ -7,7 +9,7 @@ struct ChatArtifactActionVisibilityPolicy: Equatable {
     init(inlineState state: ChatArtifactViewerState) {
         switch state {
         case .image:
-            actions = [.share, .save, .copyImage]
+            actions = Self.imageActions
             inlineStateIdentity = "image"
         case .pdf:
             actions = [.share, .save]
@@ -26,10 +28,14 @@ struct ChatArtifactActionVisibilityPolicy: Equatable {
     }
 
     /// Preserves the full viewer's existing file-action visibility.
-    init(viewerHasFileActions: Bool, isTextFile: Bool) {
+    init(viewerHasFileActions: Bool, isTextFile: Bool, isImage: Bool = false) {
         inlineStateIdentity = nil
         guard viewerHasFileActions else {
             actions = []
+            return
+        }
+        if isImage {
+            actions = Self.imageActions
             return
         }
         actions = isTextFile

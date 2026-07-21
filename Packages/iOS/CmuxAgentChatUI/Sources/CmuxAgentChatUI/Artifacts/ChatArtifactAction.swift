@@ -37,7 +37,7 @@ public enum ChatArtifactAction: Hashable, Sendable {
         case .save:
             "folder.badge.plus"
         case .copyImage:
-            "photo.on.rectangle"
+            "doc.on.doc"
         case .copyContents:
             "doc.on.doc"
         case .copyPath:

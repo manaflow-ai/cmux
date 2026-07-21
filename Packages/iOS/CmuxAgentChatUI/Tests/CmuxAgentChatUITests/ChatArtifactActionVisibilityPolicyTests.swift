@@ -12,6 +12,15 @@ struct ChatArtifactActionVisibilityPolicyTests {
     }
 
     @Test
+    func actionsUseExpectedSystemImages() {
+        #expect(ChatArtifactAction.share.systemImage == "square.and.arrow.up")
+        #expect(ChatArtifactAction.save.systemImage == "folder.badge.plus")
+        #expect(ChatArtifactAction.copyImage.systemImage == "doc.on.doc")
+        #expect(ChatArtifactAction.copyContents.systemImage == "doc.on.doc")
+        #expect(ChatArtifactAction.copyPath.systemImage == "link")
+    }
+
+    @Test
     func documentPreviewsOfferShareAndSave() {
         let url = URL(fileURLWithPath: "/tmp/artifact")
 
@@ -53,6 +62,11 @@ struct ChatArtifactActionVisibilityPolicyTests {
             viewerHasFileActions: false,
             isTextFile: false
         ).actions.isEmpty)
+        #expect(ChatArtifactActionVisibilityPolicy(
+            viewerHasFileActions: true,
+            isTextFile: false,
+            isImage: true
+        ).actions == [.share, .save, .copyImage])
     }
 
     @Test

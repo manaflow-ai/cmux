@@ -18,12 +18,18 @@ extension MobileShellComposite {
     /// - Parameter workspaceID: Mac-local workspace identifier.
     /// - Returns: A value snapshot for UI presentation, or `nil` when hidden.
     public func workspaceChangesHint(workspaceID: String) -> MobileWorkspaceChangesHint? {
-        MobileWorkspaceChangesHint(
+        let chip = workspaceChangeChipsByWorkspaceID[workspaceID]
+        let isDismissed = workspaceChangesHintDismissalStore.isDismissed(workspaceID: workspaceID)
+        let hint = MobileWorkspaceChangesHint(
             workspaceID: workspaceID,
             workspaceChangesCapable: workspaceChangesCapable,
-            chip: workspaceChangeChipsByWorkspaceID[workspaceID],
-            isDismissed: workspaceChangesHintDismissalStore.isDismissed(workspaceID: workspaceID)
+            chip: chip,
+            isDismissed: isDismissed
         )
+        MobileDebugLog.anchormux(
+            "changes.hint eval ws=\(workspaceID.prefix(8)) capable=\(workspaceChangesCapable) files=\(chip?.filesChanged ?? -1) dismissed=\(isDismissed) shown=\(hint != nil)"
+        )
+        return hint
     }
 
     /// Permanently marks the one-time changes hint as seen for a workspace.

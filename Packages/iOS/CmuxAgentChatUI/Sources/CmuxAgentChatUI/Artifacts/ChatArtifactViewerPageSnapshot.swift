@@ -46,6 +46,11 @@ struct ChatArtifactViewerPageSnapshot: Identifiable, Equatable {
             || (state == .markdown && markdownPresentation.mode == .raw)
     }
 
+    var isImage: Bool {
+        if case .image = state { return true }
+        return false
+    }
+
     var hasViewerActions: Bool {
         hasFileActions
             || shouldShowTextJumpControls

@@ -51,6 +51,7 @@ public struct ChatArtifactInlineViewer: View {
                     #endif
                 }
             ).renderingOnly,
+            onImageAction: imageActionPerformer,
             onDone: {}
         )
         .clipped()
@@ -152,6 +153,14 @@ public struct ChatArtifactInlineViewer: View {
         )
     }
     #endif
+
+    private var imageActionPerformer: (@MainActor (ChatArtifactAction) -> Void)? {
+        #if os(iOS)
+        performInlineAction
+        #else
+        nil
+        #endif
+    }
 
     @MainActor
     private func model(for path: String) -> ChatArtifactViewerPageModel {

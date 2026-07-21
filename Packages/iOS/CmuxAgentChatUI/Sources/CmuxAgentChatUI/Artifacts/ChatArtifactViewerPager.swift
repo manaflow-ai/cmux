@@ -116,6 +116,9 @@ struct ChatArtifactViewerPager: View {
                     zoomedPath = path
                 }
             },
+            onImageAction: { action, snapshot in
+                performFileAction(action, snapshot: snapshot)
+            },
             onDone: onDone
         )
     }
@@ -148,8 +151,19 @@ struct ChatArtifactViewerPager: View {
                     zoomedPath = snapshot.path
                 }
             },
+            onImageAction: imageActionPerformer(for: snapshot),
             onDone: onDone
         )
+    }
+
+    private func imageActionPerformer(
+        for snapshot: ChatArtifactViewerPageSnapshot
+    ) -> (@MainActor (ChatArtifactAction) -> Void)? {
+        #if os(iOS)
+        { action in performFileAction(action, snapshot: snapshot) }
+        #else
+        nil
+        #endif
     }
 
     private var selectionBinding: Binding<String> {
@@ -221,7 +235,8 @@ struct ChatArtifactViewerPager: View {
     private func fileActionButtons(snapshot: ChatArtifactViewerPageSnapshot) -> some View {
         let policy = ChatArtifactActionVisibilityPolicy(
             viewerHasFileActions: snapshot.hasFileActions,
-            isTextFile: snapshot.isTextFile
+            isTextFile: snapshot.isTextFile,
+            isImage: snapshot.isImage
         )
         ChatArtifactActionBar(
             actions: policy.actions,
@@ -242,7 +257,8 @@ struct ChatArtifactViewerPager: View {
         case .save:
             Task { await model.prepareSave(loader: loader) }
         case .copyImage:
-            break
+            guard case .image(let data) = snapshot.state else { return }
+            UIPasteboard.general.image = UIImage(data: data)
         case .copyContents:
             UIPasteboard.general.string = snapshot.renderedText
         case .copyPath:
