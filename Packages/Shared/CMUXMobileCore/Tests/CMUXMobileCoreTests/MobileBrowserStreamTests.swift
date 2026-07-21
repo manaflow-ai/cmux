@@ -81,6 +81,19 @@ struct MobileBrowserStreamTests {
             expectedKeys: ["panel_id", "key", "modifiers"]
         )
         try expectRoundTrip(MobileBrowserTextInput(panelID: "panel-1", text: "héllo"), expectedKeys: ["panel_id", "text"])
+        let viewport = MobileBrowserViewport(width: 393, height: 852, scale: 3)
+        try expectRoundTrip(
+            MobileBrowserStreamStartParameters(panelID: "panel-1", viewport: viewport),
+            expectedKeys: ["panel_id", "viewport_width", "viewport_height", "viewport_scale"]
+        )
+        try expectRoundTrip(
+            MobileBrowserStreamStartParameters(panelID: "panel-1"),
+            expectedKeys: ["panel_id"]
+        )
+        try expectRoundTrip(
+            MobileBrowserViewportParameters(panelID: "panel-1", viewport: viewport),
+            expectedKeys: ["panel_id", "viewport_width", "viewport_height", "viewport_scale"]
+        )
         try expectRoundTrip(
             dialog,
             expectedKeys: [
@@ -102,6 +115,14 @@ struct MobileBrowserStreamTests {
             expectedKeys: ["panel_id", "dialog_id"]
         )
         #expect(dialog.textField?.secure == true)
+    }
+
+    @Test
+    func streamStartRejectsPartialViewportTriples() {
+        let partial = Data(#"{"panel_id":"panel-1","viewport_width":393}"#.utf8)
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(MobileBrowserStreamStartParameters.self, from: partial)
+        }
     }
 
     @Test
