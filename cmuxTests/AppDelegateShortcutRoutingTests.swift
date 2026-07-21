@@ -610,13 +610,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(cmuxWindowShouldOwnCloseShortcut(dockWindow))
         let workspacePanelCount = workspace.panels.count
         let dockPanelCount = dock.store.panels.count
+        let event = try XCTUnwrap(makeKeyDownEvent(
+            key: "t",
+            modifiers: [.command],
+            keyCode: UInt16(kVK_ANSI_T),
+            windowNumber: dockWindow.windowNumber
+        ))
         withTemporaryShortcut(action: .newSurface) {
-            let event = try XCTUnwrap(makeKeyDownEvent(
-                key: "t",
-                modifiers: [.command],
-                keyCode: UInt16(kVK_ANSI_T),
-                windowNumber: dockWindow.windowNumber
-            ))
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
         }
         XCTAssertEqual(workspace.panels.count, workspacePanelCount)

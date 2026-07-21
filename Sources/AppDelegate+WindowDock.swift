@@ -136,7 +136,12 @@ extension AppDelegate {
     /// ids, so `TabManager.closeRuntimeSurface`-style routing cannot find them.
     @discardableResult
     func closeWindowDockRuntimeSurface(surfaceId: UUID, force: Bool) -> Bool {
-        guard let dock = windowDockContainingPanel(surfaceId) else { return false }
+        let dock = windowDockContainingPanel(surfaceId)
+            ?? DockSplitStore.liveStores.first(where: { candidate in
+                candidate.containsPanel(surfaceId)
+                    && workspaceFloatingDock(owning: candidate) != nil
+            })
+        guard let dock else { return false }
         if dock.closePanel(surfaceId, force: force) {
             notificationStore?.clearNotifications(forTabId: dock.workspaceId, surfaceId: surfaceId)
         }

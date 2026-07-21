@@ -966,6 +966,10 @@ enum FilePreviewTextSaver {
             }
 
             do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
                 try data.write(to: url, options: [])
                 return .saved
             } catch {
@@ -1001,6 +1005,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     private var autosaveRequested = false
+    var autosavedTextDidChange: ((String) -> Void)?
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
@@ -1148,30 +1153,24 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textContent = nextContent
         isDirty = nextContent != originalTextContent
         if presentation.autosavesTextChanges {
+            autosavedTextDidChange?(nextContent)
             requestAutosave()
         }
     }
 
-    /// Replaces an autosaving note from a synchronous control-socket mutation.
-    /// The write completes before the command replies, and the live editor is
-    /// updated in the same main-actor transaction.
+    /// Replaces a live autosaving note. Disk persistence stays off the main
+    /// actor and follows the same serialized autosave path as editor input.
     func replaceAutosavedTextContent(_ nextContent: String) throws {
-        guard presentation.autosavesTextChanges, previewMode == .text else { return }
-        guard let data = nextContent.data(using: textEncoding) else {
-            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        guard presentation.autosavesTextChanges, previewMode == .text else {
+            throw CocoaError(.featureUnsupported)
         }
         textLoadGeneration += 1
-        if isSaving {
-            // The in-flight write may land after this synchronous one. Its
-            // autosave continuation must write this newer editor value again.
-            autosaveRequested = true
-        }
-        try data.write(to: fileURL, options: .atomic)
         textView?.string = nextContent
         textContent = nextContent
-        originalTextContent = nextContent
-        isDirty = false
+        isDirty = nextContent != originalTextContent
         isFileUnavailable = false
+        autosavedTextDidChange?(nextContent)
+        requestAutosave()
     }
 
     private func requestAutosave() {
@@ -1179,10 +1178,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard !isSaving else { return }
         autosaveRequested = false
         guard let task = saveTextContent() else { return }
-        Task { [weak self] in
+        Task { [self] in
             await task.value
-            guard let self, self.autosaveRequested || self.isDirty else { return }
-            self.requestAutosave()
+            guard autosaveRequested else { return }
+            requestAutosave()
         }
     }
 
@@ -1246,6 +1245,14 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     ) {
         switch result {
         case .unavailable:
+            if presentation.autosavesTextChanges {
+                guard replacingDirtyContent || !isDirty else { return }
+                textContent = ""
+                originalTextContent = ""
+                isDirty = false
+                isFileUnavailable = false
+                return
+            }
             guard replacingDirtyContent || !isDirty else {
                 isFileUnavailable = true
                 return
@@ -1267,6 +1274,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             textEncoding = encoding
             isDirty = false
             isFileUnavailable = false
+            if presentation.autosavesTextChanges {
+                autosavedTextDidChange?(content)
+            }
         }
     }
 

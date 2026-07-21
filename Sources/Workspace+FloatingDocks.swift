@@ -22,7 +22,7 @@ extension Workspace {
         let displayTitle = resolvedTitle?.isEmpty == false
             ? resolvedTitle!
             : Self.defaultFloatingDockTitle(for: initialContent)
-        guard let noteFileURL = floatingDockNoteFileURL(dockId: id) else { return nil }
+        let noteFileURL = floatingDockNoteFileURL(dockId: id)
         let dock = WorkspaceFloatingDock(
             id: id,
             workspaceId: self.id,
@@ -39,6 +39,22 @@ extension Workspace {
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 self?.dockRemoteBrowserSettingsSnapshot() ?? .local
+            },
+            terminalTransferProvider: { [weak self] command, workingDirectory, environment, tmuxStartCommand in
+                guard let self,
+                      let pane = self.bonsplitController.focusedPaneId
+                        ?? self.bonsplitController.allPaneIds.first,
+                      let terminal = self.newTerminalSurface(
+                        inPane: pane,
+                        focus: false,
+                        workingDirectory: workingDirectory,
+                        initialCommand: command,
+                        tmuxStartCommand: tmuxStartCommand,
+                        startupEnvironment: environment,
+                        preserveFocusWhenUnfocused: true,
+                        allowTextBoxFocusDefault: false
+                      ) else { return nil }
+                return self.detachSurface(panelId: terminal.id)
             }
         )
         if let sessionContent {
@@ -127,26 +143,17 @@ extension Workspace {
         }
     }
 
-    private func floatingDockNoteFileURL(dockId: UUID) -> URL? {
-        guard let applicationSupport = FileManager.default.urls(
+    private func floatingDockNoteFileURL(dockId: UUID) -> URL {
+        let applicationSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first else { return nil }
+        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
         let directory = applicationSupport
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("workspace-notes", isDirectory: true)
             .appendingPathComponent(stableId.uuidString.lowercased(), isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let fileURL = directory.appendingPathComponent("\(dockId.uuidString.lowercased()).md")
-            if !FileManager.default.fileExists(atPath: fileURL.path) {
-                try Data().write(to: fileURL, options: .atomic)
-            }
-            return fileURL
-        } catch {
-            cmuxDebugLog("floatingDock.noteFile.error workspace=\(id) dock=\(dockId) error=\(error)")
-            return nil
-        }
+        return directory.appendingPathComponent("\(dockId.uuidString.lowercased()).md")
     }
 
     var nextFloatingDockFrame: CGRect {
@@ -246,7 +253,7 @@ extension DockSplitStore {
            let tab = surfaceId(forPanelId: focusedPanelId) {
             restoreDockPaneSelection((pane: pane, tab: tab))
         }
-        return snapshot.surfaces.first(where: { $0.kind == .note })
+        return snapshot.surfaces.first(where: { $0.kind == .note && $0.filePreview == nil })
             .flatMap { restoredPanelIds[$0.id] }
     }
 
@@ -255,8 +262,18 @@ extension DockSplitStore {
         notePanelId: UUID?
     ) -> SessionFloatingDockSurfaceSnapshot? {
         guard let panel = panels[panelId] else { return nil }
-        if panelId == notePanelId || panel is FilePreviewPanel {
+        if panelId == notePanelId {
             return SessionFloatingDockSurfaceSnapshot(id: panelId, kind: .note)
+        }
+        if let preview = panel as? FilePreviewPanel {
+            return SessionFloatingDockSurfaceSnapshot(
+                id: panelId,
+                kind: .note,
+                filePreview: SessionFilePreviewPanelSnapshot(
+                    filePath: preview.filePath,
+                    noteTitle: preview.presentation.noteTitle
+                )
+            )
         }
         if let terminal = panel as? TerminalPanel {
             return SessionFloatingDockSurfaceSnapshot(
@@ -379,6 +396,9 @@ extension DockSplitStore {
         noteFilePath: String,
         noteTitle: String
     ) -> UUID? {
+        if let filePreview = snapshot.filePreview {
+            return restoreFloatingDockFilePreview(filePreview, placement: placement)
+        }
         let browserURL = snapshot.browser?.urlString.flatMap { URL(string: $0) }
         let workingDirectory = snapshot.terminal?.workingDirectory
         let panelId: UUID?
@@ -421,5 +441,55 @@ extension DockSplitStore {
             terminal.restoreSessionTextBoxDraft(terminalSnapshot.textBoxDraft)
         }
         return panelId
+    }
+
+    private func restoreFloatingDockFilePreview(
+        _ snapshot: SessionFilePreviewPanelSnapshot,
+        placement: FloatingDockRestorePlacement
+    ) -> UUID? {
+        let presentation: FilePreviewPresentation = snapshot.noteTitle.map { .note(title: $0) } ?? .file
+        let panel = FilePreviewPanel(
+            workspaceId: workspaceId,
+            filePath: snapshot.filePath,
+            presentation: presentation
+        )
+        switch placement {
+        case .tab(let pane):
+            guard attachPanelAsTab(
+                panel,
+                kind: .note,
+                title: panel.displayTitle,
+                inPane: pane,
+                tracksTerminalTitle: false
+            ) != nil else { return nil }
+        case .split(let sourcePanelId, let orientation, let dividerPosition):
+            guard let sourcePane = paneId(forPanelId: sourcePanelId) else { return nil }
+            panels[panel.id] = panel
+            let tab = Bonsplit.Tab(
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                kind: "filepreview",
+                isDirty: panel.isDirty,
+                isPinned: false
+            )
+            surfaceIdToPanelId[tab.id] = panel.id
+            guard withProgrammaticDockSplit({
+                bonsplitController.splitPane(
+                    sourcePane,
+                    orientation: orientation,
+                    withTab: tab,
+                    insertFirst: false,
+                    initialDividerPosition: dividerPosition
+                )
+            }) != nil else {
+                surfaceIdToPanelId.removeValue(forKey: tab.id)
+                panels.removeValue(forKey: panel.id)
+                panel.close()
+                return nil
+            }
+            installSubscription(for: panel, tracksTerminalTitle: false)
+            applyVisibility(to: panel)
+        }
+        return panel.id
     }
 }

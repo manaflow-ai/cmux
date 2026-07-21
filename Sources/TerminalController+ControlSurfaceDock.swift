@@ -193,17 +193,35 @@ extension TerminalController {
     ) -> DockSplitStore? {
         if let surfaceID = routing.surfaceID,
            let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
-            guard let location = locateDockSurface(surfaceID),
-                  location.tabManager === tabManager else { return nil }
+            guard containerDockMatchesExplicitSelectors(dock, routing: routing) else { return nil }
             return dock
         }
         if let paneID = routing.paneID,
            let dock = DockSplitStore.liveStores.first(where: { $0.containsPane(paneID) }) {
-            guard let location = locateDockPane(paneID),
-                  location.tabManager === tabManager else { return nil }
+            guard containerDockMatchesExplicitSelectors(dock, routing: routing) else { return nil }
             return dock
         }
         return windowDockForRouting(routing, tabManager: tabManager)
+    }
+
+    func containerDockMatchesExplicitSelectors(
+        _ dock: DockSplitStore,
+        routing: ControlRoutingSelectors
+    ) -> Bool {
+        guard let app = AppDelegate.shared,
+              let location = dockStoreLocation(dock, app: app) else { return false }
+        if routing.hasWindowIDParam,
+           let windowID = routing.windowID,
+           windowID != location.windowId {
+            return false
+        }
+        if let workspaceID = routing.workspaceID,
+           workspaceID != AppDelegate.windowDockAliasWorkspaceId,
+           app.tabManagerForWindowDockOwner(workspaceID) == nil,
+           workspaceID != location.workspaceId {
+            return false
+        }
+        return true
     }
 
     /// The window Dock owner targeted by a Dock create request. Explicit Dock-owner
@@ -335,6 +353,32 @@ extension TerminalController {
         return owningTabManager
     }
 
+    @discardableResult
+    func focusAndRevealContainerDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> TabManager {
+        guard let app = AppDelegate.shared else { return tabManager }
+        if let floating = app.workspaceFloatingDock(owning: dock) {
+            _ = app.setWorkspaceFloatingDockPresented(
+                floating.dock,
+                in: floating.workspace,
+                tabManager: floating.tabManager,
+                presented: true,
+                focus: true
+            )
+            return floating.tabManager
+        }
+        if dock.scope == .global {
+            return focusAndRevealWindowDock(for: dock, fallback: tabManager)
+        }
+        guard let location = dockStoreLocation(dock, app: app),
+              let workspace = location.workspace else { return tabManager }
+        if location.tabManager.selectedTabId != workspace.id {
+            location.tabManager.selectWorkspace(workspace)
+        }
+        setActiveTabManager(location.tabManager)
+        revealDockForFocus(tabManager: location.tabManager)
+        return location.tabManager
+    }
+
     /// The window-Dock branch of `controlSurfaceClose`: closes the routed
     /// Dock's resolved surface and reports the Dock's owning window. Returns
     /// `nil` when the routing does not target a window Dock (the caller falls
@@ -344,7 +388,12 @@ extension TerminalController {
         surfaceID: UUID?,
         tabManager: TabManager
     ) -> ControlSurfaceCloseResolution? {
-        guard let windowDock = windowDockForRouting(routing, tabManager: tabManager) else { return nil }
+        let explicitlyTargetedDock = surfaceID.flatMap { requestedID in
+            DockSplitStore.liveStores.first(where: { $0.containsPanel(requestedID) })
+        }
+        guard let windowDock = explicitlyTargetedDock
+                ?? containerDockForSurfaceRouting(routing, tabManager: tabManager),
+              containerDockMatchesExplicitSelectors(windowDock, routing: routing) else { return nil }
         let resolved = resolvedWindowDockSurfaceId(
             explicitSurfaceID: surfaceID,
             hasSurfaceIDParam: false,
@@ -377,15 +426,19 @@ extension TerminalController {
     /// `tabManager` can be a different window when the caller's context
     /// (injected workspace/window selectors) disagrees with the surface's home.
     func dockResultWindowId(for dock: DockSplitStore, tabManager: TabManager) -> UUID? {
-        dock.scope == .global ? dock.workspaceId : v2ResolveWindowId(tabManager: tabManager)
+        if let app = AppDelegate.shared,
+           let location = dockStoreLocation(dock, app: app) {
+            return location.windowId
+        }
+        return dock.scope == .global ? dock.workspaceId : v2ResolveWindowId(tabManager: tabManager)
     }
 
     /// The `TabManager` Dock-scoped focus/reveal should act on: the Dock's
     /// owning window. Falls back to the routed manager only for workspace Docks
     /// (whose reveal semantics are unchanged) — see `dockResultWindowId`.
     func dockOwnerTabManager(for dock: DockSplitStore, fallback: TabManager) -> TabManager {
-        guard dock.scope == .global else { return fallback }
-        return AppDelegate.shared?.tabManagerFor(windowId: dock.workspaceId) ?? fallback
+        guard let app = AppDelegate.shared else { return fallback }
+        return dockStoreLocation(dock, app: app)?.tabManager ?? fallback
     }
 
     func orderedPanels(in dock: DockSplitStore) -> [any Panel] {
@@ -497,7 +550,7 @@ extension TerminalController {
     /// Resolves the owning window, workspace id, tab manager, and (for
     /// per-workspace Docks) the `Workspace` for a live Dock `store`. Used by the
     /// indexed `locateDockSurface` / `locateDockPane` paths.
-    private func dockStoreLocation(
+    func dockStoreLocation(
         _ store: DockSplitStore,
         app: AppDelegate
     ) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager, workspace: Workspace?)? {

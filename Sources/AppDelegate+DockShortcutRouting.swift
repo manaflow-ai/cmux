@@ -16,6 +16,9 @@ extension AppDelegate {
     /// owns keyboard focus in `preferredWindow`, else `nil` (caller falls through
     /// to the main-area path).
     func focusedDockStoreForShortcut(preferredWindow: NSWindow?) -> DockSplitStore? {
+        if let dock = workspaceFloatingDock(owning: preferredWindow) {
+            return dock.store
+        }
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
             return nil
         }

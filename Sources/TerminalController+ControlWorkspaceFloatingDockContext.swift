@@ -130,17 +130,20 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         case .close(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             let payload = floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager)
-            _ = workspace.closeFloatingDock(id: dock.id)
-            AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: tabManager)
+            guard AppDelegate.shared?.closeWorkspaceFloatingDock(
+                dock,
+                in: workspace,
+                tabManager: tabManager
+            ) == true else { return .operationFailed("close cancelled") }
             return .resolved(payload)
         case .closeAll:
             guard let appDelegate = AppDelegate.shared else {
                 return .operationFailed("Failed to close floating Docks")
             }
-            let closedCount = appDelegate.closeAllWorkspaceFloatingDocks(
+            guard let closedCount = appDelegate.closeAllWorkspaceFloatingDocks(
                 in: workspace,
                 tabManager: tabManager
-            )
+            ) else { return .operationFailed("close cancelled") }
             return .resolved(.object([
                 "workspace_id": .string(workspace.id.uuidString),
                 "closed_count": .int(Int64(closedCount)),
@@ -165,7 +168,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         case .noteGet(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             let notePanel = floatingDockNotePanel(for: dock, tabManager: tabManager)
-            let text = (try? String(contentsOfFile: dock.noteFilePath, encoding: .utf8)) ?? notePanel?.textContent ?? ""
+            let text = notePanel?.textContent ?? dock.noteTextSnapshot
             return .resolved(floatingDockNotePayload(
                 dock: dock, workspace: workspace, notePanel: notePanel, text: text
             ))
@@ -176,10 +179,15 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 if let notePanel {
                     try notePanel.replaceAutosavedTextContent(text)
                 } else {
-                    try Data(text.utf8).write(to: URL(fileURLWithPath: dock.noteFilePath), options: .atomic)
+                    dock.setNoteTextSnapshot(text)
+                    let url = URL(fileURLWithPath: dock.noteFilePath)
+                    Task {
+                        _ = await FilePreviewTextSaver.save(content: text, to: url, encoding: .utf8)
+                    }
                 }
             } catch {
-                return .operationFailed("Failed to save floating Dock note: \(error.localizedDescription)")
+                cmuxDebugLog("floatingDock.note.set.failed dock=\(dock.id) error=\(error)")
+                return .operationFailed("note mutation failed")
             }
             return .resolved(floatingDockNotePayload(
                 dock: dock, workspace: workspace, notePanel: notePanel, text: text

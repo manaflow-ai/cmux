@@ -20,6 +20,8 @@ final class WorkspaceFloatingDock: Identifiable {
     @ObservationIgnored let store: DockSplitStore
     @ObservationIgnored let noteFilePath: String
     @ObservationIgnored private(set) var notePanelId: UUID?
+    @ObservationIgnored private(set) var noteTextSnapshot = ""
+    @ObservationIgnored private var noteTextGeneration = 0
 
     init(
         id: UUID,
@@ -35,7 +37,8 @@ final class WorkspaceFloatingDock: Identifiable {
         displaySnapshot: SessionDisplaySnapshot? = nil,
         configFrames: SessionConfigFrameRing = SessionConfigFrameRing(),
         baseDirectoryProvider: @escaping () -> String?,
-        remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings
+        remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings,
+        terminalTransferProvider: DockSplitStore.TerminalTransferProvider? = nil
     ) {
         self.id = id
         self.workspaceId = workspaceId
@@ -52,8 +55,10 @@ final class WorkspaceFloatingDock: Identifiable {
             scope: .workspace,
             loadsConfiguration: false,
             baseDirectoryProvider: baseDirectoryProvider,
-            remoteBrowserSettingsProvider: remoteBrowserSettingsProvider
+            remoteBrowserSettingsProvider: remoteBrowserSettingsProvider,
+            terminalTransferProvider: terminalTransferProvider
         )
+        loadPersistedNoteSnapshot()
 
         if let initialContent {
             seedInitialContentIfNeeded(initialContent, url: initialURL)
@@ -64,7 +69,9 @@ final class WorkspaceFloatingDock: Identifiable {
         if let notePanelId, let panel = store.panels[notePanelId] as? FilePreviewPanel {
             return panel
         }
-        return store.panels.values.first(where: { $0 is FilePreviewPanel }) as? FilePreviewPanel
+        return store.panels.values.compactMap { $0 as? FilePreviewPanel }.first {
+            $0.filePath == noteFilePath && $0.presentation.autosavesTextChanges
+        }
     }
 
     func sessionContentSnapshot() -> SessionFloatingDockContentSnapshot? {
@@ -77,6 +84,7 @@ final class WorkspaceFloatingDock: Identifiable {
             noteFilePath: noteFilePath,
             noteTitle: String(localized: "floatingDock.note.title", defaultValue: "Notes")
         )
+        bindNotePanel()
         seedInitialContentIfNeeded(.terminal)
     }
 
@@ -95,11 +103,38 @@ final class WorkspaceFloatingDock: Identifiable {
         )
         if kind == .note {
             notePanelId = panelId
+            bindNotePanel()
+        }
+    }
+
+    func setNoteTextSnapshot(_ text: String) {
+        noteTextGeneration += 1
+        noteTextSnapshot = text
+    }
+
+    private func bindNotePanel() {
+        guard let panel = notePanel else { return }
+        setNoteTextSnapshot(panel.textContent)
+        panel.autosavedTextDidChange = { [weak self] text in
+            self?.setNoteTextSnapshot(text)
+        }
+    }
+
+    private func loadPersistedNoteSnapshot() {
+        let path = noteFilePath
+        let generation = noteTextGeneration
+        Task.detached(priority: .utility) { [weak self, path, generation] in
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+            await MainActor.run {
+                guard let self, self.noteTextGeneration == generation else { return }
+                self.noteTextSnapshot = text
+            }
         }
     }
 
     func close() {
         ownsInputFocus = false
+        notePanel?.autosavedTextDidChange = nil
         store.closeAllPanels()
     }
 }

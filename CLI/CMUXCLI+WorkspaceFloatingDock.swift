@@ -271,7 +271,7 @@ extension CMUXCLI {
         guard args.first?.lowercased() == "create" else {
             throw CLIError(message: floatingDockCLIString(
                 "cli.workspace.float.error.paneUsage",
-                defaultValue: "Usage: cmux workspace float pane create <float> --type <terminal|browser> [--direction right]"
+                defaultValue: "Usage: cmux workspace float pane create <float> --type <terminal|browser> [--direction left|right|up|down]"
             ))
         }
         let (selector, selectorRest) = try floatingDockSelector(from: Array(args.dropFirst()))
@@ -313,8 +313,10 @@ extension CMUXCLI {
                 : floatingDockCLIString("cli.workspace.float.output.hidden", defaultValue: "hidden")
             let panes = (item["panes"] as? [[String: Any]])?.count ?? 0
             let format = floatingDockCLIString(
-                "cli.workspace.float.output.row",
-                defaultValue: "%1$@  %2$@  %3$@  %4$d pane(s)"
+                panes == 1 ? "cli.workspace.float.output.row.one" : "cli.workspace.float.output.row.other",
+                defaultValue: panes == 1
+                    ? "%1$@  %2$@  %3$@  %4$d pane"
+                    : "%1$@  %2$@  %3$@  %4$d panes"
             )
             print(String(format: format, locale: .current, ref, title, state, panes))
         }

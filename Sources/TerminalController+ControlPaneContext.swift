@@ -63,7 +63,7 @@ extension TerminalController: ControlPaneContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
         }
-        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+        if let dock = containerDockForSurfaceRouting(routing, tabManager: tabManager) {
             return controlDockPaneList(dock: dock, tabManager: tabManager)
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else { return nil }
@@ -139,11 +139,11 @@ extension TerminalController: ControlPaneContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+        if let dock = containerDockForSurfaceRouting(routing, tabManager: tabManager) {
             guard let paneId = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID }) else {
                 return .paneNotFound(paneID)
             }
-            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            focusAndRevealContainerDock(for: dock, fallback: tabManager)
             dock.bonsplitController.focusPane(paneId)
             return .focused(windowID: dockResultWindowId(for: dock, tabManager: tabManager), workspaceID: dock.workspaceId, paneID: paneId.id)
         }
@@ -162,7 +162,7 @@ extension TerminalController: ControlPaneContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
         }
-        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+        if let dock = containerDockForSurfaceRouting(routing, tabManager: tabManager) {
             let paneId: PaneID? = {
                 if let paneID {
                     return dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID })

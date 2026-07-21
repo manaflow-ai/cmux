@@ -66,6 +66,27 @@ extension AppDelegate {
         return nil
     }
 
+    func workspaceFloatingDock(owning window: NSWindow?) -> WorkspaceFloatingDock? {
+        guard let context = contextForShortcutSourceWindow(window) else { return nil }
+        return context.workspaceFloatingDockPresenter?.dock(owning: window)
+    }
+
+    func workspaceFloatingDock(owning store: DockSplitStore) -> (
+        dock: WorkspaceFloatingDock,
+        workspace: Workspace,
+        tabManager: TabManager
+    )? {
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                guard let dock = workspace.floatingDocks.first(where: { $0.store === store }) else {
+                    continue
+                }
+                return (dock, workspace, context.tabManager)
+            }
+        }
+        return nil
+    }
+
     @discardableResult
     func createWorkspaceFloatingDock(
         in tabManager: TabManager,
@@ -192,10 +213,26 @@ extension AppDelegate {
     }
 
     @discardableResult
+    func closeWorkspaceFloatingDock(
+        _ dock: WorkspaceFloatingDock,
+        in workspace: Workspace,
+        tabManager: TabManager
+    ) -> Bool {
+        guard workspace.floatingDock(id: dock.id) === dock,
+              dock.store.confirmCloseAllPanels(),
+              workspace.closeFloatingDock(id: dock.id) else { return false }
+        refreshWorkspaceFloatingDocks(for: tabManager)
+        return true
+    }
+
+    @discardableResult
     func closeAllWorkspaceFloatingDocks(
         in workspace: Workspace,
         tabManager: TabManager
-    ) -> Int {
+    ) -> Int? {
+        for dock in workspace.floatingDocks where !dock.store.confirmCloseAllPanels() {
+            return nil
+        }
         let closedCount = workspace.closeAllFloatingDocks()
         refreshWorkspaceFloatingDocks(for: tabManager)
         return closedCount

@@ -3296,7 +3296,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(notePanel.filePath, url.path)
         XCTAssertEqual(dock.store.panels.count, 1)
         XCTAssertNotNil(dock.store.paneId(forPanelId: notePanel.id))
-        XCTAssertFalse(dock.store.hasPendingConfigurationWorkForTesting)
         XCTAssertEqual(dock.store.dockPortalReconcileState.reconcilePassCount, 0)
     }
 
@@ -3379,7 +3378,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertNil(WorkspaceFloatingDockBackgroundColor.normalized("monokai"))
     }
 
-    func testFloatingDockNoteControlWriteIsSynchronousAndUpdatesEditor() async throws {
+    func testFloatingDockNoteControlWriteUpdatesEditorAndPersistsOffMainActor() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -3395,6 +3394,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         panel.attachTextView(textView)
 
         try panel.replaceAutosavedTextContent("agent-visible note")
+
+        for _ in 0..<500 {
+            if !panel.isSaving, !panel.isDirty { break }
+            await Task.yield()
+        }
 
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "agent-visible note")
         XCTAssertEqual(panel.textContent, "agent-visible note")

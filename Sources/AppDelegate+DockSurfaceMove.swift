@@ -126,12 +126,18 @@ extension AppDelegate {
         // requested focus. Resolve the destination Dock's OWN window rather than
         // the global key window: during a cross-window drag the source window can
         // still be key, which would publish focus to the wrong window's state.
-        let destinationDockWindow = dockReferenceTabManager(for: destinationDock)
-            .flatMap { windowId(for: $0) }
-            .flatMap { mainWindow(for: $0) }
-        destinationDock.noteKeyboardFocusIntent(
-            window: destinationDockWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-        )
+        if let floating = workspaceFloatingDock(owning: destinationDock) {
+            floating.dock.ownsInputFocus = true
+            mainWindowContexts.values.first(where: { $0.tabManager === floating.tabManager })?
+                .workspaceFloatingDockPresenter?.focus(floating.dock)
+        } else {
+            let destinationDockWindow = dockReferenceTabManager(for: destinationDock)
+                .flatMap { windowId(for: $0) }
+                .flatMap { mainWindow(for: $0) }
+            destinationDock.noteKeyboardFocusIntent(
+                window: destinationDockWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
 
         cleanupEmptyContainerAfterMove(
             source,

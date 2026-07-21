@@ -133,6 +133,9 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             applyInitialScreenPlacement()
             hasAppliedInitialScreenPlacement = true
         }
+        if panel.isMiniaturized {
+            panel.deminiaturize(nil)
+        }
         if !panel.isVisible {
             if panel.parent !== parentWindow {
                 parentWindow.addChildWindow(panel, ordered: .above)
@@ -142,9 +145,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         dock.isPresented = true
         dock.store.setVisibleInUI(true)
         if focus {
-            if panel.isMiniaturized {
-                panel.deminiaturize(nil)
-            }
             panel.makeKeyAndOrderFront(nil)
             raiseAboveSiblingFloatingDocks(panel)
             _ = dock.store.focusFirstControl()

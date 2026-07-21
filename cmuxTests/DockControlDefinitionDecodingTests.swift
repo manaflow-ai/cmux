@@ -292,9 +292,11 @@ struct DockControlDefinitionDecodingTests {
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { newRoot.path })
         defer { store.closeAllPanels() }
 
-        let staleGeneration = store.markConfigurationLoadInFlightForTesting(rootDirectory: oldRoot.path)
+        store.setRootDirectory(oldRoot.path)
+        store.reload()
+        let staleGeneration = 1
         store.setRootDirectory(newRoot.path)
-        store.setActive(isVisible: true, mode: .dock)
+        store.reload()
 
         let staleResolution = DockConfigResolution(
             controls: [DockControlDefinition(id: "old", title: "Old", command: "echo old")],

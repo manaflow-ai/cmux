@@ -144,6 +144,21 @@ extension DockSplitStore {
         return false
     }
 
+    func confirmCloseAllPanels() -> Bool {
+        let panelsToClose = bonsplitController.allTabIds.compactMap { panel(for: $0) }
+        let shouldConfirm = panelsToClose.contains { panel in
+            CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                requiresConfirmation: dockPanelNeedsConfirmClose(panel),
+                source: .shortcut
+            )
+        }
+        guard shouldConfirm else { return true }
+        let prompt = DockPaneCloseConfirmationPrompt(
+            titles: panelsToClose.map { CloseOtherTabsConfirmationPrompt.displayTitle($0.displayTitle) }
+        )
+        return confirmCloseDockPane(prompt, confirmationManager: dockCloseConfirmationManager())
+    }
+
     private func confirmCloseDockPanel(_ panel: any Panel, confirmationManager: TabManager?) -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)

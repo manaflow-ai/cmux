@@ -11,6 +11,12 @@ import SwiftUI
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate {
+    typealias TerminalTransferProvider = (
+        _ command: String?,
+        _ workingDirectory: String?,
+        _ environment: [String: String],
+        _ tmuxStartCommand: String?
+    ) -> Workspace.DetachedSurfaceTransfer?
     let workspaceId: UUID
     let bonsplitController: BonsplitController
 
@@ -33,6 +39,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    private let terminalTransferProvider: TerminalTransferProvider?
     private let loadsConfiguration: Bool
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
@@ -78,7 +85,8 @@ final class DockSplitStore: BonsplitDelegate {
         loadsConfiguration: Bool = true,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
-        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
+        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
+        terminalTransferProvider: TerminalTransferProvider? = nil
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
@@ -86,6 +94,7 @@ final class DockSplitStore: BonsplitDelegate {
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.terminalTransferProvider = terminalTransferProvider
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
@@ -274,6 +283,19 @@ final class DockSplitStore: BonsplitDelegate {
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> UUID? {
         ensureLoaded()
+        if kind == .terminal, let terminalTransferProvider {
+            guard let transfer = terminalTransferProvider(
+                command,
+                workingDirectory ?? currentBaseDirectory(),
+                environment,
+                tmuxStartCommand
+            ) else { return nil }
+            guard let panelID = attachDetachedSurface(transfer, inPane: paneId, focus: focus) else {
+                transfer.panel.close()
+                return nil
+            }
+            return panelID
+        }
         guard let panel = makePanel(
             kind: kind,
             command: command,
@@ -323,6 +345,34 @@ final class DockSplitStore: BonsplitDelegate {
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
+        if kind == .terminal, let terminalTransferProvider {
+            guard let transfer = terminalTransferProvider(
+                command,
+                workingDirectory ?? currentBaseDirectory(),
+                environment,
+                tmuxStartCommand
+            ) else { return nil }
+            if let source = resolveSourcePanelId(sourcePanelId),
+               let sourcePane = paneId(forPanelId: source) {
+                guard let panelID = attachDetachedSurface(
+                    transfer,
+                    bySplitting: sourcePane,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    focus: focus
+                ) else {
+                    transfer.panel.close()
+                    return nil
+                }
+                return panelID
+            }
+            guard let rootPane = bonsplitController.allPaneIds.first,
+                  let panelID = attachDetachedSurface(transfer, inPane: rootPane, focus: focus) else {
+                transfer.panel.close()
+                return nil
+            }
+            return panelID
+        }
         guard let panel = makePanel(
             kind: kind,
             command: command,
@@ -442,18 +492,6 @@ final class DockSplitStore: BonsplitDelegate {
         return body()
     }
 
-#if DEBUG
-    var hasPendingConfigurationWorkForTesting: Bool {
-        configurationLoadTask != nil || configurationIdentityTask != nil
-    }
-
-    func markConfigurationLoadInFlightForTesting(rootDirectory: String?) -> Int {
-        hasLoadedConfiguration = true; configurationLoadGeneration += 1
-        configurationLoadRootDirectory = rootDirectory; configurationLoadTask = Task {}
-        return configurationLoadGeneration
-    }
-#endif
-
     // MARK: - Panel construction
 
     private func makePanel(
@@ -565,7 +603,7 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     @discardableResult
-    private func attachPanelAsTab(
+    func attachPanelAsTab(
         _ panel: any Panel,
         kind: DockSurfaceKind,
         title: String,

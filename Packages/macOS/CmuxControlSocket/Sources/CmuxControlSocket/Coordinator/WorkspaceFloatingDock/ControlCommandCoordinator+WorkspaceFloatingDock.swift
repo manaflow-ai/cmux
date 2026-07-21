@@ -2,6 +2,10 @@ internal import Foundation
 
 extension ControlCommandCoordinator {
     func handleWorkspaceFloatingDock(_ request: ControlRequest) -> ControlCallResult? {
+        let workspaceID = uuid(request.params, "workspace_id")
+        if hasNonNull(request.params, "workspace_id"), workspaceID == nil {
+            return invalidFloatingDockIdentifier("workspace_id")
+        }
         let action: ControlWorkspaceFloatingDockAction
         switch request.method {
         case "workspace.float.list":
@@ -66,9 +70,13 @@ extension ControlCommandCoordinator {
             guard let kind = string(request.params, "kind") else {
                 return .err(code: "invalid_params", message: "Missing or invalid kind", data: nil)
             }
+            let paneID = uuid(request.params, "pane_id")
+            if hasNonNull(request.params, "pane_id"), paneID == nil {
+                return invalidFloatingDockIdentifier("pane_id")
+            }
             action = .surfaceCreate(
                 selector: selector,
-                paneID: uuid(request.params, "pane_id"),
+                paneID: paneID,
                 kind: kind,
                 url: optionalTrimmedRawString(request.params, "url"),
                 focus: bool(request.params, "focus") ?? false
@@ -78,9 +86,13 @@ extension ControlCommandCoordinator {
             guard let kind = string(request.params, "kind") else {
                 return .err(code: "invalid_params", message: "Missing or invalid kind", data: nil)
             }
+            let sourceSurfaceID = uuid(request.params, "surface_id")
+            if hasNonNull(request.params, "surface_id"), sourceSurfaceID == nil {
+                return invalidFloatingDockIdentifier("surface_id")
+            }
             action = .paneCreate(
                 selector: selector,
-                sourceSurfaceID: uuid(request.params, "surface_id"),
+                sourceSurfaceID: sourceSurfaceID,
                 kind: kind,
                 direction: string(request.params, "direction") ?? "right",
                 url: optionalTrimmedRawString(request.params, "url"),
@@ -92,7 +104,7 @@ extension ControlCommandCoordinator {
 
         let resolution = context?.controlWorkspaceFloatingDock(
             routing: routingSelectors(request.params),
-            workspaceID: uuid(request.params, "workspace_id"),
+            workspaceID: workspaceID,
             action: action
         ) ?? .tabManagerUnavailable
         return floatingDockResult(resolution)
@@ -111,8 +123,8 @@ extension ControlCommandCoordinator {
         guard required || hasAny else { return (nil, nil) }
         guard let x = double(params, "x"), x.isFinite,
               let y = double(params, "y"), y.isFinite,
-              let width = double(params, "width"), width.isFinite,
-              let height = double(params, "height"), height.isFinite else {
+              let width = double(params, "width"), width.isFinite, width > 0,
+              let height = double(params, "height"), height.isFinite, height > 0 else {
             return (nil, .err(
                 code: "invalid_params",
                 message: "x, y, width, and height must be finite numbers",
@@ -126,12 +138,16 @@ extension ControlCommandCoordinator {
         .err(code: "invalid_params", message: "Missing floating Dock selector", data: nil)
     }
 
+    private func invalidFloatingDockIdentifier(_ key: String) -> ControlCallResult {
+        .err(code: "invalid_params", message: "\(key) must be a UUID", data: nil)
+    }
+
     private func floatingDockResult(
         _ resolution: ControlWorkspaceFloatingDockResolution
     ) -> ControlCallResult {
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace controls are unavailable", data: nil)
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .floatingDockNotFound:
@@ -164,8 +180,8 @@ extension ControlCommandCoordinator {
                 message: "color must use #RRGGBB format",
                 data: .object(["color": .string(color)])
             )
-        case .operationFailed(let message):
-            return .err(code: "internal_error", message: message, data: nil)
+        case .operationFailed:
+            return .err(code: "internal_error", message: "The floating Dock operation failed", data: nil)
         case .resolved(let payload):
             return .ok(payload)
         }

@@ -1487,6 +1487,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
 func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
     guard let identifier = window?.identifier?.rawValue else { return false }
     return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
+        || identifier.hasPrefix("cmux.workspace.float.")
 }
 
 private enum DebugWindowConfigSnapshot {

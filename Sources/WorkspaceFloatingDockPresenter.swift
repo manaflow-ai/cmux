@@ -19,25 +19,31 @@ final class WorkspaceFloatingDockPresenter {
         relativeToDockId: UUID? = nil
     ) {
         guard let parentWindow, let tabManager else { return }
-        let allDocks = tabManager.tabs.flatMap(\.floatingDocks)
-        let liveIds = Set(allDocks.map(\.id))
+        let selectedWorkspace = tabManager.selectedWorkspace
+        let activeDocks = selectedWorkspace?.floatingDocks.filter(\.isPresented) ?? []
+        let liveIds = Set(activeDocks.map(\.id))
         let staleIds = controllers.keys.filter { !liveIds.contains($0) }
         for id in staleIds {
             controllers.removeValue(forKey: id)?.teardown()
         }
 
-        let selectedWorkspaceId = tabManager.selectedTabId
-        for workspace in tabManager.tabs {
-            for dock in workspace.floatingDocks {
+        if let workspace = selectedWorkspace {
+            for dock in activeDocks {
                 let wasCreated = controllers[dock.id] == nil
                 let controller = controllers[dock.id] ?? {
                     let created = WorkspaceFloatingDockWindowController(
                         dock: dock,
                         parentWindow: parentWindow,
                         onCloseRequest: { [weak self, weak workspace] dockId in
-                            guard let workspace else { return }
-                            _ = workspace.closeFloatingDock(id: dockId)
-                            self?.refresh()
+                            guard let self,
+                                  let workspace,
+                                  let tabManager = self.tabManager,
+                                  let dock = workspace.floatingDock(id: dockId) else { return }
+                            _ = AppDelegate.shared?.closeWorkspaceFloatingDock(
+                                dock,
+                                in: workspace,
+                                tabManager: tabManager
+                            )
                         },
                         onMinimizeRequest: { [weak self, weak workspace] dockId in
                             guard let self,
@@ -74,11 +80,7 @@ final class WorkspaceFloatingDockPresenter {
                         controller.cascade(relativeTo: sourceWindow)
                     }
                 }
-                if workspace.id == selectedWorkspaceId, dock.isPresented {
-                    controller.show(focus: focusDockId == dock.id)
-                } else {
-                    controller.hide()
-                }
+                controller.show(focus: focusDockId == dock.id)
             }
         }
     }
@@ -110,6 +112,21 @@ final class WorkspaceFloatingDockPresenter {
     func dockId(owning window: NSWindow?) -> UUID? {
         guard let window else { return nil }
         return controllers.first(where: { $0.value.window === window })?.key
+    }
+
+    func dock(owning window: NSWindow?) -> WorkspaceFloatingDock? {
+        guard let tabManager,
+              let dockId = dockId(owning: window) else { return nil }
+        return tabManager.tabs.lazy.compactMap { $0.floatingDock(id: dockId) }.first
+    }
+
+    func dock(owning store: DockSplitStore) -> WorkspaceFloatingDock? {
+        guard let tabManager else { return nil }
+        return tabManager.tabs.lazy.flatMap(\.floatingDocks).first { $0.store === store }
+    }
+
+    func focus(_ dock: WorkspaceFloatingDock) {
+        controllers[dock.id]?.show(focus: true)
     }
 
     func preferredDock(in workspace: Workspace) -> WorkspaceFloatingDock? {

@@ -33,6 +33,9 @@ struct SessionFloatingDockSurfaceSnapshot: Codable, Sendable {
     var kind: DockSurfaceKind
     var terminal: SessionTerminalPanelSnapshot? = nil
     var browser: SessionBrowserPanelSnapshot? = nil
+    /// Ordinary file previews use the note-backed panel kind in Dock UI, but
+    /// retain their file identity and presentation across session restore.
+    var filePreview: SessionFilePreviewPanelSnapshot? = nil
 }
 
 /// Shared capture/pruning for every session-persisted Bonsplit tree. Panel

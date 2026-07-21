@@ -101,7 +101,7 @@ extension TerminalController: ControlSurfaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
         }
-        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+        if let dock = containerDockForSurfaceRouting(routing, tabManager: tabManager) {
             return controlDockSurfaceList(dock: dock, tabManager: tabManager)
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
@@ -170,7 +170,7 @@ extension TerminalController: ControlSurfaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
         }
-        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+        if let dock = containerDockForSurfaceRouting(routing, tabManager: tabManager) {
             let surfaceId = dock.focusedPanelId ?? orderedPanels(in: dock).first?.id
             let paneId = surfaceId.flatMap { dock.paneId(forPanelId: $0)?.id }
             return ControlSurfaceCurrentSnapshot(
@@ -201,7 +201,7 @@ extension TerminalController: ControlSurfaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
         }
-        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+        if let dock = containerDockForSurfaceRouting(routing, tabManager: tabManager) {
             let items: [ControlSurfaceHealthEntry] = orderedPanels(in: dock).map { panel in
                 var inWindow: Bool?
                 if let tp = panel as? TerminalPanel {
@@ -251,16 +251,14 @@ extension TerminalController: ControlSurfaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let windowDock = windowDockContainingPanel(surfaceID) {
-            // An explicit window_id or Dock-owner workspace_id naming a
-            // different window's Dock fails closed.
-            if windowDockMismatchesExplicitSelectors(routing, dock: windowDock, aliasTabManager: tabManager) {
+        if let windowDock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
+            if !containerDockMatchesExplicitSelectors(windowDock, routing: routing) {
                 return .surfaceNotFound(surfaceID)
             }
-            focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
+            focusAndRevealContainerDock(for: windowDock, fallback: tabManager)
             windowDock.focusPanel(surfaceID)
             return .focused(
-                windowID: windowDock.workspaceId,
+                windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
                 workspaceID: windowDock.workspaceId,
                 surfaceID: surfaceID
             )
