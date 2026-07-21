@@ -7,6 +7,8 @@ final class WorkspaceListUITableView: UITableView {
     var layoutMetricsDidChange: (() -> Void)?
 
     private var measuredWidth: CGFloat = 0
+    private let scrollEdgeCoordinator = WorkspaceListScrollEdgeCoordinator()
+    private var needsScrollEdgeRegistration = false
 
     override init(frame: CGRect, style: UITableView.Style) {
         super.init(frame: frame, style: style)
@@ -18,12 +20,25 @@ final class WorkspaceListUITableView: UITableView {
         configureTopScrollEdgeEffect()
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            needsScrollEdgeRegistration = false
+            scrollEdgeCoordinator.unregister()
+        } else {
+            needsScrollEdgeRegistration = !scrollEdgeCoordinator.registerIfNeeded(for: self)
+        }
+    }
+
     override func layoutSubviews() {
         let previousWidth = measuredWidth
         super.layoutSubviews()
         measuredWidth = bounds.width
         if previousWidth > 0, abs(previousWidth - measuredWidth) > 0.5 {
             layoutMetricsDidChange?()
+        }
+        if needsScrollEdgeRegistration {
+            needsScrollEdgeRegistration = !scrollEdgeCoordinator.registerIfNeeded(for: self)
         }
     }
 
