@@ -36,7 +36,12 @@ import Testing
             cell.fieldEditor(for: NSView()) as? BrowserOmnibarPasteFieldEditor
         )
 
-        #expect(editor.readSelection(from: pasteboard))
+        #expect(
+            editor.tryToPerform(
+                #selector(NSTextView.readSelection(from:)),
+                with: pasteboard
+            )
+        )
         #expect(editor.string == expected)
         #expect(cell.isEditable)
         #expect(cell.isSelectable)
