@@ -58,10 +58,15 @@ extension BrowserPanel {
         case nil:
             if let navigation = reload() {
                 navigationStarted(navigation)
-            } else if !webView.isLoading,
-                      !isMainFrameProvisionalNavigationActive,
-                      !hasPendingRemoteNavigation {
-                automationNavigationCoordinator.didCompleteWithoutNavigation(ticket)
+            } else {
+                automationNavigationCoordinator.didReturnNoNavigation(
+                    ticket,
+                    hasCurrentHistoryItem: webView.backForwardList.currentItem != nil,
+                    isShowingNewTabPage: isShowingNewTabPage,
+                    waitsForDeferredNavigation: webView.isLoading ||
+                        isMainFrameProvisionalNavigationActive ||
+                        hasPendingRemoteNavigation
+                )
             }
         }
         return (ticket, targetURL)

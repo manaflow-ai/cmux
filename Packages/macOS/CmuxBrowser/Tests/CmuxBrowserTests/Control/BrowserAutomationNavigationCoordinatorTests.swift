@@ -76,6 +76,24 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .failed("connection refused"))
     }
 
+    @Test("A completed outcome survives a newer transaction beginning")
+    func completedOutcomeSurvivesNewerTransaction() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let firstNavigation = NSObject()
+        coordinator.bind(to: instanceID)
+        let firstTicket = coordinator.begin(instanceID: instanceID)
+        coordinator.didStart(firstTicket, navigationID: ObjectIdentifier(firstNavigation))
+        coordinator.didCommit(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(firstNavigation)
+        )
+
+        _ = coordinator.begin(instanceID: instanceID)
+
+        #expect(await coordinator.wait(for: firstTicket) == .committed)
+    }
+
     @Test("A deferred load can bind when its real navigation starts")
     func deferredLoadBindsOnStart() async {
         let coordinator = BrowserAutomationNavigationCoordinator()
@@ -170,14 +188,62 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .downloaded)
     }
 
-    @Test("A URL-less reload can complete without starting WebKit navigation")
-    func reloadWithoutNavigationCompletes() async {
+    @Test("A document-less new-tab reload can complete without WebKit navigation")
+    func documentlessNewTabReloadCompletes() async {
         let coordinator = BrowserAutomationNavigationCoordinator()
         let instanceID = UUID()
         coordinator.bind(to: instanceID)
         let ticket = coordinator.begin(instanceID: instanceID)
 
-        coordinator.didCompleteWithoutNavigation(ticket)
+        coordinator.didReturnNoNavigation(
+            ticket,
+            hasCurrentHistoryItem: false,
+            isShowingNewTabPage: true,
+            waitsForDeferredNavigation: false
+        )
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
+    @Test("A nil reload for an existing document is not reported as committed")
+    func existingDocumentNilReloadIsNotStarted() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+
+        coordinator.didReturnNoNavigation(
+            ticket,
+            hasCurrentHistoryItem: true,
+            isShowingNewTabPage: false,
+            waitsForDeferredNavigation: false
+        )
+
+        #expect(await coordinator.wait(for: ticket) == .notStarted)
+    }
+
+    @Test("A deferred nil reload remains pending for its real navigation")
+    func deferredNilReloadBindsRealNavigation() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let navigation = NSObject()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+        coordinator.didReturnNoNavigation(
+            ticket,
+            hasCurrentHistoryItem: true,
+            isShowingNewTabPage: false,
+            waitsForDeferredNavigation: true
+        )
+
+        coordinator.didStart(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(navigation)
+        )
+        coordinator.didCommit(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(navigation)
+        )
 
         #expect(await coordinator.wait(for: ticket) == .committed)
     }

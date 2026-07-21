@@ -17,10 +17,9 @@ public final class BrowserAutomationNavigationCoordinator {
     private var activeNavigationID: ObjectIdentifier?
     private var activeNavigationBeganProvisionally = false
     private var activeTargetURL: URL?
-    private var terminalOutcome: (
-        ticket: BrowserAutomationNavigationTicket,
-        outcome: BrowserAutomationNavigationOutcome
-    )?
+    private var terminalOutcomes: [
+        BrowserAutomationNavigationTicket: BrowserAutomationNavigationOutcome
+    ] = [:]
     private var waiter: (
         transactionID: UUID,
         continuation: AsyncStream<BrowserAutomationNavigationOutcome>.Continuation
@@ -63,11 +62,8 @@ public final class BrowserAutomationNavigationCoordinator {
         }
 
         let ticket = BrowserAutomationNavigationTicket(instanceID: instanceID)
-        // One panel has one authoritative automation navigation. Once a newer
-        // transaction begins, an abandoned older outcome is only superseded.
-        terminalOutcome = nil
         guard observedInstanceID == instanceID else {
-            terminalOutcome = (ticket, .superseded)
+            terminalOutcomes[ticket] = .superseded
             return ticket
         }
         activeTicket = ticket
@@ -128,10 +124,22 @@ public final class BrowserAutomationNavigationCoordinator {
         return true
     }
 
-    /// Completes a reload that has no document and therefore requires no WebKit navigation.
-    public func didCompleteWithoutNavigation(_ ticket: BrowserAutomationNavigationTicket) {
+    /// Resolves a reload after WebKit returns no navigation identity.
+    ///
+    /// A document-less new tab is already in its requested state. Active recovery/deferred
+    /// signals keep the transaction open for the delegate callback that binds its real load;
+    /// every other nil return means WebKit did not start the requested reload.
+    public func didReturnNoNavigation(
+        _ ticket: BrowserAutomationNavigationTicket,
+        hasCurrentHistoryItem: Bool,
+        isShowingNewTabPage: Bool,
+        waitsForDeferredNavigation: Bool
+    ) {
         guard activeTicket == ticket, activeNavigationID == nil else { return }
-        finish(ticket, with: .committed)
+        guard !waitsForDeferredNavigation else { return }
+        let outcome: BrowserAutomationNavigationOutcome =
+            !hasCurrentHistoryItem && isShowingNewTabPage ? .committed : .notStarted
+        finish(ticket, with: outcome)
     }
 
     /// Terminates a deferred replacement when policy resolution starts no navigation.
@@ -205,11 +213,11 @@ public final class BrowserAutomationNavigationCoordinator {
     ) async -> BrowserAutomationNavigationOutcome {
         guard !Task.isCancelled else {
             cancel(ticket)
+            terminalOutcomes.removeValue(forKey: ticket)
             return .cancelled
         }
-        if let completed = terminalOutcome, completed.ticket == ticket {
-            terminalOutcome = nil
-            return completed.outcome
+        if let completed = terminalOutcomes.removeValue(forKey: ticket) {
+            return completed
         }
         guard activeTicket == ticket else { return .superseded }
 
@@ -245,12 +253,10 @@ public final class BrowserAutomationNavigationCoordinator {
         if waiter?.transactionID == ticket.transactionID {
             waiter = nil
         }
-        if terminalOutcome?.ticket == ticket {
-            terminalOutcome = nil
-        }
+        terminalOutcomes.removeValue(forKey: ticket)
         if activeTicket == ticket {
             finish(ticket, with: Task.isCancelled ? .cancelled : outcome)
-            terminalOutcome = nil
+            terminalOutcomes.removeValue(forKey: ticket)
         }
         return Task.isCancelled ? .cancelled : outcome
     }
@@ -278,7 +284,7 @@ public final class BrowserAutomationNavigationCoordinator {
         activeNavigationID = nil
         activeNavigationBeganProvisionally = false
         activeTargetURL = nil
-        terminalOutcome = (ticket, outcome)
+        terminalOutcomes[ticket] = outcome
         if let waiter, waiter.transactionID == ticket.transactionID {
             self.waiter = nil
             waiter.continuation.yield(outcome)
