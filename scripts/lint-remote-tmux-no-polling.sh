@@ -48,7 +48,6 @@ ALLOW=(
   # structural instead.
   "Sources/RemoteTmuxController+Attach.swift:mirrorsWithPublishedTopology|Deadline arm racing waitUntilInitialTopology() for the whole mirror set"
   "Sources/RemoteTmuxController+Attach.swift:dropMirrorIfTopologyNeverPublishes|Deadline arm racing waitUntilInitialTopology() for one late mirror"
-  "Sources/RemoteTmuxController+Attach.swift:awaitAuthenticationThenResume|Deadline arm bounding a login the user may never complete"
   "Sources/RemoteTmuxViewConnection.swift:awaitFirstWorkspaces|Deadline arm racing the view's first workspace publication"
   "Sources/RemoteTmuxController.swift:awaitNewWorkspace|Deadline arm racing the new-workspace signal"
   "Sources/RemoteTmuxControlConnection+PaneSubscriptions.swift:queryWithTimeout|Deadline arm racing the reply for this command number"
