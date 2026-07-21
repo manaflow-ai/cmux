@@ -208,6 +208,16 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
         let workspace = try #require(manager.selectedWorkspace)
         let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        TerminalController.shared.setActiveTabManager(manager)
+        #expect(!app.toggleSidebarInActiveMainWindow())
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window == nil)
+
         let staleDuplicate = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -215,16 +225,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             defer: false
         )
         staleDuplicate.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        defer {
-            app.unregisterMainWindowContextForTesting(windowId: windowId)
-            workspace.teardownAllPanels()
-            workspace.teardownRemoteConnection()
-            staleDuplicate.orderOut(nil)
-        }
-
-        TerminalController.shared.setActiveTabManager(manager)
-        #expect(!app.toggleSidebarInActiveMainWindow())
-        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window == nil)
+        defer { staleDuplicate.orderOut(nil) }
 
         #expect(!app.commitMainWindowClose(staleDuplicate))
         #expect(app.tabManagerFor(windowId: windowId) === manager)
