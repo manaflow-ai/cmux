@@ -90,6 +90,22 @@ struct CmxIrohBrokerCooldownTests {
     }
 
     @Test
+    func directiveSecondsPrefersRetryAfterAndDefaultsBare429() {
+        #expect(CmxIrohBrokerCooldown.directiveSeconds(
+            for: CmxIrohTrustBrokerClientError.rateLimited(code: nil, retryAfterSeconds: 600)
+        ) == 600)
+        #expect(CmxIrohBrokerCooldown.directiveSeconds(
+            for: CmxIrohTrustBrokerClientError.rejected(statusCode: 429, code: nil)
+        ) == CmxIrohBrokerCooldown.defaultRateLimitedSeconds)
+        #expect(CmxIrohBrokerCooldown.directiveSeconds(
+            for: CmxIrohTrustBrokerClientError.rejected(statusCode: 503, code: nil)
+        ) == nil)
+        #expect(CmxIrohBrokerCooldown.directiveSeconds(
+            for: CmxIrohTrustBrokerClientError.connectivity
+        ) == nil)
+    }
+
+    @Test
     func cooldownErrorProvidesRetryAfterAndFailureKind() {
         let error = CmxIrohBrokerCooldownError(retryAfterSeconds: 42)
         #expect(error.retryAfterSeconds == 42)

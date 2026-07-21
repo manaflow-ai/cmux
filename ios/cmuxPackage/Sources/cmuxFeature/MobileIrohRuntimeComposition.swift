@@ -578,8 +578,9 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private func recordBrokerCooldown(for error: any Error, accountID: String) {
-        guard let retryAfterSeconds = (error as? any CmxRetryAfterProviding)?
-            .retryAfterSeconds else { return }
+        guard let retryAfterSeconds = CmxIrohBrokerCooldown.directiveSeconds(
+            for: error
+        ) else { return }
         brokerCooldown.record(
             accountID: accountID,
             retryAfterSeconds: retryAfterSeconds,

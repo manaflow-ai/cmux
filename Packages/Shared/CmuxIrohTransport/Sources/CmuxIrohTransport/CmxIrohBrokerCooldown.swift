@@ -55,6 +55,27 @@ public struct CmxIrohBrokerCooldown: Equatable, Sendable {
     }
 }
 
+public extension CmxIrohBrokerCooldown {
+    /// Floor applied to a 429 whose response carried no Retry-After header.
+    static let defaultRateLimitedSeconds = 60
+
+    /// Seconds of cooldown one broker failure demands, or `nil` when the
+    /// error is not a rate-limit signal. Prefers the server's own Retry-After
+    /// directive; a bare 429 still arms a short default floor so a missing
+    /// header can never reopen the retry storm.
+    static func directiveSeconds(for error: any Error) -> Int? {
+        if let retryAfterSeconds = (error as? any CmxRetryAfterProviding)?
+            .retryAfterSeconds {
+            return retryAfterSeconds
+        }
+        if case let .rejected(statusCode, _)? = error as? CmxIrohTrustBrokerClientError,
+           statusCode == 429 {
+            return defaultRateLimitedSeconds
+        }
+        return nil
+    }
+}
+
 /// Thrown instead of a bare inactive-runtime error while a broker cooldown is
 /// active, so the reconnect scheduler can adopt the server's floor instead of
 /// its short transient backoff.

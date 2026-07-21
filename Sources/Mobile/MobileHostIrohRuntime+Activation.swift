@@ -7,6 +7,16 @@ import Foundation
 @MainActor
 extension MobileHostIrohRuntime {
     func activate(accountID: String, revision: UInt64) async throws {
+        if let remaining = brokerCooldown.remainingSeconds(
+            accountID: accountID,
+            now: Date()
+        ) {
+            diagnosticLog.record(DiagnosticEvent(
+                .retryScheduled,
+                ms: UInt32(clamping: remaining * 1_000)
+            ))
+            throw CmxIrohBrokerCooldownError(retryAfterSeconds: remaining)
+        }
         guard let auth else { throw CmxIrohHostRuntimeError.inactive }
         let tag = Self.currentTag()
         let appInstanceID = try await appInstances.appInstanceID(
@@ -107,6 +117,7 @@ extension MobileHostIrohRuntime {
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
+        var freshRelayCredential: CmxIrohRelayTokenResponse?
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
                 policyCache: relayPolicyCache,
@@ -117,14 +128,17 @@ extension MobileHostIrohRuntime {
             let effective: CmxIrohEffectiveRelayPolicy
             diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
             do {
-                effective = try await service.refresh(
+                let outcome = try await service.refreshWithCredential(
                     endpointID: derivedEndpointID,
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     now: Date()
                 )
+                effective = outcome.effective
+                freshRelayCredential = outcome.relayCredential
                 diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
             } catch {
+                recordBrokerCooldown(for: error, accountID: accountID)
                 diagnosticLog.record(DiagnosticEvent(
                     .relayPolicyRefreshFailed,
                     b: Self.diagnosticFailureKind(for: error).rawValue
@@ -162,6 +176,9 @@ extension MobileHostIrohRuntime {
         let compatibleCachedRelay = cachedRelay.flatMap { relay in
             Set(relay.relayFleet) == managedRelayURLs ? relay : nil
         }
+        let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
+            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
+        }
         let configuration = CmxIrohHostRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -179,7 +196,7 @@ extension MobileHostIrohRuntime {
             ),
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: compatibleCachedRelay,
+            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
             cachedHostPolicy: cachedHostPolicy
         )
         let credentialRepository = brokerCredentials
@@ -367,6 +384,7 @@ extension MobileHostIrohRuntime {
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
+        brokerCooldown.clear(accountID: accountID)
         diagnosticLog.record(DiagnosticEvent(
             .endpointActive,
             a: DiagnosticTransportKind.iroh.rawValue
