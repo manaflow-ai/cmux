@@ -84,6 +84,8 @@ struct SidebarAppKitRowCellTests {
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
+            isChecklistPopoverPresented: false,
+            editingChecklistItemId: nil,
             isMetadataExpanded: false,
             isMarkdownExpanded: false
         )
@@ -181,6 +183,15 @@ struct SidebarAppKitRowCellTests {
             checklistRemoveItem: { _ in },
             checklistAddItem: { _ in },
             checklistEditItem: { _, _ in },
+            checklistMoveItem: { _, _ in },
+            checklistOpenPane: {},
+            checklistAddAttachments: { _ in },
+            checklistRemoveAttachment: { _, _ in },
+            checklistOpenAttachments: { _, _ in },
+            onChecklistPopoverPresentedChange: { _ in },
+            onBeginChecklistItemEdit: { _ in },
+            applyTodoStatus: { _ in },
+            hideTodoStatus: {},
             commitRename: { _ in }
         )
     }
