@@ -161,6 +161,34 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.focusMainWindow(windowId: windowCId))
     }
+
+    @Test("Transient windowless routing preserves the recoverable workspace")
+    func transientWindowlessRoutingPreservesRecoverableWorkspace() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager()
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        TerminalController.shared.setActiveTabManager(manager)
+
+        #expect(!app.toggleSidebarInActiveMainWindow())
+        #expect(app.tabManagerFor(windowId: windowId) === manager)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+    }
 }
 
 @MainActor
@@ -236,6 +264,8 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+        #expect(manager.tabs.isEmpty)
+        #expect(workspace.owningTabManager == nil)
     }
 
     @Test("Closing an ignored duplicate window preserves the live owner")
