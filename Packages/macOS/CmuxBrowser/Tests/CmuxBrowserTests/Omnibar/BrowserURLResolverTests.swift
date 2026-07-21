@@ -74,6 +74,7 @@ import Testing
         )
         #expect(resolver.navigableURL(from: "a b.com/path?x=1") == nil)
         #expect(resolver.navigableURL(from: "go\texample.com/path") == nil)
+        #expect(resolver.navigableURL(from: "go\nexample.com/path") == nil)
     }
 
     @Test func preservesExistingNavigationAndSearchBoundaries() throws {

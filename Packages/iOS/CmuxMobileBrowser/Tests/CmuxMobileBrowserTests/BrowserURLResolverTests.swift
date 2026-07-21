@@ -63,6 +63,7 @@ import Testing
                 .queryItems?.first?.value == spacedHost
         )
         #expect(BrowserURLResolver.resolve("go\texample.com/path")?.host == "duckduckgo.com")
+        #expect(BrowserURLResolver.resolve("go\nexample.com/path")?.host == "duckduckgo.com")
     }
 
     @Test func surroundingWhitespaceDoesNotRewriteOAuthURL() {
