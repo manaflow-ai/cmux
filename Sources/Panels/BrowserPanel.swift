@@ -3878,17 +3878,24 @@ final class BrowserPanel: Panel, ObservableObject {
                 }
             }
         }
-        navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, url, restoreAttemptID in
+        navigationDelegate.didConvertProvisionalNavigationToDownload = { [weak self] webView, navigation in
+            MainActor.assumeIsolated {
+                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.automationNavigationCoordinator.didBecomeDownload(
+                    instanceID: boundWebViewInstanceID,
+                    navigationID: navigation.map { ObjectIdentifier($0) }
+                )
+                self.isMainFrameProvisionalNavigationActive = false
+                self.refreshBackgroundAppearance()
+            }
+        }
+        navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, restoreAttemptID in
             MainActor.assumeIsolated {
                 guard isMainFrame,
                       let self,
                       self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
                     return
                 }
-                self.automationNavigationCoordinator.didBecomeDownload(
-                    instanceID: boundWebViewInstanceID,
-                    url: Self.remoteProxyDisplayURL(for: url) ?? url
-                )
                 guard let restoreAttemptID,
                       restoreAttemptID == self.currentDiscardRestoreAttemptID else {
                     return

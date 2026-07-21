@@ -11,8 +11,9 @@ import WebKit
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String, String, WKNavigation?) -> Void)?
     var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
+    var didConvertProvisionalNavigationToDownload: ((WKWebView, WKNavigation?) -> Void)?
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
-    var didBecomeDownload: ((WKWebView, Bool, URL?, UUID?) -> Void)?
+    var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -134,7 +135,7 @@ import WebKit
         // navigation response is converted into a download via .download policy.
         // This is expected and should not show an error page.
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
-            didCancelProvisionalNavigation?(webView, navigation)
+            didConvertProvisionalNavigationToDownload?(webView, navigation)
             return
         }
 
@@ -626,7 +627,7 @@ import WebKit
         cmuxDebugLog("download.didBecome source=navigationAction")
         #endif
         NSLog("BrowserPanel download didBecome from navigationAction")
-        didBecomeDownload?(webView, isMainFrame, navigationAction.request.url, restoreAttemptID)
+        didBecomeDownload?(webView, isMainFrame, restoreAttemptID)
         if isMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }
@@ -637,12 +638,7 @@ import WebKit
         cmuxDebugLog("download.didBecome source=navigationResponse")
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
-        didBecomeDownload?(
-            webView,
-            navigationResponse.isForMainFrame,
-            navigationResponse.response.url,
-            restoreAttemptID
-        )
+        didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
         if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }

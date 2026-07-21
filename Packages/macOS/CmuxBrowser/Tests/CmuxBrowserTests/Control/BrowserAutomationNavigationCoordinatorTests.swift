@@ -43,6 +43,29 @@ struct BrowserAutomationNavigationCoordinatorTests {
         registrationContinuation.finish()
     }
 
+    @Test("Cancelling a wait cancels its active transaction")
+    func cancellingWaitCancelsTransaction() async {
+        let (registrations, registrationContinuation) = AsyncStream.makeStream(of: Void.self)
+        var registrationIterator = registrations.makeAsyncIterator()
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let navigation = NSObject()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+        let wait = Task { @MainActor in
+            registrationContinuation.yield()
+            return await coordinator.wait(for: ticket)
+        }
+        let registered: Void? = await registrationIterator.next()
+        #expect(registered != nil)
+
+        wait.cancel()
+
+        #expect(await wait.value == .cancelled)
+        registrationContinuation.finish()
+    }
+
     @Test("A different navigation cannot satisfy the active transaction")
     func unrelatedCommitIsIgnored() async {
         let coordinator = BrowserAutomationNavigationCoordinator(
@@ -183,9 +206,29 @@ struct BrowserAutomationNavigationCoordinatorTests {
         let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
 
-        coordinator.didBecomeDownload(instanceID: instanceID, url: targetURL)
+        coordinator.didBecomeDownload(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(navigation)
+        )
 
         #expect(await coordinator.wait(for: ticket) == .downloaded)
+    }
+
+    @Test("An unrelated download cannot satisfy the active transaction")
+    func unrelatedDownloadIsIgnored() async {
+        let coordinator = BrowserAutomationNavigationCoordinator(sleep: { _ in })
+        let instanceID = UUID()
+        let navigation = NSObject()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+
+        coordinator.didBecomeDownload(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(NSObject())
+        )
+
+        #expect(await coordinator.wait(for: ticket) == .timedOut)
     }
 
     @Test("A document-less new-tab reload can complete without WebKit navigation")

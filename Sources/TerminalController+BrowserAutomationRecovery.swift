@@ -15,9 +15,6 @@ extension TerminalController {
         }
         if outcome == nil {
             navigationTask?.cancel()
-            v2MainSync {
-                browserPanel.automationNavigationCoordinator.cancel(ticket)
-            }
         }
         return outcome
     }
