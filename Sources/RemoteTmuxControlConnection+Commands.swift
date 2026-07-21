@@ -28,6 +28,31 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
+    /// Asks tmux to answer, so a stalled-but-alive transport can be told from a healthy one.
+    ///
+    /// This is the liveness check a transport that owns its own reconnection needs. cmux's
+    /// recovery is built on stdout EOF, but such a transport produces no EOF for a network
+    /// drop — the stream pauses and resumes — so EOF cannot be the trigger and a stall must
+    /// not be mistaken for death. What is left is asking the far end a question:
+    ///
+    /// - the process is still alive, and
+    /// - a control-mode round-trip completes.
+    ///
+    /// `display-message -p` is the cheapest question that proves both. It is a read, so it
+    /// moves no client size and mutates nothing, and it resolves through the same
+    /// `%begin`/`%end` correlation as any other command — which is why this reuses
+    /// ``sendTracked(_:completion:)`` rather than inventing a heartbeat with its own timer
+    /// and its own failure modes.
+    ///
+    /// - Parameter completion: `true` when tmux answered, `false` when the block resolved as
+    ///   an error or the stream reset before answering. Not called at all if the command
+    ///   could not be enqueued, which the `false` return reports.
+    @discardableResult
+    func probeLiveness(completion: @escaping (Bool) -> Void) -> Bool {
+        guard !exited else { return false }
+        return sendTracked("display-message -p cmux-liveness", completion: completion)
+    }
+
     func failPendingTrackedSends() {
         let completions = Array(trackedSendCompletions.values)
         trackedSendCompletions.removeAll()
