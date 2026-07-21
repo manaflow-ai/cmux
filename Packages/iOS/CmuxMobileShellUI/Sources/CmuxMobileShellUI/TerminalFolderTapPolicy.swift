@@ -25,9 +25,9 @@ struct TerminalFolderTapPolicy: Sendable {
 
     /// Applies the folder-tap preference without adding a stat call while enabled.
     ///
-    /// When stat fails, this policy focuses the terminal because the viewer could
-    /// not load an unverified artifact either, and a user who disabled folder taps
-    /// asked not to be interrupted by a viewer transition.
+    /// A terminal-scope authorization refusal defers to the artifact viewer's richer
+    /// chat-session authorization. Other stat failures focus the terminal because
+    /// infrastructure failures also prevent the viewer from loading the artifact.
     func decision(
         for path: String,
         stat: @escaping @MainActor @Sendable (String) async throws -> ChatArtifactKind
@@ -42,6 +42,10 @@ struct TerminalFolderTapPolicy: Sendable {
             do {
                 let kind = try await stat(path)
                 decision = kind == .directory ? .focusTerminal : .openArtifact
+            } catch ChatArtifactError.forbidden {
+                // Terminal-scope authorization not recognizing the path does not make it a
+                // folder; the viewer applies richer chat-session authorization and error UI.
+                decision = .openArtifact
             } catch {
                 decision = .focusTerminal
             }
