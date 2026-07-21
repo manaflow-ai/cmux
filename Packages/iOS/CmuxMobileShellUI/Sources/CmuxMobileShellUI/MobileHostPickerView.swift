@@ -20,7 +20,7 @@ struct MobileHostPickerView: View {
             List {
                 Section {
                     if store.pairedMacs.isEmpty {
-                        Text(L10n.string("mobile.hostPicker.empty", defaultValue: "No paired computers yet."))
+                        Text(L10n.string("mobile.hostPicker.empty", defaultValue: "No computers yet. Sign in to cmux on your computer with this account and it appears here automatically."))
                             .foregroundStyle(.secondary)
                     }
                     ForEach(store.pairedMacs) { mac in
@@ -31,7 +31,7 @@ struct MobileHostPickerView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.hostPicker.footer",
-                        defaultValue: "Switch which computer this device controls. Pairing another computer keeps the others, so you can hop between them."
+                        defaultValue: "Switch which computer this device controls. Computers on your account appear here automatically while cmux is running on them. Pairing another keeps the ones you already have."
                     ))
                 }
 
