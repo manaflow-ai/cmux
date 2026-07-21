@@ -289,6 +289,25 @@ import Testing
             return false
         }
         #expect(sawSessionChange, "expected %session-changed to parse after the ET preamble")
+
+        // `.enter` is the message that matters, and asserting only on %session-changed hid a
+        // real bug: the login shell's echoed title sequences land on the same line as the
+        // enter DCS, so a parser that requires the DCS at the start of a line never emits
+        // `.enter`. Everything downstream waits on it — the connection stays out of
+        // `.connected` and the attach dies on a timeout while later notifications parse
+        // normally, which is exactly what a real et host did.
+        let sawEnter = messages.contains { message in
+            if case .enter = message { return true }
+            return false
+        }
+        #expect(sawEnter, "expected .enter from the ET stream's mid-line enter DCS")
+        // Order matters too: commands are withheld until `.enter`, so it has to arrive before
+        // the notifications that follow it in the stream.
+        let enterIndex = messages.firstIndex { if case .enter = $0 { return true }; return false }
+        let changeIndex = messages.firstIndex { if case .sessionChanged = $0 { return true }; return false }
+        if let enterIndex, let changeIndex {
+            #expect(enterIndex < changeIndex, "`.enter` must precede %session-changed")
+        }
     }
 
     // MARK: - The profile's argv, measured against the real client
@@ -307,12 +326,57 @@ import Testing
         #expect(argv.last == "user@127.0.0.1")
         let command = argv.first(where: { $0.hasPrefix("exec ") })
         #expect(command?.contains("attach-session") == true)
-        // The resolver is still needed: a minimal remote PATH is a property of the remote
-        // shell, not of ssh.
-        #expect(command?.contains("cmux-remote-executable") == true)
+        // Plain tmux, not ssh's PATH resolver. et types the command into a login shell, so the
+        // shell resolves tmux from the user's own PATH — and the resolver would not fit anyway
+        // (see etCommandFitsWhatALoginShellCanRead).
+        #expect(command?.contains("cmux-remote-executable") == false)
+        #expect(command?.contains("'tmux'") == true)
         // Never kill the user's other sessions on that host.
         #expect(!argv.contains("-x"))
         #expect(!argv.contains("--kill-other-sessions"))
+    }
+
+    /// et types the command into a login shell instead of exec'ing it, and that shell reads from
+    /// a pty in canonical mode. macOS delivers at most MAX_CANON (1024) bytes per line, so a
+    /// longer command never completes a line: the shell runs nothing, et emits nothing, and the
+    /// attach dies on a timeout with no error to explain it. Measured against et 6.2.11, where
+    /// ssh's ~1113-byte PATH resolver hung and a 40-byte plain `tmux` produced `%begin`.
+    ///
+    /// Long session names are the realistic way to cross the line, so the bound is checked
+    /// against one rather than only the short names the other tests use.
+    @Test func etCommandFitsWhatALoginShellCanRead() {
+        let maxCanon = 1024
+        for session in ["s", "work session", String(repeating: "session-", count: 24)] {
+            let argv = RemoteTmuxETTransportProfile(port: 2039).controlStreamArgv(
+                host: RemoteTmuxHost(destination: "user@host"),
+                sessionName: session,
+                createIfMissing: false
+            )
+            let command = try? #require(argv.first(where: { $0.hasPrefix("exec ") }))
+            let byteCount = (command ?? "").utf8.count
+            #expect(
+                byteCount < maxCanon,
+                Comment(
+                    rawValue: "et command is \(byteCount) bytes for a \(session.count)-character "
+                        + "session name, over the \(maxCanon)-byte canonical line limit"
+                )
+            )
+        }
+    }
+
+    /// The session name reaches the remote shell as one word even when it contains a space or a
+    /// quote. Dropping the resolver moved this responsibility onto this profile's own quoting.
+    @Test func etQuotesTheSessionNameItTypes() {
+        let argv = RemoteTmuxETTransportProfile(port: 2039).controlStreamArgv(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work 'session'; touch /tmp/cmux-et-injection",
+            createIfMissing: false
+        )
+        let command = argv.first(where: { $0.hasPrefix("exec ") }) ?? ""
+        // Quoted as data, so the shell cannot run the trailing command.
+        #expect(command.contains("touch /tmp/cmux-et-injection"))
+        #expect(!command.contains("; touch /tmp/cmux-et-injection'\""))
+        #expect(command.hasSuffix("'work '\\''session'\\''; touch /tmp/cmux-et-injection'"))
     }
 
     @Test func etCanTargetAServerWhoseTerminalIsNotOnThePath() {
