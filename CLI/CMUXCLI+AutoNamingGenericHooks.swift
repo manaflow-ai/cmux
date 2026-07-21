@@ -221,7 +221,7 @@ extension CMUXCLI {
             engine: engine
         ) else { return }
         if case .reseedBaseline(let compactedLineCount) = outcome.decision {
-            let applyOutcome: AutoNamingTitleApplyOutcome
+            let applyOutcome: Result<Bool, CLIError>
             if let lastTitle = outcome.lastTitle {
                 applyOutcome = applyAutoNamingTitle(
                     lastTitle,
@@ -233,12 +233,13 @@ extension CMUXCLI {
                 )
             } else {
                 telemetry.breadcrumb("\(telemetryKey).throttled")
-                applyOutcome = .rejected
+                applyOutcome = .success(false)
             }
+            let confirmedApply = (try? applyOutcome.get()) == true
             try? sessionStore.finishAutoNamingReconciliation(
                 sessionId: sessionId,
                 compactedLineCount: compactedLineCount,
-                confirmedApply: applyOutcome == .applied
+                confirmedApply: confirmedApply
             )
             return
         }
@@ -269,10 +270,14 @@ extension CMUXCLI {
             telemetryKey: telemetryKey,
             telemetry: telemetry
         )
-        confirmedTitle = applyOutcome.namingPersistenceTitle(
-            requestedTitle: sanitized,
-            previousTitle: outcome.lastTitle
-        )
+        switch applyOutcome {
+        case .success(true):
+            confirmedTitle = sanitized
+        case .success(false):
+            confirmedTitle = outcome.lastTitle
+        case .failure:
+            confirmedTitle = nil
+        }
         // Re-report a missing override only after the apply, so the app's
         // clear-on-apply doesn't immediately wipe the Settings note.
         if confirmedTitle != nil, let missing = missingOverride {

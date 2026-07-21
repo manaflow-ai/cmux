@@ -2,23 +2,6 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
-    enum AutoNamingTitleApplyOutcome: Equatable {
-        case applied
-        case rejected
-        case transportFailure
-
-        func namingPersistenceTitle(requestedTitle: String, previousTitle: String?) -> String? {
-            switch self {
-            case .applied:
-                return requestedTitle
-            case .rejected:
-                return previousTitle
-            case .transportFailure:
-                return nil
-            }
-        }
-    }
-
     /// Drives one auto-naming pass for a Claude session at turn end.
     func runClaudeAutoNameHook(
         parsedInput: ClaudeHookParsedInput,
@@ -222,6 +205,9 @@ extension CMUXCLI {
         }
     }
 
+    /// Returns `.success(true)` only for a confirmed workspace apply,
+    /// `.success(false)` for a rejected write, and `.failure` when the socket
+    /// request or response fails.
     func applyAutoNamingTitle(
         _ title: String,
         workspaceId: String,
@@ -229,21 +215,24 @@ extension CMUXCLI {
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> AutoNamingTitleApplyOutcome {
-        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
-            "workspace_id": workspaceId,
-            "panel_id": surfaceId,
-            "panel_only_if_multiple": true,
-            "title": title
-        ]) else {
+    ) -> Result<Bool, CLIError> {
+        let payload: [String: Any]
+        do {
+            payload = try client.sendV2(method: "workspace.set_auto_title", params: [
+                "workspace_id": workspaceId,
+                "panel_id": surfaceId,
+                "panel_only_if_multiple": true,
+                "title": title
+            ])
+        } catch {
             telemetry.breadcrumb("\(telemetryKey).socket-failed")
-            return .transportFailure
+            return .failure(CLIError(message: String(describing: error)))
         }
         if payload["workspace_applied"] as? Bool == true {
             telemetry.breadcrumb("\(telemetryKey).applied")
-            return .applied
+            return .success(true)
         }
         telemetry.breadcrumb("\(telemetryKey).rejected")
-        return .rejected
+        return .success(false)
     }
 }
