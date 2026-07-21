@@ -203,9 +203,9 @@ extension CMUXCLI {
                 payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
                 payload["is_restorable"] = record.isRestorable ?? NSNull()
                 payload["run_id"] = sessionsListNormalized(record.runId) ?? record.sessionId
-                payload["parent_run_id"] = record.parentRunId ?? NSNull()
-                payload["parent_session_id"] = record.parentSessionId ?? NSNull()
-                payload["relationship"] = record.relationship ?? NSNull()
+                payload["parent_run_id"] = sessionsListNormalized(record.parentRunId) ?? NSNull()
+                payload["parent_session_id"] = sessionsListNormalized(record.parentSessionId) ?? NSNull()
+                payload["relationship"] = sessionsListNormalized(record.relationship) ?? NSNull()
                 payload["restore_authority"] = record.restoreAuthority ?? record.isRestorable ?? false
 
                 var transcriptBacked = false
