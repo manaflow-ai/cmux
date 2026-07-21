@@ -93,7 +93,8 @@ extension Workspace {
         displaySnapshot: SessionDisplaySnapshot? = nil,
         configFrames: [SessionConfigFrameEntry]? = nil,
         snapshotWorkspaceId: UUID? = nil,
-        snapshotWorkspaceStableId: UUID? = nil
+        snapshotWorkspaceStableId: UUID? = nil,
+        snapshotManagedNoteFilePath: String? = nil
     ) -> WorkspaceFloatingDock? {
         guard floatingDocks.count < SessionPersistencePolicy.maxFloatingDocksPerWorkspace,
               canCreateFloatingDockPanel else {
@@ -103,15 +104,16 @@ extension Workspace {
         let displayTitle = resolvedTitle?.isEmpty == false
             ? resolvedTitle!
             : Self.defaultFloatingDockTitle(for: initialContent)
-        let noteFileURL = floatingDockNoteFileURL(dockId: id)
-        if let snapshotWorkspaceStableId,
-           snapshotWorkspaceStableId != stableId {
-            WorkspaceFloatingDockNoteStorage.restoreManagedNoteIfNeeded(
-                fromWorkspaceStableID: snapshotWorkspaceStableId,
-                toWorkspaceStableID: stableId,
-                dockID: id
-            )
+        let destinationNoteFileURL = floatingDockNoteFileURL(dockId: id)
+        let snapshotNoteFileURL = snapshotManagedNoteFilePath.flatMap {
+            WorkspaceFloatingDockNoteStorage.validatedManagedNoteFileURL(path: $0)
+        } ?? snapshotWorkspaceStableId.map {
+            WorkspaceFloatingDockNoteStorage.fileURL(workspaceStableID: $0, dockID: id)
         }
+        let noteFileURL = WorkspaceFloatingDockNoteStorage.restoredManagedNoteURL(
+            source: snapshotNoteFileURL,
+            destination: destinationNoteFileURL
+        )
         let dock = WorkspaceFloatingDock(
             id: id,
             workspaceId: self.id,
@@ -208,9 +210,9 @@ extension Workspace {
     }
 
     @discardableResult
-    func closeFloatingDock(id: UUID) -> Bool {
+    func closeFloatingDock(id: UUID) async -> Bool {
         guard let index = floatingDocks.firstIndex(where: { $0.id == id }) else { return false }
-        guard floatingDocks[index].store.flushPendingAutosavingNotesSynchronously() else {
+        guard await floatingDocks[index].store.flushPendingAutosavingNotes() else {
             NSSound.beep()
             return false
         }
@@ -220,10 +222,12 @@ extension Workspace {
     }
 
     @discardableResult
-    func closeAllFloatingDocks() -> Int? {
-        guard floatingDocks.allSatisfy({ $0.store.flushPendingAutosavingNotesSynchronously() }) else {
-            NSSound.beep()
-            return nil
+    func closeAllFloatingDocks() async -> Int? {
+        for dock in floatingDocks {
+            guard await dock.store.flushPendingAutosavingNotes() else {
+                NSSound.beep()
+                return nil
+            }
         }
         let docks = floatingDocks
         floatingDocks.removeAll(keepingCapacity: true)
@@ -231,13 +235,23 @@ extension Workspace {
         return docks.count
     }
 
-    func flushPendingAutosavingNotesSynchronously() -> Bool {
+    var needsAutosavingNoteFlush: Bool {
+        panels.values.contains { ($0 as? FilePreviewPanel)?.needsAutosaveFlush == true }
+            || _dockSplit?.needsAutosavingNoteFlush == true
+            || floatingDocks.contains { $0.store.needsAutosavingNoteFlush }
+    }
+
+    func flushPendingAutosavingNotes() async -> Bool {
         for panel in panels.values {
             guard let note = panel as? FilePreviewPanel else { continue }
-            guard note.flushPendingAutosaveSynchronously() else { return false }
+            guard await note.flushPendingAutosave() else { return false }
         }
-        guard _dockSplit?.flushPendingAutosavingNotesSynchronously() != false else { return false }
-        return floatingDocks.allSatisfy { $0.store.flushPendingAutosavingNotesSynchronously() }
+        if let dock = _dockSplit,
+           await dock.flushPendingAutosavingNotes() == false { return false }
+        for dock in floatingDocks {
+            guard await dock.store.flushPendingAutosavingNotes() else { return false }
+        }
+        return true
     }
 
     func floatingDockSessionSnapshots() -> [SessionFloatingDockSnapshot]? {
@@ -259,6 +273,7 @@ extension Workspace {
                 height: dock.frame.height,
                 isPresented: dock.isPresented,
                 backgroundTintHex: dock.backgroundTintHex,
+                managedNoteFilePath: dock.noteFilePath,
                 content: content,
                 screenFrame: dock.screenFrame.map(SessionRectSnapshot.init),
                 display: dock.displaySnapshot,
@@ -312,7 +327,8 @@ extension Workspace {
                 displaySnapshot: snapshot.display,
                 configFrames: snapshot.configFrames,
                 snapshotWorkspaceId: snapshotWorkspaceId,
-                snapshotWorkspaceStableId: snapshotWorkspaceStableId
+                snapshotWorkspaceStableId: snapshotWorkspaceStableId,
+                snapshotManagedNoteFilePath: snapshot.managedNoteFilePath
             ) != nil else { continue }
             remainingPanelBudget -= restoredPanelCost
         }
@@ -431,43 +447,59 @@ enum WorkspaceFloatingDockNoteStorage {
             .appendingPathComponent("\(dockID.uuidString.lowercased()).md")
     }
 
-    static func restoreManagedNoteIfNeeded(
-        fromWorkspaceStableID sourceWorkspaceStableID: UUID,
-        toWorkspaceStableID destinationWorkspaceStableID: UUID,
-        dockID: UUID,
-        applicationSupportDirectory: URL? = nil
-    ) {
-        guard sourceWorkspaceStableID != destinationWorkspaceStableID else { return }
-        let source = fileURL(
-            workspaceStableID: sourceWorkspaceStableID,
-            dockID: dockID,
-            applicationSupportDirectory: applicationSupportDirectory
-        )
-        let destination = fileURL(
-            workspaceStableID: destinationWorkspaceStableID,
-            dockID: dockID,
-            applicationSupportDirectory: applicationSupportDirectory
-        )
+    static func validatedManagedNoteFileURL(
+        path: String,
+        rootDirectory: URL = rootDirectory()
+    ) -> URL? {
+        let root = rootDirectory.standardizedFileURL
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL
+        let rootComponents = root.pathComponents
+        let candidateComponents = candidate.pathComponents
+        guard candidateComponents.count == rootComponents.count + 2,
+              Array(candidateComponents.prefix(rootComponents.count)) == rootComponents,
+              UUID(uuidString: candidateComponents[rootComponents.count]) != nil else { return nil }
+        let filename = candidateComponents[rootComponents.count + 1]
+        guard (filename as NSString).pathExtension.lowercased() == "md",
+              UUID(uuidString: (filename as NSString).deletingPathExtension) != nil else { return nil }
+        return candidate
+    }
+
+    /// Returns the path the restored Dock must own. Migration failures retain
+    /// the validated source path so closed-history restore cannot discard the
+    /// user's only note copy.
+    static func restoredManagedNoteURL(
+        source: URL?,
+        destination: URL
+    ) -> URL {
+        guard let source = source?.standardizedFileURL,
+              source != destination.standardizedFileURL else { return destination }
         let fileManager = FileManager.default
-        guard !fileManager.fileExists(atPath: destination.path),
+        guard fileManager.fileExists(atPath: source.path),
               let sourceValues = try? source.resourceValues(
                 forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]
               ),
               sourceValues.isRegularFile == true,
-              sourceValues.isSymbolicLink != true,
-              let fileSize = sourceValues.fileSize,
-              fileSize >= 0,
-              UInt64(fileSize) <= FilePreviewTextLoader.maximumLoadedTextBytes,
-              let data = try? Data(contentsOf: source),
-              UInt64(data.count) <= FilePreviewTextLoader.maximumLoadedTextBytes else { return }
+              sourceValues.isSymbolicLink != true else { return destination }
+        guard !fileManager.fileExists(atPath: destination.path) else { return destination }
         do {
+            guard let fileSize = sourceValues.fileSize,
+                  fileSize >= 0,
+                  UInt64(fileSize) <= FilePreviewTextLoader.maximumLoadedTextBytes else {
+                return source
+            }
+            let data = try Data(contentsOf: source)
+            guard UInt64(data.count) <= FilePreviewTextLoader.maximumLoadedTextBytes else {
+                return source
+            }
             try fileManager.createDirectory(
                 at: destination.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
             try data.write(to: destination, options: .atomic)
+            return destination
         } catch {
             try? fileManager.removeItem(at: destination)
+            return source
         }
     }
 
@@ -488,6 +520,10 @@ enum WorkspaceFloatingDockNoteStorage {
             paths.formUnion(retainedPaths(in: panel))
         }
         for dock in workspace.floatingDocks ?? [] {
+            if let path = dock.managedNoteFilePath,
+               let managedURL = validatedManagedNoteFileURL(path: path) {
+                paths.insert(managedURL.path)
+            }
             if let stableID = workspace.stableId {
                 paths.insert(
                     fileURL(workspaceStableID: stableID, dockID: dock.id)

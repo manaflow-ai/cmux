@@ -99,7 +99,8 @@ struct WindowDockRoutingSocketTests {
                 tabManager: manager,
                 policy: .confirmInteractive
             )
-            await Task.yield()
+            await waitForFloatingDockClose(firstDock.id, in: workspace)
+            await waitForFloatingDockClose(secondDock.id, in: workspace)
 
             #expect(closedCount == 2)
             #expect(confirmationCount == 1)
@@ -149,9 +150,11 @@ struct WindowDockRoutingSocketTests {
                 tabManager: manager,
                 policy: .confirmInteractive
             )
+            await waitForFloatingDockClose(dock.id, in: workspace)
 
             #expect(closed == true)
             #expect(confirmationCount == 0)
+            #expect(workspace.floatingDock(id: dock.id) == nil)
             #expect(try String(contentsOf: noteURL, encoding: .utf8) == "persist before close")
         }
     }
@@ -293,6 +296,14 @@ struct WindowDockRoutingSocketTests {
 
             let workspace = try #require(manager.tabs.first)
             try await body(manager, workspace, windowId)
+        }
+    }
+
+    @MainActor
+    private func waitForFloatingDockClose(_ dockId: UUID, in workspace: Workspace) async {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while workspace.floatingDock(id: dockId) != nil, ContinuousClock.now < deadline {
+            await Task.yield()
         }
     }
 
@@ -561,6 +572,7 @@ struct WindowDockRoutingSocketTests {
                 "workspace_id": workspace.id.uuidString,
                 "float": dock.id.uuidString,
             ])
+            await waitForFloatingDockClose(dock.id, in: workspace)
 
             #expect(response["ok"] as? Bool == true)
             #expect(workspace.floatingDock(id: dock.id) == nil)

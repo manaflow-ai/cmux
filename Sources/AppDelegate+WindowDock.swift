@@ -59,7 +59,7 @@ extension AppDelegate {
         return AppDelegate.shared?.mainWindowContext(forWindowId: id) != nil
     }
 
-    private func mainWindowContext(forWindowId windowId: UUID) -> MainWindowContext? {
+    func mainWindowContext(forWindowId windowId: UUID) -> MainWindowContext? {
         mainWindowContexts.values.first { $0.windowId == windowId }
     }
 

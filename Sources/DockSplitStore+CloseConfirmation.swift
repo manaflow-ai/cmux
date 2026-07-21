@@ -34,9 +34,23 @@ extension DockSplitStore {
         let tabCloseButtonClose = tabCloseButtonCloseDockTabIds.remove(tab.id) != nil
         guard let panel = panel(for: tab.id) else { return true }
         if let note = panel as? FilePreviewPanel,
-           !note.flushPendingAutosaveSynchronously() {
-            forceCloseDockTabIds.remove(tab.id)
-            NSSound.beep()
+           note.needsAutosaveFlush {
+            guard pendingAutosaveCloseDockTabIds.insert(tab.id).inserted else { return false }
+            if tabCloseButtonClose {
+                tabCloseButtonCloseDockTabIds.insert(tab.id)
+            }
+            let tabId = tab.id
+            Task { @MainActor [weak self, weak note] in
+                guard let self, let note else { return }
+                let saved = await note.flushPendingAutosave()
+                self.pendingAutosaveCloseDockTabIds.remove(tabId)
+                guard saved, self.panel(for: tabId) != nil else {
+                    self.forceCloseDockTabIds.remove(tabId)
+                    NSSound.beep()
+                    return
+                }
+                _ = self.bonsplitController.closeTab(tabId)
+            }
             return false
         }
         if forceCloseDockTabIds.contains(tab.id) {
@@ -78,13 +92,28 @@ extension DockSplitStore {
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
         let paneTabs = controller.tabs(inPane: pane)
-        for tab in paneTabs {
-            guard let note = panel(for: tab.id) as? FilePreviewPanel else { continue }
-            guard note.flushPendingAutosaveSynchronously() else {
-                forceCloseDockTabIds.subtract(paneTabs.map(\.id))
-                NSSound.beep()
-                return false
+        let notesToFlush = paneTabs.compactMap { tab -> FilePreviewPanel? in
+            guard let note = panel(for: tab.id) as? FilePreviewPanel,
+                  note.needsAutosaveFlush else { return nil }
+            return note
+        }
+        if !notesToFlush.isEmpty {
+            guard pendingAutosaveCloseDockPaneIds.insert(pane.id).inserted else { return false }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                var saved = true
+                for note in notesToFlush where saved {
+                    saved = await note.flushPendingAutosave()
+                }
+                self.pendingAutosaveCloseDockPaneIds.remove(pane.id)
+                guard saved else {
+                    self.forceCloseDockTabIds.subtract(paneTabs.map(\.id))
+                    NSSound.beep()
+                    return
+                }
+                _ = self.bonsplitController.closePane(pane)
             }
+            return false
         }
         var paneTitles: [String] = []
         var confirmableTabIds = Set<TabID>()
@@ -123,6 +152,7 @@ extension DockSplitStore {
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseDockTabIds.remove(tabId)
         pendingCloseConfirmDockTabIds.remove(tabId)
+        pendingAutosaveCloseDockTabIds.remove(tabId)
         tabCloseButtonCloseDockTabIds.remove(tabId)
         reconcilePanels()
     }

@@ -60,12 +60,6 @@ final class DockSplitStore: BonsplitDelegate {
         String.Encoding,
         UInt64?
     ) async -> FilePreviewTextSaver.Result)?
-    let noteTextSaverSynchronously: (@Sendable (
-        String,
-        URL,
-        String.Encoding,
-        UInt64?
-    ) -> FilePreviewTextSaver.Result)?
     let noteTextSaveSequenceProvider: (@Sendable () -> UInt64)?
     private let loadsConfiguration: Bool
     var panels: [UUID: any Panel] = [:] {
@@ -94,6 +88,8 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var isProgrammaticDockSplit = false
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
+    @ObservationIgnored var pendingAutosaveCloseDockTabIds: Set<TabID> = []
+    @ObservationIgnored var pendingAutosaveCloseDockPaneIds: Set<UUID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
@@ -150,12 +146,6 @@ final class DockSplitStore: BonsplitDelegate {
             String.Encoding,
             UInt64?
         ) async -> FilePreviewTextSaver.Result)? = nil,
-        noteTextSaverSynchronously: (@Sendable (
-            String,
-            URL,
-            String.Encoding,
-            UInt64?
-        ) -> FilePreviewTextSaver.Result)? = nil,
         noteTextSaveSequenceProvider: (@Sendable () -> UInt64)? = nil
     ) {
         self.workspaceId = workspaceId
@@ -168,7 +158,6 @@ final class DockSplitStore: BonsplitDelegate {
         self.terminalTransferProvider = terminalTransferProvider
         self.terminalRestoreTransferProvider = terminalRestoreTransferProvider
         self.noteTextSaver = noteTextSaver
-        self.noteTextSaverSynchronously = noteTextSaverSynchronously
         self.noteTextSaveSequenceProvider = noteTextSaveSequenceProvider
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
@@ -318,10 +307,14 @@ final class DockSplitStore: BonsplitDelegate {
         removeAllPanels()
     }
 
-    func flushPendingAutosavingNotesSynchronously() -> Bool {
+    var needsAutosavingNoteFlush: Bool {
+        panels.values.contains { ($0 as? FilePreviewPanel)?.needsAutosaveFlush == true }
+    }
+
+    func flushPendingAutosavingNotes() async -> Bool {
         for panel in panels.values {
             guard let note = panel as? FilePreviewPanel else { continue }
-            guard note.flushPendingAutosaveSynchronously() else { return false }
+            guard await note.flushPendingAutosave() else { return false }
         }
         return true
     }
@@ -628,14 +621,6 @@ final class DockSplitStore: BonsplitDelegate {
                 ),
                 textSaver: noteTextSaver ?? { content, url, encoding, _ in
                     await FilePreviewTextSaver.save(
-                        content: content,
-                        to: url,
-                        encoding: encoding,
-                        maximumBytes: FilePreviewTextLoader.maximumLoadedTextBytes
-                    )
-                },
-                textSaverSynchronously: noteTextSaverSynchronously ?? { content, url, encoding, _ in
-                    FilePreviewTextSaver.saveSynchronously(
                         content: content,
                         to: url,
                         encoding: encoding,

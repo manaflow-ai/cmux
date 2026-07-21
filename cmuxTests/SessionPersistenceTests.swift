@@ -240,7 +240,8 @@ final class SessionPersistenceTests: XCTestCase {
         await note.loadTextContent().value
         note.updateTextContent("must remain recoverable")
 
-        XCTAssertFalse(workspace.closeFloatingDock(id: dock.id))
+        let didClose = await workspace.closeFloatingDock(id: dock.id)
+        XCTAssertFalse(didClose)
         XCTAssertTrue(workspace.floatingDock(id: dock.id) === dock)
         XCTAssertTrue(note.isDirty)
         XCTAssertTrue(note.hasAutosaveError)
@@ -757,6 +758,35 @@ final class SessionPersistenceTests: XCTestCase {
             try String(contentsOfFile: restoredDock.noteFilePath, encoding: .utf8),
             "note from the original stable identity"
         )
+    }
+
+    func testManagedNoteMigrationFailureRetainsSourceFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-migration-\(UUID().uuidString)", isDirectory: true)
+        let sourceWorkspace = root.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
+        let source = sourceWorkspace
+            .appendingPathComponent(UUID().uuidString.lowercased())
+            .appendingPathExtension("md")
+        let destinationBlocker = root.appendingPathComponent("destination-blocker")
+        let destination = destinationBlocker
+            .appendingPathComponent(UUID().uuidString.lowercased())
+            .appendingPathExtension("md")
+        try FileManager.default.createDirectory(at: sourceWorkspace, withIntermediateDirectories: true)
+        try "only recoverable copy".write(to: source, atomically: true, encoding: .utf8)
+        try "not a directory".write(to: destinationBlocker, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let restoredURL = WorkspaceFloatingDockNoteStorage.restoredManagedNoteURL(
+            source: source,
+            destination: destination
+        )
+
+        XCTAssertEqual(restoredURL.standardizedFileURL, source.standardizedFileURL)
+        XCTAssertEqual(
+            try String(contentsOf: restoredURL, encoding: .utf8),
+            "only recoverable copy"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
     func testFloatingDockNoteStorageDoesNotTraverseSymbolicLinks() throws {

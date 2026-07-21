@@ -12,6 +12,9 @@ struct SessionFloatingDockSnapshot: Codable, Sendable {
     var isPresented: Bool
     /// Per-window glass tint. Absent snapshots derive the Raycast-style tint from the Ghostty theme.
     var backgroundTintHex: String? = nil
+    /// Exact managed-note path. This can retain the source path when a
+    /// stable-identity restore cannot atomically migrate the note.
+    var managedNoteFilePath: String? = nil
     /// Absent in snapshots written before floating Dock contents were restorable.
     var content: SessionFloatingDockContentSnapshot? = nil
     /// Last global screen frame, used to remap the window across display sizes.

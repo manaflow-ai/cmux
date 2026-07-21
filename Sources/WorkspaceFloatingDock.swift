@@ -120,7 +120,6 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
             filePath: filePath,
             presentation: presentation,
             textSaver: persistence.save,
-            textSaverSynchronously: persistence.saveSynchronously,
             textSaveSequenceProvider: persistence.reserveSequence
         )
     }
@@ -286,7 +285,6 @@ final class WorkspaceFloatingDock: Identifiable {
             terminalTransferProvider: terminalTransferProvider,
             terminalRestoreTransferProvider: terminalRestoreTransferProvider,
             noteTextSaver: notePersistence.save,
-            noteTextSaverSynchronously: notePersistence.saveSynchronously,
             noteTextSaveSequenceProvider: notePersistence.reserveSequence
         )
 
@@ -385,7 +383,14 @@ final class WorkspaceFloatingDock: Identifiable {
 
     func bindManagedNotePanel(_ panel: FilePreviewPanel) {
         guard isManagedNotePanel(panel) else { return }
-        guard panel.rebindAutosavingTextPersistence(noteWriter.persistence) else { return }
+        guard panel.rebindAutosavingTextPersistence(noteWriter.persistence) else {
+            Task { @MainActor [weak self, weak panel] in
+                guard let self, let panel,
+                      await panel.flushPendingAutosave() else { return }
+                self.bindManagedNotePanel(panel)
+            }
+            return
+        }
         panel.autosavedTextDidChange = { [weak self] text in
             self?.setNoteTextSnapshot(text)
         }

@@ -1041,12 +1041,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         String.Encoding,
         UInt64?
     ) async -> FilePreviewTextSaver.Result
-    private var textSaverSynchronously: @Sendable (
-        String,
-        URL,
-        String.Encoding,
-        UInt64?
-    ) -> FilePreviewTextSaver.Result
     private var textSaveSequenceProvider: (@Sendable () -> UInt64)?
     private let autosaveDelayNanoseconds: UInt64
 
@@ -1062,9 +1056,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         _ persistence: WorkspaceFloatingDockNoteWriter.Persistence
     ) -> Bool {
         guard presentation.autosavesTextChanges,
-              flushPendingAutosaveSynchronously() else { return false }
+              !needsAutosaveFlush else { return false }
         textSaver = persistence.save
-        textSaverSynchronously = persistence.saveSynchronously
         textSaveSequenceProvider = persistence.reserveSequence
         return true
     }
@@ -1088,14 +1081,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         ) async -> FilePreviewTextSaver.Result = { content, url, encoding, _ in
             await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
         },
-        textSaverSynchronously: @escaping @Sendable (
-            String,
-            URL,
-            String.Encoding,
-            UInt64?
-        ) -> FilePreviewTextSaver.Result = { content, url, encoding, _ in
-            FilePreviewTextSaver.saveSynchronously(content: content, to: url, encoding: encoding)
-        },
         textSaveSequenceProvider: (@Sendable () -> UInt64)? = nil,
         autosaveDelayNanoseconds: UInt64 = 300_000_000
     ) {
@@ -1106,7 +1091,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.displayTitle = presentation.displayTitle ?? URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
-        self.textSaverSynchronously = textSaverSynchronously
         self.textSaveSequenceProvider = textSaveSequenceProvider
         self.autosaveDelayNanoseconds = autosaveDelayNanoseconds
         let fileURL = URL(fileURLWithPath: filePath)
@@ -1283,42 +1267,56 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         requestAutosave(immediate: true)
     }
 
-    /// Commits the editor's latest text before process teardown. Managed note
-    /// writers serialize this with any in-flight async save by sequence, so an
-    /// older completion cannot overwrite the termination flush.
-    func flushPendingAutosaveSynchronously() -> Bool {
-        guard presentation.autosavesTextChanges, previewMode == .text else { return true }
-        autosaveDebounceTask?.cancel()
-        autosaveDebounceTask = nil
-        autosaveRequested = false
-        autosaveFlushRequested = false
+    var needsAutosaveFlush: Bool {
+        presentation.autosavesTextChanges
+            && previewMode == .text
+            && (isDirty || isSaving || hasAutosaveError || autosaveRequested)
+    }
 
-        let currentContent = textView?.string ?? textContent
-        guard isDirty || isSaving || hasAutosaveError else { return true }
-        textLoadGeneration += 1
-        saveGeneration += 1
-        activeSaveGeneration = nil
-        isSaving = false
-        let result = textSaverSynchronously(
-            currentContent,
-            fileURL,
-            textEncoding,
-            textSaveSequenceProvider?()
-        )
-        switch result {
-        case .saved:
-            textContent = currentContent
-            originalTextContent = currentContent
-            isDirty = false
-            isFileUnavailable = false
-            hasAutosaveError = false
-            return true
-        case .failed(let fileExists):
-            isDirty = true
-            isFileUnavailable = presentation.autosavesTextChanges ? false : !fileExists
-            hasAutosaveError = true
-            return false
+    /// Commits the editor's latest text before closing while yielding the main
+    /// actor during filesystem work. A newer edit observed during the write is
+    /// flushed in the next pass before this returns success.
+    func flushPendingAutosave() async -> Bool {
+        guard presentation.autosavesTextChanges, previewMode == .text else { return true }
+        while needsAutosaveFlush {
+            autosaveDebounceTask?.cancel()
+            autosaveDebounceTask = nil
+            autosaveRequested = false
+            autosaveFlushRequested = false
+
+            let currentContent = textView?.string ?? textContent
+            textLoadGeneration += 1
+            saveGeneration += 1
+            let generation = saveGeneration
+            activeSaveGeneration = generation
+            isSaving = true
+            let fileURL = fileURL
+            let encoding = textEncoding
+            let writeSequence = textSaveSequenceProvider?()
+            let textSaver = textSaver
+            let result = await textSaver(
+                currentContent,
+                fileURL,
+                encoding,
+                writeSequence
+            )
+            guard activeSaveGeneration == generation else { continue }
+            activeSaveGeneration = nil
+            isSaving = false
+            switch result {
+            case .saved:
+                originalTextContent = currentContent
+                isDirty = (textView?.string ?? textContent) != currentContent
+                isFileUnavailable = false
+                hasAutosaveError = false
+            case .failed(let fileExists):
+                isDirty = true
+                isFileUnavailable = presentation.autosavesTextChanges ? false : !fileExists
+                hasAutosaveError = true
+                return false
+            }
         }
+        return true
     }
 
     private func requestAutosave(immediate: Bool = false) {

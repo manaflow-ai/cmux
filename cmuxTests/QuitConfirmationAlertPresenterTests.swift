@@ -123,14 +123,19 @@ struct QuitConfirmationAlertPresenterTests {
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local }
         )
-        defer { dock.close() }
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.tabs.first)
+        workspace.floatingDocks.append(dock)
+        defer { workspace.teardownAllPanels() }
         let panel = try #require(dock.notePanel)
         await panel.loadTextContent().value
         panel.updateTextContent("flush before termination")
 
         let appDelegate = AppDelegate()
+        appDelegate.tabManager = manager
         #expect(appDelegate.autosavingNotePanelsForLifecycle().contains { $0 === panel })
-        #expect(appDelegate.flushPendingAutosavingNotesSynchronously())
+        let didFlush = await appDelegate.flushPendingAutosavingNotes()
+        #expect(didFlush)
         #expect(try String(contentsOf: noteURL, encoding: .utf8) == "flush before termination")
     }
 }

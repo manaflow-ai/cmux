@@ -554,6 +554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
         var workspaceFloatingDockPresenter: WorkspaceFloatingDockPresenter?
+        var isAutosaveClosePending = false
+        var isAutosaveCloseApproved = false
 
         init(
             windowId: UUID,
@@ -1095,6 +1097,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didReplyToTerminate = false
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
+    private var isAwaitingTerminatePreparation = false
     private var terminateKillWatchdogTask: Task<Void, Never>?
     /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
     private let terminationWatchdog = TerminationWatchdog()
@@ -1860,9 +1863,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func prepareForConfirmedAppTermination() -> Bool {
+    private func prepareForConfirmedAppTermination() async -> Bool {
         isTerminatingApp = true
-        guard flushPendingAutosavingNotesSynchronously() else {
+        guard await flushPendingAutosavingNotes() else {
             isTerminatingApp = false
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.noteFlushFailed")
             NSSound.beep()
@@ -1877,6 +1880,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // first.
         terminationWatchdog.arm()
         return true
+    }
+
+    private func beginConfirmedAppTermination(reason: String) {
+        guard !isAwaitingTerminatePreparation else { return }
+        isAwaitingTerminatePreparation = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard await self.prepareForConfirmedAppTermination() else {
+                self.isAwaitingTerminatePreparation = false
+                self.replyToTerminateOnce(false)
+                return
+            }
+            self.closeAllWebInspectorsBeforeAppTeardown()
+            self.isAwaitingTerminatePreparation = false
+            if self.deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
+                return
+            }
+            StartupBreadcrumbLog.append(
+                "appDelegate.shouldTerminate.reply",
+                fields: ["shouldQuit": "1", "reason": reason]
+            )
+            self.replyToTerminateOnce(true)
+        }
     }
 
     private func presentQuitConfirmationAlert(
@@ -1905,16 +1931,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let shouldQuit = response == .alertFirstButtonReturn
         if shouldQuit {
-            guard prepareForConfirmedAppTermination() else {
-                replyToTerminateOnce(false)
-                return
-            }
             isQuitWarningConfirmed = true
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
-            if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
-                return
-            }
+            beginConfirmedAppTermination(reason: "confirmedDialog")
+            return
         } else {
             // Reset so that the next quit attempt can show the dialog again.
             isTerminatingApp = false
@@ -1926,7 +1945,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if let reply = Self.pendingTerminateReply(
-            isAwaitingTerminateKills: isAwaitingTerminateKills,
+            isAwaitingTerminateKills: isAwaitingTerminateKills || isAwaitingTerminatePreparation,
             hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,
             activeQuitConfirmationOwnsTerminateRequest: activeQuitConfirmationOwnsTerminateRequest
         ) {
@@ -1955,10 +1974,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: buildFlavor == .dev
         ) {
-            guard prepareForConfirmedAppTermination() else {
-                return .terminateCancel
-            }
-            closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
             if isQuitWarningConfirmed {
                 reason = "confirmed"
@@ -1967,13 +1982,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 reason = "policy"
             }
-            // Explicit last-tab closes kill marked remote sessions before quit.
-            // Plain app/window quits have no marker and only detach.
-            if deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
-                return .terminateLater
-            }
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
-            return .terminateNow
+            beginConfirmedAppTermination(reason: reason)
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later", fields: ["reason": reason])
+            return .terminateLater
         }
 
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
@@ -2001,7 +2012,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
         isTerminatingApp = true
-        _ = flushPendingAutosavingNotesSynchronously()
+        if needsAutosavingNoteFlush {
+            StartupBreadcrumbLog.append("appDelegate.willTerminate.pendingNoteFlush")
+        }
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         terminationWatchdog.arm()
@@ -5730,23 +5743,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
-    func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
+    func closeMainWindow(
+        windowId: UUID,
+        recordHistory: Bool = true,
+        afterClose: (@MainActor () -> Void)? = nil
+    ) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
-        guard flushPendingAutosavingNotesSynchronously(windowId: windowId) else {
-            NSSound.beep()
-            return false
+        if needsAutosavingNoteFlush(windowId: windowId) {
+            let context = mainWindowContext(forWindowId: windowId)
+            guard context?.isAutosaveClosePending != true else { return true }
+            context?.isAutosaveClosePending = true
+            Task { @MainActor [weak self, weak window, weak context] in
+                guard let self, let window else { return }
+                let saved = await self.flushPendingAutosavingNotes(windowId: windowId)
+                context?.isAutosaveClosePending = false
+                guard saved, self.windowForMainWindowId(windowId) === window else {
+                    NSSound.beep()
+                    return
+                }
+                if !recordHistory {
+                    self.closedWindowHistorySuppressedWindowIds.insert(windowId)
+                }
+                self.closeMainWindowWithoutInteractiveVeto(window)
+                afterClose?()
+            }
+            return true
         }
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(windowId)
         }
         closeMainWindowWithoutInteractiveVeto(window)
+        afterClose?()
         return true
     }
 
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
         guard let window = windowForMainWindowId(windowId) else { return }
-        guard flushPendingAutosavingNotesSynchronously(windowId: windowId) else {
-            NSSound.beep()
+        if needsAutosavingNoteFlush(windowId: windowId) {
+            let context = mainWindowContext(forWindowId: windowId)
+            guard context?.isAutosaveClosePending != true else { return }
+            context?.isAutosaveClosePending = true
+            Task { @MainActor [weak self, weak window, weak context] in
+                guard let self, let window else { return }
+                let saved = await self.flushPendingAutosavingNotes(windowId: windowId)
+                context?.isAutosaveClosePending = false
+                guard saved, self.windowForMainWindowId(windowId) === window else {
+                    NSSound.beep()
+                    return
+                }
+                self.closedWindowHistorySuppressedWindowIds.insert(windowId)
+                self.closeMainWindowWithoutInteractiveVeto(window)
+            }
             return
         }
         closedWindowHistorySuppressedWindowIds.insert(windowId)
@@ -16279,8 +16326,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleMainTerminalWindowShouldClose(windowId: UUID) -> Bool {
-        guard flushPendingAutosavingNotesSynchronously(windowId: windowId) else {
-            NSSound.beep()
+        let context = mainWindowContext(forWindowId: windowId)
+        let autosaveCloseApproved = context?.isAutosaveCloseApproved == true
+        context?.isAutosaveCloseApproved = false
+        if !autosaveCloseApproved,
+           needsAutosavingNoteFlush(windowId: windowId) {
+            guard context?.isAutosaveClosePending != true else { return false }
+            context?.isAutosaveClosePending = true
+            Task { @MainActor [weak self, weak context] in
+                guard let self else { return }
+                let saved = await self.flushPendingAutosavingNotes(windowId: windowId)
+                context?.isAutosaveClosePending = false
+                guard saved, let window = self.windowForMainWindowId(windowId) else {
+                    NSSound.beep()
+                    return
+                }
+                context?.isAutosaveCloseApproved = true
+                window.performClose(nil)
+            }
             return false
         }
         // XCTest has no UI for the warn-before-quit dialog and would either block
@@ -16291,11 +16354,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func flushPendingAutosavingNotesSynchronously(windowId: UUID) -> Bool {
+    private func needsAutosavingNoteFlush(windowId: UUID) -> Bool {
+        tabManagerFor(windowId: windowId)?.needsAutosavingNoteFlush == true
+            || existingWindowDock(forWindowId: windowId)?.needsAutosavingNoteFlush == true
+    }
+
+    private func flushPendingAutosavingNotes(windowId: UUID) async -> Bool {
         guard let manager = tabManagerFor(windowId: windowId),
-              manager.flushPendingAutosavingNotesSynchronously() else { return false }
-        return existingWindowDock(forWindowId: windowId)?
-            .flushPendingAutosavingNotesSynchronously() != false
+              await manager.flushPendingAutosavingNotes() else { return false }
+        if let dock = existingWindowDock(forWindowId: windowId),
+           await dock.flushPendingAutosavingNotes() == false { return false }
+        return true
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {

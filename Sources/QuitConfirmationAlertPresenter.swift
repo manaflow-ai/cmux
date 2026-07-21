@@ -93,6 +93,15 @@ extension AppDelegate {
         var panelsByIdentity: [ObjectIdentifier: FilePreviewPanel] = [:]
         var visitedManagers = Set<ObjectIdentifier>()
 
+        func collect(_ store: DockSplitStore?) {
+            guard let store else { return }
+            for panel in store.panels.values {
+                guard let preview = panel as? FilePreviewPanel,
+                      preview.presentation.autosavesTextChanges else { continue }
+                panelsByIdentity[ObjectIdentifier(preview)] = preview
+            }
+        }
+
         func collect(_ manager: TabManager?) {
             guard let manager,
                   visitedManagers.insert(ObjectIdentifier(manager)).inserted else { return }
@@ -102,27 +111,28 @@ extension AppDelegate {
                           preview.presentation.autosavesTextChanges else { continue }
                     panelsByIdentity[ObjectIdentifier(preview)] = preview
                 }
+                collect(workspace._dockSplit)
+                workspace.floatingDocks.forEach { collect($0.store) }
             }
         }
 
         mainWindowContexts.values.forEach { collect($0.tabManager) }
         collect(tabManager)
         recoverableMainWindowRoutes().forEach { collect($0.tabManager) }
-        for store in DockSplitStore.liveStores {
-            for panel in store.panels.values {
-                guard let preview = panel as? FilePreviewPanel,
-                      preview.presentation.autosavesTextChanges else { continue }
-                panelsByIdentity[ObjectIdentifier(preview)] = preview
-            }
-        }
+        existingWindowDocks.forEach { collect($0) }
 
         return Array(panelsByIdentity.values)
     }
 
-    func flushPendingAutosavingNotesSynchronously() -> Bool {
-        autosavingNotePanelsForLifecycle().reduce(true) { result, panel in
-            panel.flushPendingAutosaveSynchronously() && result
+    var needsAutosavingNoteFlush: Bool {
+        autosavingNotePanelsForLifecycle().contains(where: \.needsAutosaveFlush)
+    }
+
+    func flushPendingAutosavingNotes() async -> Bool {
+        for panel in autosavingNotePanelsForLifecycle() {
+            guard await panel.flushPendingAutosave() else { return false }
         }
+        return true
     }
 
     static func pendingTerminateReply(

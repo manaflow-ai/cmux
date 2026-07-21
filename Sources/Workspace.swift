@@ -1941,6 +1941,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Window-like Bonsplit containers scoped to this workspace.
     /// Mutated by the shared lifecycle methods in `Workspace+FloatingDocks`.
     var floatingDocks: [WorkspaceFloatingDock] = []
+    var pendingFloatingDockCloseIds: Set<UUID> = []
+    var isPendingCloseAllFloatingDocks = false
 
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
@@ -3249,6 +3251,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
     private var pendingCloseConfirmTabIds: Set<TabID> = []
+    private var pendingAutosaveCloseTabIds: Set<TabID> = []
+    private var pendingAutosaveClosePaneIds: Set<UUID> = []
 
     /// tmux pane ids (multi-pane mirror ✕) with a close-time activity query or
     /// confirmation in flight, so click spam can't double-kill or stack dialogs.
@@ -8488,12 +8492,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Tear down all panels before removing the workspace.
-    @discardableResult
-    func teardownAllPanels() -> Bool {
-        guard flushPendingAutosavingNotesSynchronously() else {
-            NSSound.beep()
-            return false
-        }
+    func teardownAllPanels() {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -8532,7 +8531,6 @@ final class Workspace: Identifiable, ObservableObject {
         _dockSplit?.closeAllPanels()
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
-        return true
     }
 
     /// Close a panel.
@@ -11647,11 +11645,25 @@ extension Workspace: BonsplitDelegate {
 
         if let panelId = panelIdFromSurfaceId(tab.id),
            let note = panels[panelId] as? FilePreviewPanel,
-           !note.flushPendingAutosaveSynchronously() {
-            forceCloseTabIds.remove(tab.id)
-            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
-            NSSound.beep()
+           note.needsAutosaveFlush {
+            guard pendingAutosaveCloseTabIds.insert(tab.id).inserted else { return false }
+            if tabCloseButtonClose == true {
+                tabStripCloseButtonByTabId[tab.id] = true
+            }
+            let tabId = tab.id
+            Task { @MainActor [weak self, weak note] in
+                guard let self, let note else { return }
+                let saved = await note.flushPendingAutosave()
+                self.pendingAutosaveCloseTabIds.remove(tabId)
+                guard saved, self.panelIdFromSurfaceId(tabId) != nil else {
+                    self.forceCloseTabIds.remove(tabId)
+                    self.clearStagedClosedBrowserRestoreSnapshot(for: tabId)
+                    self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+                    NSSound.beep()
+                    return
+                }
+                _ = self.bonsplitController.closeTab(tabId)
+            }
             return false
         }
 
@@ -12167,16 +12179,31 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
         // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
-        for tab in tabs {
+        let notesToFlush = tabs.compactMap { tab -> FilePreviewPanel? in
             guard let panelId = panelIdFromSurfaceId(tab.id),
-                  let note = panels[panelId] as? FilePreviewPanel else { continue }
-            guard note.flushPendingAutosaveSynchronously() else {
-                forceCloseTabIds.subtract(tabs.map(\.id))
-                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
-                pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
-                NSSound.beep()
-                return false
+                  let note = panels[panelId] as? FilePreviewPanel,
+                  note.needsAutosaveFlush else { return nil }
+            return note
+        }
+        if !notesToFlush.isEmpty {
+            guard pendingAutosaveClosePaneIds.insert(pane.id).inserted else { return false }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                var saved = true
+                for note in notesToFlush where saved {
+                    saved = await note.flushPendingAutosave()
+                }
+                self.pendingAutosaveClosePaneIds.remove(pane.id)
+                guard saved else {
+                    self.forceCloseTabIds.subtract(tabs.map(\.id))
+                    self.pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                    self.pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                    NSSound.beep()
+                    return
+                }
+                _ = self.bonsplitController.closePane(pane)
             }
+            return false
         }
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }

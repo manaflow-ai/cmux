@@ -141,7 +141,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(savedContents, ["flush me"])
     }
 
-    func testTerminationFlushSynchronouslyCommitsLatestNoteEdit() async throws {
+    func testTerminationFlushAsynchronouslyCommitsLatestNoteEdit() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
         let writer = WorkspaceFloatingDockNoteWriter(fileURL: url)
@@ -156,13 +156,6 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
                     sequence: sequence ?? writer.reserveSequence()
                 )
             },
-            textSaverSynchronously: { content, _, encoding, sequence in
-                writer.saveSynchronously(
-                    content: content,
-                    encoding: encoding,
-                    sequence: sequence
-                )
-            },
             textSaveSequenceProvider: { writer.reserveSequence() },
             autosaveDelayNanoseconds: 60_000_000_000
         )
@@ -171,11 +164,46 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         panel.updateTextContent("latest editor contents")
 
-        XCTAssertTrue(panel.flushPendingAutosaveSynchronously())
+        let didFlush = await panel.flushPendingAutosave()
+        XCTAssertTrue(didFlush)
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "latest editor contents")
         XCTAssertFalse(panel.isDirty)
         XCTAssertFalse(panel.isSaving)
         XCTAssertFalse(panel.hasAutosaveError)
+    }
+
+    func testLifecycleFlushYieldsMainActorWhileSaveIsPending() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let gate = FilePreviewAutosaveGate()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            presentation: .note(title: "Notes"),
+            textSaver: { _, _, _, _ in
+                await gate.save()
+            },
+            autosaveDelayNanoseconds: 60_000_000_000
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        panel.updateTextContent("latest editor contents")
+
+        let flushTask = Task { @MainActor in
+            await panel.flushPendingAutosave()
+        }
+        await gate.waitUntilSaveStarts()
+
+        // Reaching this assertion on the main actor while the save is blocked
+        // proves lifecycle persistence suspends the UI instead of blocking it.
+        XCTAssertTrue(panel.isSaving)
+        XCTAssertTrue(panel.isDirty)
+
+        await gate.finishSave()
+        let didFlush = await flushTask.value
+        XCTAssertTrue(didFlush)
+        XCTAssertFalse(panel.isSaving)
+        XCTAssertFalse(panel.isDirty)
     }
 
     func testExtensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
@@ -689,6 +717,34 @@ private actor FilePreviewAutosaveProbe {
 
     func contents() -> [String] {
         savedContents
+    }
+}
+
+private actor FilePreviewAutosaveGate {
+    private var saveStarted = false
+    private var saveStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var saveContinuation: CheckedContinuation<FilePreviewTextSaver.Result, Never>?
+
+    func save() async -> FilePreviewTextSaver.Result {
+        saveStarted = true
+        let waiters = saveStartWaiters
+        saveStartWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        return await withCheckedContinuation { continuation in
+            saveContinuation = continuation
+        }
+    }
+
+    func waitUntilSaveStarts() async {
+        guard !saveStarted else { return }
+        await withCheckedContinuation { continuation in
+            saveStartWaiters.append(continuation)
+        }
+    }
+
+    func finishSave() {
+        saveContinuation?.resume(returning: .saved)
+        saveContinuation = nil
     }
 }
 

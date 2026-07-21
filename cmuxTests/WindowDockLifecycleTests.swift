@@ -142,7 +142,10 @@ struct WindowDockLifecycleTests {
             AppDelegate.shared = previousAppDelegate
         }
 
-        #expect(!appDelegate.closeMainWindow(windowId: windowId))
+        #expect(appDelegate.closeMainWindow(windowId: windowId))
+        for _ in 0..<20 where !note.hasAutosaveError {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(appDelegate.mainWindow(for: windowId) === window)
         #expect(note.isDirty)
         #expect(note.textContent == "must remain recoverable")

@@ -428,6 +428,7 @@ class TabManager: ObservableObject {
     private var closeConfirmationInFlight = false
     let closeTabWarningDefaults: UserDefaults
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
+    private var pendingAutosaveCloseWorkspaceIds: Set<UUID> = []
     private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
@@ -2002,11 +2003,22 @@ class TabManager: ObservableObject {
         )
     }
 
-    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
-        guard tabs.count > 1 else { return }
-        guard workspace.flushPendingAutosavingNotesSynchronously() else {
-            NSSound.beep()
-            return
+    @discardableResult
+    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) -> Bool {
+        guard tabs.count > 1 else { return false }
+        if workspace.needsAutosavingNoteFlush {
+            guard pendingAutosaveCloseWorkspaceIds.insert(workspace.id).inserted else { return true }
+            Task { @MainActor [weak self, weak workspace] in
+                guard let self, let workspace else { return }
+                let saved = await workspace.flushPendingAutosavingNotes()
+                self.pendingAutosaveCloseWorkspaceIds.remove(workspace.id)
+                guard saved else {
+                    NSSound.beep()
+                    return
+                }
+                self.closeWorkspace(workspace, recordHistory: recordHistory)
+            }
+            return true
         }
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
@@ -2068,6 +2080,7 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+        return true
     }
 
     /// Detach a workspace from this window without closing its panels.

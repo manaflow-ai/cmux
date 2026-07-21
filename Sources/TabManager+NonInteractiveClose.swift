@@ -1,8 +1,15 @@
 import Foundation
 
 extension TabManager {
-    func flushPendingAutosavingNotesSynchronously() -> Bool {
-        tabs.allSatisfy { $0.flushPendingAutosavingNotesSynchronously() }
+    var needsAutosavingNoteFlush: Bool {
+        tabs.contains(where: \.needsAutosavingNoteFlush)
+    }
+
+    func flushPendingAutosavingNotes() async -> Bool {
+        for workspace in tabs {
+            guard await workspace.flushPendingAutosavingNotes() else { return false }
+        }
+        return true
     }
 
     /// Closes a socket/API-targeted workspace without an interactive veto.
@@ -19,8 +26,7 @@ extension TabManager {
         guard canCloseWorkspace(workspace, allowPinned: allowPinned),
               tabs.contains(where: { $0.id == workspace.id }) else { return false }
         guard tabs.count == 1 else {
-            closeWorkspace(workspace, recordHistory: recordHistory)
-            return !tabs.contains(where: { $0.id == workspace.id })
+            return closeWorkspace(workspace, recordHistory: recordHistory)
         }
         guard let appDelegate = AppDelegate.shared,
               let windowId = appDelegate.windowId(for: self),
@@ -28,19 +34,19 @@ extension TabManager {
         if workspace.isRemoteTmuxMirror {
             appDelegate.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
         }
-        guard appDelegate.closeMainWindow(windowId: windowId, recordHistory: recordHistory) else {
-            return false
+        return appDelegate.closeMainWindow(
+            windowId: windowId,
+            recordHistory: recordHistory
+        ) { [weak workspace] in
+            guard let workspace else { return }
+            // Window unregister temporarily retains a recoverable route while
+            // terminal surfaces remain registered. Final teardown follows the
+            // asynchronous note flush and close snapshot.
+            workspace.withClosedPanelHistorySuppressed {
+                workspace.teardownAllPanels()
+            }
+            workspace.teardownRemoteConnection()
+            workspace.owningTabManager = nil
         }
-        // Window unregister temporarily retains a recoverable route while any
-        // terminal surfaces remain registered. A noninteractive last-workspace
-        // close is final, so tear down those surfaces after the close snapshot is
-        // captured; the terminal registry then retires the route instead of
-        // leaving a scriptable, unclosable window behind (#7992).
-        workspace.withClosedPanelHistorySuppressed {
-            workspace.teardownAllPanels()
-        }
-        workspace.teardownRemoteConnection()
-        workspace.owningTabManager = nil
-        return true
     }
 }
