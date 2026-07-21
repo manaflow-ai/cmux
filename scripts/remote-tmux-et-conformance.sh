@@ -135,6 +135,15 @@ fail() { printf '  ❌ %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
 note() { printf '     %s\n' "$*"; }
 skip() { printf '  ⏭  %s\n' "$*"; }
 
+# Resolve the deadline command before anything uses it. Stock macOS has no `timeout`, and a
+# missing one makes every bounded client run below exit 127 - which a check expecting the client
+# to fail reads as the claim holding. Fail loudly instead of passing for the wrong reason.
+TIMEOUT_BIN="${CMUX_TIMEOUT_BIN:-$(command -v timeout || command -v gtimeout || true)}"
+if [ -z "$TIMEOUT_BIN" ] || [ ! -x "$TIMEOUT_BIN" ]; then
+  echo "no usable timeout(1)/gtimeout(1) at '${TIMEOUT_BIN:-<none>}'; brew install coreutils, or point CMUX_TIMEOUT_BIN at one" >&2
+  exit 2
+fi
+
 # tmux gets its own socket directory. This script must never create or kill anything on the user's
 # default server, which may be hosting their real work. A nonexistent TMUX_TMPDIR silently falls
 # back to the default socket, so it is created before first use.
@@ -249,8 +258,10 @@ et_run() {
       "$TRANSPORT_BROKER" $TRANSPORT_BROKER_ARGS "$TRANSPORT_HOST" -c "$command"
     ET_RUN_LOG="$T_SCRIPT"
   else
+    # `--` before the destination, as cmux's own et argv does: a destination beginning with `-`
+    # has to be a host, never an option.
     python3 scripts/pty-run.py --timeout "$timeout_s" -- \
-      "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" -c "$command" "$HOST" 2>&1 \
+      "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" -c "$command" -- "$HOST" 2>&1 \
       | tee "$TTY_SINK"
   fi
 }
@@ -391,7 +402,7 @@ else
   fi
   # Absent a pty the stream is padded with redraws. Reported rather than asserted: the exact
   # multiple depends on the shell and the window size, and only its magnitude matters.
-  nopty="$(timeout 20 "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" \
+  nopty="$("$TIMEOUT_BIN" 20 "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" \
              -c "$PCMD" "$HOST" </dev/null 2>&1)" || true
   np_bytes=$(printf '%s' "$nopty" | wc -c | tr -d ' ')
   note "same session: ${wp_bytes} bytes under a pty vs ${np_bytes} without one"
@@ -538,12 +549,12 @@ echo "--- claim: an argv the transport rejects fails in wording cmux classifies 
 # answers "flag provided but not defined", which is why that string is in the classifier.
 if [ -n "$TRANSPORT_BROKER" ]; then
   # shellcheck disable=SC2086
-  rej="$(timeout 15 "$TRANSPORT_BROKER" $TRANSPORT_BROKER_ARGS --definitely-not-a-flag \
+  rej="$("$TIMEOUT_BIN" 15 "$TRANSPORT_BROKER" $TRANSPORT_BROKER_ARGS --definitely-not-a-flag \
            "$TRANSPORT_HOST" -c true 2>&1; true)"
 else
   # -p must be present, or this fails on connection before argv is ever judged and the
   # connection error gets misread as the rejection wording.
-  rej="$(timeout 15 "$ET_CLIENT" -p "$PORT" --definitely-not-a-flag "$HOST" 2>&1; true)"
+  rej="$("$TIMEOUT_BIN" 15 "$ET_CLIENT" -p "$PORT" --definitely-not-a-flag "$HOST" 2>&1; true)"
 fi
 if printf '%s' "$rej" | grep -qiE "unrecognized option|unknown option|flag provided but not defined|invalid option"; then
   pass "a rejected argv says so in wording cmux classifies as unrecoverable"
