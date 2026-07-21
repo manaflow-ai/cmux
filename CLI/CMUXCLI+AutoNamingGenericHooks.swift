@@ -243,6 +243,7 @@ extension CMUXCLI {
             sessionId: sessionId,
             compactedLineCount: claim.compactedLineCount,
             confirmedApply: confirmedApply,
+            claimedReconciliationGeneration: claim.generation,
             clearPendingOnConfirmation: clearPendingOnConfirmation
         )
         return true

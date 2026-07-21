@@ -163,7 +163,7 @@ struct ClaudeHookSessionRecord: Codable {
     /// A durable compact-lifecycle obligation. `SessionStart(source=compact)`
     /// sets it before best-effort replay, and a later Stop clears it only after
     /// the app confirms every affected title target was resolved.
-    var autoNameTitleReconciliationPending: Bool?
+    var autoNameTitleReconciliationGeneration: String?
     /// Wall-clock of the last summarization attempt (success OR failure), so a
     /// persistently failing summarizer (rate-limited, signed out, timing out)
     /// gets the same minInterval cooldown instead of respawning every turn.
@@ -377,18 +377,21 @@ final class ClaudeHookSessionStore {
     }
 
     /// Records an explicit Claude compaction before any best-effort title
-    /// replay. Returns false when this session has no generated title to keep.
-    func markAutoNamingTitleReconciliationPending(sessionId: String) throws -> Bool {
+    /// replay. Returns the new obligation generation, or nil when the session
+    /// has neither a generated title nor a naming pass that can produce one.
+    func markAutoNamingTitleReconciliationPending(sessionId: String) throws -> String? {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
+        guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
-            guard var record = state.sessions[normalized], record.autoNameLastTitle != nil else {
-                return false
+            guard var record = state.sessions[normalized],
+                  record.autoNameLastTitle != nil || record.autoNameInFlightAt != nil else {
+                return nil
             }
-            record.autoNameTitleReconciliationPending = true
+            let generation = UUID().uuidString
+            record.autoNameTitleReconciliationGeneration = generation
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
-            return true
+            return generation
         }
     }
 
@@ -400,34 +403,40 @@ final class ClaudeHookSessionStore {
         transcriptLineCount: Int?,
         now: Date,
         engine: AutoNamingEngine
-    ) throws -> (pending: Bool, title: String?, compactedLineCount: Int?) {
+    ) throws -> (pending: Bool, title: String?, compactedLineCount: Int?, generation: String?) {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return (false, nil, nil) }
+        guard !normalized.isEmpty else { return (false, nil, nil, nil) }
         return try withLockedState { state in
             guard var record = state.sessions[normalized],
-                  record.autoNameTitleReconciliationPending == true else {
-                return (false, nil, nil)
+                  let generation = record.autoNameTitleReconciliationGeneration else {
+                return (false, nil, nil, nil)
             }
+            let hasLiveInFlight = record.autoNameInFlightAt.map {
+                now.timeIntervalSince1970 - $0 < engine.config.inFlightExpiry
+            } ?? false
             guard let title = record.autoNameLastTitle else {
-                record.autoNameTitleReconciliationPending = nil
+                if hasLiveInFlight {
+                    return (true, nil, nil, nil)
+                }
+                record.autoNameTitleReconciliationGeneration = nil
+                record.autoNameInFlightAt = nil
                 record.updatedAt = now.timeIntervalSince1970
                 state.sessions[normalized] = record
-                return (false, nil, nil)
+                return (false, nil, nil, nil)
             }
-            if let inFlightAt = record.autoNameInFlightAt,
-               now.timeIntervalSince1970 - inFlightAt < engine.config.inFlightExpiry {
-                return (true, nil, nil)
+            if hasLiveInFlight {
+                return (true, nil, nil, nil)
             }
             record.autoNameInFlightAt = now.timeIntervalSince1970
             record.updatedAt = now.timeIntervalSince1970
             state.sessions[normalized] = record
-            let compactedLineCount = transcriptLineCount.flatMap { current in
+            let compactedLineCount: Int? = transcriptLineCount.flatMap { current in
                 guard let previous = record.autoNameLastLineCount,
                       record.autoNameLastNamedAt != nil,
                       current < previous else { return nil }
                 return current
             }
-            return (true, title, compactedLineCount)
+            return (true, title, compactedLineCount, generation)
         }
     }
 
@@ -438,8 +447,8 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized],
-                  record.autoNameTitleReconciliationPending == true else { return }
-            record.autoNameTitleReconciliationPending = nil
+                  record.autoNameTitleReconciliationGeneration != nil else { return }
+            record.autoNameTitleReconciliationGeneration = nil
             record.autoNameInFlightAt = nil
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
@@ -453,6 +462,7 @@ final class ClaudeHookSessionStore {
         sessionId: String,
         compactedLineCount: Int?,
         confirmedApply: Bool,
+        claimedReconciliationGeneration: String? = nil,
         clearPendingOnConfirmation: Bool = true
     ) throws {
         let normalized = normalizeSessionId(sessionId)
@@ -464,8 +474,10 @@ final class ClaudeHookSessionStore {
                 if let compactedLineCount {
                     record.autoNameLastLineCount = compactedLineCount
                 }
-                if clearPendingOnConfirmation {
-                    record.autoNameTitleReconciliationPending = nil
+                if clearPendingOnConfirmation,
+                   let claimedReconciliationGeneration,
+                   record.autoNameTitleReconciliationGeneration == claimedReconciliationGeneration {
+                    record.autoNameTitleReconciliationGeneration = nil
                 }
             }
             record.updatedAt = Date().timeIntervalSince1970

@@ -129,7 +129,7 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.auto-name.compact.stale")
             return
         }
-        guard (try? sessionStore.markAutoNamingTitleReconciliationPending(sessionId: sessionId)) == true else {
+        guard (try? sessionStore.markAutoNamingTitleReconciliationPending(sessionId: sessionId)) != nil else {
             telemetry.breadcrumb("claude-hook.auto-name.compact.no-title")
             return
         }
@@ -317,7 +317,7 @@ extension CMUXCLI {
         let workspaceApplySkipped = payload["workspace_apply_skipped"] as? Bool == true
         let workspaceResolved = workspaceApplied
             || workspaceApplySkipped
-        let panelResolved = payload["panel_applied"] as? Bool != nil
+        let panelResolved = payload["panel_applied"] is Bool
             || payload["panel_apply_skipped"] as? Bool == true
         if workspaceApplied {
             telemetry.breadcrumb("\(telemetryKey).applied")

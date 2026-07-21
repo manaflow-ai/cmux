@@ -109,7 +109,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(compact.status, 0, compact.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
         var record = try readClaudeHookSession(sessionId, context: context)
-        XCTAssertEqual(record["autoNameTitleReconciliationPending"] as? Bool, true)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, unchangedBaseline)
 
         startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 1) { line in
@@ -129,7 +129,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(stop.status, 0, stop.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
         record = try readClaudeHookSession(sessionId, context: context)
-        XCTAssertNil(record["autoNameTitleReconciliationPending"])
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, unchangedBaseline)
         XCTAssertEqual(record["autoNameLastNamedAt"] as? Double, lastNamedAt)
         XCTAssertEqual(record["autoNameLastAttemptAt"] as? Double, lastAttemptAt)
@@ -167,7 +167,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(compact.status, 0, compact.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
         var record = try readClaudeHookSession(sessionId, context: context)
-        XCTAssertEqual(record["autoNameTitleReconciliationPending"] as? Bool, true)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
         XCTAssertNil(record["autoNameInFlightAt"])
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
 
@@ -188,7 +188,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(unresolvedStop.status, 0, unresolvedStop.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
         record = try readClaudeHookSession(sessionId, context: context)
-        XCTAssertEqual(record["autoNameTitleReconciliationPending"] as? Bool, true)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
         XCTAssertNil(record["autoNameInFlightAt"])
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
 
@@ -209,7 +209,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(confirmedStop.status, 0, confirmedStop.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 3)
         record = try readClaudeHookSession(sessionId, context: context)
-        XCTAssertNil(record["autoNameTitleReconciliationPending"])
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedBaseline)
     }
 
@@ -245,10 +245,165 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(compact.status, 0, compact.stderr)
         XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
         let record = try readClaudeHookSession(sessionId, context: context)
-        XCTAssertNil(record["autoNameTitleReconciliationPending"])
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
         XCTAssertNil(record["autoNameInFlightAt"])
         XCTAssertEqual(record["autoNameLastTitle"] as? String, "Earlier automatic topic")
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, baseline)
+    }
+
+    func testClaudeCompactWaitsForAnInFlightFirstTitleThenReplaysIt() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-first-title")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-first-title-session"
+        let transcriptURL = context.root.appendingPathComponent("compact-first-title.jsonl")
+        try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let baseline = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: baseline,
+            lastTitle: nil,
+            lastNamedAt: nil,
+            lastAttemptAt: nil,
+            inFlightAt: now
+        )
+
+        let compact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            expectedConnectionCount: 3
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+        XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
+        XCTAssertEqual(record["autoNameInFlightAt"] as? Double, now)
+
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root
+                .appendingPathComponent("claude-hook-sessions.json").path,
+        ])
+        try store.finishAutoNaming(
+            sessionId: sessionId,
+            appliedTitle: "Fix auth bug",
+            baselineLineCount: baseline,
+            now: Date()
+        )
+
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 1) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: true,
+                panelApplySkipped: true
+            )
+        }
+        let stop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertEqual(record["autoNameLastTitle"] as? String, "Fix auth bug")
+    }
+
+    func testClaudeCompactGenerationSurvivesOlderAndOverlappingReconciliationFinishers() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-generations")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-generation-session"
+        let transcriptURL = context.root.appendingPathComponent("compact-generation.jsonl")
+        try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil
+        )
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root
+                .appendingPathComponent("claude-hook-sessions.json").path,
+        ])
+        let engine = AutoNamingEngine()
+        let shrink = try store.beginAutoNaming(
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            transcriptLineCount: 1,
+            now: Date(),
+            engine: engine
+        )
+        guard case .reseedBaseline = shrink.decision else {
+            return XCTFail("Expected transcript shrink to claim reconciliation")
+        }
+
+        let firstGeneration = try XCTUnwrap(
+            store.markAutoNamingTitleReconciliationPending(sessionId: sessionId)
+        )
+        try store.finishAutoNamingReconciliation(
+            sessionId: sessionId,
+            compactedLineCount: 1,
+            confirmedApply: true
+        )
+        XCTAssertEqual(
+            try store.lookup(sessionId: sessionId)?.autoNameTitleReconciliationGeneration,
+            firstGeneration
+        )
+
+        let firstClaim = try store.claimPendingAutoNamingTitleReconciliation(
+            sessionId: sessionId,
+            transcriptLineCount: 1,
+            now: Date(),
+            engine: engine
+        )
+        XCTAssertEqual(firstClaim.generation, firstGeneration)
+        XCTAssertEqual(firstClaim.title, "Fix auth bug")
+        let secondGeneration = try XCTUnwrap(
+            store.markAutoNamingTitleReconciliationPending(sessionId: sessionId)
+        )
+        XCTAssertNotEqual(secondGeneration, firstGeneration)
+
+        try store.finishAutoNamingReconciliation(
+            sessionId: sessionId,
+            compactedLineCount: firstClaim.compactedLineCount,
+            confirmedApply: true,
+            claimedReconciliationGeneration: firstClaim.generation
+        )
+        XCTAssertEqual(
+            try store.lookup(sessionId: sessionId)?.autoNameTitleReconciliationGeneration,
+            secondGeneration
+        )
+
+        let secondClaim = try store.claimPendingAutoNamingTitleReconciliation(
+            sessionId: sessionId,
+            transcriptLineCount: 1,
+            now: Date(),
+            engine: engine
+        )
+        XCTAssertEqual(secondClaim.generation, secondGeneration)
+        try store.finishAutoNamingReconciliation(
+            sessionId: sessionId,
+            compactedLineCount: secondClaim.compactedLineCount,
+            confirmedApply: true,
+            claimedReconciliationGeneration: secondClaim.generation
+        )
+        XCTAssertNil(try store.lookup(sessionId: sessionId)?.autoNameTitleReconciliationGeneration)
     }
 
     func testClaudeCompactSignalIgnoresNonCompactNestedAndStaleSessionStarts() throws {
@@ -285,7 +440,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertFalse(startup.timedOut, startup.stderr)
             XCTAssertEqual(startup.status, 0, startup.stderr)
             XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
-            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationPending"])
+            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"])
         }
 
         do {
@@ -303,7 +458,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertFalse(nested.timedOut, nested.stderr)
             XCTAssertEqual(nested.status, 0, nested.stderr)
             XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
-            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationPending"])
+            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"])
         }
 
         do {
@@ -320,7 +475,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertFalse(stale.timedOut, stale.stderr)
             XCTAssertEqual(stale.status, 0, stale.stderr)
             XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
-            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationPending"])
+            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"])
         }
     }
 
@@ -9285,9 +9440,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         sessionId: String,
         transcriptURL: URL,
         baselineLineCount: Int,
-        lastTitle: String,
-        lastNamedAt: TimeInterval,
-        lastAttemptAt: TimeInterval,
+        lastTitle: String?,
+        lastNamedAt: TimeInterval?,
+        lastAttemptAt: TimeInterval?,
         inFlightAt: TimeInterval?,
         activeSessionId: String? = nil
     ) throws {
@@ -9300,11 +9455,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "transcriptPath": transcriptURL.path,
             "startedAt": now,
             "updatedAt": now,
-            "autoNameLastTitle": lastTitle,
             "autoNameLastLineCount": baselineLineCount,
-            "autoNameLastNamedAt": lastNamedAt,
-            "autoNameLastAttemptAt": lastAttemptAt,
         ]
+        if let lastTitle {
+            session["autoNameLastTitle"] = lastTitle
+        }
+        if let lastNamedAt {
+            session["autoNameLastNamedAt"] = lastNamedAt
+        }
+        if let lastAttemptAt {
+            session["autoNameLastAttemptAt"] = lastAttemptAt
+        }
         if let inFlightAt {
             session["autoNameInFlightAt"] = inFlightAt
         }
