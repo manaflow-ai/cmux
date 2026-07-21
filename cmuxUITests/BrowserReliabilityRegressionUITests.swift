@@ -70,6 +70,31 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
             "true",
             "browser.navigate returned success before the recovered document committed"
         )
+
+        let sameDocumentURL = recoveredURL + "#verified"
+        let sameDocumentEnvelope = try XCTUnwrap(
+            socketEnvelope(
+                method: "browser.navigate",
+                params: ["surface_id": sid, "url": sameDocumentURL],
+                responseTimeout: 15
+            ),
+            "Expected a terminal response for the same-document navigation"
+        )
+        XCTAssertEqual(
+            sameDocumentEnvelope["ok"] as? Bool,
+            true,
+            "same-document browser.navigate failed: \(sameDocumentEnvelope)"
+        )
+        XCTAssertEqual(
+            try evalString("window.location.hash", surfaceID: sid),
+            "#verified",
+            "same-document browser.navigate returned before the trusted document event"
+        )
+        XCTAssertEqual(
+            try evalString("document.body.dataset.cmuxRecovered || ''", surfaceID: sid),
+            "true",
+            "the fragment navigation unexpectedly replaced the recovered document"
+        )
     }
 
     /// Regression: a WKWebView that has never committed a navigation has no

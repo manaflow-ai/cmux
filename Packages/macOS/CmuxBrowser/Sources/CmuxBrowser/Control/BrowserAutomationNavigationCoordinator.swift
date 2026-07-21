@@ -3,8 +3,8 @@ public import Foundation
 /// Owns the lifecycle of browser-automation navigations for one browser panel.
 ///
 /// A transaction is associated with the exact navigation identity returned by the load call.
-/// Only a delegate callback for that identity can complete it, preventing an error-page commit
-/// or an older in-flight navigation from being acknowledged as the requested document.
+/// Document loads complete only for a delegate callback carrying that identity. Same-document
+/// loads complete only for a trusted main-frame event that reaches the exact target URL.
 @MainActor
 public final class BrowserAutomationNavigationCoordinator {
     /// Cancellable timing source used for the terminal-navigation deadline.
@@ -15,8 +15,8 @@ public final class BrowserAutomationNavigationCoordinator {
     private var observedInstanceID: UUID?
     private var activeTicket: BrowserAutomationNavigationTicket?
     private var activeNavigationID: ObjectIdentifier?
-    private var activeNavigationBeganProvisionally = false
     private var activeTargetURL: URL?
+    private var allowsSameDocumentCompletion = false
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
     public init(navigationTimeout: Duration = .seconds(15)) {
@@ -46,9 +46,17 @@ public final class BrowserAutomationNavigationCoordinator {
     }
 
     /// Begins a transaction for the currently bound WebView instance.
+    ///
+    /// - Parameters:
+    ///   - instanceID: Identity of the WebView instance that will perform the navigation.
+    ///   - targetURL: Display URL the navigation must reach.
+    ///   - allowsSameDocumentCompletion: Whether a trusted same-document event may finish
+    ///     the transaction. Pass `false` for reloads and app-owned error documents.
+    /// - Returns: A ticket that observes the transaction's one terminal outcome.
     public func begin(
         instanceID: UUID,
-        targetURL: URL? = nil
+        targetURL: URL? = nil,
+        allowsSameDocumentCompletion: Bool = false
     ) -> BrowserAutomationNavigationTicket {
         if let activeTicket {
             finish(activeTicket, with: .superseded)
@@ -61,8 +69,8 @@ public final class BrowserAutomationNavigationCoordinator {
         }
         activeTicket = ticket
         activeNavigationID = nil
-        activeNavigationBeganProvisionally = false
         activeTargetURL = targetURL
+        self.allowsSameDocumentCompletion = allowsSameDocumentCompletion
         return ticket
     }
 
@@ -106,8 +114,6 @@ public final class BrowserAutomationNavigationCoordinator {
         targetURL: URL? = nil
     ) {
         didAssociate(instanceID: instanceID, navigationID: navigationID, targetURL: targetURL)
-        guard let navigationID, activeNavigationID == navigationID else { return }
-        activeNavigationBeganProvisionally = true
     }
 
     /// Releases the current navigation identity while a policy flow waits to start its replacement.
@@ -120,7 +126,6 @@ public final class BrowserAutomationNavigationCoordinator {
     ) -> BrowserAutomationNavigationTicket? {
         guard let activeTicket, activeTicket.instanceID == instanceID else { return nil }
         activeNavigationID = nil
-        activeNavigationBeganProvisionally = false
         if let targetURL {
             activeTargetURL = targetURL
         }
@@ -154,16 +159,16 @@ public final class BrowserAutomationNavigationCoordinator {
         finish(ticket, with: .notStarted)
     }
 
-    /// Completes the active transaction when WebKit changes to its target URL without a document commit.
+    /// Completes the active transaction after WebKit reports a same-document navigation.
     ///
-    /// The owning WebView must call this only for an authoritative URL change outside a provisional
-    /// main-frame load, which is WebKit's observable signal for a same-document navigation.
-    public func didReachSameDocumentURL(instanceID: UUID, url: URL?) {
+    /// The owning WebView must call this only from a trusted main-frame same-document event.
+    /// Presentation URL observation is not a navigation lifecycle signal and must not call this API.
+    public func didFinishSameDocumentNavigation(instanceID: UUID, url: URL?) {
         guard let url,
               let activeTicket,
               activeTicket.instanceID == instanceID,
               activeNavigationID != nil,
-              !activeNavigationBeganProvisionally,
+              allowsSameDocumentCompletion,
               activeTargetURL == url else {
             return
         }
@@ -272,8 +277,8 @@ public final class BrowserAutomationNavigationCoordinator {
         guard activeTicket == ticket else { return }
         activeTicket = nil
         activeNavigationID = nil
-        activeNavigationBeganProvisionally = false
         activeTargetURL = nil
+        allowsSameDocumentCompletion = false
         ticket.transaction.finish(with: outcome)
     }
 }

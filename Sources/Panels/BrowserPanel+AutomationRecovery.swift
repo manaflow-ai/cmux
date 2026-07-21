@@ -3,6 +3,36 @@ import CmuxBrowser
 import WebKit
 
 extension BrowserPanel {
+    func setupSameDocumentNavigationMessageHandler(for webView: WKWebView) {
+        let observedWebViewInstanceID = webViewInstanceID
+        let handler = BrowserSameDocumentNavigationMessageHandler(
+            webView: webView,
+            onNavigation: { [weak self, weak webView] url in
+                guard let self, let webView,
+                      self.webView === webView,
+                      self.webViewInstanceID == observedWebViewInstanceID else {
+                    return
+                }
+                let displayURL = Self.remoteProxyDisplayURL(for: url) ?? url
+                self.automationNavigationCoordinator.didFinishSameDocumentNavigation(
+                    instanceID: observedWebViewInstanceID,
+                    url: displayURL
+                )
+            }
+        )
+        sameDocumentNavigationMessageHandler = handler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(
+            forName: BrowserSameDocumentNavigationMessageHandler.name,
+            contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld
+        )
+        userContentController.add(
+            handler,
+            contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld,
+            name: BrowserSameDocumentNavigationMessageHandler.name
+        )
+    }
+
     func recordAutomationReplacementNavigationStart(
         _ navigation: WKNavigation?,
         ticket: BrowserAutomationNavigationTicket
@@ -19,7 +49,8 @@ extension BrowserPanel {
     ) -> BrowserAutomationNavigationTicket {
         let ticket = automationNavigationCoordinator.begin(
             instanceID: webViewInstanceID,
-            targetURL: targetURL
+            targetURL: targetURL,
+            allowsSameDocumentCompletion: navigationDelegate?.activeErrorPageDisplayURL == nil
         )
         navigate(
             to: targetURL,

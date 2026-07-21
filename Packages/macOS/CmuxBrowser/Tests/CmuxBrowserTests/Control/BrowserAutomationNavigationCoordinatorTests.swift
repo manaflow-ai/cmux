@@ -195,7 +195,11 @@ struct BrowserAutomationNavigationCoordinatorTests {
         let originalURL = URL(string: "https://example.com/page")!
         let fallbackURL = URL(string: "https://example.com/page#fallback")!
         coordinator.bind(to: instanceID)
-        let ticket = coordinator.begin(instanceID: instanceID, targetURL: originalURL)
+        let ticket = coordinator.begin(
+            instanceID: instanceID,
+            targetURL: originalURL,
+            allowsSameDocumentCompletion: true
+        )
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(originalNavigation))
 
         #expect(coordinator.prepareForNavigationReplacement(
@@ -207,7 +211,7 @@ struct BrowserAutomationNavigationCoordinatorTests {
             navigationID: ObjectIdentifier(replacementNavigation),
             targetURL: fallbackURL
         )
-        coordinator.didReachSameDocumentURL(instanceID: instanceID, url: fallbackURL)
+        coordinator.didFinishSameDocumentNavigation(instanceID: instanceID, url: fallbackURL)
 
         #expect(await coordinator.wait(for: ticket) == .committed)
     }
@@ -258,9 +262,28 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: secondTicket) == .committed)
     }
 
-    @Test("An authoritative same-document URL change completes the transaction")
-    func sameDocumentURLChangeCompletes() async {
+    @Test("An authoritative same-document navigation event completes the transaction")
+    func sameDocumentNavigationEventCompletes() async {
         let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let navigation = NSObject()
+        let targetURL = URL(string: "https://example.com/page#section")!
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(
+            instanceID: instanceID,
+            targetURL: targetURL,
+            allowsSameDocumentCompletion: true
+        )
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+
+        coordinator.didFinishSameDocumentNavigation(instanceID: instanceID, url: targetURL)
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
+    @Test("An error document cannot satisfy a navigation with a fragment event")
+    func errorDocumentSameDocumentEventIsIgnored() async {
+        let coordinator = BrowserAutomationNavigationCoordinator(sleep: { _ in })
         let instanceID = UUID()
         let navigation = NSObject()
         let targetURL = URL(string: "https://example.com/page#section")!
@@ -268,9 +291,23 @@ struct BrowserAutomationNavigationCoordinatorTests {
         let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
 
-        coordinator.didReachSameDocumentURL(instanceID: instanceID, url: targetURL)
+        coordinator.didFinishSameDocumentNavigation(instanceID: instanceID, url: targetURL)
 
-        #expect(await coordinator.wait(for: ticket) == .committed)
+        #expect(await coordinator.wait(for: ticket) == .timedOut)
+    }
+
+    @Test("Associating a matching load is not itself a navigation completion")
+    func navigationAssociationDoesNotCompleteTransaction() async {
+        let coordinator = BrowserAutomationNavigationCoordinator(sleep: { _ in })
+        let instanceID = UUID()
+        let navigation = NSObject()
+        let targetURL = URL(string: "https://example.com/page")!
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
+
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+
+        #expect(await coordinator.wait(for: ticket) == .timedOut)
     }
 
     @Test("A main-frame download completes the transaction without a document commit")

@@ -3046,6 +3046,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     var reactGrabMessageHandler: ReactGrabMessageHandler?
     var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
+    var sameDocumentNavigationMessageHandler: BrowserSameDocumentNavigationMessageHandler?
     /// Whether the live page currently has any actively-playing `<video>` or
     /// `<audio>` element, in the main frame or any iframe, reported by the
     /// injected media-playback hook. Keeps an actively-playing pane alive in the
@@ -3613,6 +3614,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
+        configuration.userContentController.addUserScript(
+            BrowserSameDocumentNavigationMessageHandler.userScript
+        )
         // Keep browser console/error/dialog telemetry active from document start on every navigation.
         // Main frame only — injecting into cross-origin iframes causes CAPTCHA providers
         // (reCAPTCHA, hCaptcha, Cloudflare Turnstile) to detect the overridden console.*
@@ -3732,6 +3736,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
+        setupSameDocumentNavigationMessageHandler(for: webView)
         setupReactGrabMessageHandler(for: webView)
         designModeController.install(on: webView)
         setupSSLTrustBypassMessageHandler(for: webView)
@@ -3754,6 +3759,7 @@ final class BrowserPanel: Panel, ObservableObject {
         userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
         userContentController.add(handler, name: BrowserSSLTrustBypassMessageHandler.name)
     }
+
     private func configureNavigationDelegateCallbacks() {
         guard let navigationDelegate else { return }
         let boundWebViewInstanceID = webViewInstanceID
@@ -4965,6 +4971,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// from the fresh web view.
     private func detachWebViewObservers() {
         webViewObservers.removeAll()
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: BrowserSameDocumentNavigationMessageHandler.name,
+            contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld
+        )
+        sameDocumentNavigationMessageHandler = nil
         resetMediaPlaybackTracking()
         setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
         webViewCancellables.removeAll()
@@ -4979,13 +4990,8 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
-                let displayURL = Self.remoteProxyDisplayURL(for: observedURL) ?? observedURL
-                self.automationNavigationCoordinator.didReachSameDocumentURL(
-                    instanceID: observedWebViewInstanceID,
-                    url: displayURL
-                )
                 self.designModeController.webViewURLDidChange(to: observedURL)
-                self.currentURL = displayURL
+                self.currentURL = Self.remoteProxyDisplayURL(for: observedURL) ?? observedURL
                 self.refreshBackgroundAppearance()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
