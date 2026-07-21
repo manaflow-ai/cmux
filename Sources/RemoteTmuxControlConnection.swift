@@ -103,7 +103,10 @@ final class RemoteTmuxControlConnection {
     private var stderrTask: Task<Void, Never>?
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
-    private var processGeneration: UInt64 = 0
+    /// Bumped on every spawn. Readable across the type's extensions so a completion that
+    /// outlived its process — a liveness probe answered after a respawn, say — can tell that its
+    /// answer describes a stream that no longer exists. Writable only here.
+    private(set) var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
     var windowListRequestInFlight = false
     var windowListRequestDirty = false
@@ -135,6 +138,16 @@ final class RemoteTmuxControlConnection {
     /// attempts); cancelled on `stop()` / genuine end so a dead connection stops
     /// retrying.
     private var reconnectTask: Task<Void, Never>?
+    /// Periodic liveness probe for transports that reconnect internally (see
+    /// ``checkLivenessAndRecoverIfStalled(completion:)``). Nil for ssh, which gets an EOF instead.
+    private var livenessTask: Task<Void, Never>?
+    /// Whether a liveness probe is still waiting for its answer. The next probe's due time is the
+    /// previous one's deadline, so this is what turns "no answer" into a detected stall.
+    var livenessProbeOutstanding = false
+    /// How often to ask a self-reconnecting transport whether it is still carrying the protocol.
+    /// Long enough that an ordinary reconnect finishes untouched, short enough that a wedged
+    /// mirror is not left silently frozen.
+    static var livenessProbeIntervalSeconds: UInt64 = 30
     /// Number of reconnect attempts since the last successful connect, driving the
     /// capped exponential backoff. Reset to 0 on a successful connect.
     private var reconnectAttemptCount = 0
@@ -295,7 +308,18 @@ final class RemoteTmuxControlConnection {
     static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
-    init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
+    /// How this connection is carried, derived from the host's transport unless a caller
+    /// overrides it (which tests do, to assert argv without spawning anything).
+    let transportProfile: RemoteTmuxTransportProfile
+
+    init(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        createIfMissing: Bool = false,
+        transportProfile: RemoteTmuxTransportProfile? = nil
+    ) {
+        self.transportProfile = transportProfile
+            ?? host.transport.profile(port: host.transportPort, terminalPath: host.transportTerminalPath)
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
@@ -386,11 +410,25 @@ final class RemoteTmuxControlConnection {
         enterReceived = false
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
-        proc.arguments = host.controlModeArguments(
+        let transportExecutable = transportProfile.executablePath()
+        let transportArgv = transportProfile.controlStreamArgv(
+            host: host,
             sessionName: sessionName,
             createIfMissing: createIfMissing
         )
+        if transportProfile.requiresPseudoTerminal {
+            // A terminal client will not talk over pipes: measured against et 6.2.11, it
+            // emits nothing at all and aborts at session end, which reads as "the host
+            // produced no output" rather than "this was spawned without a tty". Give it one.
+            record("transport-pty")
+            proc.executableURL = URL(fileURLWithPath: RemoteTmuxPseudoTerminal.allocatorPath)
+            proc.arguments = RemoteTmuxPseudoTerminal.wrap(
+                executable: transportExecutable, arguments: transportArgv
+            )
+        } else {
+            proc.executableURL = URL(fileURLWithPath: transportExecutable)
+            proc.arguments = transportArgv
+        }
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         proc.standardInput = inPipe
         proc.standardOutput = outPipe
@@ -514,6 +552,9 @@ final class RemoteTmuxControlConnection {
         failPendingTrackedSends()
         reconnectTask?.cancel()
         reconnectTask = nil
+        livenessTask?.cancel()
+        livenessTask = nil
+        livenessProbeOutstanding = false
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
@@ -645,9 +686,34 @@ final class RemoteTmuxControlConnection {
         case .ended:
             return
         case .connecting, .connected:
-            // The control stream died without `%exit` — a transport loss. Keep the
-            // mirror frozen and reconnect.
-            beginReconnecting()
+            // The control stream died without `%exit`. What that means depends on who owns
+            // reconnection: for ssh it is a transport loss cmux recovers from, but a
+            // transport that reconnects internally does not end for a network drop, so its
+            // exit is the session genuinely ending.
+            // A transport that could not start will not start on the next try either, and
+            // retrying hides the reason: end-of-stream no longer implies the session is over, so
+            // without this the mirror waits out the attach timeout with nothing to explain it.
+            if RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer) {
+                record("stream-end-unrecoverable")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+                return
+            }
+            switch RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: enterReceived) {
+            case .reconnect:
+                // Keep the mirror frozen and reconnect.
+                beginReconnecting()
+            case .sessionOver:
+                // Either the session ended, or the transport never started — both are terminal, and
+                // both must report rather than retry.
+                record(enterReceived ? "stream-end-session-over" : "stream-end-before-connect")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+            }
         case .reconnecting:
             // A reconnect attempt's process exited before reaching control mode
             // (a successful attach would have moved us to `.connected` via `.enter`).
@@ -659,19 +725,22 @@ final class RemoteTmuxControlConnection {
             // stop or stderr overflow aborting this reconnect attempt).
             guard generation == processGeneration,
                   connectionState == .reconnecting else { return }
-            // Classify into three outcomes, not two. A session/server found gone is a
-            // genuine end. A host asking for interactive authentication is NOT
-            // transient: the reconnect runs `BatchMode=yes` on pipes with no tty, so
-            // no number of retries can ever satisfy a password / MFA / FIDO touch —
-            // retrying forever leaves the mirror frozen with nothing on screen to
-            // explain why. Everything else (unreachable, refused) stays transient.
+            // Classify into four outcomes, not two. A session/server found gone is a genuine end.
+            // A transport that cannot run at all is equally terminal, and looping on it burns the
+            // backoff forever while hiding the reason. A host asking for interactive authentication
+            // is NOT transient: the reconnect runs `BatchMode=yes` on pipes with no tty, so no
+            // number of retries can satisfy a password / MFA / FIDO touch — retrying forever leaves
+            // the mirror frozen with nothing on screen to explain why. Everything else (unreachable,
+            // refused) stays transient and keeps retrying.
             let disposition = RemoteTmuxReconnectDisposition.classify(
                 stderr: stderrBuffer,
                 preControlOutput: preControlOutputBuffer,
                 decoding: decoding
             )
+            let unrecoverable = RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer)
             teardownProcessHandles()
-            if disposition == .sessionGone {
+            if disposition == .sessionGone || unrecoverable {
+                if unrecoverable { record("reconnect-unrecoverable") }
                 record("reconnect-session-gone")
                 connectionState = .ended
                 reconnectTask?.cancel()
@@ -703,6 +772,25 @@ final class RemoteTmuxControlConnection {
     }
 
     // MARK: - Reconnect
+
+    /// Starts the stall monitor for a transport that owns its own reconnection.
+    ///
+    /// ssh is deliberately excluded: its stream ends on transport loss, `handleStreamEnd` already
+    /// recovers from that, and probing an idle ssh stream would add traffic and a failure mode
+    /// where today there is none.
+    private func startLivenessMonitorIfNeeded() {
+        guard transportProfile.reconnectsInternally else { return }
+        livenessTask?.cancel()
+        let interval = Self.livenessProbeIntervalSeconds
+        livenessTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: interval * 1_000_000_000)
+                if Task.isCancelled { return }
+                guard let self else { return }
+                await MainActor.run { self.checkLivenessAndRecoverIfStalled() }
+            }
+        }
+    }
 
     /// Freezes the mirror and reconnects after an unusable control stream.
     func beginReconnecting() {
@@ -802,6 +890,7 @@ final class RemoteTmuxControlConnection {
             if connectionState != .connected {
                 let wasReconnecting = connectionState == .reconnecting
                 connectionState = .connected
+                startLivenessMonitorIfNeeded()
                 // Arm the one-shot attach redraw kick: if the upcoming size apply is
                 // a no-op (window already at our size), a running TUI gets no SIGWINCH
                 // and would keep showing its stale pre-attach frame. Consumed by the

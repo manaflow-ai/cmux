@@ -8721,6 +8721,8 @@ struct CMUXCLI {
         var identityFile: String?
         var noFocus = false
         var newWindow = false
+        var transport: String?
+        var transportPort: Int?
 
         // Intentional subset of parseSSHCommandOptions: ssh-tmux has no relay,
         // passthrough, --ssh-option, --name, or --window support.
@@ -8742,6 +8744,25 @@ struct CMUXCLI {
                     throw CLIError(message: "ssh-tmux: --identity requires a path")
                 }
                 identityFile = commandArgs[index + 1]
+                index += 2
+            case "--transport":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --transport requires a value (ssh or et)")
+                }
+                let raw = commandArgs[index + 1].lowercased()
+                guard raw == "ssh" || raw == "et" else {
+                    throw CLIError(message: "ssh-tmux: --transport must be ssh or et")
+                }
+                transport = raw
+                index += 2
+            case "--transport-port":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --transport-port requires a value")
+                }
+                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
+                    throw CLIError(message: "ssh-tmux: --transport-port must be 1-65535")
+                }
+                transportPort = parsed
                 index += 2
             case "--no-focus":
                 noFocus = true
@@ -8771,6 +8792,8 @@ struct CMUXCLI {
         var params: [String: Any] = ["host": destination]
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
+        if let transport { params["transport"] = transport }
+        if let transportPort { params["transport_port"] = transportPort }
         params["activate"] = !noFocus
         if !newWindow {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)

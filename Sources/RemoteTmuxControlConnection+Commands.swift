@@ -28,6 +28,99 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
+    /// Asks tmux to answer, so a stalled-but-alive transport can be told from a healthy one.
+    ///
+    /// This is the liveness check a transport that owns its own reconnection needs. cmux's
+    /// recovery is built on stdout EOF, but such a transport produces no EOF for a network
+    /// drop — the stream pauses and resumes — so EOF cannot be the trigger and a stall must
+    /// not be mistaken for death. What is left is asking the far end a question:
+    ///
+    /// - the process is still alive, and
+    /// - a control-mode round-trip completes.
+    ///
+    /// `display-message -p` is the cheapest question that proves both. It is a read, so it
+    /// moves no client size and mutates nothing, and it resolves through the same
+    /// `%begin`/`%end` correlation as any other command — which is why this reuses
+    /// ``sendTracked(_:completion:)`` rather than inventing a heartbeat with its own timer
+    /// and its own failure modes.
+    ///
+    /// - Parameter completion: `true` when tmux answered, `false` when the block resolved as
+    ///   an error or the stream reset before answering. Not called at all if the command
+    ///   could not be enqueued, which the `false` return reports.
+    @discardableResult
+    func probeLiveness(completion: @escaping (Bool) -> Void) -> Bool {
+        guard !exited else { return false }
+        return sendTracked("display-message -p cmux-liveness", completion: completion)
+    }
+
+    /// Checks a stalled-but-alive control stream and recovers it.
+    ///
+    /// A transport that reconnects internally never delivers the EOF that drives ssh recovery:
+    /// during a network change its process stays up and the stream simply pauses. That is the
+    /// behavior worth having, but it means a transport that is alive and *not* recovering looks
+    /// exactly like one that is idle. Nothing else in the lifecycle can tell those apart, so
+    /// without this check a wedged et connection stays `.connected` forever and the mirror
+    /// freezes with no error and no retry.
+    ///
+    /// Only reachable for `reconnectsInternally` transports: ssh gets its EOF and must keep its
+    /// existing behavior exactly, including staying quiet on an idle stream.
+    ///
+    /// - Parameter completion: `true` if the stream answered (or the check did not apply), and
+    ///   `false` if it was found wedged and recovery was started.
+    func checkLivenessAndRecoverIfStalled(completion: ((Bool) -> Void)? = nil) {
+        guard transportProfile.reconnectsInternally, connectionState == .connected, !exited else {
+            completion?(true)
+            return
+        }
+        let generation = processGeneration
+        // An unanswered previous probe IS the stall. ET can accept stdin while producing no
+        // control output, so a probe can be written and simply never answered — without this the
+        // probes accumulate, every one of them still pending, and the connection sits
+        // `.connected` forever. The deadline is the next tick rather than a second timer: probe N
+        // must be answered before probe N+1 is due, which is a generous bound on a local
+        // round-trip and needs no clock of its own.
+        if livenessProbeOutstanding {
+            record("liveness-unanswered")
+            recoverFromStalledTransport()
+            completion?(false)
+            return
+        }
+        livenessProbeOutstanding = true
+        // A probe that cannot even be enqueued means the stream is already unusable.
+        let enqueued = probeLiveness { [weak self] answered in
+            self?.livenessProbeOutstanding = false
+            guard let self else { return }
+            guard generation == self.processGeneration else {
+                // A respawn overtook this probe; its answer says nothing about the live stream.
+                completion?(true)
+                return
+            }
+            if answered {
+                completion?(true)
+            } else {
+                self.recoverFromStalledTransport()
+                completion?(false)
+            }
+        }
+        if !enqueued {
+            livenessProbeOutstanding = false
+            recoverFromStalledTransport()
+            completion?(false)
+        }
+    }
+
+    /// Replaces a transport that is alive but no longer carrying the protocol.
+    ///
+    /// Recovery is a respawn rather than an end: the remote session is very likely still there —
+    /// it is the client that is wedged — so the mirror should be reconnected, not torn down. This
+    /// routes through the same `beginReconnecting()` path as an ssh transport loss so there is one
+    /// reconnect implementation rather than a second one for this case.
+    private func recoverFromStalledTransport() {
+        guard connectionState == .connected else { return }
+        record("liveness-stalled")
+        beginReconnecting()
+    }
+
     func failPendingTrackedSends() {
         let completions = Array(trackedSendCompletions.values)
         trackedSendCompletions.removeAll()
