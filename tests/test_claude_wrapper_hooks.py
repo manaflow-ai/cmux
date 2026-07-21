@@ -1069,7 +1069,7 @@ def expect_computer_use_env_scrubbed(
     expected_common = {
         "CUA_DRIVER_DEFAULT_SESSION": "cmux-surface:test",
         "CUA_DRIVER_RS_MCP_FORCE_PROXY": "1",
-        "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "1",
+        "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "0",
         "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
         "CUA_DRIVER_RS_UPDATE_CHECK": "false",
         "CUA_DRIVER_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",

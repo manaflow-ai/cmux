@@ -79,7 +79,7 @@ def expect_scrubbed_mcp_env(
     expect(daemon_app is None, f"{context}: wrapper must not launch the helper daemon: {args}", failures)
     expect(permissions_gate is None, f"{context}: proxy must not own the daemon permission gate: {args}", failures)
     expect(force_proxy is not None, f"{context}: missing forced proxy config in {args}", failures)
-    expect(external_flow is not None, f"{context}: missing external permission flow config in {args}", failures)
+    expect(external_flow is not None, f"{context}: missing proxy permission-wait config in {args}", failures)
     expect(default_session is not None, f"{context}: missing CUA_DRIVER_DEFAULT_SESSION config in {args}", failures)
     expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
     expect(update_check is not None, f"{context}: missing update-check opt-out config in {args}", failures)
@@ -98,7 +98,11 @@ def expect_scrubbed_mcp_env(
     if force_proxy is not None:
         expect(json.loads(force_proxy) == "1", f"{context}: expected forced proxy, got {force_proxy}", failures)
     if external_flow is not None:
-        expect(json.loads(external_flow) == "1", f"{context}: expected external permission flow, got {external_flow}", failures)
+        expect(
+            json.loads(external_flow) == "0",
+            f"{context}: proxy must wait for the helper's grants, got {external_flow}",
+            failures,
+        )
     if telemetry is not None:
         expect(json.loads(telemetry) == "false", f"{context}: expected telemetry disabled, got {telemetry}", failures)
     if update_check is not None:
