@@ -207,6 +207,12 @@ jobs:
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
 
+      - name: Validate stable update feed contract
+        run: ./tests/test_stable_update_feed_contract.sh
+
+      - name: Validate strict Sparkle release guard
+        run: ./tests/test_ci_sparkle_monotonic_strict.sh
+
       - name: Validate release-build timeout guard
         run: ./tests/test_ci_release_build_timeout.sh
 
@@ -1191,6 +1197,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxUpdaterUI
             CMUXAgentLaunch
           )
           # SwiftPM emits an error-severity diagnostic while planning the

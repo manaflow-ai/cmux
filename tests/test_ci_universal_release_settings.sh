@@ -6,8 +6,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 for file in \
   "$ROOT_DIR/.github/workflows/build-ghosttykit.yml" \
-  "$ROOT_DIR/scripts/setup.sh" \
-  "$ROOT_DIR/scripts/build-sign-upload.sh"
+  "$ROOT_DIR/scripts/ensure-ghosttykit.sh"
 do
   if ! grep -Fq -- '-Dxcframework-target=universal' "$file"; then
     echo "FAIL: $file must build GhosttyKit with -Dxcframework-target=universal"

@@ -44,13 +44,14 @@ import Testing
         ]
     }
 
-    /// The watchdog reports a stall for every accepted-install phase that has not reached download
-    /// progress, plus unattributed idle (every causal user cancellation disarms first).
+    /// Only phases waiting for a check callback or accepted-download callback are bounded. A live
+    /// authoritative check may take arbitrarily long and an available prompt is handled by the
+    /// controller's coordinator rather than this transport deadline.
     @Test func stalledForNonProgressingStates() {
         for state in everyState {
             let stalled = watchdog.installAttemptStalled(state)
             switch state {
-            case .preparingCheck, .checking, .updateAvailable, .startingDownload, .idle:
+            case .preparingCheck, .startingDownload, .idle:
                 #expect(stalled, "\(state) should count as stalled")
             default:
                 #expect(!stalled, "\(state) should NOT count as stalled")
@@ -77,6 +78,18 @@ import Testing
     @Test func stalledAndResolvedAreMutuallyExclusive() {
         for state in everyState {
             #expect(!(watchdog.installAttemptStalled(state) && watchdog.installAttemptResolved(state)))
+        }
+    }
+
+    /// Menu/UI install affordances are truthful only while an update prompt is actually
+    /// available. Checking and active progress phases must not advertise another install action.
+    @Test func onlyAnAvailablePromptIsInstallable() {
+        for state in everyState {
+            if case .updateAvailable = state {
+                #expect(state.isInstallable)
+            } else {
+                #expect(!state.isInstallable, "\(state) must not advertise Install Update")
+            }
         }
     }
 
@@ -204,6 +217,7 @@ import Testing
         let message = UpdateStateModel.userFacingErrorMessage(for: error)
         #expect(title == "Update Didn’t Start")
         #expect(message.contains("couldn’t start the update"))
+        #expect(!message.localizedCaseInsensitiveContains("internet"))
         #expect(title != "Update Failed")
     }
 }

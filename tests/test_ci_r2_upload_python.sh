@@ -8,6 +8,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 printf '<rss>ok</rss>' >"$TMP_DIR/appcast.xml"
 
 python3 -m py_compile "$ROOT_DIR/scripts/ci/upload-r2-object.py"
+python3 "$ROOT_DIR/tests/test_ci_r2_publication_verification.py"
 
 AWS_ACCESS_KEY_ID=AKIDEXAMPLE \
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY \
@@ -51,6 +52,11 @@ if ! grep -Fq "scripts/ci/upload-r2-object.py" "$ROOT_DIR/.github/workflows/nigh
 fi
 if ! grep -Fq "scripts/ci/upload-r2-object.py" "$ROOT_DIR/.github/workflows/release.yml"; then
   echo "FAIL: release workflow must use the Python R2 uploader"
+  exit 1
+fi
+if ! grep -Fq -- '--verify-url "https://files.cmux.com/nightly/appcast.xml"' "$ROOT_DIR/.github/workflows/nightly.yml" \
+  || ! grep -Fq -- '--verify-url "https://files.cmux.com/stable/appcast.xml"' "$ROOT_DIR/.github/workflows/release.yml"; then
+  echo "FAIL: release appcast uploads must verify the authoritative public URL"
   exit 1
 fi
 
