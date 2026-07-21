@@ -78,6 +78,34 @@ struct KimiRestorableAgentTests {
         #expect(registration.resumeCommand == "custom-kimi --resume {{sessionId}}")
     }
 
+    @Test("Custom Kimi registration keeps command ownership across snapshot persistence")
+    func customVaultRegistrationSurvivesSnapshotRoundTrip() throws {
+        let registration = CmuxVaultAgentRegistration(
+            id: "kimi",
+            name: "Custom Kimi",
+            detect: CmuxVaultAgentDetectRule(processName: "custom-kimi"),
+            sessionIdSource: .argvOption("--resume"),
+            resumeCommand: "custom-kimi --resume {{sessionId}}",
+            forkCommand: "custom-kimi --fork {{sessionId}}"
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("kimi"),
+            sessionId: "custom-session",
+            workingDirectory: nil,
+            launchCommand: nil,
+            registration: registration
+        )
+
+        let decoded = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+
+        #expect(decoded.kind == .custom("kimi"))
+        #expect(decoded.resumeCommand == "'custom-kimi' '--resume' 'custom-session'")
+        #expect(decoded.forkCommand == "'custom-kimi' '--fork' 'custom-session'")
+    }
+
     @Test("Kimi hook sessions are discovered and produce a resume command")
     func hookSessionLoadsIntoResumePipeline() throws {
         let fileManager = FileManager.default
