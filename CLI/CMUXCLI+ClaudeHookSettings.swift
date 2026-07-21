@@ -22,16 +22,15 @@ extension CMUXCLI {
 
         var hooks: [String: [[String: Any]]] = [:]
         for definition in lifecycleDefinitions {
-            let deliveryCommand = "\(hookCLI) hooks claude \(definition.subcommand)"
             hooks[definition.event, default: []].append(Self.claudeDeferredHookGroup(
                 matcher: definition.matcher,
-                deliveryCommand: deliveryCommand
+                deliveryArguments: ["hooks", "claude", definition.subcommand]
             ))
         }
 
         hooks["Stop", default: []].append(contentsOf: [
             Self.claudeDeferredHookGroup(
-                deliveryCommand: "\(hookCLI) hooks feed --source claude"
+                deliveryArguments: ["hooks", "feed", "--source", "claude"]
             ),
             Self.claudeHookGroup(
                 command: "\(hookCLI) hooks claude auto-name",
@@ -41,7 +40,7 @@ extension CMUXCLI {
         ])
         hooks["SubagentStop"] = [
             Self.claudeDeferredHookGroup(
-                deliveryCommand: "\(hookCLI) hooks feed --source claude"
+                deliveryArguments: ["hooks", "feed", "--source", "claude"]
             ),
         ]
         hooks["PreToolUse"] = [
@@ -51,13 +50,13 @@ extension CMUXCLI {
                 timeout: 5
             ),
             Self.claudeDeferredHookGroup(
-                deliveryCommand: "\(hookCLI) hooks claude pre-tool-use"
+                deliveryArguments: ["hooks", "claude", "pre-tool-use"]
             ),
         ]
         hooks["PostToolUse"] = [
             Self.claudeDeferredHookGroup(
                 matcher: "PushNotification",
-                deliveryCommand: "\(hookCLI) hooks claude push-notification"
+                deliveryArguments: ["hooks", "claude", "push-notification"]
             ),
         ]
         hooks["PermissionRequest"] = [
@@ -80,12 +79,17 @@ extension CMUXCLI {
 
     private static func claudeDeferredHookGroup(
         matcher: String = "",
-        deliveryCommand: String
+        deliveryArguments: [String]
     ) -> [String: Any] {
-        claudeHookGroup(
+        let deliveryArgumentSetup = [
+            #"set -- "${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}""#,
+            #"if [ -n "${CMUX_SOCKET_PATH:-}" ]; then set -- "$@" --socket "$CMUX_SOCKET_PATH"; fi"#,
+            "set -- \"$@\" \(deliveryArguments.joined(separator: " "))",
+        ].joined(separator: "; ")
+        return claudeHookGroup(
             matcher: matcher,
             command: boundedFireAndForgetHookShellCommand(
-                deliveryArgumentSetup: "set -- \(deliveryCommand)",
+                deliveryArgumentSetup: deliveryArgumentSetup,
                 agentName: "claude",
                 pidEnvironmentVariable: "CMUX_CLAUDE_PID"
             ),
