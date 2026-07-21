@@ -7,6 +7,53 @@ import Foundation
 /// (defined in BrowserFixtureInteractionUITests.swift).
 final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
 
+    /// Regression: browser.navigate used to acknowledge only that WKWebView.load
+    /// was called. After a connection-refused error page, a slow recovered origin
+    /// therefore returned `ok` while the old error-page DOM was still active.
+    /// Success must mean that the requested document actually committed.
+    func testGotoWaitsForRecoveredDocumentCommitAfterConnectionRefusal() throws {
+        try launchApp()
+        let sid = try openBrowserSurface()
+        let server = try BrowserRecoveryHTTPServer(responseDelay: 2)
+        let failedURL = "http://127.0.0.1:\(server.port)/unavailable"
+        let recoveredURL = "http://127.0.0.1:\(server.port)/recovered"
+
+        XCTAssertNotNil(
+            socketEnvelope(
+                method: "browser.navigate",
+                params: ["surface_id": sid, "url": failedURL],
+                responseTimeout: 15
+            ),
+            "Expected the refused navigation to reach a terminal response"
+        )
+        try socketResult(
+            method: "browser.wait",
+            params: [
+                "surface_id": sid,
+                "text": "refused to connect",
+                "timeout_ms": 10_000,
+            ],
+            responseTimeout: 15
+        )
+
+        try server.start()
+        defer { server.stop() }
+
+        try socketResult(
+            method: "browser.navigate",
+            params: ["surface_id": sid, "url": recoveredURL],
+            responseTimeout: 15
+        )
+        XCTAssertEqual(
+            try evalString(
+                "document.body.dataset.cmuxRecovered || ''",
+                surfaceID: sid
+            ),
+            "true",
+            "browser.navigate returned success before the recovered document committed"
+        )
+    }
+
     /// Regression: a WKWebView that has never committed a navigation has no
     /// JavaScript context, so browser.wait used to hang for its full timeout
     /// (or fail) on a URL-less browser.open_split surface. The surface must
