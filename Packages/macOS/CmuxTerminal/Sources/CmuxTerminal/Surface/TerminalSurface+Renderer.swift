@@ -43,10 +43,20 @@ extension TerminalSurface {
         }
     }
 
-    /// Applies the occlusion state to the runtime surface.
+    /// Records and applies the occlusion state to the runtime surface.
+    ///
+    /// The host can determine that a surface is hidden before Ghostty's native
+    /// surface has been created. Keep the desired state in that case so the
+    /// creation path can apply it before the initial refresh.
     public func setOcclusion(_ visible: Bool) {
+        desiredOcclusionVisible = visible
         guard let surface = surface else { return }
         ghostty_surface_set_occlusion(surface, visible)
+    }
+
+    /// Replays the latest host visibility after a native surface is installed.
+    func applyDesiredOcclusionState(to surface: ghostty_surface_t) {
+        ghostty_surface_set_occlusion(surface, desiredOcclusionVisible)
     }
 
     /// Whether this surface currently holds realized GPU renderer resources.

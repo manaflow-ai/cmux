@@ -552,6 +552,10 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        // Workspace visibility can settle before background startup creates the
+        // native surface. Apply that state immediately so a hidden terminal's
+        // renderer never starts processing its continuous output as visible.
+        applyDesiredOcclusionState(to: createdSurface)
         if source == .scheduledRestore || source == .inputDemand {
             requiresRestoreSpawnPacing = false
         }

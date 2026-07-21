@@ -290,6 +290,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
 
+    /// The desired visibility state for the Ghostty C surface. Visibility can
+    /// be decided before the native surface exists (for example, when a
+    /// background workspace starts headlessly), so creation must replay it.
+    /// Default to visible to preserve Ghostty's behavior until a host supplies
+    /// an explicit occlusion state.
+    var desiredOcclusionVisible: Bool = true
+
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
 #if DEBUG
