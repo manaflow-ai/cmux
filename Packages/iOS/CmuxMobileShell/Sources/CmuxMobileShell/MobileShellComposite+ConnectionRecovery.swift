@@ -836,6 +836,12 @@ extension MobileShellComposite {
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
             guard remoteClient === client, connectionState == .connected else { return false }
+            // Re-check authority AFTER the await: negotiation can grant v2 in
+            // the window while this legacy request was in flight, and applying
+            // the captured full list then would overwrite newer mirror state.
+            // The round-trip already proved liveness; the v2 mirror owns the
+            // list, so report success without applying.
+            if stateSyncActive { return true }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
             return true
