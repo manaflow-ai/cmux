@@ -266,6 +266,78 @@ struct MobileWorkspaceListFidelityTests {
         #expect(before != after, "changing only a pane's selected tab must change the mobile summary hash")
     }
 
+    @Test func changingPaneSelectedTabPublishesLayoutRevision() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 2)
+        let firstTabID = try #require(workspace.surfaceIdFromPanelId(ordered[0]))
+        let secondTabID = try #require(workspace.surfaceIdFromPanelId(ordered[1]))
+        workspace.bonsplitController.selectTab(firstTabID)
+        let versionBefore = workspace.paneLayoutVersion
+
+        workspace.bonsplitController.selectTab(secondTabID)
+
+        #expect(
+            workspace.paneLayoutVersion == versionBefore + 1,
+            "a pane-local selection must publish one layout revision"
+        )
+        let versionAfterChange = workspace.paneLayoutVersion
+        workspace.bonsplitController.selectTab(secondTabID)
+        #expect(
+            workspace.paneLayoutVersion == versionAfterChange,
+            "reselecting the current surface must not publish a no-op revision"
+        )
+    }
+
+    @Test func focusingPaneChangesObserverHashAndPublishesLayoutRevision() throws {
+        let (workspace, _) = try makeWorkspaceWithSplitTerminals(count: 2)
+        let focusedPane = try #require(workspace.bonsplitController.focusedPaneId)
+        let destinationPane = try #require(
+            workspace.bonsplitController.allPaneIds.first(where: { $0 != focusedPane })
+        )
+        let hashBefore = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        let versionBefore = workspace.paneLayoutVersion
+
+        workspace.bonsplitController.focusPane(destinationPane)
+
+        let hashAfter = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        #expect(hashAfter != hashBefore, "focused pane is part of the mobile layout snapshot")
+        #expect(
+            workspace.paneLayoutVersion == versionBefore + 1,
+            "a focus-only pane change must publish one layout revision"
+        )
+    }
+
+    @Test func crossPaneMoveWithStableFlatOrderPublishesLayoutRevision() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        let thirdPanel = try #require(
+            workspace.newTerminalSplit(from: secondPanel.id, orientation: .horizontal, focus: false)
+        )
+        let secondTabID = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
+        let destinationPane = try #require(workspace.paneId(forPanelId: thirdPanel.id))
+        let orderBefore = workspace.orderedPanelIds
+        #expect(orderBefore == [firstPanelID, secondPanel.id, thirdPanel.id])
+        let versionBefore = workspace.paneLayoutVersion
+
+        #expect(workspace.bonsplitController.moveTab(secondTabID, toPane: destinationPane, atIndex: 0))
+
+        #expect(
+            workspace.orderedPanelIds == orderBefore,
+            "the regression needs pane membership to change without changing the flat surface order"
+        )
+        #expect(
+            workspace.paneLayoutVersion == versionBefore + 1,
+            "pane membership changes must publish even when the flat surface order stays stable"
+        )
+    }
+
     @Test func changingOnlyDividerRatioDoesNotChangeObserverHash() throws {
         let (workspace, _) = try makeWorkspaceWithSplitTerminals(count: 2)
         guard case .split(let splitBefore) = workspace.bonsplitController.treeSnapshot() else {
