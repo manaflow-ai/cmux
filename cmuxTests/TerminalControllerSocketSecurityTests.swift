@@ -1451,9 +1451,12 @@ final class TerminalControllerSocketSecurityTests {
     // the focused surface. Before the fix, `uuid(params,"surface_id")` returned nil for the stale ref and
     // the resolver's `?? focusedPanelId` fallback closed the caller's tab and reported ok:true.
     @Test func testV2SurfaceCloseRejectsUnresolvableSurfaceIdAndPreservesFocusedSurface() throws {
-        defer { TerminalController.shared.setActiveTabManager(nil) }
-
         let manager = TabManager()
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         // Two surfaces; the SECOND is focused — it is the stand-in for the caller's own tab.

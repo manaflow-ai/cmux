@@ -4665,6 +4665,18 @@ struct CMUXCLI {
 
         case "close-surface":
             let csWsFlag = optionValue(commandArgs, name: "--workspace")
+            // An explicit but empty --workspace/--window (e.g. `--workspace "$VAR"`
+            // where VAR is unset) must be a hard error, not a silent degrade to the
+            // focused workspace/window — the same self-decapitation footgun as an
+            // empty --surface. Only an *omitted* flag may fall back to the caller's
+            // focused context. Guard the explicit flags (not the resolved override).
+            if let csWsFlag, csWsFlag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw CLIError(message: "close-surface: --workspace was given an empty value (omit --workspace to use the focused workspace)")
+            }
+            if let windowFlag = optionValue(commandArgs, name: "--window"),
+               windowFlag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw CLIError(message: "close-surface: --window was given an empty value (omit --window to use the focused window)")
+            }
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let workspaceArg = csWsFlag ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             // An explicit but empty --surface/--panel (e.g. `--surface "$VAR"` where
