@@ -272,33 +272,23 @@ extension GhosttySurfaceRepresentable.Coordinator {
             row: Int
         ) async -> GhosttySurfaceTapDisposition {
             guard self.surfaceView === surfaceView else { return .ignored }
+            tapGeneration &+= 1
+            let generation = tapGeneration
             // Forward to the Mac's real surface as a left click; libghostty
             // reports it to a TUI with mouse mode, or no-ops on a normal screen.
             if artifactFilesEnabled,
                let snapshot = await surfaceView.visibleTextForArtifactHitTesting() {
+                guard self.surfaceView === surfaceView,
+                      generation == tapGeneration else {
+                    return .ignored
+                }
                 if let path = TerminalArtifactTapHitTester().path(
                     in: snapshot.text,
                     col: col,
                     row: row,
                     columns: snapshot.columns
                 ) {
-                    if folderTapStatsInFlight.contains(path) {
-                        // Duplicates coalesce onto the pending classification.
-                        return .ignored
-                    }
-                    tapGeneration &+= 1
-                    let generation = tapGeneration
-
                     let folderTapEnabled = terminalFolderTapEnabled
-                    if !folderTapEnabled {
-                        folderTapStatsInFlight.insert(path)
-                    }
-                    defer {
-                        if !folderTapEnabled {
-                            folderTapStatsInFlight.remove(path)
-                        }
-                    }
-
                     let decision = await TerminalFolderTapPolicy(
                         folderTapEnabled: folderTapEnabled
                     ).decision(
@@ -348,9 +338,10 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     return .openedArtifact
                 }
             }
-            tapGeneration &+= 1
-            let generation = tapGeneration
-            guard self.surfaceView === surfaceView else { return .ignored }
+            guard self.surfaceView === surfaceView,
+                  generation == tapGeneration else {
+                return .ignored
+            }
             await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
             return self.surfaceView === surfaceView && generation == tapGeneration
                 ? .focusTerminal

@@ -148,25 +148,30 @@ public struct ArtifactByteReader: Sendable {
 
     /// Infers preview category from directory status, extension, and a verified regular-file UTF-8 sniff.
     public func kind(path: String, isDirectory: Bool) -> ChatArtifactKind {
-        if isDirectory { return .directory }
-        let attributes = try? attributes(path: path)
         return kind(
             path: path,
-            isDirectory: false,
-            isRegularFile: (attributes?[.type] as? FileAttributeType) == .typeRegular
+            isDirectory: isDirectory,
+            isRegularFile: nil
         )
     }
 
     private func kind(
         path: String,
         isDirectory: Bool,
-        isRegularFile: Bool
+        isRegularFile: Bool?
     ) -> ChatArtifactKind {
         if isDirectory { return .directory }
         let fileExtension = URL(fileURLWithPath: path).pathExtension
         let type = fileExtension.isEmpty ? nil : UTType(filenameExtension: fileExtension)
         guard let type, !type.isDynamic else {
-            guard isRegularFile else { return .binary }
+            let verifiedRegularFile: Bool
+            if let isRegularFile {
+                verifiedRegularFile = isRegularFile
+            } else {
+                let attributes = try? attributes(path: path)
+                verifiedRegularFile = (attributes?[.type] as? FileAttributeType) == .typeRegular
+            }
+            guard verifiedRegularFile else { return .binary }
             return isUTF8Text(path: path) ? .text : .binary
         }
         if type.conforms(to: .image) { return .image }
