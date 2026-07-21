@@ -14,6 +14,16 @@
 # move between series: 7.x rewrote the pty input path that 6.x deadlocks on. Run this against
 # every version you intend to support and treat a divergence as a finding.
 #
+# Measured so far (all five checks pass, identically):
+#   et 6.2.11+7  — the version installed on the machine this was developed against
+#   et 7.0.0     — built from source at tag et-v7.0.0
+#
+# The interesting non-difference: 7.x rewrote the pty input path specifically because 6.x
+# deadlocks on a large input burst, yet a >MAX_CANON command is still not delivered on either.
+# The limit is a property of the tty line discipline, not of how the server writes to it, so the
+# bound cmux relies on survives that rewrite. That was worth measuring rather than assuming in
+# either direction — the prediction going in was that 7.x would deliver it.
+#
 # Usage:
 #   scripts/remote-tmux-et-conformance.sh                      # the et on PATH
 #   ET_CLIENT=/path/to/et ET_SERVER=/path/to/etserver \
