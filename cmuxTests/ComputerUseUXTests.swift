@@ -208,6 +208,32 @@ struct ComputerUseUXTests {
         #expect(ComputerUseOnboardingView.initialStep == 0)
     }
 
+    @Test @MainActor func permissionOnboardingStartsAtTheRequestedStep() {
+        #expect(ComputerUseOnboardingWindowController.StartingPoint.overview.step == 0)
+        #expect(ComputerUseOnboardingWindowController.StartingPoint.accessibility.step == 1)
+        #expect(ComputerUseOnboardingWindowController.StartingPoint.screenRecording.step == 2)
+    }
+
+    @Test @MainActor func permissionCompanionOverlaysTheBottomOfSystemSettings() {
+        let origin = ComputerUseOnboardingWindowController.permissionCompanionOrigin(
+            systemSettingsFrame: NSRect(x: 100, y: 80, width: 900, height: 720),
+            companionSize: NSSize(width: 640, height: 210),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_200, height: 900)
+        )
+
+        #expect(origin == NSPoint(x: 230, y: 98))
+    }
+
+    @Test @MainActor func permissionCompanionStaysInsideTheVisibleScreen() {
+        let origin = ComputerUseOnboardingWindowController.permissionCompanionOrigin(
+            systemSettingsFrame: NSRect(x: -100, y: -20, width: 520, height: 620),
+            companionSize: NSSize(width: 640, height: 210),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_000, height: 700)
+        )
+
+        #expect(origin == NSPoint(x: 12, y: 12))
+    }
+
     @Test @MainActor func onboardingWindowUsesOnlyExplicitHeaderDragRegion() {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
