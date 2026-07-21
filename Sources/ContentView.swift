@@ -15670,7 +15670,9 @@ struct TabItemView: View, Equatable {
             input.selectText(nil)
         }
 
-        let response = alert.runModal()
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
+        )
         guard response == .alertFirstButtonReturn else { return }
         guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
             showInvalidColorAlert(input.stringValue)
@@ -15690,7 +15692,9 @@ struct TabItemView: View, Equatable {
             alert.informativeText = String(localized: "alert.invalidColor.invalidMessage", defaultValue: "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB.")
         }
         alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
-        _ = alert.runModal()
+        _ = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
+        )
     }
 
     func promptRename() {
@@ -15709,7 +15713,9 @@ struct TabItemView: View, Equatable {
             alertWindow.makeFirstResponder(input)
             input.selectText(nil)
         }
-        let response = alert.runModal()
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
+        )
         guard response == .alertFirstButtonReturn else { return }
         actions.setCustomTitle(input.stringValue)
     }

@@ -10677,7 +10677,9 @@ final class Workspace: Identifiable, ObservableObject {
             alertWindow.makeFirstResponder(input)
             input.selectText(nil)
         }
-        let response = alert.runModal()
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(id)
+        )
         guard response == .alertFirstButtonReturn else { return }
         setPanelCustomTitle(panelId: panelId, title: input.stringValue)
     }

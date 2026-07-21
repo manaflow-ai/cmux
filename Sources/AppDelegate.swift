@@ -12777,7 +12777,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             input.selectText(nil)
         }
 
-        let response = alert.runModal()
+        let response = alert.runCmuxModal(
+            presentingWindow: mainWindowContainingWorkspace(tab.id)
+        )
         guard response == .alertFirstButtonReturn else { return true }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
         return true
