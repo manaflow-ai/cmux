@@ -387,8 +387,12 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         if let identityFile = host.identityFile {
             argv += ["--ssh-option", "IdentityFile=\(identityFile)"]
         }
-        // `exec` so the login shell does not linger as a parent of tmux.
-        argv += ["-c", "exec \(remote)", host.destination]
+        // `exec` so the login shell does not linger as a parent of tmux. `--` ends et's option
+        // parsing for the same reason ssh's argv does: a destination beginning with `-` has to be a
+        // host, never an option. Measured against et 6.2.11+7 - with the guard, `-weirdhost` is
+        // reported as an unreachable host; without it, et swallows it and exits "Missing host to
+        // connect to".
+        argv += ["-c", "exec \(remote)", "--", host.destination]
         return argv
     }
 
