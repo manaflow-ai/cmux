@@ -1259,27 +1259,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalFullReplacementSeqBySurfaceID = [:]
         terminalFullReplacementGenerationBySurfaceID = [:]
         terminalFullReplacementGeneration = 0
-        // Reset foreground identity to anonymous BEFORE seeding the anonymous
-        // preview entry below: otherwise `foregroundMacKey` stays the old real Mac
-        // id, the seeded entry lands under the anonymous key, and the next
-        // `connect()` captures the stale real id as `previousForegroundKey` — so
-        // `dropStalePreviousForeground` drops the wrong key and the preview rows
-        // survive alongside the newly-connected Mac. Also drop the foreground
-        // connection-pool entry so a stale per-Mac connection can't be reused.
+        // Reset foreground identity to anonymous BEFORE clearing the per-Mac
+        // state below: otherwise the next `connect()` captures the stale real Mac
+        // id as `previousForegroundKey` and `dropStalePreviousForeground` drops
+        // the wrong key. Also drop the foreground connection-pool entry so a
+        // stale per-Mac connection can't be reused.
         foregroundMacDeviceID = nil
         connections = [:]
-        // Local preview / disconnected placeholder: seed the foreground (anonymous)
-        // entry as the source of truth; `workspaces`/`workspaceGroups` derive from
-        // it. Group sections are account-scoped like `pairedMacs`/`registryDevices`
-        // above: the placeholder workspaces are ungrouped, and the previous
-        // account's group names must not survive into the next session.
-        workspacesByMac = [Self.foregroundAnonymousKey: MacWorkspaceState(
-            macDeviceID: Self.foregroundAnonymousKey,
-            workspaces: PreviewMobileHost.workspaces,
-            groups: []
-        )]
-        resetStableMacColorSlotsForSignOut(); selectedWorkspaceID = workspaces.first?.id
-        selectedTerminalID = workspaces.first?.terminals.first?.id
+        // A signed-out store owns no Macs: clear the per-Mac source of truth so
+        // `workspaces`/`workspaceGroups` derive to empty. Group sections are
+        // account-scoped like `pairedMacs`/`registryDevices` above: the previous
+        // account's group names must not survive into the next session. Never
+        // seed `PreviewMobileHost` fixtures here — those fake "cmux"/"Docs" rows
+        // rendered as real disconnected workspaces on first launch and lingered
+        // after sign-in until the Mac connected.
+        workspacesByMac = [:]
+        resetStableMacColorSlotsForSignOut()
+        selectedWorkspaceID = nil
+        selectedTerminalID = nil
         // Selection resets above are done; allow draft saving again so a
         // subsequent sign-in restores drafts normally.
         isLoadingDraft = false
