@@ -1,8 +1,7 @@
 public import Bonsplit
 import Foundation
 
-/// Finds the right-side pane that browser and file opens should reuse before
-/// creating another horizontal split.
+/// Finds the right-side pane that browser and file opens should reuse before creating a horizontal split.
 @MainActor
 public struct BrowserRightSidePaneResolver {
     /// Creates a resolver for live Bonsplit pane geometry.
