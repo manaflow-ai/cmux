@@ -225,7 +225,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var cachedSplitDividerRegions: [DividerRegion]?
-    private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
+    private var cachedSplitDividerStructure: [PortalStructureSnapshot]?
     private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
@@ -1033,12 +1033,11 @@ final class WindowBrowserHostView: NSView {
         return (pageFrame, inspectorFrame)
     }
     private func splitDividerRegions() -> [DividerRegion] {
-        guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
-        let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
-        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerStructure = nil; return [] }
+        if let regions = cachedSplitDividerRegions, let structure = cachedSplitDividerStructure, PortalSplitDividerRegion.structureSnapshotsMatch(structure), PortalSplitDividerRegion.allLive(regions) { return regions }
         let collected = PortalSplitDividerRegion.collect(in: rootView, hostView: self)
         cachedSplitDividerRegions = collected.regions
-        cachedSplitDividerRootSubviewIds = rootSubviewIds
+        cachedSplitDividerStructure = PortalSplitDividerRegion.structureSnapshots(of: collected.structureObservedViews)
         splitDividerCacheInvalidator.observe(
             geometryViews: collected.geometryObservedViews,
             structureViews: collected.structureObservedViews
@@ -1052,7 +1051,7 @@ final class WindowBrowserHostView: NSView {
 
     private func invalidateSplitDividerRegionCache() {
         cachedSplitDividerRegions = nil
-        cachedSplitDividerRootSubviewIds = nil
+        cachedSplitDividerStructure = nil
         splitDividerCacheInvalidator.invalidate()
     }
 
