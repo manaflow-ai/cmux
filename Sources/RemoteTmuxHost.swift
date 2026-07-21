@@ -117,8 +117,13 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         // today: it names the shared master's socket path and persisted mirror state, and
         // changing it for existing hosts would orphan both.
         var fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
-        if transport != .ssh || transportPort != nil {
-            fingerprint += "\u{1f}\(transport.rawValue)\u{1f}\(transportPort.map(String.init) ?? "")"
+        // Normalized, so two spellings of one endpoint are one key. An unset et port and an
+        // explicit 2022 both resolve to 2022 in `RemoteTmuxTransportKind.profile(port:)`, and ssh
+        // ignores a transport port entirely — hashing the spelling instead of the meaning gave the
+        // controller two keys for the same host, which bypasses mirror de-duplication and lets one
+        // host be mirrored twice.
+        if transport != .ssh {
+            fingerprint += "\u{1f}\(transport.rawValue)\u{1f}\(transport.resolvedTransportPort(transportPort))"
         }
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
         for byte in fingerprint.utf8 {
