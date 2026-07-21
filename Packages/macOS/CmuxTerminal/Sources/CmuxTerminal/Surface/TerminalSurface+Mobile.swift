@@ -59,6 +59,8 @@ extension TerminalSurface {
     @MainActor
     public func mobileRenderGridFrame(
         stateSeq: UInt64,
+        renderEpoch: String = "",
+        renderRevision: UInt64 = 0,
         full: Bool = true,
         changedRows: Set<Int>? = nil,
         scrollbackLines: Int = 0,
@@ -83,6 +85,8 @@ extension TerminalSurface {
         guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
+        fullFrame.renderEpoch = renderEpoch
+        fullFrame.renderRevision = renderRevision
         if fullFrame.modes.contains(where: { !$0.ansi && $0.code == 5 && $0.on }) {
             // Ghostty exports renderer-effective defaults. Keep the v1 outer
             // fields raw because older iOS clients replay DEC reverse separately.

@@ -292,6 +292,10 @@ final class MobileWorkspaceListObserver {
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+        // v2 phones get per-record deltas instead of the empty invalidation
+        // above. Same tick, same throttle; a no-op diff emits nothing, and the
+        // call returns immediately when no phone subscribed to the delta topic.
+        MobileStateSyncHost.shared.broadcastIfSubscribed()
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their

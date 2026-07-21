@@ -239,12 +239,55 @@ extension MobileShellComposite {
                 // Recovery uses authenticated local Iroh state first. A stuck
                 // account-backup fetch must not block a known EndpointID from
                 // dialing; normal launch reconnect still refreshes first.
-                let reconnectOutcome = await self.reconnectActiveMacOutcome(
-                    stackUserID: stackUserID,
-                    refreshBackupBeforeDial: false
-                )
+                //
+                // The redial runs under a hard deadline: while an attempt is
+                // in flight the recovery owner defers every other trigger, so
+                // one hung dial would otherwise freeze the recovery machine
+                // (https://github.com/manaflow-ai/cmux/issues/8531). The
+                // deadline is applied HERE, not inside the shared reconnect
+                // entry, because a blanket detached wrapper severs the dial's
+                // synchronous prefix and breaks reconnect serialization for
+                // lifecycle callers; bounding those callers is tracked as a
+                // follow-up.
+                let deadlineNanoseconds = self.runtime?.reconnectAttemptDeadlineNanoseconds
+                    ?? 30_000_000_000
+                let race = await Self.raceAgainstDeadline(
+                    nanoseconds: deadlineNanoseconds
+                ) { [weak self] in
+                    await self?.reconnectActiveMacOutcome(
+                        stackUserID: stackUserID,
+                        refreshBackupBeforeDial: false
+                    ) ?? .superseded
+                }
+                // Account for a wedged dial BEFORE any currency guard: a
+                // cancelled or superseded attempt whose race still hit the
+                // deadline would otherwise drop the only handle to a task
+                // that keeps retaining the client and transport, bypassing
+                // the abandoned-dial ceiling.
+                self.registerAbandonedReconnectDial(race.abandoned)
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                guard let reconnectOutcome = race.value else {
+                    MobileDebugLog.anchormux(
+                        "connection.recovery redial deadline expired; abandoning attempt \(attempt.id.uuidString)"
+                    )
+                    guard self.failConnectionRecovery(attempt, failure: .timedOut) else { return }
+                    if self.connectionState == .connected {
+                        self.connectionState = .disconnected
+                        self.macConnectionStatus = .unavailable
+                        self.clearRemoteConnectionContext()
+                    }
+                    // Schedule the next automatic try only while the number of
+                    // still-wedged abandoned dials is bounded; each dial that
+                    // eventually resolves re-arms the retry itself. Manual,
+                    // foreground, and network-change triggers are never gated.
+                    if self.abandonedReconnectDialCount <= Self.maximumAbandonedReconnectDials,
+                       let accountID = stackUserID ?? self.identityProvider?.currentUserID {
+                        self.recordTransientAutomaticReconnectBackoff(accountID: accountID)
+                    }
+                    self.applyConnectionRecoveryOwnerState()
+                    return
+                }
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
@@ -779,6 +822,15 @@ extension MobileShellComposite {
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
         guard let client = remoteClient else { return false }
+        // While state sync v2 owns the list, do not build/serialize/send the
+        // legacy full list at all (the Computers screen refreshes through here
+        // every 10s; paying the full-list cost and discarding it defeats the
+        // delta protocol). The cursor fetch is both the liveness probe and the
+        // authoritative refresh, AWAITED so pull-to-refresh cannot report done
+        // before state applied, with the caller's probe timeout honored.
+        if stateSyncActive {
+            return await performStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds)
+        }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.workspace.list",
@@ -790,6 +842,12 @@ extension MobileShellComposite {
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
             guard remoteClient === client, connectionState == .connected else { return false }
+            // Re-check authority AFTER the await: negotiation can grant v2 in
+            // the window while this legacy request was in flight, and applying
+            // the captured full list then would overwrite newer mirror state.
+            // The round-trip already proved liveness; the v2 mirror owns the
+            // list, so report success without applying.
+            if stateSyncActive { return true }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
             return true
@@ -809,4 +867,108 @@ extension MobileShellComposite {
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
     ///   passing the real id keys the foreground aggregate state under it instead of
     ///   the synthetic id. `nil` for a genuinely manual/unknown host.
+
+    /// Races `operation` against a wall-clock deadline. Returns the
+    /// operation's value, or `nil` when the deadline expires first.
+    ///
+    /// Deliberately UNSTRUCTURED: a task group would structurally await the
+    /// losing child, so a dial that ignores cancellation (the exact wedge
+    /// this exists for) would suspend the race forever. Instead the
+    /// operation runs in its own task that the deadline path abandons after
+    /// a best-effort cancel; the once-guard is MainActor-confined so exactly
+    /// one side resumes. An abandoned dial retains its captures until it
+    /// eventually resolves — bounded by transport teardown and precisely the
+    /// cost of not being wedged.
+    /// Ceiling on concurrently outstanding abandoned (wedged) dials before
+    /// automatic retries pause. A dial that resolves reclaims its slot and
+    /// re-arms the automatic retry when still disconnected.
+    static var maximumAbandonedReconnectDials: Int { 3 }
+
+    /// Tracks an abandoned dial until it resolves, so a persistently wedged
+    /// transport cannot accumulate an unbounded set of retained reconnect
+    /// tasks across automatic retries. On resolution, if the shell is still
+    /// signed in and disconnected, the automatic retry loop is re-armed
+    /// (covers the case where retries were paused at the ceiling).
+    func registerAbandonedReconnectDial(_ task: Task<StoredMacReconnectOutcome, Never>?) {
+        guard let task else { return }
+        abandonedReconnectDialCount += 1
+        Task { @MainActor [weak self] in
+            _ = await task.value
+            guard let self else { return }
+            self.abandonedReconnectDialCount = max(0, self.abandonedReconnectDialCount - 1)
+            // Re-arm the retry loop directly through the coalesced recovery
+            // entry, NEVER by recording backoff: a backoff write here can land
+            // mid-manual-retry and re-block the dial the user just requested
+            // (manual retries clear backoff on entry). Skip when any attempt
+            // or scheduled retry is already active.
+            guard self.isSignedIn, self.connectionState != .connected,
+                  !self.connectionRecoveryOwner.isRedialingOrValidating,
+                  self.automaticReconnectRetryTask == nil else { return }
+            self.recoverMobileConnection(trigger: .automaticBackoffExpired)
+        }
+    }
+
+    /// The race result: `value` is nil when the deadline won, in which case
+    /// `abandoned` is the still-running operation task so the caller can
+    /// bound how many abandoned dials may exist at once and reclaim the slot
+    /// when the task eventually resolves.
+    struct DeadlineRaceOutcome<Value: Sendable>: Sendable {
+        let value: Value?
+        let abandoned: Task<Value, Never>?
+    }
+
+    static func raceAgainstDeadline<Value: Sendable>(
+        nanoseconds: UInt64,
+        _ operation: @escaping @Sendable () async -> Value
+    ) async -> DeadlineRaceOutcome<Value> {
+        let operationTask = Task { await operation() }
+        // The operation runs unstructured (so a cancellation-ignoring dial
+        // cannot park the race past its deadline), which severs implicit
+        // cancellation inheritance — forward the caller's cancellation
+        // explicitly so a superseded recovery attempt still aborts a
+        // well-behaved dial immediately.
+        let value: Value? = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
+                let once = RaceContinuationOnce(continuation)
+                Task {
+                    once.finish(await operationTask.value)
+                }
+                Task {
+                    // Intentional bounded deadline timer (not a polling wait);
+                    // cancellation of the race cancels the operation via the
+                    // handler above, and this timer resolves the race at the
+                    // bound either way.
+                    try? await ContinuousClock().sleep(for: .nanoseconds(Int64(nanoseconds)))
+                    operationTask.cancel()
+                    once.finish(nil)
+                }
+            }
+        } onCancel: {
+            operationTask.cancel()
+        }
+        return DeadlineRaceOutcome(
+            value: value,
+            abandoned: value == nil ? operationTask : nil
+        )
+    }
+}
+
+/// Resumes a race continuation exactly once, whichever side finishes first.
+/// Lock-based rather than actor-based so both racing tasks can call it
+/// without an isolation hop.
+private final class RaceContinuationOnce<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value?, Never>?
+
+    init(_ continuation: CheckedContinuation<Value?, Never>) {
+        self.continuation = continuation
+    }
+
+    func finish(_ value: Value?) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: value)
+    }
 }
