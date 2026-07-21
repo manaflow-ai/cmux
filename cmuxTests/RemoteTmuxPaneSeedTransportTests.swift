@@ -190,6 +190,39 @@ import Testing
         #expect(rendered.isEmpty)
     }
 
+    @Test func captureFailureForExitedPaneCancelsSeedWithoutReconnect() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        var rendered = Data()
+        let token = fixture.connection.addObserver(onPaneOutput: { _, data in
+            rendered.append(data)
+        })
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.capturePane(paneId: 7)
+        fixture.connection.handleMessageForTesting(
+            .output(paneId: 7, data: Data("stale".utf8))
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 40, lines: [], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 41, lines: ["0"], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(
+                commandNumber: 42,
+                lines: ["can't find pane: %7"],
+                isError: true
+            )
+        )
+
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(fixture.connection.pendingPaneSeeds.isEmpty)
+        #expect(rendered.isEmpty)
+    }
+
     @Test func rechunkedLiveEchoCutsOverAtomicallyAtCaptureReply() throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
