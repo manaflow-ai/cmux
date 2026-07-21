@@ -5,17 +5,11 @@ import WebKit
 extension BrowserPanel {
     func recordAutomationReplacementNavigationStart(
         _ navigation: WKNavigation?,
-        instanceID: UUID,
-        targetURL: URL?
+        ticket: BrowserAutomationNavigationTicket
     ) {
-        guard let navigation else {
-            automationNavigationCoordinator.didNotStart(instanceID: instanceID)
-            return
-        }
-        automationNavigationCoordinator.didAssociate(
-            instanceID: instanceID,
-            navigationID: ObjectIdentifier(navigation),
-            targetURL: targetURL
+        automationNavigationCoordinator.didStart(
+            ticket,
+            navigationID: navigation.map { ObjectIdentifier($0) }
         )
     }
 

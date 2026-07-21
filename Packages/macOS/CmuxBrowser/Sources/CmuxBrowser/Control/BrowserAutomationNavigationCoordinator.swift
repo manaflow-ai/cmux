@@ -118,18 +118,20 @@ public final class BrowserAutomationNavigationCoordinator {
     }
 
     /// Releases the current navigation identity while a policy flow waits to start its replacement.
+    ///
+    /// - Returns: The exact ticket handed to the replacement flow, or `nil` when no transaction is active.
     @discardableResult
     public func prepareForNavigationReplacement(
         instanceID: UUID,
         targetURL: URL? = nil
-    ) -> Bool {
-        guard let activeTicket, activeTicket.instanceID == instanceID else { return false }
+    ) -> BrowserAutomationNavigationTicket? {
+        guard let activeTicket, activeTicket.instanceID == instanceID else { return nil }
         activeNavigationID = nil
         activeNavigationBeganProvisionally = false
         if let targetURL {
             activeTargetURL = targetURL
         }
-        return true
+        return activeTicket
     }
 
     /// Resolves a reload after WebKit returns no navigation identity.
@@ -150,14 +152,13 @@ public final class BrowserAutomationNavigationCoordinator {
         finish(ticket, with: outcome)
     }
 
-    /// Terminates a deferred replacement when policy resolution starts no navigation.
-    public func didNotStart(instanceID: UUID) {
-        guard let activeTicket,
-              activeTicket.instanceID == instanceID,
+    /// Terminates the exact deferred replacement when policy resolution starts no navigation.
+    public func didNotStart(_ ticket: BrowserAutomationNavigationTicket) {
+        guard activeTicket == ticket,
               activeNavigationID == nil else {
             return
         }
-        finish(activeTicket, with: .notStarted)
+        finish(ticket, with: .notStarted)
     }
 
     /// Completes the active transaction when WebKit changes to its target URL without a document commit.

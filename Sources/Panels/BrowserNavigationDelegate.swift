@@ -16,13 +16,13 @@ import WebKit
     var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
-    var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent, ((WKNavigation?) -> Void)?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
-    var prepareForPolicyNavigationReplacement: ((WKWebView, URL) -> Void)?
+    var prepareForPolicyNavigationReplacement: ((WKWebView, URL) -> ((WKNavigation?) -> Void)?)?
     var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
@@ -274,7 +274,7 @@ import WebKit
 
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
             if let requestNavigation {
-                requestNavigation(request, .newTab)
+                requestNavigation(request, .newTab, nil)
                 return
             }
             if let url = request.url {
@@ -354,15 +354,18 @@ import WebKit
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let replacementNavigationStarted: ((WKNavigation?) -> Void)?
             if case .browserFallback(let fallbackURL) = browserExternalNavigationAction(for: url) {
-                prepareForPolicyNavigationReplacement?(webView, fallbackURL)
+                replacementNavigationStarted = prepareForPolicyNavigationReplacement?(webView, fallbackURL)
+            } else {
+                replacementNavigationStarted = nil
             }
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
                 webView: webView,
                 loadFallbackRequest: { [requestNavigation] request in
-                    requestNavigation?(request, .currentTab)
+                    requestNavigation?(request, .currentTab, replacementNavigationStarted)
                 },
                 presentAlert: presentAlert,
                 onTerminalExternalNavigation: reportTerminalCancellation

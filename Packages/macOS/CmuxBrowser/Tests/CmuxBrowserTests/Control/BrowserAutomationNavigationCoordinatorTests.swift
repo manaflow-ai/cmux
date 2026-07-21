@@ -146,7 +146,7 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(coordinator.prepareForNavigationReplacement(
             instanceID: instanceID,
             targetURL: fallbackURL
-        ))
+        ) == ticket)
         coordinator.didCancel(
             instanceID: instanceID,
             navigationID: ObjectIdentifier(originalNavigation)
@@ -179,7 +179,7 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(coordinator.prepareForNavigationReplacement(
             instanceID: instanceID,
             targetURL: fallbackURL
-        ))
+        ) == ticket)
         coordinator.didAssociate(
             instanceID: instanceID,
             navigationID: ObjectIdentifier(replacementNavigation),
@@ -205,6 +205,35 @@ struct BrowserAutomationNavigationCoordinatorTests {
         )
 
         #expect(await coordinator.wait(for: ticket) == .superseded)
+    }
+
+    @Test("A stale deferred cancellation cannot terminate a newer transaction")
+    func staleDeferredCancellationIsIgnored() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let firstURL = URL(string: "https://example.com/first")!
+        let secondURL = URL(string: "https://example.com/second")!
+        let secondNavigation = NSObject()
+        coordinator.bind(to: instanceID)
+        let firstTicket = coordinator.begin(instanceID: instanceID, targetURL: firstURL)
+        let deferredTicket = coordinator.prepareForNavigationReplacement(
+            instanceID: instanceID,
+            targetURL: firstURL
+        )
+        let secondTicket = coordinator.begin(instanceID: instanceID, targetURL: secondURL)
+
+        if let deferredTicket {
+            coordinator.didNotStart(deferredTicket)
+        }
+        coordinator.didStart(secondTicket, navigationID: ObjectIdentifier(secondNavigation))
+        coordinator.didCommit(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(secondNavigation)
+        )
+
+        #expect(deferredTicket == firstTicket)
+        #expect(await coordinator.wait(for: firstTicket) == .superseded)
+        #expect(await coordinator.wait(for: secondTicket) == .committed)
     }
 
     @Test("An authoritative same-document URL change completes the transaction")
