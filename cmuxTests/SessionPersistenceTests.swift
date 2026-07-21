@@ -204,6 +204,36 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredWorkspaceNoteUsesSequencedPersistence() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-workspace-note-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("note.md")
+        try "restored note".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        _ = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: pane,
+            filePath: noteURL.path,
+            presentation: .note(title: "Restored note"),
+            focus: false
+        ))
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredNote = try XCTUnwrap(
+            restored.panels.values.compactMap { $0 as? FilePreviewPanel }.first
+        )
+
+        XCTAssertTrue(restoredNote.hasSequencedTextPersistence)
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotDefersAndFullyRestoresFloatingBrowser() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/restored"))
         let workspace = Workspace()

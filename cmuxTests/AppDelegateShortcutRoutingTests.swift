@@ -10913,6 +10913,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testTerminalSelectionConvergenceDoesNotStealForeignTextEditorFocus() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let textEditor = NSTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        contentView.addSubview(textEditor)
+        defer { textEditor.removeFromSuperview() }
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+
+        XCTAssertTrue(window.makeFirstResponder(textEditor))
+        terminalPanel.hostedView.moveFocus(respectForeignFirstResponder: true)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(window.firstResponder === textEditor)
+        XCTAssertFalse(terminalPanel.hostedView.isSurfaceViewFirstResponder())
+    }
+
     func testFindShortcutFromFileTreeOpensRightSidebarFind() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

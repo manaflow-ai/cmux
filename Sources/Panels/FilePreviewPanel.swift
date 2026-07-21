@@ -1036,6 +1036,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private let textSaveSequenceProvider: (@Sendable () -> UInt64)?
     private let autosaveDelayNanoseconds: UInt64
 
+    var hasSequencedTextPersistence: Bool {
+        textSaveSequenceProvider != nil
+    }
+
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
     }

@@ -192,7 +192,7 @@ extension TerminalController {
         tabManager: TabManager
     ) -> DockSplitStore? {
         if let surfaceID = routing.surfaceID,
-           let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
+           let dock = DockSplitStore.owner(containingPanel: surfaceID) {
             guard containerDockMatchesExplicitSelectors(
                 dock,
                 routing: routing,

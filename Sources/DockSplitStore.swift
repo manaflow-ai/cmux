@@ -92,6 +92,11 @@ final class DockSplitStore: BonsplitDelegate {
 
     @MainActor static var liveStores: [DockSplitStore] { liveStoresTable.allObjects }
 
+    @MainActor
+    static func owner(containingPanel panelID: UUID) -> DockSplitStore? {
+        liveStores.first(where: { $0.containsPanel(panelID) })
+    }
+
     init(
         workspaceId: UUID,
         scope: DockScope = .workspace,

@@ -19,6 +19,31 @@ struct WindowDockRoutingSocketTests {
         label: "com.cmux.tests.floating-note-socket-worker"
     )
 
+    @Test("Dock surface owner lookup follows panel lifecycle")
+    @MainActor
+    func dockSurfaceOwnerLookupFollowsPanelLifecycle() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-dock-owner-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            loadsConfiguration: false,
+            baseDirectoryProvider: { nil }
+        )
+        let pane = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(store.newSurface(
+            kind: .note,
+            inPane: pane,
+            noteFilePath: root.appendingPathComponent("note.md").path,
+            focus: false
+        ))
+
+        #expect(DockSplitStore.owner(containingPanel: panelID) === store)
+        #expect(store.closePanel(panelID, force: true))
+        #expect(DockSplitStore.owner(containingPanel: panelID) == nil)
+    }
+
     @MainActor
     private func v2Envelope(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [
