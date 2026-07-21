@@ -211,7 +211,6 @@ _LOCAL_SCOPE_HEADER = re.compile(
     r"(?:(?:@\w+(?:\([^)]*\))?|[A-Za-z_]\w*(?:\([^)]*\))?)\s+)*"
     r"(?:func\b|init\s*\(|def\b)"
 )
-_LOCAL_CLOSURE_HEADER = re.compile(r"^\s*[^=]+\s*=\s*\{")
 _REAL_CLOCK_TYPE = re.compile(
     r":\s*(?:ContinuousClock|SuspendingClock)\??(?=\s|=|[,){]|$)"
 )
@@ -456,49 +455,149 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
+def _mask_noncode(lines: list[str]) -> list[str]:
+    """Replace quoted strings and block comments while preserving positions."""
+    masked_lines: list[str] = []
+    quote: Optional[str] = None
+    block_comment_depth = 0
+
+    for line in lines:
+        masked = list(line)
+        i = 0
+        while i < len(line):
+            if block_comment_depth:
+                masked[i] = " "
+                if line.startswith("/*", i):
+                    masked[i : i + 2] = "  "
+                    block_comment_depth += 1
+                    i += 2
+                elif line.startswith("*/", i):
+                    masked[i : i + 2] = "  "
+                    block_comment_depth -= 1
+                    i += 2
+                else:
+                    i += 1
+                continue
+
+            if quote:
+                if line.startswith(quote, i):
+                    masked[i : i + len(quote)] = " " * len(quote)
+                    i += len(quote)
+                    quote = None
+                elif quote != '"""' and line[i] == "\\":
+                    masked[i] = " "
+                    if i + 1 < len(line):
+                        masked[i + 1] = " "
+                    i += 2
+                else:
+                    masked[i] = " "
+                    i += 1
+                continue
+
+            if line.startswith("/*", i):
+                masked[i : i + 2] = "  "
+                block_comment_depth = 1
+                i += 2
+            elif line.startswith('"""', i):
+                masked[i : i + 3] = "   "
+                quote = '"""'
+                i += 3
+            elif line[i] in ('"', "'"):
+                masked[i] = " "
+                quote = line[i]
+                i += 1
+            else:
+                i += 1
+
+        # Single-line string delimiters cannot carry lexical scope across a
+        # source line; an unterminated literal is safer to forget than to mask
+        # the rest of the file and infer a stale binding.
+        if quote in ('"', "'"):
+            quote = None
+        masked_lines.append("".join(masked))
+
+    return masked_lines
+
+
+def _annotated_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+    annotation = re.search(
+        rf"\b{re.escape(receiver)}\s*:\s*([A-Za-z_]\w*)", text
+    )
+    if not annotation:
+        return None
+    return annotation.group(1) in ("ContinuousClock", "SuspendingClock")
+
+
+def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+    in_token = re.search(r"\bin\b", text)
+    if not in_token:
+        return None
+    parameters = text[: in_token.start()].strip()
+    if not parameters:
+        return None
+    if not (
+        parameters.startswith("(")
+        or re.fullmatch(r"[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*", parameters)
+    ):
+        return None
+    annotated = _annotated_receiver_kind(parameters, receiver)
+    if annotated is not None:
+        return annotated
+    if re.search(rf"\b{re.escape(receiver)}\b", parameters):
+        return False
+    return None
+
+
 def _is_named_real_clock_sleep(lines: list[str], idx: int) -> bool:
-    """Recognize a local receiver explicitly bound to a standard real clock."""
+    """Resolve a named receiver through Swift-like lexical brace scopes."""
     sleep_match = _NAMED_SLEEP_CALL.search(lines[idx])
     if not sleep_match:
         return False
     receiver = sleep_match.group(1)
 
-    # The nearest local binding owns the receiver's meaning. Include the prefix
-    # of the sleep line for compact `let clock = ...; await clock.sleep(...)`
-    # forms, but never infer an arbitrary injected `clock.sleep(...)` as real.
-    # Stop rather than guessing across a completed block or closure: a binding
-    # inside that scope is no longer visible, and this guard prioritizes avoiding
-    # false positives over recognizing every possible real-clock spelling.
-    for j in range(idx, -1, -1):
-        candidate = lines[j]
-        if j == idx:
-            candidate = candidate[: sleep_match.start()]
+    prefix_lines = lines[:idx] + [lines[idx][: sleep_match.start()]]
+    masked_lines = _mask_noncode(prefix_lines)
+    scopes: list[dict[str, bool]] = [{}]
+    pending_function = False
+    pending_parameter: Optional[bool] = None
 
+    for candidate in masked_lines:
         if _LOCAL_SCOPE_HEADER.search(candidate):
-            declaration_lines = [candidate]
-            if "{" not in candidate:
-                for k in range(j + 1, min(idx + 1, j + 20)):
-                    declaration_lines.append(lines[k])
-                    if "{" in lines[k]:
-                        break
-            declaration = " ".join(declaration_lines)
-            parameter = re.compile(
-                rf"\b{re.escape(receiver)}\s*"
-                r":\s*(?:ContinuousClock|SuspendingClock)\??(?=\s|[,)=]|$)"
-            )
-            return bool(parameter.search(declaration))
-        if _LOCAL_CLOSURE_HEADER.search(candidate) or "}" in candidate:
-            return False
+            pending_function = True
+            pending_parameter = _annotated_receiver_kind(candidate, receiver)
+        elif pending_function and pending_parameter is None:
+            pending_parameter = _annotated_receiver_kind(candidate, receiver)
 
-        bindings = list(_LOCAL_BINDING.finditer(candidate))
-        for binding in reversed(bindings):
-            if binding.group(1) != receiver:
-                continue
-            declaration = candidate[binding.end() :]
-            return bool(
-                _REAL_CLOCK_TYPE.search(declaration)
-                or _REAL_CLOCK_INIT.search(declaration)
-            )
+        events: list[tuple[int, str, Optional[re.Match[str]]]] = []
+        events.extend((match.start(), "binding", match) for match in _LOCAL_BINDING.finditer(candidate))
+        events.extend((pos, brace, None) for pos, brace in enumerate(candidate) if brace in "{}")
+        events.sort(key=lambda event: event[0])
+
+        for pos, event, binding in events:
+            if event == "{":
+                scope: dict[str, bool] = {}
+                if pending_function:
+                    if pending_parameter is not None:
+                        scope[receiver] = pending_parameter
+                    pending_function = False
+                    pending_parameter = None
+                closure_kind = _closure_receiver_kind(candidate[pos + 1 :], receiver)
+                if closure_kind is not None:
+                    scope[receiver] = closure_kind
+                scopes.append(scope)
+            elif event == "}":
+                if len(scopes) > 1:
+                    scopes.pop()
+            elif binding is not None and binding.group(1) == receiver:
+                declaration = candidate[binding.end() :]
+                scopes[-1][receiver] = bool(
+                    _REAL_CLOCK_TYPE.search(declaration)
+                    or _REAL_CLOCK_INIT.search(declaration)
+                )
+
+    for scope in reversed(scopes):
+        if receiver in scope:
+            return scope[receiver]
     return False
 
 
