@@ -202,7 +202,7 @@ extension CMUXCLI {
                 payload["active_workspace_session_id"] = workspaceActive?.sessionId ?? NSNull()
                 payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
                 payload["is_restorable"] = record.isRestorable ?? NSNull()
-                payload["run_id"] = record.runId ?? record.sessionId
+                payload["run_id"] = sessionsListNormalized(record.runId) ?? record.sessionId
                 payload["parent_run_id"] = record.parentRunId ?? NSNull()
                 payload["parent_session_id"] = record.parentSessionId ?? NSNull()
                 payload["relationship"] = record.relationship ?? NSNull()
@@ -331,6 +331,14 @@ extension CMUXCLI {
             )
         case "help":
             print(agentsUsage())
+        case let subcommand? where subcommand.hasPrefix("-"):
+            try runSessionsCommand(
+                commandArgs: commandArgs,
+                jsonOutput: jsonOutput,
+                processEnv: processEnv,
+                fileManager: fileManager,
+                outputSchemaVersion: 2
+            )
         case let subcommand?:
             throw CLIError(message: String(
                 format: String(
@@ -614,11 +622,16 @@ extension CMUXCLI {
         var lines: [String] = []
         var visited = Set<String>()
 
-        func appendNode(_ nodeID: String, prefix: String, connector: String, depth: Int) {
+        func appendNode(
+            _ nodeID: String,
+            prefix: String,
+            connector: String,
+            relationship: String,
+            depth: Int
+        ) {
             guard let node = nodesByID[nodeID], visited.insert(nodeID).inserted else { return }
             let agent = (node["agent"] as? String) ?? "unknown"
             let sessionID = (node["session_id"] as? String) ?? "unknown"
-            let relationship = (node["relationship"] as? String) ?? "root"
             lines.append("\(prefix)\(connector)\(relationship) \(agent) \(sessionID)")
             guard depth < maximumDepth else { return }
             let children = (childrenByParent[nodeID] ?? []).compactMap { edge -> (String, String)? in
@@ -631,6 +644,7 @@ extension CMUXCLI {
                     child.0,
                     prefix: prefix + (connector.isEmpty ? "" : (connector == "└── " ? "    " : "│   ")),
                     connector: isLast ? "└── " : "├── ",
+                    relationship: child.1,
                     depth: depth + 1
                 )
             }
@@ -640,10 +654,11 @@ extension CMUXCLI {
             .filter { !childIDs.contains($0) }
             .sorted()
         for root in roots {
-            appendNode(root, prefix: "", connector: "", depth: 0)
+            appendNode(root, prefix: "", connector: "", relationship: "root", depth: 0)
         }
         for nodeID in nodesByID.keys.sorted() where !visited.contains(nodeID) {
-            appendNode(nodeID, prefix: "", connector: "", depth: 0)
+            let relationship = (nodesByID[nodeID]?["relationship"] as? String) ?? "root"
+            appendNode(nodeID, prefix: "", connector: "", relationship: relationship, depth: 0)
         }
         return lines
     }
