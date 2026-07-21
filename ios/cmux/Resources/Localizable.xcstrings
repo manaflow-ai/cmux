@@ -4794,6 +4794,23 @@
         }
       }
     },
+    "mobile.pairing.enterManually": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter Manually"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で入力"
+          }
+        }
+      }
+    },
     "mobile.pairing.fail.offline": {
       "extractionState": "manual",
       "localizations": {

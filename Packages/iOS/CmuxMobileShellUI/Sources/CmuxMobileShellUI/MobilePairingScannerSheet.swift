@@ -10,21 +10,25 @@ import UIKit
 struct MobilePairingScannerSheet: View {
     let onCode: (String) -> Void
     let onCancel: (() -> Void)?
+    let onEnterManually: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     private let authorization: CameraAuthorization
     private let previewEnabled: Bool
     @State private var authorizationStatus: AVAuthorizationStatus
 
     init(
-        previewEnabled: Bool = UITestConfig.pairingScannerPreviewEnabled,
+        previewEnabled: Bool = false,
         onCancel: (() -> Void)? = nil,
+        onEnterManually: (() -> Void)? = nil,
         onCode: @escaping (String) -> Void
     ) {
         let authorization = CameraAuthorization()
         self.authorization = authorization
         self.previewEnabled = previewEnabled
         self.onCancel = onCancel
+        self.onEnterManually = onEnterManually
         self.onCode = onCode
         _authorizationStatus = State(
             initialValue: previewEnabled ? .authorized : authorization.videoStatus
@@ -75,6 +79,7 @@ struct MobilePairingScannerSheet: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .accessibilityIdentifier("MobilePairingOpenSettingsButton")
+                            manualEntryButton
                         }
                         .accessibilityIdentifier("MobilePairingCameraDenied")
                     case .restricted:
@@ -93,7 +98,7 @@ struct MobilePairingScannerSheet: View {
                                 Camera access is restricted on this device. Use a pairing link or the manual form instead.
                                 """
                             ))
-                        }
+                        } actions: { manualEntryButton }
                         .accessibilityIdentifier("MobilePairingCameraRestricted")
                     @unknown default:
                         ContentUnavailableView(
@@ -118,6 +123,24 @@ struct MobilePairingScannerSheet: View {
             }
         }
         .accessibilityIdentifier("MobilePairingScannerSheet")
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, !previewEnabled else { return }
+            authorizationStatus = authorization.videoStatus
+        }
+    }
+
+    @ViewBuilder
+    private var manualEntryButton: some View {
+        if let onEnterManually {
+            Button {
+                dismiss()
+                onEnterManually()
+            } label: {
+                Text(L10n.string("mobile.pairing.enterManually", defaultValue: "Enter Manually"))
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("MobilePairingEnterManuallyButton")
+        }
     }
 
     private func openSettings() {

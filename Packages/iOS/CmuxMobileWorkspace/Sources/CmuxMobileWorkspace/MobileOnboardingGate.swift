@@ -19,4 +19,12 @@ public struct MobileOnboardingGate {
     ) -> Bool {
         progress != .complete
     }
+
+    /// Whether an established connection completes the remaining onboarding milestone.
+    public static func shouldCompleteAfterConnection(
+        progress: MobileOnboardingProgress,
+        isConnected: Bool
+    ) -> Bool {
+        isConnected && progress == .connect
+    }
 }

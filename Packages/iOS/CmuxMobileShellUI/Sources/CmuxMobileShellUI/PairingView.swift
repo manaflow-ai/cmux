@@ -282,7 +282,11 @@ struct PairingView: View {
 
     #if os(iOS)
     private var scannerSheet: some View {
-        MobilePairingScannerSheet(onCancel: scannerCancelAction) { scannedCode in
+        MobilePairingScannerSheet(
+            previewEnabled: scannerPreviewEnabled,
+            onCancel: scannerCancelAction,
+            onEnterManually: scannerManualEntryAction
+        ) { scannedCode in
             pairingCode = scannedCode
             isShowingScanner = false
             startPairingTask {
@@ -294,6 +298,19 @@ struct PairingView: View {
     private var scannerCancelAction: (() -> Void)? {
         guard initialPresentation == .scanner else { return nil }
         return { cancelDirectScanner() }
+    }
+
+    private var scannerManualEntryAction: (() -> Void)? {
+        guard initialPresentation == .scanner else { return nil }
+        return { isShowingScanner = false }
+    }
+
+    private var scannerPreviewEnabled: Bool {
+        #if DEBUG
+        return UITestConfig.pairingScannerPreviewEnabled
+        #else
+        return false
+        #endif
     }
     #endif
 

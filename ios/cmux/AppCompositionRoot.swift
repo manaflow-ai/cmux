@@ -108,7 +108,12 @@ final class AppCompositionRoot {
         // workspace, not behind a manual tap-through. The dedicated onboarding
         // preview remains active so its relaunch test exercises real persistence.
         // `forceComplete` never writes the real install's persisted progress.
-        let bypassOnboarding = (UITestConfig.mockDataEnabled && !UITestConfig.onboardingPreviewEnabled)
+        #if DEBUG
+        let onboardingPreviewEnabled = UITestConfig.onboardingPreviewEnabled
+        #else
+        let onboardingPreviewEnabled = false
+        #endif
+        let bypassOnboarding = (UITestConfig.mockDataEnabled && !onboardingPreviewEnabled)
             || UITestConfig.dogfoodAttachURL != nil
             || UITestConfig.attachURL != nil
         self.onboardingStore = MobileOnboardingStore(

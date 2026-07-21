@@ -161,60 +161,6 @@ public struct UITestConfig {
         #endif
     }
 
-    /// Whether the root renders the isolated onboarding experience.
-    ///
-    /// `CMUX_UITEST_ONBOARDING_PREVIEW=1` bypasses authentication and network
-    /// state while retaining the production onboarding progress store. This
-    /// lets XCUITest prove resume behavior across a process relaunch. DEBUG-only.
-    public static var onboardingPreviewEnabled: Bool {
-        onboardingPreviewEnabled(from: ProcessInfo.processInfo.environment)
-    }
-
-    /// Evaluates the onboarding-preview flag against an explicit environment.
-    public static func onboardingPreviewEnabled(from env: [String: String]) -> Bool {
-        #if DEBUG
-        return env["CMUX_UITEST_ONBOARDING_PREVIEW"] == "1"
-        #else
-        return false
-        #endif
-    }
-
-    /// Whether the isolated onboarding preview shows QR recovery after
-    /// same-account discovery finishes without finding a Mac.
-    ///
-    /// Automatic discovery remains the default. Tests opt into the fallback
-    /// state with CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK=1. DEBUG-only.
-    public static var onboardingConnectionFallbackEnabled: Bool {
-        onboardingConnectionFallbackEnabled(from: ProcessInfo.processInfo.environment)
-    }
-
-    /// Evaluates the onboarding connection fallback against an explicit environment.
-    public static func onboardingConnectionFallbackEnabled(from env: [String: String]) -> Bool {
-        #if DEBUG
-        return env["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] == "1"
-        #else
-        return false
-        #endif
-    }
-
-    /// Whether QR pairing renders a deterministic camera-free preview.
-    ///
-    /// `CMUX_UITEST_SCANNER_PREVIEW=1` lets XCUITest verify scanner
-    /// presentation without requesting camera permission or starting an
-    /// `AVCaptureSession`. DEBUG-only.
-    public static var pairingScannerPreviewEnabled: Bool {
-        pairingScannerPreviewEnabled(from: ProcessInfo.processInfo.environment)
-    }
-
-    /// Evaluates the scanner-preview flag against an explicit environment.
-    public static func pairingScannerPreviewEnabled(from env: [String: String]) -> Bool {
-        #if DEBUG
-        return env["CMUX_UITEST_SCANNER_PREVIEW"] == "1"
-        #else
-        return false
-        #endif
-    }
-
     /// Whether the standalone agent-chat preview is enabled.
     ///
     /// When `CMUX_UITEST_AGENT_CHAT_PREVIEW=1`, the root view renders the

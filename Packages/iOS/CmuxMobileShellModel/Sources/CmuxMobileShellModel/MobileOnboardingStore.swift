@@ -1,4 +1,5 @@
 public import Foundation
+import Observation
 
 /// Persists the durable milestone reached in first-run onboarding.
 ///
@@ -20,7 +21,9 @@ public import Foundation
 /// if store.progress == .welcome { /* present the product tour */ }
 /// store.markReadyToConnect()
 /// ```
-public struct MobileOnboardingStore: Sendable {
+@MainActor
+@Observable
+public final class MobileOnboardingStore {
     /// The defaults key under which the current milestone is stored.
     public static let progressKey = "dev.cmux.mobile.onboarding.progress.v2"
 
@@ -34,6 +37,9 @@ public struct MobileOnboardingStore: Sendable {
     private nonisolated(unsafe) let defaults: UserDefaults
     private let forceComplete: Bool
 
+    /// The durable milestone at which onboarding should resume.
+    public private(set) var progress: MobileOnboardingProgress
+
     /// Create a store backed by the given defaults.
     /// - Parameters:
     ///   - defaults: The persistence store for onboarding progress. Inject a
@@ -43,19 +49,16 @@ public struct MobileOnboardingStore: Sendable {
     public init(defaults: UserDefaults, forceComplete: Bool = false) {
         self.defaults = defaults
         self.forceComplete = forceComplete
-    }
-
-    /// The durable milestone at which onboarding should resume.
-    public var progress: MobileOnboardingProgress {
-        if forceComplete { return .complete }
-        if let rawValue = defaults.string(forKey: Self.progressKey),
-           let progress = MobileOnboardingProgress(rawValue: rawValue) {
-            return progress
+        if forceComplete {
+            self.progress = .complete
+        } else if let rawValue = defaults.string(forKey: Self.progressKey),
+                  let progress = MobileOnboardingProgress(rawValue: rawValue) {
+            self.progress = progress
+        } else if defaults.bool(forKey: Self.legacySeenKey) {
+            self.progress = .complete
+        } else {
+            self.progress = .welcome
         }
-        if defaults.bool(forKey: Self.legacySeenKey) {
-            return .complete
-        }
-        return .welcome
     }
 
     /// Persist that the product demonstration is complete and setup remains.
@@ -71,5 +74,6 @@ public struct MobileOnboardingStore: Sendable {
     private func setProgress(_ progress: MobileOnboardingProgress) {
         guard !forceComplete else { return }
         defaults.set(progress.rawValue, forKey: Self.progressKey)
+        self.progress = progress
     }
 }

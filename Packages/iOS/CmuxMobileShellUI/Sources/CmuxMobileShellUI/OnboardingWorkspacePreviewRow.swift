@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileSupport
 import SwiftUI
 
 struct OnboardingWorkspacePreviewRow: View {
@@ -42,6 +43,11 @@ struct OnboardingWorkspacePreviewRow: View {
         }
         .padding(.vertical, 3)
         .accessibilityElement(children: .combine)
+        .accessibilityValue(
+            showsUnread
+                ? L10n.string("mobile.notificationFeed.unread", defaultValue: "Unread")
+                : ""
+        )
     }
 }
 #endif

@@ -21,10 +21,7 @@ struct CMUXMobileRootView: View {
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// Persists the last durable milestone in first-run onboarding.
-    private let onboardingStore: MobileOnboardingStore
-    /// Mirrors ``MobileOnboardingStore/progress`` so every explicit transition
-    /// re-renders immediately and relaunch resumes at the unfinished prerequisite.
-    @State private var onboardingProgress: MobileOnboardingProgress
+    @Bindable private var onboardingStore: MobileOnboardingStore
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -52,7 +49,6 @@ struct CMUXMobileRootView: View {
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
         self.startupConnectionCoordinator = startupConnectionCoordinator
-        _onboardingProgress = State(initialValue: onboardingStore.progress)
     }
     #else
     init(
@@ -206,7 +202,11 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 #if os(iOS)
-                if !shouldShowOnboardingPreview, onboardingProgress != .complete {
+                if !shouldShowOnboardingPreview,
+                   MobileOnboardingGate.shouldCompleteAfterConnection(
+                       progress: onboardingStore.progress,
+                       isConnected: true
+                   ) {
                     completeOnboarding()
                 }
                 #endif
@@ -332,7 +332,7 @@ struct CMUXMobileRootView: View {
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
         return MobileOnboardingGate.shouldShowOnboarding(
-            progress: onboardingProgress
+            progress: onboardingStore.progress
         )
         #else
         return false
@@ -381,7 +381,7 @@ struct CMUXMobileRootView: View {
 
     #if os(iOS)
     private var initialOnboardingStage: OnboardingStage {
-        onboardingProgress == .connect ? .connect : .agents
+        onboardingStore.progress == .connect ? .connect : .agents
     }
 
     private var onboardingConnectionPhase: OnboardingConnectionPhase {
@@ -394,12 +394,10 @@ struct CMUXMobileRootView: View {
 
     private func markOnboardingReadyToConnect() {
         onboardingStore.markReadyToConnect()
-        onboardingProgress = .connect
     }
 
     private func completeOnboarding() {
         onboardingStore.markComplete()
-        onboardingProgress = .complete
     }
     #endif
 

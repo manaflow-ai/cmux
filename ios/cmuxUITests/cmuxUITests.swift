@@ -94,16 +94,20 @@ final class cmuxUITests: XCTestCase {
         let initialProgressFrame = progress.frame
         let initialFooterFrame = footer.frame
 
-        func assertStableChrome(includeFooter: Bool = true) {
-            XCTAssertEqual(header.frame.minX, initialHeaderFrame.minX, accuracy: 0.5)
-            XCTAssertEqual(header.frame.minY, initialHeaderFrame.minY, accuracy: 0.5)
-            XCTAssertEqual(header.frame.width, initialHeaderFrame.width, accuracy: 0.5)
-            XCTAssertEqual(header.frame.height, initialHeaderFrame.height, accuracy: 0.5)
-            XCTAssertEqual(progress.frame.midX, initialProgressFrame.midX, accuracy: 0.5)
-            XCTAssertEqual(progress.frame.midY, initialProgressFrame.midY, accuracy: 0.5)
+        func assertStableChrome(
+            includeFooter: Bool = true,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertEqual(header.frame.minX, initialHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.minY, initialHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.width, initialHeaderFrame.width, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.height, initialHeaderFrame.height, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midX, initialProgressFrame.midX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midY, initialProgressFrame.midY, accuracy: 0.5, file: file, line: line)
             if includeFooter {
-                XCTAssertEqual(footer.frame.minY, initialFooterFrame.minY, accuracy: 0.5)
-                XCTAssertEqual(footer.frame.maxY, initialFooterFrame.maxY, accuracy: 0.5)
+                XCTAssertEqual(footer.frame.minY, initialFooterFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(footer.frame.maxY, initialFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
             }
         }
 

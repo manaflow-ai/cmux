@@ -57,8 +57,14 @@ struct OnboardingFlowView: View {
         .interactiveDismissDisabled()
         .onAppear { captureSceneViewed() }
         .onChange(of: stage) { _, _ in captureSceneViewed() }
-        .onChange(of: isAuthenticated) { _, _ in captureSceneViewed() }
-        .onChange(of: connectionPhase) { _, _ in captureSceneViewed() }
+        .onChange(of: isAuthenticated) { _, _ in
+            guard stage == .connect else { return }
+            captureSceneViewed()
+        }
+        .onChange(of: connectionPhase) { _, _ in
+            guard stage == .connect else { return }
+            captureSceneViewed()
+        }
     }
 
     private var chrome: OnboardingSceneChrome {

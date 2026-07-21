@@ -4,6 +4,7 @@ import Testing
 @testable import CmuxMobileShellModel
 
 /// Behavior tests for ``MobileOnboardingStore`` using isolated defaults suites.
+@MainActor
 @Suite struct MobileOnboardingStoreTests {
     private func makeDefaults() -> UserDefaults {
         let suite = "MobileOnboardingStoreTests.\(UUID().uuidString)"
