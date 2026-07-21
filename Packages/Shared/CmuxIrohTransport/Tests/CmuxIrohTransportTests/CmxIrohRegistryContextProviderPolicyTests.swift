@@ -253,6 +253,116 @@ extension CmxIrohRegistryContextProviderTests {
     }
 
     @Test
+    func pairGrantRateLimitCannotRestoreChangedOrRemovedCachedTarget() async throws {
+        let fixture = try RegistryFixture()
+        let cases = [
+            (
+                name: "changed",
+                discovery: try fixture.discovery(
+                    targetHints: [],
+                    targetBindingID: "123e4567-e89b-42d3-a456-426614174099"
+                ),
+                expectedPairGrantCount: 1
+            ),
+            (
+                name: "removed",
+                discovery: try fixture.discovery(
+                    targetHints: [],
+                    includeTarget: false
+                ),
+                expectedPairGrantCount: 0
+            ),
+        ]
+        let rateLimit = CmxIrohTrustBrokerClientError.rateLimited(
+            code: "pair_grant_hour_quota",
+            retryAfterSeconds: 600
+        )
+
+        for testCase in cases {
+            let seeded = try await seededOfflinePolicy(fixture: fixture)
+            let readsBeforeDial = await seeded.store.readCount()
+            let broker = TestIrohRegistryBroker(
+                discovery: testCase.discovery,
+                pairGrantResponses: [],
+                pairGrantError: rateLimit
+            )
+            let provider = CmxIrohRegistryContextProvider(
+                supervisor: try await fixture.activeSupervisor(),
+                broker: broker,
+                localBindingExpectation: try fixture.localExpectation(),
+                managedRelayURLs: [fixture.relayURL],
+                activeNetworkProfiles: { [] },
+                offlinePolicy: seeded.policy,
+                now: { fixture.now }
+            )
+
+            do {
+                _ = try await provider.context(for: fixture.request(hints: []))
+                Issue.record("Expected \(testCase.name) target to reject cached grant")
+            } catch {
+                if testCase.expectedPairGrantCount == 1 {
+                    #expect(
+                        error as? CmxIrohTrustBrokerClientError == rateLimit,
+                        Comment(rawValue: testCase.name)
+                    )
+                    #expect(
+                        await seeded.store.readCount() > readsBeforeDial,
+                        Comment(rawValue: testCase.name)
+                    )
+                } else {
+                    #expect(
+                        error as? CmxIrohRegistryContextError
+                            == .targetBindingUnavailable,
+                        Comment(rawValue: testCase.name)
+                    )
+                    #expect(
+                        await seeded.store.readCount() == readsBeforeDial,
+                        Comment(rawValue: testCase.name)
+                    )
+                }
+            }
+            #expect(
+                await broker.pairGrantRequestCount()
+                    == testCase.expectedPairGrantCount,
+                Comment(rawValue: testCase.name)
+            )
+        }
+    }
+
+    @Test
+    func pairGrantUnauthorizedNeverConsultsOfflinePolicy() async throws {
+        let fixture = try RegistryFixture()
+        let seeded = try await seededOfflinePolicy(fixture: fixture)
+        let readsBeforeDial = await seeded.store.readCount()
+        let rejection = CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(targetHints: []),
+            pairGrantResponses: [],
+            pairGrantError: rejection
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            offlinePolicy: seeded.policy,
+            now: { fixture.now }
+        )
+
+        await #expect(throws: rejection) {
+            try await provider.context(for: fixture.request(hints: []))
+        }
+
+        #expect(await broker.pairGrantRequestCount() == 1)
+        #expect(await seeded.store.readCount() == readsBeforeDial)
+        #expect(await seeded.store.recordCount() == 1)
+    }
+
+    @Test
     func authenticatedBrokerFailuresNeverConsultOfflinePolicy() async throws {
         let fixture = try RegistryFixture()
         let discovery = try fixture.discovery(targetHints: [])
@@ -389,5 +499,37 @@ extension CmxIrohRegistryContextProviderTests {
             try await provider.context(for: request)
         }
         #expect(await broker.pairGrantRequestCount() == 2)
+    }
+
+    private func seededOfflinePolicy(
+        fixture: RegistryFixture
+    ) async throws -> (
+        store: TestSecureCredentialStore,
+        policy: CmxIrohClientOfflinePolicyContext
+    ) {
+        let discovery = try fixture.discovery(targetHints: [])
+        let grant = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohClientOfflinePolicyCache(secureStore: store)
+        let expectation = try fixture.offlineExpectation()
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[1],
+            discovery: discovery,
+            pairGrant: grant,
+            for: expectation,
+            now: fixture.now
+        )
+        return (
+            store,
+            try CmxIrohClientOfflinePolicyContext(
+                cache: cache,
+                expectation: expectation,
+                localBinding: discovery.bindings[0]
+            )
+        )
     }
 }

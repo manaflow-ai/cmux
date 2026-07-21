@@ -65,6 +65,11 @@ public final class MobileIrohRuntimeComposition:
         _ tokenSource: CmxIrohBrokerTokenSource
     ) throws -> any CmxIrohClientBrokerServing
 
+    private struct BrokerBundle {
+        let client: any CmxIrohClientBrokerServing
+        let relayPolicy: (any CmxIrohRelayPolicyServing)?
+    }
+
     private enum SignOutPhase {
         case idle
         case preparing(Task<CmxIrohClientSignOutPreparation, Never>)
@@ -118,6 +123,7 @@ public final class MobileIrohRuntimeComposition:
     private let automaticRelayCredentialRefreshEnabled: Bool
     private let debugDefaults: UserDefaults?
     private let brokerFactory: BrokerFactory
+    private let brokerBackpressureGate: CmxIrohBrokerBackpressureGate
     private let deviceID: @Sendable () -> String
     private let tag: String
     private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
@@ -152,7 +158,6 @@ public final class MobileIrohRuntimeComposition:
     private var observedAuthState: MobileIrohAuthState?
     private var observedAccountID: String? { observedAuthState?.accountID }
     private var activeAccountID: String?
-    private var brokerCooldown = CmxIrohBrokerCooldown()
     private let diagnosticArchive = DiagnosticReportArchive.defaultArchive()
     private var previousLaunchDiagnosticReport: DiagnosticReport??
     private var lastKnownBindingAccountID: String?
@@ -291,9 +296,13 @@ public final class MobileIrohRuntimeComposition:
                 }
                 return try CmxIrohTrustBrokerClient(
                     baseURL: baseURL,
-                    tokenSource: tokenSource
+                    tokenSource: tokenSource,
+                    backpressureMode: .callerOwned
                 )
             },
+            brokerBackpressureGate: CmxIrohBrokerBackpressureGate(
+                store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+            ),
             deviceID: { stableDeviceID },
             tag: Self.currentTag(
                 infoDictionary: infoDictionary,
@@ -337,6 +346,7 @@ public final class MobileIrohRuntimeComposition:
         transportVerificationMode: CmxIrohTransportVerificationMode = .automatic,
         automaticRelayCredentialRefreshEnabled: Bool = true,
         brokerFactory: @escaping BrokerFactory,
+        brokerBackpressureGate: CmxIrohBrokerBackpressureGate = CmxIrohBrokerBackpressureGate(),
         deviceID: @escaping @Sendable () -> String,
         tag: String,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
@@ -367,6 +377,7 @@ public final class MobileIrohRuntimeComposition:
         self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.debugDefaults = debugDefaults
         self.brokerFactory = brokerFactory
+        self.brokerBackpressureGate = brokerBackpressureGate
         self.deviceID = deviceID
         self.tag = tag
         self.discoveryCompatibilityPolicy = discoveryCompatibilityPolicy
@@ -376,6 +387,26 @@ public final class MobileIrohRuntimeComposition:
         self.startNetworkPathObservation = startNetworkPathObservation
         self.networkPathSnapshot = networkPathSnapshot
         self.diagnosticLog = diagnosticLog
+    }
+
+    private func makeBrokerBundle(
+        accountID: String,
+        tokenSource: CmxIrohBrokerTokenSource
+    ) throws -> BrokerBundle {
+        let rawClient = try brokerFactory(tokenSource)
+        let client = CmxIrohBackpressuredClientBroker(
+            broker: rawClient,
+            gate: brokerBackpressureGate,
+            accountID: accountID
+        )
+        let relayPolicy = (rawClient as? any CmxIrohRelayPolicyServing).map {
+            CmxIrohBackpressuredRelayPolicyBroker(
+                broker: $0,
+                gate: brokerBackpressureGate,
+                accountID: accountID
+            )
+        }
+        return BrokerBundle(client: client, relayPolicy: relayPolicy)
     }
 
     /// Starts auth observation after the coordinator's launch restore completes.
@@ -490,7 +521,7 @@ public final class MobileIrohRuntimeComposition:
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
         await prepareForConnection()
-        let runtime = try runtimeForDial()
+        let runtime = try await runtimeForDial()
         return try runtime.transportFactory.makeTransport(for: request)
     }
 
@@ -507,7 +538,7 @@ public final class MobileIrohRuntimeComposition:
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
         await prepareForConnection()
-        let runtime = try runtimeForDial()
+        let runtime = try await runtimeForDial()
         return try await runtime.openBidirectionalLane(
             for: request,
             lane: lane,
@@ -563,31 +594,47 @@ public final class MobileIrohRuntimeComposition:
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
         await prepareForConnection()
-        let runtime = try runtimeForDial()
+        let runtime = try await runtimeForDial()
         return try await runtime.serverEventByteStream(for: request)
     }
 
-    private func runtimeForDial() throws -> CmxIrohClientRuntime {
-        if let runtime { return runtime }
-        if let accountID = observedAccountID ?? activeAccountID,
-           let remaining = brokerCooldown.remainingSeconds(
-               accountID: accountID,
-               now: now()
-           ) {
-            throw CmxIrohBrokerCooldownError(retryAfterSeconds: remaining)
+    private func runtimeForDial() async throws -> CmxIrohClientRuntime {
+        while true {
+            if let runtime { return runtime }
+            guard let accountID = observedAccountID ?? activeAccountID else {
+                throw CmxIrohClientRuntimeError.inactive
+            }
+            let remaining = await brokerActivationRetryAfterSeconds(
+                accountID: accountID
+            )
+            if let runtime { return runtime }
+            guard (observedAccountID ?? activeAccountID) == accountID else {
+                try Task.checkCancellation()
+                continue
+            }
+            if let remaining {
+                throw CmxIrohBrokerCooldownError(retryAfterSeconds: remaining)
+            }
+            throw CmxIrohClientRuntimeError.inactive
         }
-        throw CmxIrohClientRuntimeError.inactive
     }
 
-    private func recordBrokerCooldown(for error: any Error, accountID: String) {
-        guard let retryAfterSeconds = CmxIrohBrokerCooldown.directiveSeconds(
-            for: error
-        ) else { return }
-        brokerCooldown.record(
-            accountID: accountID,
-            retryAfterSeconds: retryAfterSeconds,
-            now: now()
-        )
+    private func brokerActivationRetryAfterSeconds(accountID: String) async -> Int? {
+        var longest: Int?
+        for operation in [
+            CmxIrohBrokerOperation.revocation,
+            .relayCredential,
+            .registration,
+            .discovery,
+        ] {
+            if let remaining = await brokerBackpressureGate.remainingSeconds(
+                accountID: accountID,
+                operation: operation
+            ) {
+                longest = max(longest ?? remaining, remaining)
+            }
+        }
+        return longest
     }
 
     /// Preserves the endpoint when iOS backgrounds the scene.
@@ -747,7 +794,6 @@ public final class MobileIrohRuntimeComposition:
         selectedPathObservationTask?.cancel()
         selectedPathObservationTask = nil
         activeAccountID = nil
-        brokerCooldown.clear()
         diagnosticArchive?.clear()
         previousLaunchDiagnosticReport = .some(nil)
         let fallbackBindingID = lastKnownBindingID
@@ -798,7 +844,7 @@ public final class MobileIrohRuntimeComposition:
             )
             return
         }
-        guard preparation.pendingRevocation != nil else {
+        guard let pendingRevocation = preparation.pendingRevocation else {
             await releaseSignOutQuarantine(preparation)
             finishSignOutPhase()
             return
@@ -816,12 +862,13 @@ public final class MobileIrohRuntimeComposition:
             return
         }
         do {
-            let broker = try brokerFactory(
-                CmxIrohBrokerTokenSource(
+            let broker = try makeBrokerBundle(
+                accountID: pendingRevocation.accountID,
+                tokenSource: CmxIrohBrokerTokenSource(
                     accessToken: { accessToken },
                     refreshToken: { refreshToken }
                 )
-            )
+            ).client
             let released = await recoverSignOutQuarantine(
                 preparation,
                 using: broker
@@ -956,11 +1003,13 @@ public final class MobileIrohRuntimeComposition:
             return signOutPhase.allowsLifecycle
         case let .quarantined(preparation):
             guard signOutObservedAuthClear,
-                  accountID == preparation.pendingRevocation?.accountID,
+                  let pendingRevocation = preparation.pendingRevocation,
+                  accountID == pendingRevocation.accountID,
                   let auth else { return false }
             do {
-                let broker = try brokerFactory(
-                    CmxIrohBrokerTokenSource(
+                let broker = try makeBrokerBundle(
+                    accountID: pendingRevocation.accountID,
+                    tokenSource: CmxIrohBrokerTokenSource(
                         accessToken: { [weak auth] in
                             guard let auth,
                                   let tokens = try? await auth.currentTokens() else {
@@ -976,7 +1025,7 @@ public final class MobileIrohRuntimeComposition:
                             return tokens.refreshToken
                         }
                     )
-                )
+                ).client
                 return await recoverSignOutQuarantine(
                     preparation,
                     using: broker
@@ -1107,17 +1156,18 @@ public final class MobileIrohRuntimeComposition:
         accessToken: String?,
         refreshToken: String?
     ) async {
-        guard preparation.pendingRevocation != nil,
+        guard let pendingRevocation = preparation.pendingRevocation,
               let accessToken,
               !accessToken.isEmpty,
               let refreshToken,
               !refreshToken.isEmpty,
-              let broker = try? brokerFactory(
-                  CmxIrohBrokerTokenSource(
+              let broker = try? makeBrokerBundle(
+                  accountID: pendingRevocation.accountID,
+                  tokenSource: CmxIrohBrokerTokenSource(
                       accessToken: { accessToken },
                       refreshToken: { refreshToken }
                   )
-              ) else { return }
+              ).client else { return }
         do {
             try await preparation.revoke(
                 using: broker,
@@ -1182,7 +1232,6 @@ public final class MobileIrohRuntimeComposition:
             selectedPathObservationTask = nil
             activeAccountID = nil
             if shouldErase {
-                brokerCooldown.clear()
                 diagnosticArchive?.clear()
                 previousLaunchDiagnosticReport = .some(nil)
             }
@@ -1228,7 +1277,6 @@ public final class MobileIrohRuntimeComposition:
         } catch is CancellationError {
             return
         } catch {
-            recordBrokerCooldown(for: error, accountID: targetAccountID)
             diagnosticLog?.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
@@ -1241,16 +1289,6 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private func activate(accountID: String, revision: UInt64) async throws {
-        if let remaining = brokerCooldown.remainingSeconds(
-            accountID: accountID,
-            now: now()
-        ) {
-            diagnosticLog?.record(DiagnosticEvent(
-                .retryScheduled,
-                ms: UInt32(clamping: remaining * 1_000)
-            ))
-            throw CmxIrohBrokerCooldownError(retryAfterSeconds: remaining)
-        }
         guard let auth else { throw CmxIrohClientRuntimeError.inactive }
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
@@ -1305,8 +1343,9 @@ public final class MobileIrohRuntimeComposition:
             cachedRelay = nil
         }
 
-        let broker = try brokerFactory(
-            CmxIrohBrokerTokenSource(
+        let brokerBundle = try makeBrokerBundle(
+            accountID: accountID,
+            tokenSource: CmxIrohBrokerTokenSource(
                 accessToken: { [weak auth] in
                     guard let auth,
                           let tokens = try? await auth.currentTokens() else { return nil }
@@ -1319,6 +1358,7 @@ public final class MobileIrohRuntimeComposition:
                 }
             )
         )
+        let broker = brokerBundle.client
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
@@ -1329,7 +1369,7 @@ public final class MobileIrohRuntimeComposition:
                 policyCache: relayPolicyCache,
                 preferenceStore: relayPreferenceStore,
                 credentialStore: customRelayCredentials,
-                broker: broker as? any CmxIrohRelayPolicyServing
+                broker: brokerBundle.relayPolicy
             )
             let effective: CmxIrohEffectiveRelayPolicy
             diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
@@ -1344,7 +1384,6 @@ public final class MobileIrohRuntimeComposition:
                 freshRelayCredential = outcome.relayCredential
                 diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
             } catch {
-                recordBrokerCooldown(for: error, accountID: accountID)
                 diagnosticLog?.record(DiagnosticEvent(
                     .relayPolicyRefreshFailed,
                     b: Self.diagnosticFailureKind(for: error).rawValue
@@ -1550,7 +1589,6 @@ public final class MobileIrohRuntimeComposition:
         }
         self.runtime = runtime
         activeAccountID = accountID
-        brokerCooldown.clear(accountID: accountID)
         diagnosticLog?.record(DiagnosticEvent(.endpointActive, a: DiagnosticTransportKind.iroh.rawValue))
         relayPolicyService = resolvedPolicyService
         relayPolicyEffective = resolvedEffectivePolicy
