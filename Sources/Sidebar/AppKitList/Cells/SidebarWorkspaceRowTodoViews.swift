@@ -98,11 +98,17 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         popover = nil
+        // Release the hosted content: the root view's action closures capture
+        // the presented workspace strongly, and this presenter lives on a
+        // pooled table cell — keeping the last root would retain a closed
+        // workspace across cell reuse.
+        hostingController.rootView = AnyView(EmptyView())
         let external = !closingProgrammatically
         closingProgrammatically = false
         if external {
             onExternalDismiss?()
         }
+        onExternalDismiss = nil
     }
 }
 
@@ -125,48 +131,6 @@ final class SidebarRowClosureMenuItem: NSMenuItem {
 
     @objc private func execute() {
         handler()
-    }
-}
-
-// MARK: - Status lanes menu
-
-/// Builds the status-lane NSMenu shared by the compact status line (legacy
-/// `compactWorkspaceStatusMenu`): the Auto row, a divider, the five status
-/// lanes, a divider, then None — selection checkmarks included.
-@MainActor
-enum SidebarRowTodoStatusMenuFactory {
-    static func lanesMenu(
-        inferred: WorkspaceTaskStatus,
-        activeOverride: WorkspaceTaskStatus?,
-        isHidden: Bool,
-        applyStatus: @escaping (WorkspaceTaskStatus?) -> Void,
-        hideStatus: @escaping () -> Void
-    ) -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let lanes = WorkspaceTodoStatusLane.lanes(
-            inferred: inferred,
-            activeOverride: activeOverride,
-            isHidden: isHidden
-        )
-        for lane in lanes {
-            if lane.isNone {
-                menu.addItem(.separator())
-            }
-            let item = SidebarRowClosureMenuItem(title: lane.title) {
-                if lane.isNone {
-                    hideStatus()
-                } else {
-                    applyStatus(lane.status)
-                }
-            }
-            item.state = lane.isSelected ? .on : .off
-            menu.addItem(item)
-            if lane.status == nil, !lane.isNone {
-                menu.addItem(.separator())
-            }
-        }
-        return menu
     }
 }
 
@@ -329,6 +293,13 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         guard bounds.contains(point) else { return }
         onClick?()
     }
+
+    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Button.
+    override func accessibilityPerformPress() -> Bool {
+        guard let onClick else { return false }
+        onClick()
+        return true
+    }
 }
 
 /// The SwiftUI plain-button pressed treatment the legacy checklist/status
@@ -411,6 +382,17 @@ final class SidebarRowCompactStatusLine: NSControl {
     override func mouseDown(with event: NSEvent) {
         // Legacy SwiftUI `Menu` opens on press, not on release; dim while
         // the menu tracks (popUp blocks until dismissal).
+        presentLanesMenu()
+    }
+
+    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Menu.
+    override func accessibilityPerformPress() -> Bool {
+        guard menuProvider != nil else { return false }
+        presentLanesMenu()
+        return true
+    }
+
+    private func presentLanesMenu() {
         guard let menu = menuProvider?() else { return }
         alphaValue = SidebarRowPressedDim.pressedAlpha
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)

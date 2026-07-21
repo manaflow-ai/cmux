@@ -84,7 +84,7 @@ final class SidebarRowChecklistSection: NSView {
         }
 
         let snapshot = model.snapshot
-        canAddItems = WorkspaceTodoFeature.isEnabled
+        canAddItems = model.todoControlsEnabled
         usesPopoverStyle = model.settings.workspaceTodoChecklistStyle == .popover
         // Legacy mount policy (`SidebarWorkspaceTodoMinimalVisibility`):
         // content, a pending add request, or an OPEN popover keep the section
@@ -542,6 +542,13 @@ final class SidebarRowChecklistSummaryLine: NSControl {
         guard bounds.contains(point) else { return }
         onClick?()
     }
+
+    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Button.
+    override func accessibilityPerformPress() -> Bool {
+        guard let onClick else { return false }
+        onClick()
+        return true
+    }
 }
 
 // MARK: - Item line
@@ -711,7 +718,7 @@ final class SidebarRowChecklistItemLine: NSView {
                 self.actions?.onBeginChecklistItemEdit(nil)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
-                self.actions?.checklistEditItem(item.id, text)
+                self.actions?.checklistEditItem(item.id, trimmed)
             },
             onCancel: { [weak self] in
                 self?.actions?.onBeginChecklistItemEdit(nil)
@@ -1120,6 +1127,13 @@ final class SidebarRowChecklistGhostAddButton: NSControl {
         guard bounds.contains(point) else { return }
         onClick?()
     }
+
+    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Button.
+    override func accessibilityPerformPress() -> Bool {
+        guard let onClick else { return false }
+        onClick()
+        return true
+    }
 }
 
 // MARK: - Attachment menu button
@@ -1249,6 +1263,17 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
     }
 
     override func mouseDown(with event: NSEvent) {
+        presentAttachmentsMenu()
+    }
+
+    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Menu.
+    override func accessibilityPerformPress() -> Bool {
+        guard item != nil, actions != nil else { return false }
+        presentAttachmentsMenu()
+        return true
+    }
+
+    private func presentAttachmentsMenu() {
         guard let item, let actions else { return }
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -1300,6 +1325,13 @@ final class SidebarRowChecklistTransparentButton: NSControl {
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
         onClick?()
+    }
+
+    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Button.
+    override func accessibilityPerformPress() -> Bool {
+        guard let onClick else { return false }
+        onClick()
+        return true
     }
 }
 

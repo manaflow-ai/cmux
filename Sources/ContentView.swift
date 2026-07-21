@@ -11585,6 +11585,7 @@ struct VerticalTabsSidebar: View, Equatable {
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
             isChecklistPopoverPresented: input.isChecklistPopoverPresented,
             editingChecklistItemId: editingChecklistItemIds[tab.id],
+            todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
             isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id)
         )

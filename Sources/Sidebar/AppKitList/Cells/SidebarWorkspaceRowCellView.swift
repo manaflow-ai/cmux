@@ -357,7 +357,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         // Manual task-status glyph (legacy `SidebarWorkspaceManualStatusIndicatorMenu`):
         // only a human-set status draws row chrome; automatic status stays out.
-        let showsStatusGlyph = WorkspaceTodoFeature.isEnabled
+        let showsStatusGlyph = model.todoControlsEnabled
             && snapshot.hasManualTaskStatus
             && snapshot.taskStatus != nil
         statusGlyphButton.isHidden = !showsStatusGlyph
@@ -451,7 +451,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Compact status row (legacy `compactWorkspaceStatusMenu`): in
         // hide-all-details mode, any visible status renders as a flag +
         // "Status: X" line that opens the lanes menu.
-        let showsCompactStatus = WorkspaceTodoFeature.isEnabled
+        let showsCompactStatus = model.todoControlsEnabled
             && settings.hidesAllDetails
             && snapshot.taskStatus != nil
             && snapshot.todoStatusMenuModel != nil
@@ -874,21 +874,36 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
     }
 
-    /// The compact status line's lanes menu, applying to this row's
-    /// workspace only (legacy `compactWorkspaceStatusMenu`).
+    /// The compact status line's lanes menu (legacy `compactWorkspaceStatusMenu`):
+    /// the Auto row, a divider, the five status lanes, a divider, then None —
+    /// selection checkmarks included, applying to this row's workspace only.
     private func makeCompactStatusMenu() -> NSMenu? {
         guard let menuModel = model?.snapshot.todoStatusMenuModel else { return nil }
-        return SidebarRowTodoStatusMenuFactory.lanesMenu(
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let lanes = WorkspaceTodoStatusLane.lanes(
             inferred: menuModel.inferred,
             activeOverride: menuModel.activeOverride,
-            isHidden: false,
-            applyStatus: { [weak self] status in
-                self?.actions?.applyTodoStatus(status)
-            },
-            hideStatus: { [weak self] in
-                self?.actions?.hideTodoStatus()
-            }
+            isHidden: false
         )
+        for lane in lanes {
+            if lane.isNone {
+                menu.addItem(.separator())
+            }
+            let item = SidebarRowClosureMenuItem(title: lane.title) { [weak self] in
+                if lane.isNone {
+                    self?.actions?.hideTodoStatus()
+                } else {
+                    self?.actions?.applyTodoStatus(lane.status)
+                }
+            }
+            item.state = lane.isSelected ? .on : .off
+            menu.addItem(item)
+            if lane.status == nil, !lane.isNone {
+                menu.addItem(.separator())
+            }
+        }
+        return menu
     }
 
     func beginInlineRename() {

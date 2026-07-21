@@ -86,6 +86,7 @@ struct SidebarAppKitRowCellTests {
             checklistAddFieldActivationToken: 0,
             isChecklistPopoverPresented: false,
             editingChecklistItemId: nil,
+            todoControlsEnabled: false,
             isMetadataExpanded: false,
             isMarkdownExpanded: false
         )
