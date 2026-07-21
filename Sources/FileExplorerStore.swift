@@ -1024,6 +1024,10 @@ final class FileExplorerStore: ObservableObject {
 
     @MainActor
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
+        // A load cancelled by cancelAllLoads (e.g. a root reload during an SSH provider swap) must not
+        // reach provider.listDirectory: the provider may have been replaced, so a stale in-flight load
+        // would list the old path through the new transport. Bail before any listing.
+        guard !Task.isCancelled else { return }
         guard let provider else { return }
 
         if !silent {
