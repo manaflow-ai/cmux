@@ -86,8 +86,8 @@ public final class BrowserAutomationNavigationCoordinator {
         activeNavigationID = navigationID
     }
 
-    /// Records a provisional delegate start, binding a deferred or replacement load when needed.
-    public func didStart(
+    /// Associates a deferred or replacement load's returned navigation identity.
+    public func didAssociate(
         instanceID: UUID,
         navigationID: ObjectIdentifier?,
         targetURL: URL? = nil
@@ -104,9 +104,17 @@ public final class BrowserAutomationNavigationCoordinator {
             }
             activeNavigationID = navigationID
         }
-        if activeNavigationID == navigationID {
-            activeNavigationBeganProvisionally = true
-        }
+    }
+
+    /// Records the provisional delegate start for an associated navigation.
+    public func didStart(
+        instanceID: UUID,
+        navigationID: ObjectIdentifier?,
+        targetURL: URL? = nil
+    ) {
+        didAssociate(instanceID: instanceID, navigationID: navigationID, targetURL: targetURL)
+        guard let navigationID, activeNavigationID == navigationID else { return }
+        activeNavigationBeganProvisionally = true
     }
 
     /// Releases the current navigation identity while a policy flow waits to start its replacement.
@@ -168,16 +176,9 @@ public final class BrowserAutomationNavigationCoordinator {
         finish(activeTicket, with: .committed)
     }
 
-    /// Completes the transaction when its target becomes a main-frame download.
-    public func didBecomeDownload(instanceID: UUID, url: URL?) {
-        guard let activeTicket,
-              activeTicket.instanceID == instanceID,
-              activeNavigationID != nil,
-              let activeTargetURL,
-              url == activeTargetURL else {
-            return
-        }
-        finish(activeTicket, with: .downloaded)
+    /// Completes the transaction when its exact provisional navigation becomes a download.
+    public func didBecomeDownload(instanceID: UUID, navigationID: ObjectIdentifier?) {
+        finishMatching(instanceID: instanceID, navigationID: navigationID, with: .downloaded)
     }
 
     /// Records a commit only when it belongs to the exact active navigation.

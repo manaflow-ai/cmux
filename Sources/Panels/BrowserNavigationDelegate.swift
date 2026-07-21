@@ -11,8 +11,9 @@ import WebKit
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String, String, WKNavigation?) -> Void)?
     var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
+    var didConvertProvisionalNavigationToDownload: ((WKWebView, WKNavigation?) -> Void)?
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
-    var didBecomeDownload: ((WKWebView, Bool, URL?, UUID?) -> Void)?
+    var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -41,6 +42,7 @@ import WebKit
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
     private var pendingMainFrameDownloadRestoreAttemptID: UUID?
+    private var pendingMainFrameDownloadPolicyURLString: String?
 
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -130,11 +132,20 @@ import WebKit
             return
         }
 
-        // "Frame load interrupted" (WebKitErrorDomain code 102) means navigation
-        // policy transferred ownership, including downloads and external-app routes.
-        // The actual download callback reports downloads separately.
+        // "Frame load interrupted" (WebKitErrorDomain code 102) can result from
+        // several policy transfers. Only an explicit .download decision is success.
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
-            didCancelProvisionalNavigation?(webView, navigation)
+            let interruptedURLString = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
+                ?? lastAttemptedURL?.absoluteString
+                ?? webView.url?.absoluteString
+            let isPendingDownload = pendingMainFrameDownloadPolicyURLString != nil &&
+                pendingMainFrameDownloadPolicyURLString == interruptedURLString
+            pendingMainFrameDownloadPolicyURLString = nil
+            if isPendingDownload {
+                didConvertProvisionalNavigationToDownload?(webView, navigation)
+            } else {
+                didCancelProvisionalNavigation?(webView, navigation)
+            }
             return
         }
 
@@ -279,6 +290,10 @@ import WebKit
         )
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
+        let canOwnMainFrameDownloadPolicy = navigationAction.targetFrame?.isMainFrame != false
+        if canOwnMainFrameDownloadPolicy {
+            pendingMainFrameDownloadPolicyURLString = nil
+        }
         if navigationAction.targetFrame?.isMainFrame == true {
             pendingMainFrameDownloadRestoreAttemptID = currentRestoreAttemptID?()
         }
@@ -371,6 +386,9 @@ import WebKit
                     decisionHandler(.cancel)
                     return
                 }
+            }
+            if canOwnMainFrameDownloadPolicy {
+                pendingMainFrameDownloadPolicyURLString = navigationAction.request.url?.absoluteString
             }
             clearAttemptedRequest(discardPendingBypasses: true)
             decisionHandler(.download)
@@ -579,6 +597,9 @@ import WebKit
             #if DEBUG
             cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
+            if navigationResponse.isForMainFrame {
+                pendingMainFrameDownloadPolicyURLString = navigationResponse.response.url?.absoluteString
+            }
             decisionHandler(.download)
             return
         }
@@ -626,7 +647,7 @@ import WebKit
         cmuxDebugLog("download.didBecome source=navigationAction")
         #endif
         NSLog("BrowserPanel download didBecome from navigationAction")
-        didBecomeDownload?(webView, isMainFrame, navigationAction.request.url, restoreAttemptID)
+        didBecomeDownload?(webView, isMainFrame, restoreAttemptID)
         if isMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }
@@ -637,12 +658,7 @@ import WebKit
         cmuxDebugLog("download.didBecome source=navigationResponse")
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
-        didBecomeDownload?(
-            webView,
-            navigationResponse.isForMainFrame,
-            navigationResponse.response.url,
-            restoreAttemptID
-        )
+        didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
         if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }

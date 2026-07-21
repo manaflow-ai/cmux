@@ -151,7 +151,7 @@ struct BrowserAutomationNavigationCoordinatorTests {
             instanceID: instanceID,
             navigationID: ObjectIdentifier(originalNavigation)
         )
-        coordinator.didStart(
+        coordinator.didAssociate(
             instanceID: instanceID,
             navigationID: ObjectIdentifier(replacementNavigation),
             targetURL: fallbackURL
@@ -180,7 +180,7 @@ struct BrowserAutomationNavigationCoordinatorTests {
             instanceID: instanceID,
             targetURL: fallbackURL
         ))
-        coordinator.didStart(
+        coordinator.didAssociate(
             instanceID: instanceID,
             navigationID: ObjectIdentifier(replacementNavigation),
             targetURL: fallbackURL
@@ -232,7 +232,10 @@ struct BrowserAutomationNavigationCoordinatorTests {
         let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
 
-        coordinator.didBecomeDownload(instanceID: instanceID, url: targetURL)
+        coordinator.didBecomeDownload(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(navigation)
+        )
 
         #expect(await coordinator.wait(for: ticket) == .downloaded)
     }
@@ -249,7 +252,7 @@ struct BrowserAutomationNavigationCoordinatorTests {
 
         coordinator.didBecomeDownload(
             instanceID: instanceID,
-            url: URL(string: "https://example.com/unrelated.zip")!
+            navigationID: ObjectIdentifier(NSObject())
         )
 
         #expect(await coordinator.wait(for: ticket) == .timedOut)

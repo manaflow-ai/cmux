@@ -12,7 +12,7 @@ extension BrowserPanel {
             automationNavigationCoordinator.didNotStart(instanceID: instanceID)
             return
         }
-        automationNavigationCoordinator.didStart(
+        automationNavigationCoordinator.didAssociate(
             instanceID: instanceID,
             navigationID: ObjectIdentifier(navigation),
             targetURL: targetURL
