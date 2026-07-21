@@ -193,12 +193,20 @@ extension TerminalController {
     ) -> DockSplitStore? {
         if let surfaceID = routing.surfaceID,
            let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
-            guard containerDockMatchesExplicitSelectors(dock, routing: routing) else { return nil }
+            guard containerDockMatchesExplicitSelectors(
+                dock,
+                routing: routing,
+                aliasTabManager: tabManager
+            ) else { return nil }
             return dock
         }
         if let paneID = routing.paneID,
            let dock = DockSplitStore.liveStores.first(where: { $0.containsPane(paneID) }) {
-            guard containerDockMatchesExplicitSelectors(dock, routing: routing) else { return nil }
+            guard containerDockMatchesExplicitSelectors(
+                dock,
+                routing: routing,
+                aliasTabManager: tabManager
+            ) else { return nil }
             return dock
         }
         return windowDockForRouting(routing, tabManager: tabManager)
@@ -206,20 +214,25 @@ extension TerminalController {
 
     func containerDockMatchesExplicitSelectors(
         _ dock: DockSplitStore,
-        routing: ControlRoutingSelectors
+        routing: ControlRoutingSelectors,
+        aliasTabManager: TabManager? = nil
     ) -> Bool {
         guard let app = AppDelegate.shared,
               let location = dockStoreLocation(dock, app: app) else { return false }
-        if routing.hasWindowIDParam,
-           let windowID = routing.windowID,
-           windowID != location.windowId {
-            return false
+        if routing.hasWindowIDParam {
+            guard let windowID = routing.windowID,
+                  windowID == location.windowId else { return false }
         }
-        if let workspaceID = routing.workspaceID,
-           workspaceID != AppDelegate.windowDockAliasWorkspaceId,
-           app.tabManagerForWindowDockOwner(workspaceID) == nil,
-           workspaceID != location.workspaceId {
-            return false
+        if let workspaceID = routing.workspaceID {
+            if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
+                guard let aliasTabManager,
+                      let aliasWindowID = app.windowId(for: aliasTabManager),
+                      aliasWindowID == location.windowId else { return false }
+            } else if app.tabManagerForWindowDockOwner(workspaceID) != nil {
+                guard workspaceID == location.windowId else { return false }
+            } else if workspaceID != location.workspaceId {
+                return false
+            }
         }
         return true
     }
@@ -393,7 +406,11 @@ extension TerminalController {
         }
         guard let windowDock = explicitlyTargetedDock
                 ?? containerDockForSurfaceRouting(routing, tabManager: tabManager),
-              containerDockMatchesExplicitSelectors(windowDock, routing: routing) else { return nil }
+              containerDockMatchesExplicitSelectors(
+                windowDock,
+                routing: routing,
+                aliasTabManager: tabManager
+              ) else { return nil }
         let resolved = resolvedWindowDockSurfaceId(
             explicitSurfaceID: surfaceID,
             hasSurfaceIDParam: false,

@@ -26,6 +26,22 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         routing: ControlRoutingSelectors,
         workspaceID: UUID?
     ) -> FloatingDockWorkspaceResolution {
+        // An explicit window selector scopes every workspace lookup, including
+        // the worker-side note-write preparation. Never let the global
+        // workspace-owner lookup escape into another window.
+        if routing.hasWindowIDParam {
+            guard let tabManager = resolveTabManager(routing: routing) else {
+                return .tabManagerUnavailable
+            }
+            if let workspaceID {
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                    return .notFound
+                }
+                return .found(tabManager: tabManager, workspace: workspace)
+            }
+            guard let workspace = tabManager.selectedWorkspace else { return .notFound }
+            return .found(tabManager: tabManager, workspace: workspace)
+        }
         if let workspaceID {
             if let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
                let workspace = owner.tabs.first(where: { $0.id == workspaceID }) {

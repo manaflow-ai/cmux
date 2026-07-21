@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxControlSocket
 import CmuxWorkspaces
 import CoreGraphics
 import Foundation
@@ -312,11 +313,21 @@ extension Workspace {
     }
 
     static func sanitizedFloatingDockFrame(_ frame: CGRect) -> CGRect {
-        CGRect(
-            x: frame.origin.x.isFinite ? frame.origin.x : 36,
-            y: frame.origin.y.isFinite ? frame.origin.y : 80,
-            width: max(320, frame.width.isFinite ? frame.width : 520),
-            height: max(220, frame.height.isFinite ? frame.height : 380)
+        let maximumCoordinateMagnitude = CGFloat(
+            ControlWorkspaceFloatingDockAction.Frame.maximumCoordinateMagnitude
+        )
+        let maximumDimension = CGFloat(ControlWorkspaceFloatingDockAction.Frame.maximumDimension)
+        let x = frame.origin.x.isFinite
+            ? min(max(frame.origin.x, -maximumCoordinateMagnitude), maximumCoordinateMagnitude)
+            : 36
+        let y = frame.origin.y.isFinite
+            ? min(max(frame.origin.y, -maximumCoordinateMagnitude), maximumCoordinateMagnitude)
+            : 80
+        return CGRect(
+            x: x,
+            y: y,
+            width: min(max(320, frame.width.isFinite ? frame.width : 520), maximumDimension),
+            height: min(max(220, frame.height.isFinite ? frame.height : 380), maximumDimension)
         )
     }
 }

@@ -184,13 +184,19 @@ extension ControlCommandCoordinator {
         let keys = ["x", "y", "width", "height"]
         let hasAny = keys.contains { hasNonNull(params, $0) }
         guard required || hasAny else { return (nil, nil) }
-        guard let x = double(params, "x"), x.isFinite,
-              let y = double(params, "y"), y.isFinite,
-              let width = double(params, "width"), width.isFinite, width > 0,
-              let height = double(params, "height"), height.isFinite, height > 0 else {
+        guard let x = double(params, "x"),
+              let y = double(params, "y"),
+              let width = double(params, "width"),
+              let height = double(params, "height"),
+              ControlWorkspaceFloatingDockAction.Frame.isWithinSupportedBounds(
+                x: x,
+                y: y,
+                width: width,
+                height: height
+              ) else {
             return (nil, .err(
                 code: "invalid_params",
-                message: "x, y, width, and height must be finite numbers",
+                message: "Floating Dock frame is outside the supported coordinate or size range",
                 data: nil
             ))
         }

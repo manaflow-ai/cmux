@@ -252,7 +252,11 @@ extension TerminalController: ControlSurfaceContext {
             return .tabManagerUnavailable
         }
         if let windowDock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
-            if !containerDockMatchesExplicitSelectors(windowDock, routing: routing) {
+            if !containerDockMatchesExplicitSelectors(
+                windowDock,
+                routing: routing,
+                aliasTabManager: tabManager
+            ) {
                 return .surfaceNotFound(surfaceID)
             }
             focusAndRevealContainerDock(for: windowDock, fallback: tabManager)
