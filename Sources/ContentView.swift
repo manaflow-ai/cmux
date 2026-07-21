@@ -2471,11 +2471,29 @@ struct ContentView: View {
 
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
         let layout: AnyView
-        // When matching terminal background, use HStack so both sidebar and terminal
-        // sit directly on the window background with no intermediate layers.
+        // The legacy SwiftUI path uses HStack while matching so both sidebar
+        // and terminal sit directly on the window background.
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
-        if useWithinWindow {
+        if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+            // Appearance changes must not replace the NSViewRepresentable. Keep
+            // one structural parent for both backdrop policies and express the
+            // sidebar column as padding on the stable terminal/right-sidebar
+            // subtree. This lets SwiftUI commit the backdrop and any row palette
+            // updates together without remounting the native table at zero width.
+            layout = AnyView(
+                ZStack(alignment: .leading) {
+                    terminalContentWithRightSidebarPanel(appearance: appearance)
+                        .modifier(SidebarWidthLeadingPaddingModifier(
+                            layout: sidebarLayout,
+                            enabled: sidebarState.isVisible
+                        ))
+                    if sidebarState.isVisible {
+                        sidebarPanelWithBackdrop(appearance: appearance)
+                    }
+                }
+            )
+        } else if useWithinWindow {
             // Overlay mode keeps the left sidebar on top, but the right
             // sidebar stays in an HStack so terminal rows are clipped before
             // the sidebar backdrop samples the window.
@@ -10568,8 +10586,6 @@ struct VerticalTabsSidebar: View, Equatable {
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
-    @AppStorage("sidebarMatchTerminalBackground")
-    private var sidebarMatchTerminalBackground = false
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
     private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)

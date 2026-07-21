@@ -25,6 +25,10 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
+    private final class AppKitSidebarMountProbeCounts {
+        var tableContainerMakes = 0
+    }
+
     @Test
     @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
@@ -100,6 +104,75 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             counts.verticalTabsSidebarBody == 0,
             "Minimal-mode toggles must not rebuild the vertical sidebar render context."
+        )
+    }
+
+    @Test
+    @MainActor
+    func testMatchTerminalBackgroundKeepsAppKitTableContainerMounted() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewVisibilityTests.AppKitSidebar.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            CmuxExtensionSidebarSelection.defaultProviderId,
+            forKey: CmuxExtensionSidebarSelection.defaultsKey
+        )
+        defaults.set(SidebarBlendModeOption.withinWindow.rawValue, forKey: "sidebarBlendMode")
+        defaults.set(false, forKey: "sidebarMatchTerminalBackground")
+
+        let appKitSidebarFlag = CmuxFeatureFlags.allFlags[6]
+        let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: appKitSidebarFlag)
+        CmuxFeatureFlags.shared.setOverride(true, for: appKitSidebarFlag)
+        defer { CmuxFeatureFlags.shared.setOverride(previousOverride, for: appKitSidebarFlag) }
+
+        let tabManager = TabManager()
+        for _ in 0..<3 {
+            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        }
+        let notificationStore = TerminalNotificationStore.shared
+        let counts = AppKitSidebarMountProbeCounts()
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(notificationStore.sidebarUnread)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.sidebarLazyContractProbe,
+                SidebarLazyContractProbe(
+                    tableContainerMake: { counts.tableContainerMakes += 1 }
+                )
+            )
+            .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        #expect(counts.tableContainerMakes == 1)
+
+        defaults.set(true, forKey: "sidebarMatchTerminalBackground")
+        await Self.drainMainRunLoop(for: window)
+        defaults.set(false, forKey: "sidebarMatchTerminalBackground")
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(
+            counts.tableContainerMakes == 1,
+            "Appearance-only sidebar transitions must preserve the existing AppKit table container."
         )
     }
 
