@@ -29,6 +29,16 @@ struct CLIWorkspaceGroupSafetyTests {
         #expect(params["close_workspaces"] as? Bool == true)
     }
 
+    @Test func deleteDoesNotTreatTokensAfterOptionTerminatorAsDestructiveIntent() async throws {
+        let request = try await run([
+            "workspace", "group", "delete", "workspace_group:1", "--",
+            "--close-workspaces", "--json",
+        ])
+        let params = try requestParams(request, method: "workspace.group.ungroup")
+
+        #expect(params["group_id"] as? String == "workspace_group:1")
+    }
+
     private func run(_ arguments: [String]) async throws -> [String: Any] {
         let socketPath = Self.socketPath()
         let server = try CLIWorkspaceGroupSafetyMockServer(socketPath: socketPath)
