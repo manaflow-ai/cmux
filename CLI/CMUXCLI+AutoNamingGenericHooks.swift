@@ -221,21 +221,23 @@ extension CMUXCLI {
             engine: engine
         ) else { return }
         if case .reseedBaseline(let compactedLineCount) = outcome.decision {
-            let applyOutcome: Result<Bool, CLIError>
+            let applyOutcome: Result<(workspaceApplied: Bool, panelResolved: Bool), CLIError>
             if let lastTitle = outcome.lastTitle {
                 applyOutcome = applyAutoNamingTitle(
                     lastTitle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
+                    clearStatusOnApply: false,
                     client: client,
                     telemetryKey: "\(telemetryKey).reconcile",
                     telemetry: telemetry
                 )
             } else {
                 telemetry.breadcrumb("\(telemetryKey).throttled")
-                applyOutcome = .success(false)
+                applyOutcome = .success((workspaceApplied: false, panelResolved: false))
             }
-            let confirmedApply = (try? applyOutcome.get()) == true
+            let applied = try? applyOutcome.get()
+            let confirmedApply = applied?.workspaceApplied == true && applied?.panelResolved == true
             try? sessionStore.finishAutoNamingReconciliation(
                 sessionId: sessionId,
                 compactedLineCount: compactedLineCount,
@@ -271,10 +273,12 @@ extension CMUXCLI {
             telemetry: telemetry
         )
         switch applyOutcome {
-        case .success(true):
-            confirmedTitle = sanitized
-        case .success(false):
-            confirmedTitle = outcome.lastTitle
+        case .success(let applied):
+            if applied.workspaceApplied && applied.panelResolved {
+                confirmedTitle = sanitized
+            } else if !applied.workspaceApplied {
+                confirmedTitle = outcome.lastTitle
+            }
         case .failure:
             confirmedTitle = nil
         }

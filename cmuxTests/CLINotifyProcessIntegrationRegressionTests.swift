@@ -137,7 +137,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             inFlightAt: nil
         )
 
-        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 4) { line in
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 5) { line in
             guard let payload = self.jsonObject(line),
                   payload["method"] as? String == "workspace.set_auto_title",
                   let params = payload["params"] as? [String: Any],
@@ -151,11 +151,29 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             let applyNumber = self.autoNamingApplyRequests(in: context).count
             switch applyNumber {
             case 1:
-                return self.autoNamingMockResponse(line: line, context: context, workspaceApplied: false)
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: false,
+                    panelApplied: false
+                )
             case 2:
                 return "not-json"
+            case 3:
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplied: nil
+                )
             default:
-                return self.autoNamingMockResponse(line: line, context: context, workspaceApplied: true)
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplied: nil,
+                    panelApplySkipped: true
+                )
             }
         }
 
@@ -167,7 +185,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
         }
 
-        for expectedApplyCount in 1...2 {
+        for expectedApplyCount in 1...3 {
             let result = runReconciliation()
             XCTAssertFalse(result.timedOut, result.stderr)
             XCTAssertEqual(result.status, 0, result.stderr)
@@ -184,7 +202,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let confirmed = runReconciliation()
         XCTAssertFalse(confirmed.timedOut, confirmed.stderr)
         XCTAssertEqual(confirmed.status, 0, confirmed.stderr)
-        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 3)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 4)
 
         var record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNil(record["autoNameInFlightAt"])
@@ -196,7 +214,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let afterConfirmation = runReconciliation()
         XCTAssertFalse(afterConfirmation.timedOut, afterConfirmation.stderr)
         XCTAssertEqual(afterConfirmation.status, 0, afterConfirmation.stderr)
-        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 3)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 4)
         record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNil(record["autoNameInFlightAt"])
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedLineCount)
@@ -9054,7 +9072,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private func autoNamingMockResponse(
         line: String,
         context: ClaudeHookContext,
-        workspaceApplied: Bool
+        workspaceApplied: Bool,
+        panelApplied: Bool? = nil,
+        panelApplySkipped: Bool = false
     ) -> String {
         guard let payload = jsonObject(line),
               let id = payload["id"] as? String,
@@ -9073,8 +9093,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 ])
             }
             XCTAssertEqual(params["title"] as? String, "Fix auth bug")
+            XCTAssertEqual(params["clear_status_on_apply"] as? Bool, false)
             return v2Response(id: id, ok: true, result: [
                 "workspace_applied": workspaceApplied,
+                "panel_applied": panelApplied ?? NSNull(),
+                "panel_apply_skipped": panelApplySkipped,
             ])
         default:
             return v2Response(

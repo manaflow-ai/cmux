@@ -205,34 +205,38 @@ extension CMUXCLI {
         }
     }
 
-    /// Returns `.success(true)` only for a confirmed workspace apply,
-    /// `.success(false)` for a rejected write, and `.failure` when the socket
-    /// request or response fails.
+    /// Returns the separately confirmed workspace and panel outcomes, or a
+    /// failure when the socket request or response fails.
     func applyAutoNamingTitle(
         _ title: String,
         workspaceId: String,
         surfaceId: String,
+        clearStatusOnApply: Bool = true,
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> Result<Bool, CLIError> {
+    ) -> Result<(workspaceApplied: Bool, panelResolved: Bool), CLIError> {
         let payload: [String: Any]
         do {
             payload = try client.sendV2(method: "workspace.set_auto_title", params: [
                 "workspace_id": workspaceId,
                 "panel_id": surfaceId,
                 "panel_only_if_multiple": true,
+                "clear_status_on_apply": clearStatusOnApply,
                 "title": title
             ])
         } catch {
             telemetry.breadcrumb("\(telemetryKey).socket-failed")
             return .failure(CLIError(message: String(describing: error)))
         }
-        if payload["workspace_applied"] as? Bool == true {
+        let workspaceApplied = payload["workspace_applied"] as? Bool == true
+        let panelResolved = payload["panel_applied"] as? Bool != nil
+            || payload["panel_apply_skipped"] as? Bool == true
+        if workspaceApplied {
             telemetry.breadcrumb("\(telemetryKey).applied")
-            return .success(true)
+        } else {
+            telemetry.breadcrumb("\(telemetryKey).rejected")
         }
-        telemetry.breadcrumb("\(telemetryKey).rejected")
-        return .success(false)
+        return .success((workspaceApplied: workspaceApplied, panelResolved: panelResolved))
     }
 }

@@ -3651,7 +3651,10 @@ class TerminalController {
     /// `workspaceAutoNamingEnabled` setting; `{"probe": true}` reads the live
     /// setting state without writing, which lets hook processes honor
     /// mid-session toggles. `panel_id` accepts either a panel UUID or a
-    /// surface UUID.
+    /// surface UUID. `panel_apply_skipped` distinguishes a valid single-panel
+    /// suppression from an unresolved target, while
+    /// `clear_status_on_apply=false` lets reconciliation preserve the last
+    /// summarizer health warning when it only reapplies a stored title.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
@@ -3702,9 +3705,11 @@ class TerminalController {
 
         let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let panelOnlyIfMultiple = v2Bool(params, "panel_only_if_multiple") ?? false
+        let clearStatusOnApply = v2Bool(params, "clear_status_on_apply") ?? true
         var found = false
         var workspaceApplied = false
         var panelApplied: Bool?
+        var panelApplySkipped = false
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
@@ -3715,9 +3720,16 @@ class TerminalController {
                 let resolvedPanelId = workspace.panels[panelId] != nil
                     ? panelId
                     : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
-                if let resolvedPanelId,
-                   !(panelOnlyIfMultiple && workspace.panels.count < 2) {
-                    panelApplied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
+                if let resolvedPanelId {
+                    if panelOnlyIfMultiple && workspace.panels.count < 2 {
+                        panelApplySkipped = true
+                    } else {
+                        panelApplied = workspace.setPanelCustomTitle(
+                            panelId: resolvedPanelId,
+                            title: title,
+                            source: .auto
+                        )
+                    }
                 }
             }
         }
@@ -3731,7 +3743,7 @@ class TerminalController {
 
         // A title landed, so the naming agent is working again: clear any stale
         // failure the Settings status line may be showing.
-        if workspaceApplied {
+        if workspaceApplied && clearStatusOnApply {
             AutoNamingStatusStore.clear()
         }
 
@@ -3741,6 +3753,7 @@ class TerminalController {
             "title": title,
             "workspace_applied": workspaceApplied,
             "panel_applied": v2OrNull(panelApplied),
+            "panel_apply_skipped": panelApplySkipped,
             "enabled": true
         ])
     }

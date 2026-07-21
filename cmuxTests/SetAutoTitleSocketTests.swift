@@ -124,6 +124,25 @@ import Testing
         }
     }
 
+    @Test func reconciliationApplyPreservesRecordedFailure() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                AutoNamingStatusStore.record(rawCategory: "failed", agent: "codex", at: 1)
+                defer { AutoNamingStatusStore.clear() }
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Fix auth bug",
+                    "clear_status_on_apply": false,
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                let status = AutoNamingStatusStore.current()
+                #expect(status?.category == .failed)
+                #expect(status?.agent == "codex")
+            }
+        }
+    }
+
     @Test func notInstalledSurvivesAReportAfterSuccessfulApply() throws {
         // Regression: a missing-override pass applies a fallback title (which
         // clears stale status) and THEN reports not_installed. The order must
@@ -202,7 +221,19 @@ import Testing
                 var result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_applied"] as? Bool == true)
                 #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
+                #expect(result["panel_apply_skipped"] as? Bool == true)
                 #expect(workspace.panelCustomTitles[panelId] == nil)
+
+                envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": UUID().uuidString,
+                    "panel_only_if_multiple": true,
+                    "title": "Unresolved single-panel target"
+                ])
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
+                #expect(result["panel_apply_skipped"] as? Bool == false)
 
                 // Two panels: the tab write fires.
                 _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
@@ -214,7 +245,46 @@ import Testing
                 ])
                 result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["panel_applied"] as? Bool == true)
+                #expect(result["panel_apply_skipped"] as? Bool == false)
                 #expect(workspace.panelCustomTitles[panelId] == "Debug login flow")
+
+                envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": UUID().uuidString,
+                    "panel_only_if_multiple": true,
+                    "title": "Unresolved panel target"
+                ])
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
+                #expect(result["panel_apply_skipped"] as? Bool == false)
+            }
+        }
+    }
+
+    @Test func panelResponseDistinguishesManualRejectionFromUnresolvedTarget() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                #expect(workspace.setPanelCustomTitle(
+                    panelId: panelId,
+                    title: "Manual tab name",
+                    source: .user
+                ))
+
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "title": "Fix auth bug"
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(result["panel_applied"] as? Bool == false)
+                #expect(result["panel_apply_skipped"] as? Bool == false)
+                #expect(workspace.panelCustomTitles[panelId] == "Manual tab name")
             }
         }
     }
