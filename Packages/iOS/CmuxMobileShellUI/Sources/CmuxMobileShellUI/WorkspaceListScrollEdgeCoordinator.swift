@@ -17,32 +17,31 @@ final class WorkspaceListScrollEdgeCoordinator {
     private weak var tabContentController: UIViewController?
 
     /// Re-resolves the bar-owning controllers for `scrollView` and registers
-    /// it with them. Safe to call repeatedly; no-ops when nothing changed.
-    /// Returns false when no enclosing bar controller is reachable yet (the
-    /// view-controller parent chain may still be assembling), so the caller
-    /// can retry after the next layout pass.
-    @discardableResult
-    func registerIfNeeded(for scrollView: UIScrollView) -> Bool {
-        guard #available(iOS 26.0, *) else { return true }
-        guard scrollView.window != nil else { return false }
+    /// it with them. Called on every layout pass: the controller chain can
+    /// assemble incrementally (navigation controller before tab controller)
+    /// or reparent without the window changing, so a one-shot registration
+    /// would strand a partially registered edge. The identity guard makes the
+    /// repeated call a no-op (a few pointer hops) when nothing changed.
+    func registerIfNeeded(for scrollView: UIScrollView) {
+        guard #available(iOS 26.0, *) else { return }
+        guard scrollView.window != nil else { return }
         let navigationContent = Self.contentController(
             hosting: scrollView, inParentOfKind: UINavigationController.self
         )
         let tabContent = Self.contentController(
             hosting: scrollView, inParentOfKind: UITabBarController.self
         )
-        guard navigationContent != nil || tabContent != nil else { return false }
-        if navigationContent !== navigationContentController
+        guard navigationContent != nil || tabContent != nil else { return }
+        guard navigationContent !== navigationContentController
             || tabContent !== tabContentController
-            || scrollView !== registeredScrollView {
-            unregister()
-            registeredScrollView = scrollView
-            navigationContentController = navigationContent
-            tabContentController = tabContent
-            navigationContent?.setContentScrollView(scrollView, for: .top)
-            tabContent?.setContentScrollView(scrollView, for: .bottom)
-        }
-        return true
+            || scrollView !== registeredScrollView
+        else { return }
+        unregister()
+        registeredScrollView = scrollView
+        navigationContentController = navigationContent
+        tabContentController = tabContent
+        navigationContent?.setContentScrollView(scrollView, for: .top)
+        tabContent?.setContentScrollView(scrollView, for: .bottom)
     }
 
     /// Clears this coordinator's registrations. A registration already taken

@@ -27,6 +27,34 @@ import UIKit
         #expect(fixture.navigation.contentScrollView(for: .bottom) == nil)
     }
 
+    /// The controller chain can assemble incrementally: the navigation
+    /// controller can host the table before it joins a tab bar controller.
+    /// A one-shot registration would strand the bottom edge unregistered.
+    @Test func lateTabControllerAttachmentStillRegistersBottomEdge() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
+        let content = UIViewController()
+        content.view.addSubview(tableView)
+        let navigation = UINavigationController(rootViewController: content)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = navigation
+        window.isHidden = false
+        window.layoutIfNeeded()
+        content.view.layoutIfNeeded()
+        #expect(content.contentScrollView(for: .top) === tableView)
+        #expect(navigation.contentScrollView(for: .bottom) == nil)
+
+        let tabs = UITabBarController()
+        window.rootViewController = tabs
+        tabs.viewControllers = [navigation]
+        window.layoutIfNeeded()
+        tableView.setNeedsLayout()
+        tableView.layoutIfNeeded()
+
+        #expect(content.contentScrollView(for: .top) === tableView)
+        #expect(navigation.contentScrollView(for: .bottom) === tableView)
+    }
+
     @Test func departingTableDoesNotClobberReplacementRegistration() throws {
         guard #available(iOS 26.0, *) else { return }
         let fixture = Fixture()
