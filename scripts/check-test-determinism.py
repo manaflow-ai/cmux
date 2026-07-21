@@ -205,9 +205,10 @@ _SLEEP_CALL = re.compile(
 )
 
 # Swift implicit-member values such as `.sleep(deadline)` can represent enum
-# data in an assertion. A receiver (`clock.sleep`, `ContinuousClock().sleep`)
-# prevents this match, so real qualified calls remain candidates.
-_IMPLICIT_MEMBER_SLEEP_VALUE = re.compile(r"(?<![\w)\]])\.sleep\s*\(")
+# data in an assertion. A receiver (`clock.sleep`, `clock?.sleep`,
+# `ContinuousClock().sleep`) prevents this match, so real qualified calls
+# remain candidates.
+_IMPLICIT_MEMBER_SLEEP_VALUE = re.compile(r"(?<![\w)\]?!>])\.sleep\s*\(")
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
@@ -667,6 +668,12 @@ def _self_test() -> int:
             "tests/assert_sleep.py",
             "assert await asyncio.sleep(0.3) is None\n"
             "assert widget.is_rendered()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/OptionalClockTests.swift",
+            "#expect(await clock?.sleep(for: .milliseconds(300)) == nil)\n"
+            "#expect(widget.isRendered)\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
