@@ -52,7 +52,7 @@ extension CmuxTaskManagerCodingAgentDefinition {
             displayName: String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code"),
             assetName: nil,
             launchKinds: ["kimi"],
-            directBasenames: ["kimi", "kimi-cli", "kimi-code"],
+            directBasenames: ["kimi", "kimi-cli", "kimi-code", "kimi code"],
             argumentNeedles: ["kimi-cli", "kimi-code"]
         ),
         .init(

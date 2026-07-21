@@ -9,11 +9,11 @@ import Testing
 
 @Suite("Kimi restorable agent")
 struct KimiRestorableAgentTests {
-    @Test("Kimi is a first-class codable restorable kind")
-    func firstClassKindRoundTrip() throws {
+    @Test("Kimi is a codable registry-owned restorable kind")
+    func registryOwnedKindRoundTrip() throws {
         let kind = try #require(RestorableAgentKind(rawValue: "kimi"))
 
-        #expect(RestorableAgentKind.allCases.contains(kind))
+        #expect(!RestorableAgentKind.allCases.contains(kind))
         #expect(kind.rawValue == "kimi")
         #expect(kind.displayName == "Kimi Code")
         #expect(kind.restoreMode == .resumeSession)
@@ -22,6 +22,41 @@ struct KimiRestorableAgentTests {
         let encoded = try JSONEncoder().encode(kind)
         #expect(String(decoding: encoded, as: UTF8.self) == #""kimi""#)
         #expect(try JSONDecoder().decode(RestorableAgentKind.self, from: encoded) == kind)
+
+        let registration = CmuxVaultAgentRegistration.builtInKimi
+        #expect(registration.id == "kimi")
+        #expect(registration.name == "Kimi Code")
+        #expect(registration.detect.processNames == ["kimi", "kimi-cli", "kimi-code"])
+        #expect(registration.sessionIdSource == .argvOption("--resume"))
+        #expect(registration.resumeCommand == "{{executable}} --resume {{sessionId}}")
+    }
+
+    @Test("Kimi's OS process title remains detectable")
+    func processTitleDetection() {
+        let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "Kimi Code",
+            processPath: "/Users/example/.local/share/uv/tools/kimi-cli/bin/python",
+            arguments: ["Kimi Code"],
+            environment: [:]
+        )
+
+        #expect(definition?.id == "kimi")
+    }
+
+    @Test(
+        "Kimi executable aliases use the shared foreground sanitizer",
+        arguments: ["kimi-cli", "kimi-code"]
+    )
+    func foregroundExecutableAlias(_ executable: String) {
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(
+                fromArgv: [
+                    "/Users/example/.local/bin/\(executable)",
+                    "--resume", "stale-session",
+                    "--model", "kimi-k2",
+                ]
+            ) == "/Users/example/.local/bin/\(executable) --model kimi-k2"
+        )
     }
 
     @Test("Pre-existing custom Kimi Vault registrations remain decodable")
@@ -82,7 +117,9 @@ struct KimiRestorableAgentTests {
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fileManager)
                 .snapshot(workspaceId: workspaceID, panelId: panelID)
         )
+        #expect(snapshot.kind == .custom("kimi"))
         #expect(snapshot.kind.rawValue == "kimi")
+        #expect(snapshot.registration?.id == "kimi")
         #expect(snapshot.sessionId == sessionID)
         #expect(snapshot.workingDirectory == workingDirectory.path)
 

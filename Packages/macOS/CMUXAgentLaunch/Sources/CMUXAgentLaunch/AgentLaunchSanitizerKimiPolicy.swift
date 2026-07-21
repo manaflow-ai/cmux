@@ -34,7 +34,7 @@ extension AgentLaunchSanitizer {
             "--session", "--resume", "-S", "-r",
             "--continue", "-C",
             "--prompt", "--command", "-p", "-c",
-            "--yolo", "--yes", "--auto-approve", "-y", "--afk",
+            "--yolo", "--yes", "--auto-approve", "-y", "--afk", "--plan",
             "--config", "--mcp-config",
             "--output-format", "--final-message-only",
         ],

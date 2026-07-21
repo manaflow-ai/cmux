@@ -82,10 +82,10 @@ struct KimiAgentResumeTests {
     }
 
     @Test(
-        "Drops stale Kimi auto-approval modes while preserving following options",
+        "Drops stale Kimi approval and plan modes while preserving following options",
         arguments: ["--yolo", "--yes", "--auto-approve", "-y", "--afk", "--plan"]
     )
-    func dropsStaleAutoApprovalMode(_ option: String) {
+    func dropsStaleApprovalAndPlanMode(_ option: String) {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 ["kimi", option, "--model", "kimi-k2"],
