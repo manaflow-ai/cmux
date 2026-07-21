@@ -427,6 +427,8 @@ private struct TaskComposerSubmissionProbe: View {
                 .accessibilityIdentifier("MobileTaskComposerSubmittedMacDeviceID")
             Text(verbatim: spec.workingDirectory ?? "<nil>")
                 .accessibilityIdentifier("MobileTaskComposerSubmittedWorkingDirectory")
+            Text(verbatim: spec.title ?? "<nil>")
+                .accessibilityIdentifier("MobileTaskComposerSubmittedTitle")
             Text(verbatim: spec.initialCommand ?? "<nil>")
                 .accessibilityIdentifier("MobileTaskComposerSubmittedInitialCommand")
             Text(verbatim: spec.initialEnv?["CMUX_TASK_PROMPT"] ?? "<nil>")

@@ -959,6 +959,32 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// The optional workspace name must replace the generated task title on
+    /// the workspace-create request without becoming required input.
+    @MainActor
+    func testTaskComposerOptionalWorkspaceNameOverridesGeneratedTitle() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceName = app.textFields["MobileTaskComposerWorkspaceName"]
+        XCTAssertTrue(workspaceName.waitForExistence(timeout: 8))
+        try typeText("Release checklist", into: workspaceName, in: app)
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 3))
+        try typeText("Verify the release", into: prompt, in: app)
+
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        tap(create, in: app)
+
+        let submittedTitle = app.staticTexts["MobileTaskComposerSubmittedTitle"]
+        XCTAssertTrue(submittedTitle.waitForExistence(timeout: 3))
+        XCTAssertEqual(submittedTitle.label, "Release checklist")
+    }
+
     /// Regression: the template form's default-directory field must identify
     /// itself as Directory instead of exposing only its "~" placeholder.
     @MainActor
