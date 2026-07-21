@@ -186,7 +186,19 @@ public final class UpdateController {
     /// (the merge of the old `$state.sink`, the attempt sink, and the `CombineLatest` dismiss
     /// observer).
     private func handleStateChange(_ state: UpdateState, overrideState: UpdateState?) {
+        reconcileInstallAttempt(with: state)
+        // Disarm the install watchdog the moment the flow progresses the install or shows a clear
+        // outcome, so a healthy install (or a real error / "no updates") never trips it.
+        if installWatchdog.isArmed, installWatchdog.installAttemptResolved(state) {
+            installWatchdog.disarm()
+        }
+        scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
+    }
 
+    /// Reconciles an observed update state with the accepted-install coordinator. The Sparkle
+    /// cycle-finished callback also uses this path when it can arrive before the async state
+    /// observer, keeping both callback orders behaviorally identical.
+    func reconcileInstallAttempt(with state: UpdateState) {
         if attemptCoordinator.isMonitoring {
             let action = attemptCoordinator.handleStateChange(state)
             // The watchdog guards one specific install attempt. If that attempt just ended
@@ -203,12 +215,6 @@ public final class UpdateController {
             }
             performAttemptAction(action)
         }
-        // Disarm the install watchdog the moment the flow progresses the install or shows a clear
-        // outcome, so a healthy install (or a real error / "no updates") never trips it.
-        if installWatchdog.isArmed, installWatchdog.installAttemptResolved(state) {
-            installWatchdog.disarm()
-        }
-        scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
     }
 
     // The attempt-update entry point, its coordinator actions, and the install-watchdog trip

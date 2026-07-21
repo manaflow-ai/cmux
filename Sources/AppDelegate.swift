@@ -8849,6 +8849,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.checkForUpdatesInCustomUI()
     }
 
+#if DEBUG
+    func debugShowUpdateError(_ scenario: DebugUpdateErrorScenario) {
+        if scenario == .installDidNotStart {
+            updateController.debugShowInstallDidNotStartError()
+        } else {
+            updateViewModel.debugShowUpdateError(scenario)
+        }
+    }
+#endif
+
     func openWelcomeWorkspace() {
         guard let context = preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: "welcome") else {
             return

@@ -6,6 +6,14 @@ import Foundation
 extension UpdateController {
     // MARK: - Attempt update
 
+#if DEBUG
+    /// Surfaces the real retryable install-attempt error for debug-menu and UI automation. Unlike
+    /// a synthetic model override, its Retry action exercises the production attempt pipeline.
+    public func debugShowInstallDidNotStartError() {
+        setInstallDidNotStartError(diagnostic: "debug scenario: installDidNotStart")
+    }
+#endif
+
     /// Re-check for updates and auto-confirm the install of whatever the fresh check resolves.
     ///
     /// This is the single user-facing "install the update" entry point. It deliberately runs a

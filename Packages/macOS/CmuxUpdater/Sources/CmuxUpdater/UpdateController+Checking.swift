@@ -221,6 +221,13 @@ extension UpdateController: UpdateDriverEventDelegate {
         }
 
         if finishedIntent == .installLatest, attemptCoordinator.isMonitoring {
+            if case .notFound = model.state {
+                // Sparkle can finish the cycle before the async model observer consumes the
+                // no-update terminal. Reconcile it through the same coordinator path now.
+                reconcileInstallAttempt(with: model.state)
+                installWatchdog.disarm()
+                return
+            }
             switch model.state {
             case .downloading, .extracting, .installing, .error:
                 return
