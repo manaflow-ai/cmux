@@ -32,9 +32,22 @@ final class WorkspaceListScrollEdgeCoordinator {
             hosting: scrollView, inParentOfKind: UITabBarController.self
         )
         guard navigationContent != nil || tabContent != nil else { return }
+        // Compare the controllers' EFFECTIVE registration, not just cached
+        // identities: a transient replacement table can take a registration
+        // over and then clear it on departure, leaving this surviving table's
+        // cache claiming ownership it no longer holds. Re-registering on the
+        // next layout pass makes the handoff self-healing in both directions.
+        let topIsCurrent = navigationContent.map {
+            $0.contentScrollView(for: .top) === scrollView
+        } ?? true
+        let bottomIsCurrent = tabContent.map {
+            $0.contentScrollView(for: .bottom) === scrollView
+        } ?? true
         guard navigationContent !== navigationContentController
             || tabContent !== tabContentController
             || scrollView !== registeredScrollView
+            || !topIsCurrent
+            || !bottomIsCurrent
         else { return }
         unregister()
         registeredScrollView = scrollView

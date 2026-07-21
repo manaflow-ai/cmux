@@ -55,6 +55,27 @@ import UIKit
         #expect(navigation.contentScrollView(for: .bottom) === tableView)
     }
 
+    /// Reverse handoff: a transient replacement takes the registration over
+    /// and clears it when it departs. The surviving table must reclaim the
+    /// registration on its next layout pass instead of trusting its cache.
+    @Test func survivingTableRestoresRegistrationAfterReplacementDeparts() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let fixture = Fixture()
+        let replacement = WorkspaceListUITableView(frame: .zero, style: .plain)
+        fixture.content.view.addSubview(replacement)
+        replacement.layoutIfNeeded()
+        #expect(fixture.content.contentScrollView(for: .top) === replacement)
+
+        replacement.removeFromSuperview()
+        #expect(fixture.content.contentScrollView(for: .top) == nil)
+
+        fixture.tableView.setNeedsLayout()
+        fixture.tableView.layoutIfNeeded()
+
+        #expect(fixture.content.contentScrollView(for: .top) === fixture.tableView)
+        #expect(fixture.navigation.contentScrollView(for: .bottom) === fixture.tableView)
+    }
+
     @Test func departingTableDoesNotClobberReplacementRegistration() throws {
         guard #available(iOS 26.0, *) else { return }
         let fixture = Fixture()
