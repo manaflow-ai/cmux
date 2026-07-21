@@ -204,6 +204,11 @@ _SLEEP_CALL = re.compile(
     """
 )
 
+# Swift implicit-member values such as `.sleep(deadline)` can represent enum
+# data in an assertion. A receiver (`clock.sleep`, `ContinuousClock().sleep`)
+# prevents this match, so real qualified calls remain candidates.
+_IMPLICIT_MEMBER_SLEEP_VALUE = re.compile(r"(?<![\w)\]])\.sleep\s*\(")
+
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
 # Python / TS the same character sequence is almost always a quoted string
@@ -446,12 +451,13 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
-    # An assertion may compare a virtual-clock event whose enum case is named
-    # `.sleep(...)`; it is not itself a synchronization delay preceding an
-    # assertion. Keep qualified real sleeps detectable on non-assertion lines.
+    candidate_line = line
+    # Ignore only bare Swift implicit-member data inside an assertion. Explicit
+    # APIs such as Task.sleep, asyncio.sleep, and clock.sleep remain detectable
+    # even when the sleep itself is nested in an assertion expression.
     if _is_assertion_line(line):
-        return False
-    is_sleep = bool(_SLEEP_CALL.search(line))
+        candidate_line = _IMPLICIT_MEMBER_SLEEP_VALUE.sub("", line)
+    is_sleep = bool(_SLEEP_CALL.search(candidate_line))
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -655,6 +661,12 @@ def _self_test() -> int:
             "Tests/QualifiedClockTests.swift",
             "try await ContinuousClock().sleep(for: .milliseconds(300))\n"
             "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/assert_sleep.py",
+            "assert await asyncio.sleep(0.3) is None\n"
+            "assert widget.is_rendered()\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
