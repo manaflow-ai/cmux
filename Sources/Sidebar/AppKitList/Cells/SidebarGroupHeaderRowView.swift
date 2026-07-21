@@ -587,26 +587,36 @@ final class SidebarHeaderGlyphButton: NSButton {
     }
 }
 
-/// AppKit rendition of the sidebar shortcut-hint capsule (material + stroke +
-/// shadow), shown only while modifier-hold digit hints are active.
+/// AppKit rendition of the sidebar shortcut-hint capsule. The outer view owns
+/// the shadow while the inner visual-effect view clips material to the capsule;
+/// putting both on one unclipped layer leaves a square material background.
 @MainActor
-final class SidebarShortcutHintPillView: NSVisualEffectView {
+final class SidebarShortcutHintPillView: NSView {
+    private let materialView = NSVisualEffectView()
     private let label = NSTextField(labelWithString: "")
     private var emphasis: Double = 1.0
+    private var isRevealed = false
+    private var visibilityGeneration: UInt64 = 0
 
     init() {
         super.init(frame: .zero)
-        material = .popover
-        state = .active
-        blendingMode = .withinWindow
         wantsLayer = true
-        layer?.borderWidth = 0.8
         layer?.shadowOpacity = 1
         layer?.shadowRadius = 2
         layer?.shadowOffset = CGSize(width: 0, height: -1)
+
+        materialView.material = .popover
+        materialView.state = .active
+        materialView.blendingMode = .withinWindow
+        materialView.wantsLayer = true
+        materialView.layer?.masksToBounds = true
+        materialView.layer?.borderWidth = 0.8
+        addSubview(materialView)
+
         label.alignment = .center
         label.lineBreakMode = .byClipping
-        addSubview(label)
+        materialView.addSubview(label)
+        alphaValue = 0
         isHidden = true
     }
 
@@ -616,16 +626,16 @@ final class SidebarShortcutHintPillView: NSVisualEffectView {
 
     func configure(text: String?, fontSize: CGFloat, emphasis: Double) {
         guard let text else {
-            isHidden = true
+            setRevealed(false)
             return
         }
         self.emphasis = emphasis
-        isHidden = false
         label.stringValue = text
         label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
         label.textColor = .labelColor
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
+        materialView.layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
+        setRevealed(true)
     }
 
     func fittingPillSize() -> NSSize {
@@ -636,7 +646,50 @@ final class SidebarShortcutHintPillView: NSVisualEffectView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
-        label.frame = bounds.insetBy(dx: 6, dy: 2)
+        let radius = bounds.height / 2
+        materialView.frame = bounds
+        materialView.layer?.cornerRadius = radius
+        label.frame = materialView.bounds.insetBy(dx: 6, dy: 2)
+        layer?.shadowPath = CGPath(
+            roundedRect: bounds,
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
+        )
+    }
+
+    private func setRevealed(_ revealed: Bool) {
+        guard isRevealed != revealed else { return }
+        isRevealed = revealed
+        visibilityGeneration &+= 1
+        let generation = visibilityGeneration
+
+        if revealed {
+            if isHidden {
+                alphaValue = 0
+                isHidden = false
+            }
+            animateAlpha(to: 1)
+        } else {
+            guard !isHidden else {
+                alphaValue = 0
+                return
+            }
+            animateAlpha(to: 0) { [weak self] in
+                guard let self,
+                      self.visibilityGeneration == generation,
+                      !self.isRevealed else { return }
+                self.isHidden = true
+            }
+        }
+    }
+
+    private func animateAlpha(to value: CGFloat, completion: (() -> Void)? = nil) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = ShortcutHintAnimation.visibilityDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            animator().alphaValue = value
+        }, completionHandler: completion)
     }
 }
