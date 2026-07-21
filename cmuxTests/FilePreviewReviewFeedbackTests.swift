@@ -455,6 +455,35 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testAutosavingNoteDoesNotOverwriteExistingFileAfterLoadFailure() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unreadable-note-\(UUID().uuidString)")
+            .appendingPathExtension("md")
+        try "preserve this source".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            presentation: .note(title: "Unreadable note"),
+            textLoader: { _ in .unavailable },
+            autosaveDelayNanoseconds: 60_000_000_000
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        XCTAssertTrue(panel.isFileUnavailable)
+        panel.updateTextContent("must not replace unreadable source")
+        let didFlush = await panel.flushPendingAutosave()
+
+        XCTAssertFalse(didFlush)
+        XCTAssertEqual(
+            try String(contentsOf: url, encoding: .utf8),
+            "preserve this source"
+        )
+    }
+
     func testTextSaverPreservesSymbolicLinkDestination() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-preview-symlink-\(UUID().uuidString)", isDirectory: true)
