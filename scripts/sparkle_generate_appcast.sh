@@ -37,27 +37,12 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build >/dev/null
 
-echo "Building Sparkle sign_update tool..."
-xcodebuild \
-  -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
-  -scheme sign_update \
-  -configuration Release \
-  -derivedDataPath "$work_dir/build" \
-  CODE_SIGNING_ALLOWED=NO \
-  build >/dev/null
-
 generate_appcast="$work_dir/build/Build/Products/Release/generate_appcast"
-sign_update="$work_dir/build/Build/Products/Release/sign_update"
 
 if [[ ! -x "$generate_appcast" ]]; then
   echo "generate_appcast binary not found at $generate_appcast" >&2
   exit 1
 fi
-if [[ ! -x "$sign_update" ]]; then
-  echo "sign_update binary not found at $sign_update" >&2
-  exit 1
-fi
-
 archives_dir="$work_dir/archives"
 mkdir -p "$archives_dir"
 cp "$DMG_PATH" "$archives_dir/$(basename "$DMG_PATH")"
@@ -90,31 +75,11 @@ if [[ ! -f "$generated_appcast_path" ]]; then
   exit 1
 fi
 
-# Check if generate_appcast added the edSignature. If not, use sign_update
-# to sign the DMG and inject the signature. generate_appcast silently skips
-# signing when the public key derived from the private key doesn't match the
-# SUPublicEDKey in the app's Info.plist.
+# `generate_appcast` must sign structurally. Text-injecting a fallback signature can duplicate
+# enclosure attributes and publish malformed XML; a key mismatch is a release-blocking error.
 if ! grep -q 'sparkle:edSignature' "$generated_appcast_path"; then
-  echo "Warning: generate_appcast did not add edSignature. Using sign_update fallback..."
-  SIGNATURE=$("$sign_update" -p --ed-key-file "$key_file" "$DMG_PATH")
-  DMG_LENGTH=$(stat -f%z "$DMG_PATH")
-  echo "  EdDSA signature: ${SIGNATURE:0:20}..."
-  echo "  DMG length: $DMG_LENGTH"
-
-  # Inject sparkle:edSignature and correct length into the enclosure element
-  python3 -c "
-import sys
-xml = open('$generated_appcast_path').read()
-sig = '$SIGNATURE'
-length = '$DMG_LENGTH'
-# Add edSignature to enclosure
-xml = xml.replace(
-    'type=\"application/octet-stream\"',
-    'sparkle:edSignature=\"' + sig + '\" length=\"' + length + '\" type=\"application/octet-stream\"'
-)
-open('$generated_appcast_path', 'w').write(xml)
-print('  Injected edSignature into appcast.xml')
-"
+  echo "ERROR: generate_appcast did not sign the enclosure; verify SPARKLE_PRIVATE_KEY matches the app's SUPublicEDKey." >&2
+  exit 1
 fi
 
 cp "$generated_appcast_path" "$OUT_PATH"

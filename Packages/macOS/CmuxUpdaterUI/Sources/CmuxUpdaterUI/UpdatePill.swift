@@ -5,6 +5,11 @@ import AppKit
 
 /// A pill-shaped button that displays update status and provides access to update actions.
 public struct UpdatePill: View {
+    enum NotFoundTapBehavior: Equatable {
+        case acknowledge
+        case showDetails
+    }
+
     private let model: UpdateStateModel
     private let appearance: UpdateAppearance
     private let actions: any UpdateActionsHost
@@ -87,11 +92,32 @@ public struct UpdatePill: View {
         }
 
         if case .notFound(let notFound) = model.state {
-            model.setState(.idle)
-            notFound.acknowledgement()
+            switch Self.notFoundTapBehavior(for: notFound) {
+            case .acknowledge:
+                actions.acknowledgeNoUpdate()
+            case .showDetails:
+                showPopover.toggle()
+            }
         } else {
             showPopover.toggle()
         }
+    }
+
+    static func notFoundTapBehavior(for result: UpdateState.NotFound) -> NotFoundTapBehavior {
+        result.automaticallyDismisses ? .acknowledge : .showDetails
+    }
+
+    static func offersRetry(for result: UpdateState.NotFound) -> Bool {
+        if case .unknown = result.reason { return true }
+        return false
+    }
+
+    static func performNoUpdateRetry(using actions: any UpdateActionsHost) {
+        actions.retryNoUpdate()
+    }
+
+    static func performInstall(using actions: any UpdateActionsHost) {
+        actions.attemptUpdate()
     }
 
     private var textWidth: CGFloat? {
@@ -269,7 +295,7 @@ public struct InstallUpdateMenuItem: View {
             Button(String(localized: "update.installAndRelaunch", defaultValue: "Install Update and Relaunch")) {
                 // Re-resolve to the latest available version before installing rather than
                 // installing the version that was current when this menu item appeared (#6366).
-                actions.attemptUpdate()
+                UpdatePill.performInstall(using: actions)
             }
         }
     }

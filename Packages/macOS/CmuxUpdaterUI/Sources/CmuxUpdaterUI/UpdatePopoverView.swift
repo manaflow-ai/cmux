@@ -61,7 +61,7 @@ public struct UpdatePopoverView: View {
                 InstallingView(installing: installing, dismiss: dismiss)
 
             case .notFound(let notFound):
-                NotFoundView(notFound: notFound, dismiss: dismiss)
+                NotFoundView(notFound: notFound, actions: actions, dismiss: dismiss)
 
             case .error(let error):
                 UpdateErrorView(error: error, logPath: actions.updateLogPath, dismiss: dismiss)
@@ -160,7 +160,7 @@ private struct DetectedBackgroundUpdateView: View {
                     Spacer()
 
                     Button(String(localized: "common.installAndRelaunch", defaultValue: "Install and Relaunch")) {
-                        actions.attemptUpdate()
+                        UpdatePill.performInstall(using: actions)
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
@@ -170,7 +170,7 @@ private struct DetectedBackgroundUpdateView: View {
             }
             .padding(16)
 
-            if let notes = UpdateState.ReleaseNotes(displayVersionString: item.displayVersionString) {
+            if let notes = UpdateState.ReleaseNotes(appcastItem: item) {
                 Divider()
                 UpdateReleaseNotesLink(notes: notes)
             }
@@ -296,13 +296,13 @@ private struct UpdateAvailableView: View {
 
                 HStack(spacing: 8) {
                     Button(String(localized: "common.skip", defaultValue: "Skip")) {
-                        update.reply(.skip)
+                        update.skip()
                         dismiss()
                     }
                     .controlSize(.small)
 
                     Button(String(localized: "common.later", defaultValue: "Later")) {
-                        update.reply(.dismiss)
+                        update.dismiss()
                         dismiss()
                     }
                     .controlSize(.small)
@@ -314,7 +314,7 @@ private struct UpdateAvailableView: View {
                         // Re-resolve to the latest available version at install time instead of
                         // installing the version captured when this prompt was generated, so a
                         // newer release published in the meantime is installed directly (#6366).
-                        actions.attemptUpdate()
+                        UpdatePill.performInstall(using: actions)
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
@@ -430,15 +430,16 @@ private struct InstallingView: View {
 
 private struct NotFoundView: View {
     let notFound: UpdateState.NotFound
+    let actions: any UpdateActionsHost
     let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(String(localized: "update.popover.noUpdatesFound", defaultValue: "No Updates Found"))
+                Text(notFound.title)
                     .cmuxFont(size: 13, weight: .semibold)
 
-                Text(String(localized: "update.popover.noUpdatesFound.message", defaultValue: "You're already running the latest version."))
+                Text(notFound.message)
                     .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -446,12 +447,29 @@ private struct NotFoundView: View {
 
             HStack {
                 Spacer()
-                Button(String(localized: "common.ok", defaultValue: "OK")) {
-                    notFound.acknowledgement()
-                    dismiss()
+                if UpdatePill.offersRetry(for: notFound) {
+                    Button(String(localized: "common.ok", defaultValue: "OK")) {
+                        actions.acknowledgeNoUpdate()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    .controlSize(.small)
+
+                    Button(String(localized: "common.retry", defaultValue: "Retry")) {
+                        dismiss()
+                        UpdatePill.performNoUpdateRetry(using: actions)
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                } else {
+                    Button(String(localized: "common.ok", defaultValue: "OK")) {
+                        actions.acknowledgeNoUpdate()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .controlSize(.small)
                 }
-                .keyboardShortcut(.defaultAction)
-                .controlSize(.small)
             }
         }
         .padding(16)

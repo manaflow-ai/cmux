@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Stable releases ship with the stable appcast URL and `cmux NIGHTLY` has the nightly
 /// appcast URL injected by CI. When the `Info.plist` value is missing or empty the resolver
-/// falls back to the latest-release appcast so the updater still has a feed to query.
+/// falls back to the atomic stable appcast so the updater still has a feed to query.
 ///
 /// ```swift
 /// let resolver = UpdateFeedResolver()
@@ -37,8 +37,8 @@ public struct UpdateFeedResolver: Sendable {
     /// Creates a resolver.
     ///
     /// - Parameter fallbackFeedURL: The appcast URL to fall back to when the build-time
-    ///   feed URL is absent. Defaults to the project's latest-release appcast.
-    public init(fallbackFeedURL: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml") {
+    ///   feed URL is absent. Defaults to the project's atomic stable appcast.
+    public init(fallbackFeedURL: String = "https://files.cmux.com/stable/appcast.xml") {
         self.fallbackFeedURL = fallbackFeedURL
     }
 

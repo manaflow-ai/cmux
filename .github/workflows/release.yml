@@ -5,8 +5,29 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Build a dry run, or publish an already-complete immutable release
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - publish
+          - publish-existing
+      release_tag:
+        description: Exact stable tag to publish from the default-branch workflow
+        required: false
+        type: string
+
+# A single stable publication owns both update pointers. Without serialization, an older release
+# that finishes last can overwrite the canonical appcast and GitHub's legacy /latest redirect.
+concurrency:
+  group: cmux-stable-release-publication
+  cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
   attestations: write
   id-token: write
@@ -15,7 +36,188 @@ env:
   CREATE_DMG_VERSION: 8.0.0
 
 jobs:
+  release-preflight:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    outputs:
+      skip_all: ${{ steps.guard_release_assets.outputs.skip_all }}
+      skip_upload: ${{ steps.guard_release_assets.outputs.skip_upload }}
+      should_publish: ${{ steps.release_mode.outputs.should_publish }}
+      release_tag: ${{ steps.effective_release_tag.outputs.release_tag }}
+      checkout_ref: ${{ steps.release_mode.outputs.checkout_ref }}
+      release_tool_root: ${{ steps.release_mode.outputs.release_tool_root }}
+    steps:
+      - name: Resolve release operation
+        id: release_mode
+        shell: bash
+        env:
+          OPERATION: ${{ inputs.operation || '' }}
+          REQUESTED_RELEASE_TAG: ${{ inputs.release_tag || '' }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          SHOULD_PUBLISH=false
+          RELEASE_TAG=""
+          CHECKOUT_REF="$GITHUB_SHA"
+          RELEASE_TOOL_ROOT="."
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/tags/* ]]; then
+            SHOULD_PUBLISH=true
+            RELEASE_TAG="${GITHUB_REF#refs/tags/}"
+            CHECKOUT_REF="$RELEASE_TAG"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            case "$OPERATION" in
+              dry-run)
+                if [[ -n "$REQUESTED_RELEASE_TAG" ]]; then
+                  echo "dry-run must use the selected branch without release_tag" >&2
+                  exit 1
+                fi
+                if [[ "$GITHUB_REF" != refs/heads/* ]]; then
+                  echo "dry-run must be dispatched from a branch" >&2
+                  exit 1
+                fi
+                ;;
+              publish|publish-existing)
+                if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+                  echo "$OPERATION must run from the default branch workflow" >&2
+                  exit 1
+                fi
+                if [[ ! "$REQUESTED_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                  echo "$OPERATION requires release_tag=v<major>.<minor>.<patch>" >&2
+                  exit 1
+                fi
+                SHOULD_PUBLISH=true
+                RELEASE_TAG="$REQUESTED_RELEASE_TAG"
+                CHECKOUT_REF="$RELEASE_TAG"
+                RELEASE_TOOL_ROOT="./.release-tools"
+                ;;
+              *)
+                echo "Unsupported release operation: $OPERATION" >&2
+                exit 1
+                ;;
+            esac
+          else
+            echo "Unsupported release event: $GITHUB_EVENT_NAME" >&2
+            exit 1
+          fi
+          {
+            echo "should_publish=$SHOULD_PUBLISH"
+            echo "release_tag=$RELEASE_TAG"
+            echo "checkout_ref=$CHECKOUT_REF"
+            echo "release_tool_root=$RELEASE_TOOL_ROOT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.release_mode.outputs.checkout_ref }}
+
+      - name: Checkout current release tooling
+        if: github.event_name == 'workflow_dispatch' && steps.release_mode.outputs.should_publish == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+
+      - name: Resolve and validate artifact release tag
+        id: effective_release_tag
+        env:
+          RELEASE_TOOL_ROOT: ${{ steps.release_mode.outputs.release_tool_root }}
+          CMUX_PROJECT_FILE: ${{ github.workspace }}/cmux.xcodeproj/project.pbxproj
+          REQUESTED_RELEASE_TAG: ${{ steps.release_mode.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="$REQUESTED_RELEASE_TAG"
+          if [[ -z "$RELEASE_TAG" ]]; then
+            PROJECT_VERSIONS="$(
+              sed -n 's/.*MARKETING_VERSION = \([^;]*\);.*/\1/p' "$CMUX_PROJECT_FILE" \
+                | sort -u
+            )"
+            if [[ "$(printf '%s\n' "$PROJECT_VERSIONS" | sed '/^$/d' | wc -l | tr -d ' ')" != "1" ]]; then
+              echo "Could not derive one MARKETING_VERSION for release dry-run" >&2
+              exit 1
+            fi
+            RELEASE_TAG="v$(printf '%s\n' "$PROJECT_VERSIONS" | head -n1)"
+          fi
+          "$RELEASE_TOOL_ROOT/scripts/validate-release-version.sh" "$RELEASE_TAG"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Guard immutable release assets
+        id: guard_release_assets
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_TAG: ${{ steps.release_mode.outputs.release_tag }}
+          RELEASE_TOOL_ROOT: ${{ steps.release_mode.outputs.release_tool_root }}
+        with:
+          script: |
+            const { evaluateReleaseAssetGuard } = require(
+              `${process.env.RELEASE_TOOL_ROOT}/scripts/release_asset_guard`
+            );
+            const tag = process.env.RELEASE_TAG || null;
+            core.setOutput('skip_all', 'false');
+            core.setOutput('skip_upload', 'false');
+            core.setOutput('finalize_draft', 'false');
+            if (!tag) {
+              core.notice('release guard is in dry-run mode.');
+              return;
+            }
+            try {
+              const release = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              const existingAssetNames = (release.data.assets || []).map((asset) => asset.name);
+              const {
+                conflicts,
+                missingImmutableAssets,
+                hasPartialConflict,
+                shouldSkipBuildAndUpload,
+                requiresDraftFinalization,
+              } = evaluateReleaseAssetGuard({
+                existingAssetNames,
+                releaseIsDraft: release.data.draft,
+              });
+
+              if (hasPartialConflict) {
+                core.setFailed(
+                  `Release ${tag} has a partial immutable asset state. Existing immutable assets: ` +
+                  `${conflicts.join(', ')}. Missing immutable assets: ${missingImmutableAssets.join(', ')}. ` +
+                  'Resolve release assets manually before rerunning.'
+                );
+                return;
+              }
+
+              if (shouldSkipBuildAndUpload) {
+                core.notice(
+                  `Release ${tag} already contains immutable assets (${conflicts.join(', ')}). ` +
+                  'Skipping build jobs; the publication job will verify and repair the canonical feed.'
+                );
+                core.setOutput('skip_all', 'true');
+                core.setOutput('skip_upload', 'true');
+                core.setOutput('finalize_draft', String(requiresDraftFinalization));
+                return;
+              }
+
+              core.notice(`Release ${tag} has no immutable release assets yet; continuing.`);
+            } catch (error) {
+              if (error.status === 404) {
+                core.notice(`Release ${tag} does not exist yet; safe to build and publish assets.`);
+                return;
+              }
+              throw error;
+            }
+
+      - name: Require complete assets for publication-only dispatch
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'publish-existing'
+        run: |
+          if [[ "${{ steps.guard_release_assets.outputs.skip_all }}" != "true" ]]; then
+            echo "publish-existing requires a release with every immutable asset already uploaded" >&2
+            exit 1
+          fi
+
   build-ghostty-cli-helper:
+    needs: release-preflight
+    if: needs.release-preflight.outputs.skip_all != 'true'
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:
@@ -34,6 +236,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ needs.release-preflight.outputs.checkout_ref }}
           submodules: recursive
 
       - name: Install zig
@@ -61,7 +264,12 @@ jobs:
           if-no-files-found: error
 
   build-sign-notarize:
-    needs: build-ghostty-cli-helper
+    needs: [release-preflight, build-ghostty-cli-helper]
+    if: >-
+      always() &&
+      needs.release-preflight.result == 'success' &&
+      (needs.build-ghostty-cli-helper.result == 'success' ||
+       needs.release-preflight.outputs.skip_all == 'true')
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
@@ -87,25 +295,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          ref: ${{ needs.release-preflight.outputs.checkout_ref }}
+          # Exact-asset retries only verify and republish appcast.xml. Avoid coupling that repair
+          # path to mutable build submodules or the Ghostty toolchain.
+          submodules: ${{ needs.release-preflight.outputs.skip_all != 'true' && 'recursive' || 'false' }}
 
-      - name: Validate Sparkle build number is monotonic
-        run: ./tests/test_ci_sparkle_build_monotonic.sh
+      - name: Checkout current release tooling
+        if: github.event_name == 'workflow_dispatch' && needs.release-preflight.outputs.should_publish == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
 
       - name: Guard immutable release assets
         id: guard_release_assets
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.should_publish == 'true' && needs.release-preflight.outputs.release_tag || '' }}
+          RELEASE_TOOL_ROOT: ${{ needs.release-preflight.outputs.release_tool_root }}
         with:
           script: |
-            const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
-            const tag = context.ref.startsWith('refs/tags/')
-              ? context.ref.replace('refs/tags/', '')
-              : null;
+            const { evaluateReleaseAssetGuard } = require(
+              `${process.env.RELEASE_TOOL_ROOT}/scripts/release_asset_guard`
+            );
+            const tag = process.env.RELEASE_TAG || null;
             core.setOutput('skip_all', 'false');
             core.setOutput('skip_upload', 'false');
             core.setOutput('release_state', 'clear');
+            core.setOutput('finalize_draft', 'false');
             if (!tag) {
-              core.notice('workflow_dispatch is not running from a tag; release guard is in dry-run mode.');
+              core.notice('release guard is in dry-run mode.');
               return;
             }
             try {
@@ -121,7 +340,11 @@ jobs:
                 guardState,
                 hasPartialConflict,
                 shouldSkipBuildAndUpload,
-              } = evaluateReleaseAssetGuard({ existingAssetNames });
+                requiresDraftFinalization,
+              } = evaluateReleaseAssetGuard({
+                existingAssetNames,
+                releaseIsDraft: release.data.draft,
+              });
 
               core.setOutput('release_state', guardState);
 
@@ -141,6 +364,7 @@ jobs:
                 );
                 core.setOutput('skip_all', 'true');
                 core.setOutput('skip_upload', 'true');
+                core.setOutput('finalize_draft', String(requiresDraftFinalization));
                 return;
               }
 
@@ -152,6 +376,12 @@ jobs:
               }
               throw error;
             }
+
+      - name: Validate Sparkle build number is monotonic
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          CMUX_SPARKLE_MONOTONIC_STRICT: "1"
+        run: ./tests/test_ci_sparkle_build_monotonic.sh
 
       - name: Select Xcode
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -296,7 +526,7 @@ jobs:
           APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
           ./scripts/build_remote_daemon_release_assets.sh \
             --version "$APP_VERSION" \
-            --release-tag "$GITHUB_REF_NAME" \
+            --release-tag "${{ needs.release-preflight.outputs.release_tag }}" \
             --repo "manaflow-ai/cmux" \
             --output-dir "remote-daemon-assets"
           MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets/cmuxd-remote-manifest.json)"
@@ -327,7 +557,7 @@ jobs:
           echo "Adding SUPublicEDKey to Info.plist..."
           /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$APP_PLIST"
           echo "Adding SUFeedURL to Info.plist..."
-          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://files.cmux.com/stable/appcast.xml" "$APP_PLIST"
           echo "Verifying:"
           /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$APP_PLIST"
           /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$APP_PLIST"
@@ -480,12 +710,27 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          RELEASE_TOOL_ROOT: ${{ needs.release-preflight.outputs.release_tool_root }}
         run: |
           if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
+          "$RELEASE_TOOL_ROOT/scripts/sparkle_generate_appcast.sh" \
+            cmux-macos.dmg \
+            "${{ needs.release-preflight.outputs.release_tag }}" \
+            appcast.xml
+
+      - name: Validate Sparkle appcast before immutable publication
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          RELEASE_TOOL_ROOT: ${{ needs.release-preflight.outputs.release_tool_root }}
+        run: |
+          python3 "$RELEASE_TOOL_ROOT/scripts/ci/validate_release_appcast_assets.py" \
+            --appcast appcast.xml \
+            --tag "${{ needs.release-preflight.outputs.release_tag }}" \
+            --enclosure-file cmux-macos.dmg \
+            --expected-enclosure cmux-macos.dmg
 
       - name: Attest remote daemon release assets
         id: attest-remote-daemon-release-assets
@@ -514,7 +759,7 @@ jobs:
             remote-daemon-assets/cmuxd-remote-manifest.json
 
       - name: Upload build artifacts (dry-run)
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch' && inputs.operation == 'dry-run'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-release-dry-run
@@ -525,9 +770,10 @@ jobs:
           if-no-files-found: error
 
       - name: Upload release asset
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && needs.release-preflight.outputs.should_publish == 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
+          tag_name: ${{ needs.release-preflight.outputs.release_tag }}
           files: |
             cmux-macos.dmg
             appcast.xml
@@ -538,40 +784,116 @@ jobs:
             remote-daemon-assets/cmuxd-remote-checksums.txt
             remote-daemon-assets/cmuxd-remote-manifest.json
           generate_release_notes: true
+          # Stage the immutable release first. The legacy pointer moves only after the canonical
+          # R2 appcast and its public URL have both verified.
+          make_latest: false
           overwrite_files: false
 
+      - name: Finalize complete draft release
+        if: >-
+          needs.release-preflight.outputs.should_publish == 'true' &&
+          steps.guard_release_assets.outputs.finalize_draft == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest=false
+
+      - name: Classify stable release order at publication time
+        id: publish_release_order
+        if: needs.release-preflight.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TOOL_ROOT: ${{ needs.release-preflight.outputs.release_tool_root }}
+        run: |
+          set -euo pipefail
+          RELEASES_JSON="$RUNNER_TEMP/stable-releases-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          gh release list --limit 1000 --exclude-drafts --exclude-pre-releases \
+            --json tagName > "$RELEASES_JSON"
+          python3 "$RELEASE_TOOL_ROOT/scripts/ci/classify_stable_release.py" \
+            --candidate "${{ needs.release-preflight.outputs.release_tag }}" \
+            --releases-json "$RELEASES_JSON" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Upload release appcast to R2
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        if: needs.release-preflight.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          RELEASE_TOOL_ROOT: ${{ needs.release-preflight.outputs.release_tool_root }}
         run: |
           set -euo pipefail
 
-          # Guard: only upload if this tag is the highest semver release.
-          # Prevents a backport tag (e.g. v0.62.1 after v0.63.1) from
-          # overwriting the stable appcast with an older version.
-          LATEST=$(gh release list --exclude-drafts --exclude-pre-releases \
-            --json tagName -q '.[].tagName' | sort -V | tail -1)
-          if [ -n "$LATEST" ] && [ "$LATEST" != "$GITHUB_REF_NAME" ]; then
-            echo "Skipping R2 stable upload: $GITHUB_REF_NAME is not the latest release ($LATEST)"
+          # The same pre-publication order decision controls GitHub's legacy /latest redirect and
+          # the canonical R2 feed, so old and fixed clients resolve the same full release.
+          if [ "${{ steps.publish_release_order.outputs.is_latest }}" != "true" ]; then
+            echo "Skipping R2 stable upload: ${{ needs.release-preflight.outputs.release_tag }} is not the latest release (${{ steps.publish_release_order.outputs.latest_tag }})"
             exit 0
           fi
+
+          # A retry may find every immutable GitHub asset already present and skip the expensive
+          # build. Download that exact signed appcast so a previously-failed R2 publication can
+          # still repair the canonical feed without rebuilding or mutating the release.
+          APPCAST_PATH=appcast.xml
+          if [ "${{ steps.guard_release_assets.outputs.skip_all }}" = "true" ] || [ ! -f "$APPCAST_PATH" ]; then
+            APPCAST_PATH="$RUNNER_TEMP/cmux-appcast-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.xml"
+            gh release download \
+              "${{ needs.release-preflight.outputs.release_tag }}" \
+              --pattern appcast.xml \
+              --output "$APPCAST_PATH"
+          fi
+
+          ASSETS_JSON="$RUNNER_TEMP/cmux-assets-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          gh release view \
+            "${{ needs.release-preflight.outputs.release_tag }}" \
+            --json assets > "$ASSETS_JSON"
+          VALIDATION_ARGS=(
+            --appcast "$APPCAST_PATH"
+            --tag "${{ needs.release-preflight.outputs.release_tag }}"
+            --assets-json "$ASSETS_JSON"
+            --expected-enclosure cmux-macos.dmg
+            --current-feed-url "https://files.cmux.com/stable/appcast.xml"
+            --verify-enclosure
+          )
+          if [ "${{ steps.guard_release_assets.outputs.skip_all }}" = "true" ]; then
+            # An exact immutable-asset retry is the explicit disaster-repair path. Normal
+            # publication fails closed if the currently served feed cannot be read.
+            VALIDATION_ARGS+=(--allow-missing-current-feed)
+          fi
+          python3 "$RELEASE_TOOL_ROOT/scripts/ci/validate_release_appcast_assets.py" \
+            "${VALIDATION_ARGS[@]}"
 
           # Upload after GitHub Release publish so the appcast never references
           # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
           # is either the old version or the new one, never missing.
-          python3 scripts/ci/upload-r2-object.py \
-            --file appcast.xml \
+          python3 "$RELEASE_TOOL_ROOT/scripts/ci/upload-r2-object.py" \
+            --file "$APPCAST_PATH" \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries \
             --key stable/appcast.xml \
-            --cache-control "no-cache, no-store, must-revalidate"
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --verify-url "https://files.cmux.com/stable/appcast.xml"
 
           echo "R2 appcast upload complete: https://files.cmux.com/stable/appcast.xml"
+
+      - name: Reconcile GitHub latest release for legacy clients
+        if: needs.release-preflight.outputs.should_publish == 'true' && steps.publish_release_order.outputs.is_latest == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ steps.publish_release_order.outputs.latest_tag }}" --latest
+
+      - name: Queue Homebrew update for the verified latest release
+        if: needs.release-preflight.outputs.should_publish == 'true' && steps.publish_release_order.outputs.is_latest == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh workflow run update-homebrew.yml \
+            --ref "$DEFAULT_BRANCH" \
+            --field version="$RELEASE_TAG"
 
       - name: Cleanup keychain
         if: always()

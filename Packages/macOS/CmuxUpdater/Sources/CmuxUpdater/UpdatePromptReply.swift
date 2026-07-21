@@ -9,28 +9,28 @@ import Foundation
 /// prompt" from "the model state was clobbered by an unrelated emission" (for example a stale
 /// prompt's Sparkle dismiss callback landing after a fresh check already resolved).
 @MainActor
-public final class UpdatePromptReply {
+final class UpdatePromptReply {
     let id = UUID()
     private var handler: (@Sendable (SPUUserUpdateChoice) -> Void)?
     var onConsumed: ((UpdatePromptReply, SPUUserUpdateChoice, UpdatePromptReplySource) -> Void)?
 
     /// The first choice sent to Sparkle, or `nil` until this prompt is answered.
-    public private(set) var consumedChoice: SPUUserUpdateChoice?
+    private(set) var consumedChoice: SPUUserUpdateChoice?
     /// The cause of the first choice, or `nil` until this prompt is answered.
     private(set) var consumedSource: UpdatePromptReplySource?
 
     /// Wraps `handler` so it runs on the first call only.
-    public init(_ handler: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+    init(_ handler: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         self.handler = handler
     }
 
     /// Whether a choice has already been sent.
-    public var isConsumed: Bool {
+    var isConsumed: Bool {
         consumedChoice != nil
     }
 
     /// Sends `choice` to Sparkle; subsequent calls are no-ops.
-    public func callAsFunction(_ choice: SPUUserUpdateChoice) {
+    func callAsFunction(_ choice: SPUUserUpdateChoice) {
         consume(choice, source: .user)
     }
 

@@ -14,6 +14,12 @@ public protocol UpdateActionsHost: AnyObject {
     /// "Install and Relaunch" action on the detected-update popover).
     func attemptUpdate()
 
+    /// Acknowledges the visible no-update result and atomically clears it from the UI.
+    func acknowledgeNoUpdate()
+
+    /// Retries an indeterminate no-update result with the operation intent that produced it.
+    func retryNoUpdate()
+
     /// The filesystem path of the update log, shown in the error popover's details block.
     var updateLogPath: String { get }
 }

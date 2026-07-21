@@ -17636,13 +17636,9 @@ private extension NSWindow {
 
 // MARK: - CmuxUpdater seams
 
-/// Conforms the composition root to updater host actions, retry, and relaunch seams.
+/// Conforms the composition root to updater host relaunch actions.
 /// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
-    func updaterRequestsRetryCheckForUpdates() {
-        checkForUpdates(nil)
-    }
-
     func updaterWillRelaunchApplication() {
         persistSessionForUpdateRelaunch()
         TerminalController.shared.stop()
@@ -17654,6 +17650,14 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     func attemptUpdate() {
         attemptUpdate(nil)
+    }
+
+    func acknowledgeNoUpdate() {
+        updateController.acknowledgeNoUpdate()
+    }
+
+    func retryNoUpdate() {
+        updateController.retryNoUpdate()
     }
 
     var updateLogPath: String {
