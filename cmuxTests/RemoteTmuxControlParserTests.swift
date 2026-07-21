@@ -424,6 +424,40 @@ import Testing
         // Trailing junk after a valid node fails (cursor must reach the end).
         #expect(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1xyz") == nil)
     }
+
+    /// The enter DCS is recognised partway through a line, because a transport that types the
+    /// command into a login shell (et) leaves that shell's echo and OSC title sequences ahead of
+    /// it with no newline between. Requiring offset 0 meant `.enter` never fired on a real et
+    /// stream, and commands are withheld until `.enter`.
+    @Test func enterIsFoundWhenShellEchoPrecedesTheDCS() {
+        let messages = parse("\u{1B}]0;ejc3@host\u{07}exec tmux -CC attach\u{1B}P1000p%begin 1 1 0\r\n")
+        #expect(messages.contains { if case .enter = $0 { return true }; return false })
+    }
+
+    /// But only before control mode is entered, and never inside a command block: block content is
+    /// raw pane bytes from `capture-pane -e`, which can contain this DCS legitimately. Treating
+    /// that as a second enter would also cut the captured pane apart at the match.
+    @Test func aDCSInsideBlockContentIsNotASecondEnter() {
+        let enter = "\u{1b}P1000p"
+        let messages = parse(
+            enter + "%begin 1700000000 1 0\r\n"
+            + "ok\r\n"
+            + "%end 1700000000 1 0\r\n"
+            + "%begin 1700000000 2 0\r\n"
+            + "pane painted \u{1b}P1000p still the same pane\r\n"
+            + "%end 1700000000 2 0\r\n"
+        )
+        let enters = messages.filter { if case .enter = $0 { return true }; return false }
+        #expect(enters.count == 1, "expected exactly one .enter, saw \(enters.count)")
+        // The captured pane's bytes survive whole rather than being cut at the embedded DCS.
+        #expect(messages.contains(
+            .commandResult(
+                commandNumber: 2,
+                lines: ["pane painted \u{1b}P1000p still the same pane"],
+                isError: false
+            )
+        ))
+    }
 }
 
 /// Behavior tests for the per-pane foreground classification
@@ -557,4 +591,5 @@ import Testing
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("garbage") == nil)
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("") == nil)
     }
+
 }
