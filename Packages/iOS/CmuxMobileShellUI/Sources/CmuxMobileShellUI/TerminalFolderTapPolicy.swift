@@ -2,6 +2,9 @@ import CmuxAgentChat
 
 /// Decides whether a detected terminal path should open as an artifact.
 struct TerminalFolderTapPolicy: Sendable {
+    /// Whether detected directory paths should open in the artifact viewer.
+    let folderTapEnabled: Bool
+
     /// The action the terminal tap handler should take for a detected path.
     enum Decision: Sendable, Equatable {
         case openArtifact
@@ -9,9 +12,12 @@ struct TerminalFolderTapPolicy: Sendable {
     }
 
     /// Applies the folder-tap preference without adding a stat call while enabled.
-    static func decision(
+    ///
+    /// When stat fails, this policy focuses the terminal because the viewer could
+    /// not load an unverified artifact either, and a user who disabled folder taps
+    /// asked not to be interrupted by a viewer transition.
+    func decision(
         for path: String,
-        folderTapEnabled: Bool,
         stat: @MainActor @Sendable (String) async throws -> ChatArtifactKind
     ) async -> Decision {
         guard !folderTapEnabled else { return .openArtifact }
@@ -19,7 +25,7 @@ struct TerminalFolderTapPolicy: Sendable {
         do {
             return try await stat(path) == .directory ? .focusTerminal : .openArtifact
         } catch {
-            return .openArtifact
+            return .focusTerminal
         }
     }
 }

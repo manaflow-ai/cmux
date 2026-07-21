@@ -5,6 +5,15 @@ import Foundation
 /// Input may include VT escape sequences, such as those emitted by a terminal
 /// screen export. Escape sequences are removed before path tokenization.
 public struct TerminalArtifactPathDetector: Sendable {
+    private enum EscapeScanState {
+        case text
+        case escape
+        case escapeIntermediate
+        case csi
+        case stringControl
+        case stringControlEscape
+    }
+
     /// A detected terminal path token.
     public struct Token: Sendable, Equatable {
         /// Token text after shell-punctuation trimming.
@@ -47,65 +56,76 @@ public struct TerminalArtifactPathDetector: Sendable {
         let scalars = text.unicodeScalars
         var result = String.UnicodeScalarView()
         var index = scalars.startIndex
+        var state = EscapeScanState.text
 
         while index < scalars.endIndex {
-            guard scalars[index].value == 0x1B else {
-                result.append(scalars[index])
-                index = scalars.index(after: index)
-                continue
-            }
-
+            let scalar = scalars[index]
             index = scalars.index(after: index)
-            guard index < scalars.endIndex else { break }
+            let value = scalar.value
 
-            switch scalars[index].value {
-            case 0x5B: // CSI: ESC [ parameters/intermediates final-byte
-                index = scalars.index(after: index)
-                while index < scalars.endIndex {
-                    let value = scalars[index].value
-                    index = scalars.index(after: index)
-                    if (0x40...0x7E).contains(value) {
-                        break
-                    }
+            switch state {
+            case .text:
+                switch value {
+                case 0x1B:
+                    state = .escape
+                case 0x90, 0x98, 0x9D, 0x9E, 0x9F:
+                    // C1 DCS, SOS, OSC, PM, and APC string controls.
+                    state = .stringControl
+                case 0x9B:
+                    state = .csi
+                case 0x9C:
+                    // Strip a stray C1 ST just like a stray ESC \ terminator.
+                    break
+                default:
+                    result.append(scalar)
                 }
 
-            case 0x5D: // OSC: ESC ] payload BEL-or-ST
-                index = scalars.index(after: index)
-                while index < scalars.endIndex {
-                    if scalars[index].value == 0x07 {
-                        index = scalars.index(after: index)
-                        break
-                    }
-                    if scalars[index].value == 0x1B {
-                        let next = scalars.index(after: index)
-                        if next < scalars.endIndex, scalars[next].value == 0x5C {
-                            index = scalars.index(after: next)
-                            break
-                        }
-                    }
-                    index = scalars.index(after: index)
+            case .escape:
+                switch value {
+                case 0x5B: // CSI: ESC [ parameters/intermediates final-byte
+                    state = .csi
+                case 0x50, 0x58, 0x5D, 0x5E, 0x5F:
+                    // DCS, SOS, OSC, PM, and APC: payload BEL-or-ST.
+                    state = .stringControl
+                case 0x20...0x2F:
+                    state = .escapeIntermediate
+                case 0x30...0x7E:
+                    // Other two-character ESC sequences, including stray ST.
+                    state = .text
+                default:
+                    // The scalar after ESC is not part of a recognized sequence.
+                    // Keep it so ordinary printable text and whitespace survive.
+                    result.append(scalar)
+                    state = .text
                 }
 
-            case 0x20...0x2F:
-                // ESC sequences may contain intermediate bytes, for example
-                // the charset selection ESC ( B, followed by one final byte.
-                repeat {
-                    index = scalars.index(after: index)
-                } while index < scalars.endIndex
-                    && (0x20...0x2F).contains(scalars[index].value)
-                if index < scalars.endIndex,
-                   (0x30...0x7E).contains(scalars[index].value) {
-                    index = scalars.index(after: index)
+            case .escapeIntermediate:
+                if (0x20...0x2F).contains(value) {
+                    continue
+                }
+                state = .text
+                if !(0x30...0x7E).contains(value) {
+                    result.append(scalar)
                 }
 
-            case 0x30...0x7E:
-                // Other two-character ESC sequences, including stray ST.
-                index = scalars.index(after: index)
+            case .csi:
+                if (0x40...0x7E).contains(value) {
+                    state = .text
+                }
 
-            default:
-                // The scalar after ESC is not part of a recognized sequence.
-                // Keep it so ordinary printable text and whitespace survive.
-                continue
+            case .stringControl:
+                if value == 0x07 || value == 0x9C {
+                    state = .text
+                } else if value == 0x1B {
+                    state = .stringControlEscape
+                }
+
+            case .stringControlEscape:
+                if value == 0x5C || value == 0x07 || value == 0x9C {
+                    state = .text
+                } else if value != 0x1B {
+                    state = .stringControl
+                }
             }
         }
 

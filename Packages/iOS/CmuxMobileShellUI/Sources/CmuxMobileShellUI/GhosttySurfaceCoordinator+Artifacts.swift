@@ -265,13 +265,25 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     row: row,
                     columns: snapshot.columns
                 ) {
-                    let decision = await TerminalFolderTapPolicy.decision(
-                        for: path,
-                        folderTapEnabled: terminalFolderTapEnabled
+                    let folderTapEnabled = terminalFolderTapEnabled
+                    if !folderTapEnabled {
+                        guard !folderTapStatInFlight else { return .focusTerminal }
+                        folderTapStatInFlight = true
+                    }
+                    defer {
+                        if !folderTapEnabled {
+                            folderTapStatInFlight = false
+                        }
+                    }
+
+                    let decision = await TerminalFolderTapPolicy(
+                        folderTapEnabled: folderTapEnabled
+                    ).decision(
+                        for: path
                     ) { [weak self] path in
                         guard let self,
                               let source = self.store?.makeChatEventSource() else {
-                            return .binary
+                            throw CancellationError()
                         }
                         return try await source.terminalArtifactStat(
                             workspaceID: self.workspaceID,
@@ -280,7 +292,8 @@ extension GhosttySurfaceRepresentable.Coordinator {
                         ).kind
                     }
                     guard decision == .openArtifact else {
-                        await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
+                        // Preserve interception parity with enabled path taps; replaying
+                        // coordinates after an await could click stale TUI content.
                         return .focusTerminal
                     }
                     onArtifactPathTapped(path)
