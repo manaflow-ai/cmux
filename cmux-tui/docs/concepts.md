@@ -10,6 +10,8 @@ session -> workspaces -> screens -> split-tree panes -> tabs
 
 A session is one mux backend and one control socket. A workspace owns one or more screens. A screen is the layout selected in the status bar. A screen layout is a binary split tree whose leaves are panes. A pane owns an ordered tab list, and each tab is a surface.
 
+Protocol v8 assigns each interior split node a stable `SplitId`. Frontends use it as divider identity and resize that exact node with `set-split-ratio`. The id survives ratio, focus, tab, and leaf-order changes. It disappears only when its node collapses.
+
 The UI uses tmux-style verbs for screens. Prefix `c` creates a screen, prefix `n` and `p` switch screens, prefix `&` closes a screen, and prefix `,` renames a screen. PTY tabs use prefix `t`, tab chips, and tab context menus.
 
 ## Active and Focus State

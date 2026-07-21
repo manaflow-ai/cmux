@@ -89,6 +89,7 @@ extension CmxIrohClientRuntime {
                 networkPathSnapshot: networkPathSnapshot,
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
+                customPrivateFallback: customPrivateFallback,
                 now: now
             )
             registryContextProvider = provider
@@ -105,6 +106,7 @@ extension CmxIrohClientRuntime {
             broker: broker,
             managedRelayURLs: replacementManagedURLs,
             selectedRelayURLs: profile.allowedRelayURLs,
+            automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
             credentialDidInstall: { [handleRelayCredential] response in
                 await handleRelayCredential(response, binding)
             }

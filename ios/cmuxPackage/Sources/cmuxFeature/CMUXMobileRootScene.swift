@@ -34,7 +34,7 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
-    private let signOutHook: MobileSignOutHook
+    package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
     #if os(iOS)
@@ -43,7 +43,7 @@ public struct CMUXMobileRootScene: View {
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
-    private let onboardingStore: MobileOnboardingStore
+    package let onboardingStore: MobileOnboardingStore
     #endif
     /// The app-root tailnet detector (behind the shell UI's read-only
     /// observing port), injected into the environment so pairing and
@@ -57,9 +57,13 @@ public struct CMUXMobileRootScene: View {
     /// separately and replaces this at the composition root without touching the
     /// shell.
     private let draftStore: any TerminalDraftStoring
-    /// The bounded structured diagnostic log injected into the shell store.
-    /// Release builds retain only fixed categories and numeric magnitudes.
+    /// The bounded privacy-safe diagnostic log shared by the production shell
+    /// store and the in-app diagnostics exporter.
+    #if os(iOS)
+    private let diagnosticLog: DiagnosticLog
+    #else
     private let diagnosticLog: DiagnosticLog?
+    #endif
 
     #if os(iOS)
     /// Creates the root scene.
@@ -95,7 +99,7 @@ public struct CMUXMobileRootScene: View {
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
         signOutHook: MobileSignOutHook,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog
     ) {
         self.runtime = runtime
         self.auth = auth
@@ -137,6 +141,15 @@ public struct CMUXMobileRootScene: View {
 
     private static func openPairedMacStore() -> (any MobilePairedMacStoring)? {
         do {
+            #if DEBUG
+            if UITestConfig.mockDataEnabled {
+                let databaseURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(
+                        "cmux-uitest-paired-macs-\(UUID().uuidString).sqlite3"
+                    )
+                return try MobilePairedMacStore(databaseURL: databaseURL)
+            }
+            #endif
             return try MobilePairedMacStore()
         } catch {
             mobileRootSceneLog.error(
@@ -180,9 +193,9 @@ public struct CMUXMobileRootScene: View {
                     stackUserID: userID,
                     teamID: teamID
                 )
-                let target = macDeviceID.lowercased()
+                let target = cmxCanonicalDeviceID(macDeviceID)
                 return pairedMacs?.first(where: {
-                    $0.macDeviceID.lowercased() == target
+                    cmxCanonicalDeviceID($0.macDeviceID) == target
                         && $0.instanceTag == instanceTag
                 })?.routes
             }
@@ -258,7 +271,16 @@ public struct CMUXMobileRootScene: View {
     }
 
     public var body: some View {
-        content
+        applyingRootEnvironment(to: content)
+    }
+
+    /// Applies the production root environment to a package-owned alternate
+    /// Debug host without widening the app's public composition API.
+    @ViewBuilder
+    package func applyingRootEnvironment<Content: View>(
+        to rootContent: Content
+    ) -> some View {
+        rootContent
             .environment(auth.coordinator)
             .analytics(analytics)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -272,7 +294,11 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if UITestConfig.workspaceListLayoutPreviewEnabled {
+        if UITestConfig.taskComposerPreviewEnabled {
+            TaskComposerAccessibilityPreviewView()
+        } else if UITestConfig.notificationFeedPreviewEnabled {
+            NotificationFeedPreviewView()
+        } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
             MobileRecoveryStressView(configuration: recoveryStress)
@@ -300,7 +326,7 @@ public struct CMUXMobileRootScene: View {
     }
 
     @MainActor
-    private func makeStore() -> CMUXMobileShellStore {
+    package func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
@@ -322,7 +348,6 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
-        #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -339,26 +364,8 @@ public struct CMUXMobileRootScene: View {
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
+            draftStore: draftStore,
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard)
         )
-        #else
-        return CMUXMobileShellStore(
-            runtime: runtime,
-            pairedMacStore: backedUpPairedMacStore,
-            buildCompatibilityPolicy: buildCompatibilityPolicy,
-            pairedMacRestoreBoundary: restoreBoundary,
-            deviceRegistry: deviceRegistry,
-            personalIrohDiscovery: personalIrohDiscovery,
-            presence: makePresenceClient(),
-            identityProvider: identityProvider,
-            teamIDProvider: { await coordinator.resolvedTeamID },
-            reachability: reachability,
-            forgottenMacStore: forgottenMacStore,
-            analytics: analytics,
-            feedbackEmailSubmitter: feedbackEmailSubmitter,
-            feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
-        )
-        #endif
     }
 }

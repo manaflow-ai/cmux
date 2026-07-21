@@ -187,6 +187,41 @@ struct SidebarWorkspaceTableTests {
 #if DEBUG
     @Test
     @MainActor
+    func tableApplyCoalescesAndMutatesOnlyAfterTheCurrentCallbackReturns() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let actions = makeTableActions()
+
+        controller.apply(
+            rows: [first],
+            actions: actions,
+            workspaceIds: [first.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        controller.apply(
+            rows: [first, second],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+
+        #expect(
+            container.tableView.numberOfRows == 0,
+            "Representable updates must not mutate NSTableView before the originating callback returns."
+        )
+        await flushStagedTableMutations()
+        #expect(
+            container.tableView.numberOfRows == 2,
+            "The deferred boundary must coalesce repeated inputs and apply the newest table snapshot."
+        )
+    }
+
+    @Test
+    @MainActor
     func equivalentCellConfigurationDoesNotRenderAgain() {
         let cell = SidebarWorkspaceTableCellView()
         let workspaceId = UUID()
@@ -239,7 +274,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func dropTargetGeometryIsIdleDuringScrollAndTracksDragLifecycle() {
+    func dropTargetGeometryIsIdleDuringScrollAndTracksDragLifecycle() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let workspaceId = UUID()
@@ -257,6 +292,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        await flushStagedTableMutations()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         var computations = 0
@@ -264,6 +300,7 @@ struct SidebarWorkspaceTableTests {
 
         controller.viewportDidChange()
         controller.viewportDidChange()
+        await flushStagedTableMutations()
         #expect(computations == 0)
 
         controller.workspaceDragSessionDidBegin()
@@ -271,11 +308,13 @@ struct SidebarWorkspaceTableTests {
         #expect(container.reorderDropView.targets.map(\.workspaceId) == [workspaceId])
 
         controller.viewportDidChange()
+        await flushStagedTableMutations()
         #expect(computations == 2)
 
         controller.workspaceDragSessionDidEnd()
         #expect(container.reorderDropView.targets.isEmpty)
         controller.viewportDidChange()
+        await flushStagedTableMutations()
         #expect(computations == 2)
     }
 #endif
@@ -333,6 +372,15 @@ struct SidebarWorkspaceTableTests {
             equivalenceValue: TestRowContent(token: contentToken)
         ) { _, _ in
             AnyView(TestRowContent(token: contentToken))
+        }
+    }
+
+    @MainActor
+    private func flushStagedTableMutations() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
         }
     }
 

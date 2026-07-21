@@ -176,6 +176,75 @@ struct ShellStartupMatrixTests {
         }
     }
 
+    @Test
+    func generatedSshBootstrapRunsResumeBeforeUnsupportedInteractiveShell() throws {
+        let result = try runGeneratedBootstrap(
+            shellName: "xonsh",
+            initialCommand: #"printf 'resumed\n' > "$HOME/.cmux-resume-marker""#
+        )
+
+        expectEqual(result.process.status, 0, result.process.stderr)
+        expectFalse(result.process.timedOut, result.process.stderr)
+        expectTrue(result.capture.contains("ARGS=-i"), result.capture)
+        expectEqual(result.resumeMarker, "resumed\n")
+    }
+
+    @Test(arguments: ["zsh", "bash", "fish"])
+    func generatedSshBootstrapRunsInitialCommandOnceInSelectedSupportedShell(shellName: String) throws {
+        guard let shell = Self.supportedShellExecutable(named: shellName) else {
+            return
+        }
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-supported-shell-resume-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let marker = home.appendingPathComponent(".cmux-resume-marker")
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_123,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialCommand: #"printf '%s\n' "$SHELL" >> "$HOME/.cmux-resume-marker""#,
+            bundledZshIntegration: ":",
+            bundledBashIntegration: ":",
+            bundledFishIntegration: "true"
+        )
+        let arguments = [
+            "HOME=\(home.path)",
+            "SHELL=\(shell)",
+            "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+            "TERM=xterm-256color",
+            "XDG_CONFIG_HOME=\(home.appendingPathComponent(".config").path)",
+            "/bin/sh",
+            "-c",
+            script,
+        ]
+
+        let first = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: arguments,
+            timeout: 5
+        )
+        expectEqual(first.status, 0, first.stderr)
+        expectFalse(first.timedOut, first.stderr)
+        expectEqual(try String(contentsOf: marker, encoding: .utf8), "\(shell)\n")
+
+        let reattach = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: arguments,
+            timeout: 5
+        )
+        expectEqual(reattach.status, 0, reattach.stderr)
+        expectFalse(reattach.timedOut, reattach.stderr)
+        expectEqual(
+            try String(contentsOf: marker, encoding: .utf8),
+            "\(shell)\n",
+            "The selected \(shellName) shell must consume the resume payload exactly once"
+        )
+    }
+
     @Test(arguments: ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
     func generatedSshBootstrapStartupStaysUnderPerformanceBudget(shellName: String) throws {
         let result = try runGeneratedBootstrap(shellName: shellName)
@@ -290,6 +359,7 @@ struct ShellStartupMatrixTests {
     private struct GeneratedBootstrapResult {
         let home: URL
         let capture: String
+        let resumeMarker: String
         let process: ProcessRunResult
     }
 
@@ -298,7 +368,8 @@ struct ShellStartupMatrixTests {
         fakeCmuxDelay: TimeInterval? = nil,
         workspaceID: String? = nil,
         surfaceID: String? = nil,
-        bootstrapTTY: String? = nil
+        bootstrapTTY: String? = nil,
+        initialCommand: String? = nil
     ) throws -> GeneratedBootstrapResult {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-shell-matrix-\(UUID().uuidString)")
@@ -318,6 +389,7 @@ struct ShellStartupMatrixTests {
             shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(environment: [
                 "GHOSTTY_SHELL_FEATURES": "existing-feature"
             ]),
+            initialCommand: initialCommand,
             bundledZshIntegration: "cmux_zsh_marker=1",
             bundledBashIntegration: "cmux_bash_marker=1",
             bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1"
@@ -351,7 +423,16 @@ struct ShellStartupMatrixTests {
             timeout: 5
         )
         let capture = (try? String(contentsOf: capturePath, encoding: .utf8)) ?? ""
-        return GeneratedBootstrapResult(home: home, capture: capture, process: process)
+        let resumeMarker = (try? String(
+            contentsOf: home.appendingPathComponent(".cmux-resume-marker"),
+            encoding: .utf8
+        )) ?? ""
+        return GeneratedBootstrapResult(
+            home: home,
+            capture: capture,
+            resumeMarker: resumeMarker,
+            process: process
+        )
     }
 
     private func writeExecutableShellFile(at url: URL, capturePath: URL) throws {
@@ -420,6 +501,21 @@ struct ShellStartupMatrixTests {
         String(format: "%.3fs", value)
     }
 
+    private static func supportedShellExecutable(named shellName: String) -> String? {
+        let candidates: [String]
+        switch shellName {
+        case "zsh":
+            candidates = ["/bin/zsh", "/usr/bin/zsh"]
+        case "bash":
+            candidates = ["/bin/bash", "/usr/bin/bash"]
+        case "fish":
+            candidates = ["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/fish"]
+        default:
+            return nil
+        }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
     private func runProcess(
         executablePath: String,
         arguments: [String],
@@ -429,6 +525,7 @@ struct ShellStartupMatrixTests {
         let start = Date()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout

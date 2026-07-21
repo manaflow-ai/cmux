@@ -12,6 +12,7 @@ struct WorkspaceMacSelectionScope {
         selection: WorkspaceMacSelection,
         workspaces: [MobileWorkspacePreview],
         displayPairedMacs: [MobilePairedMac],
+        notificationFeedItems: [MobileNotificationFeedItem] = [],
         foregroundMacDeviceID: String?,
         aliasesFor: (String) -> [String]
     ) {
@@ -25,6 +26,9 @@ struct WorkspaceMacSelectionScope {
         }
         for mac in displayPairedMacs {
             machineIDs.insert(mac.macDeviceID)
+        }
+        for item in notificationFeedItems {
+            machineIDs.insert(aliasIndex.representativeID(for: item.macDeviceID))
         }
         let foregroundMachineIDs: Set<String>
         if let foregroundMacDeviceID {
@@ -74,6 +78,36 @@ struct WorkspaceMacSelectionScope {
             return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))
         case .all, .automatic:
             return true
+        }
+    }
+
+    /// Whether content owned by `macDeviceID` belongs to the computer scope
+    /// shown by the shared title picker.
+    func includes(macDeviceID: String) -> Bool {
+        switch visibleSelection {
+        case .machine(let id):
+            return aliasIndex.filterMachineIDs(for: id).contains(macDeviceID)
+        case .all, .automatic:
+            return true
+        }
+    }
+
+    /// Applies the shared computer selection to notification rows through the
+    /// same alias index used by workspace rows and the title picker.
+    func notificationFeedItems(
+        from items: [MobileNotificationFeedItem]
+    ) -> [MobileNotificationFeedItem] {
+        items.filter { includes(macDeviceID: $0.macDeviceID) }
+    }
+
+    /// Exact Mac identifiers represented by a machine selection. `nil` means
+    /// the global All Computers scope.
+    var selectedMachineIDs: Set<String>? {
+        switch visibleSelection {
+        case .machine(let id):
+            aliasIndex.filterMachineIDs(for: id)
+        case .all, .automatic:
+            nil
         }
     }
 
