@@ -223,6 +223,9 @@ struct GhostMainWindowContextLifecycleTests {
         let fileExplorerState = FileExplorerState()
         let workspace = try #require(manager.selectedWorkspace)
         let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        manager.requestBackgroundWorkspaceLoad(for: workspace.id)
+        manager.retainBackgroundWorkspaceMount(for: workspace.id)
+        manager.retainDebugWorkspaceLoads(for: [workspace.id])
         defer {
             app.unregisterMainWindowContextForTesting(windowId: windowId)
             workspace.teardownAllPanels()
@@ -266,6 +269,9 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
         #expect(manager.tabs.isEmpty)
         #expect(workspace.owningTabManager == nil)
+        #expect(manager.pendingBackgroundWorkspaceLoadIds.isEmpty)
+        #expect(manager.mountedBackgroundWorkspaceLoadIds.isEmpty)
+        #expect(manager.debugPinnedWorkspaceLoadIds.isEmpty)
     }
 
     @Test("Closing an ignored duplicate window preserves the live owner")
