@@ -2713,6 +2713,41 @@ class TabManager: ObservableObject {
         )
 #endif
 
+        let closeWarningEnabled = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingTab
+        let closeGracePeriod = max(
+            0,
+            min(60, settings.value(for: settingsCatalog.app.terminalCloseGracePeriodSeconds))
+        )
+        if !closeWarningEnabled,
+           closeGracePeriod > 0,
+           tab.panels[panelId] is TerminalPanel {
+            if closesWorkspaceOnLastSurfaceShortcut,
+               stageUndoableWorkspaceClose(tab, gracePeriod: closeGracePeriod) {
+                return
+            }
+            if let closed = tab.detachTerminalForUndo(panelId: panelId) {
+                UndoableTerminalCloseStore.shared.stage(
+                    gracePeriod: closeGracePeriod,
+                    restore: { [weak self, weak tab] in
+                        guard let self,
+                              let tab,
+                              self.tabs.contains(where: { $0 === tab }) else {
+                            return false
+                        }
+                        return tab.restoreUndoableTerminal(closed)
+                    },
+                    finalize: { [weak tab] in
+                        if let tab {
+                            tab.finalizeUndoableTerminal(closed)
+                        } else {
+                            closed.transfer.panel.close()
+                        }
+                    }
+                )
+                return
+            }
+        }
+
         if closesWorkspaceOnLastSurfaceShortcut,
            let surfaceId = tab.surfaceIdFromPanelId(panelId) {
             tab.markExplicitClose(surfaceId: surfaceId)
@@ -2726,6 +2761,39 @@ class TabManager: ObservableObject {
             "panelsAfterCall=\(tab.panels.count)"
         )
 #endif
+    }
+
+    @discardableResult
+    private func stageUndoableWorkspaceClose(_ workspace: Workspace, gracePeriod: TimeInterval) -> Bool {
+        guard let index = tabs.firstIndex(where: { $0 === workspace }) else { return false }
+        panelTitleUpdateCoalescer.flushNow()
+        let historyEntry = ClosedWorkspaceHistoryEntry(
+            workspaceId: workspace.id,
+            windowId: AppDelegate.shared?.windowId(for: self),
+            workspaceIndex: index,
+            snapshot: workspace.sessionSnapshot(
+                includeScrollback: true,
+                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                    ?? RestorableAgentSessionIndex.load()
+            )
+        )
+        guard let detachedWorkspace = detachWorkspace(tabId: workspace.id) else { return false }
+
+        UndoableTerminalCloseStore.shared.stage(
+            gracePeriod: gracePeriod,
+            restore: { [weak self] in
+                guard let self else { return false }
+                self.attachWorkspace(detachedWorkspace, at: index, select: true)
+                return true
+            },
+            finalize: {
+                ClosedItemHistoryStore.shared.push(.workspace(historyEntry))
+                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: detachedWorkspace.id)
+                detachedWorkspace.teardownAllPanels()
+                detachedWorkspace.teardownRemoteConnection()
+            }
+        )
+        return true
     }
 
     private func shortcutCloseTargetPanelId(in workspace: Workspace) -> UUID? {

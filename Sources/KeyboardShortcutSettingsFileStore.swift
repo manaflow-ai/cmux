@@ -518,6 +518,15 @@ final class CmuxSettingsFileStore {
         }
         applyBooleanSettings(AppSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyStringSettings(AppSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if let value = jsonDouble(section["terminalCloseGracePeriodSeconds"]) {
+            if (0...60).contains(value) {
+                snapshot.managedUserDefaults[AppCatalogSection().terminalCloseGracePeriodSeconds.userDefaultsKey] = .double(value)
+            } else {
+                logInvalid("app.terminalCloseGracePeriodSeconds", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("terminalCloseGracePeriodSeconds") {
+            logInvalid("app.terminalCloseGracePeriodSeconds", sourcePath: sourcePath)
+        }
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)

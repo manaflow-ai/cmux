@@ -1,4 +1,5 @@
 import Foundation
+import Bonsplit
 import CmuxCore
 import CmuxWorkspaces
 import Darwin
@@ -6,6 +7,13 @@ import CmuxNotifications
 import CmuxSidebar
 
 extension Workspace {
+    struct UndoableDetachedTerminal {
+        let transfer: DetachedSurfaceTransfer
+        let originalPaneId: PaneID
+        let originalTabIndex: Int
+        let historyEntry: ClosedPanelHistoryEntry
+    }
+
     struct DetachedAgentRuntimeState {
         let panelId: UUID
         let statusEntries: [String: SidebarStatusEntry]
@@ -81,5 +89,62 @@ extension Workspace {
                 remoteCleanupConfiguration: configuration
             )
         }
+    }
+
+    func detachTerminalForUndo(panelId: UUID) -> UndoableDetachedTerminal? {
+        guard panels[panelId] is TerminalPanel,
+              let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId),
+              let tabIndex = bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId }),
+              let historyEntry = closedPanelHistoryEntry(panelId: panelId, tabId: tabId, pane: paneId),
+              let transfer = detachSurface(panelId: panelId) else {
+            return nil
+        }
+        return UndoableDetachedTerminal(
+            transfer: transfer,
+            originalPaneId: paneId,
+            originalTabIndex: tabIndex,
+            historyEntry: historyEntry
+        )
+    }
+
+    @discardableResult
+    func restoreUndoableTerminal(_ closed: UndoableDetachedTerminal) -> Bool {
+        let paneId = bonsplitController.allPaneIds.contains(closed.originalPaneId)
+            ? closed.originalPaneId
+            : (bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first)
+        guard let paneId else { return false }
+        return attachDetachedSurface(
+            closed.transfer,
+            inPane: paneId,
+            atIndex: closed.originalTabIndex,
+            focus: true
+        ) != nil
+    }
+
+    func finalizeUndoableTerminal(_ closed: UndoableDetachedTerminal) {
+        ClosedItemHistoryStore.shared.push(.panel(closed.historyEntry))
+        AppDelegate.shared?.notificationStore?.clearNotifications(
+            forTabId: closed.transfer.sourceWorkspaceId,
+            surfaceId: closed.transfer.panelId
+        )
+
+        let paneId = bonsplitController.allPaneIds.contains(closed.originalPaneId)
+            ? closed.originalPaneId
+            : (bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first)
+        if let paneId,
+           attachDetachedSurface(
+               closed.transfer,
+               inPane: paneId,
+               atIndex: closed.originalTabIndex,
+               focus: false
+           ) != nil {
+            withClosedPanelHistorySuppressed {
+                _ = closePanel(closed.transfer.panelId, force: true)
+            }
+            return
+        }
+
+        closed.transfer.panel.close()
     }
 }

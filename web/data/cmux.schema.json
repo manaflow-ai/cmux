@@ -505,8 +505,15 @@
         },
         "warnBeforeClosingTab": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Show a confirmation before closing a tab."
+        },
+        "terminalCloseGracePeriodSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60,
+          "default": 5,
+          "description": "Keep a terminal alive for this many seconds after Command-W so Command-Shift-T can restore it. Set to 0 to close immediately."
         },
         "warnBeforeClosingTabXButton": {
           "type": "boolean",

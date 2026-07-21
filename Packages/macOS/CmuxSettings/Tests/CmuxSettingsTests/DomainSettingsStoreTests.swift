@@ -15,15 +15,15 @@ struct DefaultsKeyDirectAccessTests {
     @Test func readsDefaultWhenUnsetAndRoundTrips() {
         let defaults = makeScratchDefaults()
         let key = AppCatalogSection().warnBeforeClosingTab
-        #expect(key.value(in: defaults) == true)
+        #expect(key.value(in: defaults) == false)
         #expect(!key.hasStoredValue(in: defaults))
 
-        key.set(false, in: defaults)
-        #expect(key.value(in: defaults) == false)
+        key.set(true, in: defaults)
+        #expect(key.value(in: defaults) == true)
         #expect(key.hasStoredValue(in: defaults))
 
         key.removeValue(in: defaults)
-        #expect(key.value(in: defaults) == true)
+        #expect(key.value(in: defaults) == false)
     }
 
     @Test func undecodableStoredValueReadsAsDefault() {
@@ -51,7 +51,7 @@ struct DefaultsKeyDirectAccessTests {
 struct CloseTabWarningStoreTests {
     @Test func defaultsMatchLegacyNamespace() {
         let store = CloseTabWarningStore(defaults: makeScratchDefaults())
-        #expect(store.warnsBeforeClosingTab == true)
+        #expect(store.warnsBeforeClosingTab == false)
         #expect(store.warnsBeforeClosingTabXButton == false)
         #expect(store.hidesTabCloseButton == false)
     }

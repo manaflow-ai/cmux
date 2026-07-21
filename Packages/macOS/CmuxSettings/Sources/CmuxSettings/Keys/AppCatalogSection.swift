@@ -131,8 +131,14 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     public let warnBeforeClosingTab = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTab",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "warnBeforeClosingTabShortcut"
+    )
+
+    public let terminalCloseGracePeriodSeconds = DefaultsKey<Double>(
+        id: "app.terminalCloseGracePeriodSeconds",
+        defaultValue: 5,
+        userDefaultsKey: "terminalCloseGracePeriodSeconds"
     )
 
     public let warnBeforeClosingTabXButton = DefaultsKey<Bool>(

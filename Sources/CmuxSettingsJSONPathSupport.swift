@@ -404,6 +404,7 @@ extension CmuxSettingsFileStore {
         "app.confirmQuit",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
+        "app.terminalCloseGracePeriodSeconds",
         "app.warnBeforeClosingTabXButton",
         "app.hideTabCloseButton",
         "app.renameSelectsExistingName",

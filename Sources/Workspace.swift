@@ -709,7 +709,7 @@ extension Workspace {
             project: projectSnapshot, workspaceTodo: workspaceTodoSnapshot
         )
     }
-    private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
+    func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
         guard !suppressClosedPanelHistory else { return nil }
         owningTabManager?.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
         guard let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tabId }) else {
