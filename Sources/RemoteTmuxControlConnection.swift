@@ -118,7 +118,10 @@ final class RemoteTmuxControlConnection {
     private var stderrTask: Task<Void, Never>?
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
-    private var processGeneration: UInt64 = 0
+    /// Bumped on every spawn. Readable across the type's extensions so a completion that
+    /// outlived its process — a liveness probe answered after a respawn, say — can tell that its
+    /// answer describes a stream that no longer exists. Writable only here.
+    private(set) var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
     var windowListRequestInFlight = false
     var windowListRequestDirty = false
@@ -150,6 +153,13 @@ final class RemoteTmuxControlConnection {
     /// attempts); cancelled on `stop()` / genuine end so a dead connection stops
     /// retrying.
     private var reconnectTask: Task<Void, Never>?
+    /// Periodic liveness probe for transports that reconnect internally (see
+    /// ``checkLivenessAndRecoverIfStalled(completion:)``). Nil for ssh, which gets an EOF instead.
+    private var livenessTask: Task<Void, Never>?
+    /// How often to ask a self-reconnecting transport whether it is still carrying the protocol.
+    /// Long enough that an ordinary reconnect finishes untouched, short enough that a wedged
+    /// mirror is not left silently frozen.
+    static var livenessProbeIntervalSeconds: UInt64 = 30
     /// Number of reconnect attempts since the last successful connect, driving the
     /// capped exponential backoff. Reset to 0 on a successful connect.
     private var reconnectAttemptCount = 0
@@ -543,6 +553,8 @@ final class RemoteTmuxControlConnection {
         failPendingCommandTransactions()
         reconnectTask?.cancel()
         reconnectTask = nil
+        livenessTask?.cancel()
+        livenessTask = nil
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
@@ -742,6 +754,25 @@ final class RemoteTmuxControlConnection {
 
     // MARK: - Reconnect
 
+    /// Starts the stall monitor for a transport that owns its own reconnection.
+    ///
+    /// ssh is deliberately excluded: its stream ends on transport loss, `handleStreamEnd` already
+    /// recovers from that, and probing an idle ssh stream would add traffic and a failure mode
+    /// where today there is none.
+    private func startLivenessMonitorIfNeeded() {
+        guard transportProfile.reconnectsInternally else { return }
+        livenessTask?.cancel()
+        let interval = Self.livenessProbeIntervalSeconds
+        livenessTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: interval * 1_000_000_000)
+                if Task.isCancelled { return }
+                guard let self else { return }
+                await MainActor.run { self.checkLivenessAndRecoverIfStalled() }
+            }
+        }
+    }
+
     /// Freezes the mirror and reconnects after an unusable control stream.
     func beginReconnecting() {
         guard connectionState == .connected || connectionState == .connecting else { return }
@@ -820,6 +851,7 @@ final class RemoteTmuxControlConnection {
             if connectionState != .connected {
                 let wasReconnecting = connectionState == .reconnecting
                 connectionState = .connected
+                startLivenessMonitorIfNeeded()
                 // Only a first attach needs the rows-minus-one redraw kick. A
                 // reconnect keeps the existing tmux grid and replaces the mirror
                 // with an authoritative full-history seed; kicking after that seed
