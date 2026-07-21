@@ -217,8 +217,8 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
-    @Test("remembering an unzoomed source clears an earlier explicit fallback")
-    func unzoomedSourceClearsExplicitWorkspaceFallback() throws {
+    @Test("unmounted terminal cannot replace workspace zoom source")
+    func unmountedTerminalDoesNotReplaceWorkspaceZoomSource() throws {
         let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)
         let snapshot = try snapshotBySettingTerminalFontSize(
@@ -227,21 +227,26 @@ struct TerminalFontZoomSessionPersistenceTests {
             in: workspace.sessionSnapshot(includeScrollback: false)
         )
         let restoredWorkspace = Workspace()
-        _ = restoredWorkspace.restoreSessionSnapshot(snapshot)
+        let restoredPanelIDs = restoredWorkspace.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = restoredPanelIDs[panelID] ?? panelID
         #expect(
             restoredWorkspace.lastRememberedTerminalFontSizeLineageForConfigInheritance()?
                 .isExplicitOverride == true
         )
 
-        let unzoomedPanel = TerminalPanel(
+        let unmountedPanel = TerminalPanel(
             workspaceId: restoredWorkspace.id,
             configTemplate: nil,
             runtimeSpawnPolicy: .pacedSessionRestore
         )
-        restoredWorkspace.rememberTerminalConfigInheritanceSource(unzoomedPanel)
+        restoredWorkspace.rememberTerminalConfigInheritanceSource(unmountedPanel)
 
         #expect(
-            restoredWorkspace.lastRememberedTerminalFontSizeLineageForConfigInheritance() == nil
+            restoredWorkspace.lastRememberedTerminalPanelForConfigInheritance()?.id == restoredPanelID
+        )
+        #expect(
+            restoredWorkspace.lastRememberedTerminalFontSizeLineageForConfigInheritance()?
+                .isExplicitOverride == true
         )
     }
 
