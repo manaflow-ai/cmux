@@ -79,7 +79,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// onboarding connection scene exposes retry and QR fallback. The launch
     /// ``RestoringSessionView`` has its own shorter gate in ``CMUXMobileRootView``;
     /// this longer backstop covers scope lookup, backup refresh, and dialing.
-    private var storedMacReconnectRestoringDeadlineSeconds: Double = 15
+    var storedMacReconnectRestoringDeadlineSeconds: Double = 15
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
@@ -4142,9 +4142,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connections[macDeviceID]?.route
     }
     func storedMacReconnectGenerationForTesting() -> Int { storedMacReconnectGeneration }
-    func setStoredMacReconnectRestoringDeadlineForTesting(seconds: Double) {
-        storedMacReconnectRestoringDeadlineSeconds = seconds
-    }
     func refreshRoutesFromRegistryForTesting(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot
