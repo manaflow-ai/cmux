@@ -264,8 +264,43 @@ struct SidebarAppKitRowCellTests {
         pill.configure(text: nil, fontSize: 10, emphasis: 1)
 
         #expect(!pill.isHidden)
-        try await Task.sleep(for: .milliseconds(180))
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(1)
+        while !pill.isHidden, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         #expect(pill.isHidden)
+    }
+
+    @Test
+    func shortcutHintPillUsesExplicitOpacityAnimationInsideDisabledTransaction() {
+        let pill = SidebarShortcutHintPillView()
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        CATransaction.commit()
+
+        #expect(!(pill.layer?.animationKeys() ?? []).isEmpty)
+    }
+
+    @Test
+    func shortcutHintPillNeverInterceptsPointerEvents() {
+        let pill = SidebarShortcutHintPillView()
+        pill.frame = NSRect(x: 0, y: 0, width: 32, height: 18)
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        pill.layoutSubtreeIfNeeded()
+
+        #expect(pill.hitTest(NSPoint(x: 16, y: 9)) == nil)
+    }
+
+    @Test
+    func shortcutHintPillUsesCompactHorizontalPadding() throws {
+        let pill = SidebarShortcutHintPillView()
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        let label = try #require(Self.descendants(of: pill).compactMap { $0 as? NSTextField }.first)
+
+        #expect(pill.fittingPillSize().width == ceil(label.sidebarNaturalCellSize.width) + 8)
     }
 
     @Test
