@@ -150,6 +150,41 @@ import Testing
         #expect(store.unreadCount == 3)
     }
 
+    @Test func loadingOlderHistoryRetainsTheRequestedPageAtTheWindowCap() {
+        let store = ConversationReplica(
+            sessionID: ReplicaTestSupport.session,
+            journalID: ReplicaTestSupport.journal,
+            windowCap: 3,
+            clock: ReplicaTestSupport.clock()
+        )
+        store.mergePage(
+            journal: ReplicaTestSupport.journal,
+            entries: (100...102).map { ReplicaTestSupport.entry($0) },
+            windowStart: ReplicaTestSupport.seq(100),
+            windowEnd: ReplicaTestSupport.seq(102),
+            tailSeq: ReplicaTestSupport.seq(102),
+            hasMoreBefore: true
+        )
+
+        store.mergePage(
+            journal: ReplicaTestSupport.journal,
+            entries: (97...99).map { ReplicaTestSupport.entry($0) },
+            windowStart: ReplicaTestSupport.seq(97),
+            windowEnd: ReplicaTestSupport.seq(99),
+            tailSeq: ReplicaTestSupport.seq(102),
+            hasMoreBefore: true
+        )
+
+        #expect(store.entries.map(\.seq) == [
+            ReplicaTestSupport.seq(97),
+            ReplicaTestSupport.seq(98),
+            ReplicaTestSupport.seq(99),
+        ])
+        #expect(store.loadedRanges == [
+            EntryRange(lowerBound: ReplicaTestSupport.seq(97), upperBound: ReplicaTestSupport.seq(99)),
+        ])
+    }
+
     @Test func epochChangeKeepsTicketsAndReadPointerButDropsReplicatedWindow() {
         let store = ConversationReplica(sessionID: ReplicaTestSupport.session, journalID: ReplicaTestSupport.journal, clock: ReplicaTestSupport.clock())
         let ticketID = UUID()

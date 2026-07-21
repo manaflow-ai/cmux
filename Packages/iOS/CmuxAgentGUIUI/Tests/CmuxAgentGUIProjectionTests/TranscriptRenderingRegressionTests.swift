@@ -236,7 +236,7 @@ import UIKit
         })
     }
 
-    @Test func failedAskRemeasuresWithoutClippingAndRetryRestoresHeight() throws {
+    @Test func failedAskStateDoesNotChangeTranscriptRowHeight() throws {
         let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = controller
@@ -298,20 +298,11 @@ import UIKit
             controller.collectionView.layoutAttributesForItem(at: indexPath)
         )
         let failedHeight = failedAttributes.frame.height
-        let failedFittingHeight = controller.heightForRow(
-            at: indexPath,
-            width: controller.collectionView.bounds.width
-        )
         let failedScreenY = controller.collectionView.convert(
             failedAttributes.frame,
             to: controller.view
         ).standardized.minY
-        let failedCell = try #require(
-            controller.collectionView.cellForItem(at: indexPath) as? TranscriptCollectionCell
-        )
-        #expect(failedHeight > initialHeight)
-        #expect(abs(failedHeight - failedFittingHeight) <= pixelTolerance)
-        #expect(failedCell.contentView.bounds.height + pixelTolerance >= failedFittingHeight)
+        #expect(abs(failedHeight - initialHeight) <= pixelTolerance)
         #expect(abs(failedScreenY - initialScreenY) <= pixelTolerance)
 
         controller.applyPendingAskInteraction(
@@ -331,6 +322,13 @@ import UIKit
         ).standardized.minY
         #expect(abs(restoredAttributes.frame.height - initialHeight) <= pixelTolerance)
         #expect(abs(restoredScreenY - initialScreenY) <= pixelTolerance)
+    }
+
+    @Test func transcriptOwnsTheNativeStatusBarScrollToTopGesture() {
+        let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
+        controller.loadViewIfNeeded()
+
+        #expect(controller.collectionView.scrollsToTop)
     }
 
     @Test func tallFixtureAndBurstAppendImmediatelyUpdateProjection() {
