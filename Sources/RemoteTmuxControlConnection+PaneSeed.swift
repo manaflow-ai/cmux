@@ -3,18 +3,33 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxControlConnection {
-    /// Seed buffering is normally one control-channel round trip. Bound it so a
-    /// stalled command behind a flooding pane cannot grow memory indefinitely;
-    /// reconnecting re-establishes both parser order and an authoritative seed.
-    static let maximumPendingPaneSeedBytes = 8 * 1_024 * 1_024
+    /// Live output retained around one capture boundary. This is deliberately
+    /// separate from the parser's larger command-block budget: a valid capture
+    /// must not be rejected merely because it contains more than 8 MiB of history.
+    nonisolated static let maximumPendingPaneSeedLiveBytes = 8 * 1_024 * 1_024
+    /// Capture output can consume the parser's entire command-block allowance;
+    /// reserve a small fixed amount for the clear/alt-screen framing added locally.
+    nonisolated static let maximumPaneSeedSnapshotBytes =
+        RemoteTmuxControlStreamParser.defaultMaximumCommandBlockBytes + 64 * 1_024
+    /// Consumer retention includes one maximum snapshot and its bounded live catch-up.
+    nonisolated static let maximumPendingPaneSeedDeliveryBytes =
+        maximumPaneSeedSnapshotBytes + maximumPendingPaneSeedLiveBytes
+    nonisolated static let maximumConcurrentReconnectPaneSeeds = 2
+    nonisolated static let maximumPendingPaneSeedBytes =
+        maximumPendingPaneSeedDeliveryBytes * maximumConcurrentReconnectPaneSeeds
 
-    func beginPaneSeed(paneId: Int, clearScrollback: Bool) -> UUID {
+    func beginPaneSeed(
+        paneId: Int,
+        clearScrollback: Bool,
+        kind: RemoteTmuxPaneSeedKind
+    ) -> UUID? {
         let id = UUID()
         let reset = clearScrollback
             ? Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8)
             : Data()
+        guard reservePendingPaneSeedBytes(reset.count, paneId: paneId) else { return nil }
         pendingPaneSeeds[paneId, default: []].append(
-            RemoteTmuxPendingPaneSeed(id: id, snapshot: reset)
+            RemoteTmuxPendingPaneSeed(id: id, kind: kind, snapshot: reset)
         )
         return id
     }
@@ -22,7 +37,8 @@ extension RemoteTmuxControlConnection {
     func cancelPaneSeed(paneId: Int, seedID: UUID) {
         guard var seeds = pendingPaneSeeds[paneId],
               let index = seeds.firstIndex(where: { $0.id == seedID }) else { return }
-        seeds.remove(at: index)
+        let removed = seeds.remove(at: index)
+        releasePendingPaneSeedBytes(removed.retainedByteCount)
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
         completePaneSeedLifecycle(paneId: paneId, seedID: seedID)
     }
@@ -31,12 +47,14 @@ extension RemoteTmuxControlConnection {
         guard !data.isEmpty,
               pendingPaneSeeds[paneId]?.first?.id == seedID,
               pendingPaneSeeds[paneId]?.first?.isCaptureInstalled == false else { return }
+        guard reservePendingPaneSeedBytes(data.count, paneId: paneId) else { return }
         pendingPaneSeeds[paneId]![0].snapshot.append(data)
     }
 
     func installPaneSeedCapture(paneId: Int, seedID: UUID, data: Data) {
         guard pendingPaneSeeds[paneId]?.first?.id == seedID,
               pendingPaneSeeds[paneId]?.first?.isCaptureInstalled == false else { return }
+        guard reservePendingPaneSeedBytes(data.count, paneId: paneId) else { return }
         pendingPaneSeeds[paneId]![0].snapshot.append(data)
         pendingPaneSeeds[paneId]![0].isCaptureInstalled = true
     }
@@ -47,16 +65,17 @@ extension RemoteTmuxControlConnection {
     func absorbPaneOutputIntoPendingSeed(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty, pendingPaneSeeds[paneId]?.isEmpty == false else { return false }
         let nextCount = pendingPaneSeeds[paneId]![0].bufferedLiveByteCount + data.count
-        guard nextCount <= Self.maximumPendingPaneSeedBytes else {
+        guard nextCount <= Self.maximumPendingPaneSeedLiveBytes,
+              reservePendingPaneSeedBytes(data.count, paneId: paneId) else {
             record("pane-seed-backpressure %\(paneId)")
-            beginReconnecting()
+            if connectionState == .connected { beginReconnecting() }
             return true
         }
         pendingPaneSeeds[paneId]![0].bufferedLiveByteCount = nextCount
         if pendingPaneSeeds[paneId]![0].isCaptureInstalled {
-            pendingPaneSeeds[paneId]![0].catchUpOutput.append(data)
+            Self.appendCoalesced(data, to: &pendingPaneSeeds[paneId]![0].catchUpOutput)
         } else {
-            pendingPaneSeeds[paneId]![0].discardedOutput.append(data)
+            Self.appendCoalesced(data, to: &pendingPaneSeeds[paneId]![0].discardedOutput)
         }
         return true
     }
@@ -69,6 +88,7 @@ extension RemoteTmuxControlConnection {
     func finishPaneSeed(paneId: Int, seedID: UUID, state: Data) {
         guard var seeds = pendingPaneSeeds[paneId], seeds.first?.id == seedID else { return }
         let completed = seeds.removeFirst()
+        releasePendingPaneSeedBytes(completed.retainedByteCount)
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
         defer { completePaneSeedLifecycle(paneId: paneId, seedID: seedID) }
         guard completed.isCaptureInstalled else {
@@ -78,6 +98,7 @@ extension RemoteTmuxControlConnection {
         observers.emitPaneSeed(
             paneId,
             RemoteTmuxPaneSeed(
+                kind: completed.kind,
                 discardedOutput: completed.discardedOutput,
                 snapshot: completed.snapshot,
                 catchUpOutput: completed.catchUpOutput,
@@ -129,6 +150,7 @@ extension RemoteTmuxControlConnection {
             break
         }
         let failed = seeds.removeFirst()
+        releasePendingPaneSeedBytes(failed.retainedByteCount)
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
         defer { completePaneSeedLifecycle(paneId: paneId, seedID: seedID) }
         switch kind {
@@ -136,6 +158,7 @@ extension RemoteTmuxControlConnection {
             observers.emitPaneSeed(
                 paneId,
                 RemoteTmuxPaneSeed(
+                    kind: failed.kind,
                     discardedOutput: failed.discardedOutput,
                     snapshot: failed.snapshot,
                     catchUpOutput: failed.catchUpOutput,
@@ -151,27 +174,37 @@ extension RemoteTmuxControlConnection {
 
     func discardPendingPaneSeeds() {
         pendingPaneSeeds.removeAll(keepingCapacity: false)
+        pendingPaneSeedByteCount = 0
         pendingPaneVisibleRepaintSeedIDs.removeAll(keepingCapacity: false)
         deferredPaneVisibleRepaints.removeAll(keepingCapacity: false)
         pendingReconnectSeedIDs.removeAll(keepingCapacity: false)
+        pendingReconnectPaneIDs.removeAll(keepingCapacity: false)
     }
 
     func discardPendingPaneSeeds(keeping livePanes: Set<Int>) {
         let removedSeedIDs = pendingPaneSeeds
             .filter { !livePanes.contains($0.key) }
             .flatMap { $0.value.map(\.id) }
+        let removedByteCount = pendingPaneSeeds
+            .filter { !livePanes.contains($0.key) }
+            .values.flatMap { $0 }.reduce(0) { $0 + $1.retainedByteCount }
         pendingPaneSeeds = pendingPaneSeeds.filter { livePanes.contains($0.key) }
+        releasePendingPaneSeedBytes(removedByteCount)
         pendingPaneVisibleRepaintSeedIDs = pendingPaneVisibleRepaintSeedIDs.filter {
             livePanes.contains($0.key)
         }
         deferredPaneVisibleRepaints.formIntersection(livePanes)
+        pendingReconnectPaneIDs.removeAll { !livePanes.contains($0) }
         for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
     }
 
     func discardPendingPaneSeeds(paneId: Int) {
-        let removedSeedIDs = pendingPaneSeeds.removeValue(forKey: paneId)?.map(\.id) ?? []
+        let removedSeeds = pendingPaneSeeds.removeValue(forKey: paneId) ?? []
+        let removedSeedIDs = removedSeeds.map(\.id)
+        releasePendingPaneSeedBytes(removedSeeds.reduce(0) { $0 + $1.retainedByteCount })
         pendingPaneVisibleRepaintSeedIDs[paneId] = nil
         deferredPaneVisibleRepaints.remove(paneId)
+        pendingReconnectPaneIDs.removeAll { $0 == paneId }
         for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
     }
 
@@ -199,16 +232,68 @@ extension RemoteTmuxControlConnection {
 
     func resolveReconnectSeed(_ seedID: UUID) {
         guard pendingReconnectSeedIDs.remove(seedID) != nil else { return }
+        pumpReconnectPaneSeeds()
         notifyReconnectReadyIfSeedBatchDrained()
     }
 
     func notifyReconnectReadyIfSeedBatchDrained() {
-        guard connectionState == .connected, pendingReconnectSeedIDs.isEmpty else { return }
+        guard connectionState == .connected,
+              pendingReconnectSeedIDs.isEmpty,
+              pendingReconnectPaneIDs.isEmpty else { return }
         // Reconnect readiness follows an authoritative full-history seed. Do not
         // run the first-attach rows-minus-one redraw kick here: its shrink moves
         // the first visible primary-screen row into local scrollback, and the
         // restore repaint would duplicate that row at the viewport boundary.
         observers.notifyReconnectReady()
+    }
+
+    func pumpReconnectPaneSeeds() {
+        guard connectionState == .connected else { return }
+        while pendingReconnectSeedIDs.count < Self.maximumConcurrentReconnectPaneSeeds,
+              !pendingReconnectPaneIDs.isEmpty
+        {
+            let paneId = pendingReconnectPaneIDs.removeFirst()
+            guard paneIsLive(paneId) else { continue }
+            guard let seedID = seedPane(paneId: paneId, clearScrollback: true) else {
+                guard connectionState == .connected else { return }
+                // A live pane must never silently fall out of the reconnect
+                // barrier. The normal budget/write failures already reconnect;
+                // preserve that invariant if a future rejection path leaves the
+                // connection nominally live as well.
+                pendingReconnectPaneIDs.insert(paneId, at: 0)
+                beginReconnecting()
+                return
+            }
+            pendingReconnectSeedIDs.insert(seedID)
+        }
+    }
+
+    private func paneIsLive(_ paneId: Int) -> Bool {
+        windowsByID.values.contains { $0.paneIDsInOrder.contains(paneId) }
+    }
+
+    private static func appendCoalesced(_ data: Data, to chunks: inout [Data]) {
+        if chunks.isEmpty {
+            chunks.append(data)
+        } else {
+            chunks[chunks.index(before: chunks.endIndex)].append(data)
+        }
+    }
+
+    private func reservePendingPaneSeedBytes(_ count: Int, paneId: Int) -> Bool {
+        guard count >= 0,
+              count <= pendingPaneSeedByteLimit,
+              pendingPaneSeedByteCount <= pendingPaneSeedByteLimit - count else {
+            record("pane-seed-total-backpressure %\(paneId)")
+            if connectionState == .connected { beginReconnecting() }
+            return false
+        }
+        pendingPaneSeedByteCount += count
+        return true
+    }
+
+    private func releasePendingPaneSeedBytes(_ count: Int) {
+        pendingPaneSeedByteCount = max(0, pendingPaneSeedByteCount - count)
     }
 
     /// Repaints panes whose verified tmux assignment grew since the last

@@ -1,5 +1,10 @@
 import Foundation
 
+enum RemoteTmuxPaneSeedKind: Equatable {
+    case fullHistory
+    case visibleRepaint
+}
+
 /// One authoritative pane snapshot and the live-stream bytes around its tmux
 /// command-result boundary.
 ///
@@ -9,6 +14,7 @@ import Foundation
 /// also important for stateful escape filters: a snapshot is not a continuation
 /// of an incomplete live escape sequence.
 struct RemoteTmuxPaneSeed: Equatable {
+    let kind: RemoteTmuxPaneSeedKind
     let discardedOutput: [Data]
     let snapshot: Data
     let catchUpOutput: [Data]

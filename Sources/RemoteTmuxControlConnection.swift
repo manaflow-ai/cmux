@@ -58,6 +58,9 @@ final class RemoteTmuxControlConnection {
     var totalOutputBytes = 0
     /// Per-pane capture/state transactions owning the snapshot-to-live cutover.
     var pendingPaneSeeds: [Int: [RemoteTmuxPendingPaneSeed]] = [:]
+    /// Aggregate bytes retained by every in-flight pane seed on this connection.
+    var pendingPaneSeedByteCount = 0
+    let pendingPaneSeedByteLimit: Int
     /// The one queued or in-flight visible repaint seed allowed per pane.
     var pendingPaneVisibleRepaintSeedIDs: [Int: UUID] = [:]
     /// Panes that grew while a visible repaint seed was already in flight. One
@@ -65,6 +68,9 @@ final class RemoteTmuxControlConnection {
     var deferredPaneVisibleRepaints: Set<Int> = []
     /// Reconnect seeds that must finish before consumers can resume resize work.
     var pendingReconnectSeedIDs: Set<UUID> = []
+    /// Stable pane queue for reconnect snapshots. Only a small fixed number are
+    /// captured concurrently so retained history is bounded independently of pane count.
+    var pendingReconnectPaneIDs: [Int] = []
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -299,10 +305,16 @@ final class RemoteTmuxControlConnection {
     static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
-    init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
+    init(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        createIfMissing: Bool = false,
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
+    ) {
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
+        self.pendingPaneSeedByteLimit = max(0, pendingPaneSeedByteLimit)
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.

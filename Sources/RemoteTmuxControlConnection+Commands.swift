@@ -156,7 +156,11 @@ extension RemoteTmuxControlConnection {
     /// cmux copy (exactly as a local terminal behaves with a mouse-mode app).
     @discardableResult
     func capturePane(paneId: Int, clearScrollback: Bool = false) -> UUID? {
-        let seedID = beginPaneSeed(paneId: paneId, clearScrollback: clearScrollback)
+        guard let seedID = beginPaneSeed(
+            paneId: paneId,
+            clearScrollback: clearScrollback,
+            kind: .fullHistory
+        ) else { return nil }
         // Reset this control client's pane-output cursor before reading the
         // authoritative grid. tmux applies both -A transitions synchronously in
         // one command: `pause` discards queued control-output blocks and
@@ -244,7 +248,13 @@ extension RemoteTmuxControlConnection {
         let gatesReconnectReady = pendingPaneSeeds[paneId]?.contains {
             pendingReconnectSeedIDs.contains($0.id)
         } == true
-        let seedID = beginPaneSeed(paneId: paneId, clearScrollback: false)
+        guard let seedID = beginPaneSeed(
+            paneId: paneId,
+            clearScrollback: false,
+            kind: .visibleRepaint
+        ) else {
+            return nil
+        }
         guard sendBatchInternal(
             [
                 Self.paneOutputCursorResetCommand(paneId: paneId),
@@ -340,20 +350,17 @@ extension RemoteTmuxControlConnection {
             }
         }
         pendingReconnectSeedIDs.removeAll(keepingCapacity: true)
-        var reconnectSeedIDs: Set<UUID> = []
-        for windowId in windowsByID.keys.sorted() {
-            guard let window = windowsByID[windowId] else { continue }
-            for paneId in window.paneIDsInOrder {
-                if let seedID = seedPane(paneId: paneId, clearScrollback: true) {
-                    reconnectSeedIDs.insert(seedID)
-                }
+        var seenPaneIDs: Set<Int> = []
+        pendingReconnectPaneIDs = windowsByID.keys.sorted().flatMap { windowId in
+            (windowsByID[windowId]?.paneIDsInOrder ?? []).filter {
+                seenPaneIDs.insert($0).inserted
             }
         }
+        pumpReconnectPaneSeeds()
         // A batch rejection synchronously begins another reconnect and discards
         // its seeds. Never resurrect those IDs or announce readiness for the dead
         // stream after the loop returns.
         guard connectionState == .connected else { return }
-        pendingReconnectSeedIDs = reconnectSeedIDs
         notifyReconnectReadyIfSeedBatchDrained()
     }
 

@@ -183,6 +183,52 @@ import Testing
         #expect(fixture.connection.pendingPaneSeeds[firstPaneID] == nil)
     }
 
+    @Test func reconnectReseedDeDuplicatesTransientPaneOwnership() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let sharedPane = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0, content: .pane(17)
+        )
+        fixture.connection.windowsByID = [
+            1: RemoteTmuxWindow(id: 1, width: 80, height: 24, layout: sharedPane),
+            2: RemoteTmuxWindow(id: 2, width: 80, height: 24, layout: sharedPane),
+        ]
+
+        fixture.connection.reseedAfterReconnect()
+
+        #expect(fixture.connection.pendingReconnectSeedIDs.count == 1)
+        #expect(fixture.connection.pendingReconnectPaneIDs.isEmpty)
+        #expect(fixture.connection.pendingPaneSeeds[17]?.count == 1)
+    }
+
+    @Test func pruningFinalReconnectSeedNotifiesReadyOnce() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID = [
+            1: RemoteTmuxWindow(
+                id: 1,
+                width: 80,
+                height: 24,
+                layout: RemoteTmuxLayoutNode(
+                    width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+                )
+            ),
+        ]
+
+        var reconnectReadyCount = 0
+        let token = fixture.connection.addObserver(
+            onReconnectReady: { reconnectReadyCount += 1 }
+        )
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.reseedAfterReconnect()
+        _ = try #require(fixture.connection.pendingPaneSeeds[7]?.first)
+        fixture.connection.discardPendingPaneSeeds(paneId: 7)
+
+        #expect(reconnectReadyCount == 1)
+    }
+
     @Test func parserValidLargeSeedWaitsForGridWithoutReconnecting() {
         let fixture = attachedConnection()
         defer { fixture.close() }
@@ -213,6 +259,7 @@ import Testing
         sessionMirror.routeSeed(
             paneId: 7,
             seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
                 discardedOutput: [],
                 snapshot: snapshot,
                 catchUpOutput: [],
@@ -224,11 +271,374 @@ import Testing
         #expect(sessionMirror.pendingPaneSeedByteCounts[7] == snapshot.count)
     }
 
-    @Test func pendingSeedCoalescesTinyLiveOutputChunks() {
+    @Test func stalledGridDropsBytesAndRetainsPaneLocalFrameDemand() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = manager.selectedWorkspace!
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [],
+                snapshot: Data("authoritative".utf8),
+                catchUpOutput: [],
+                state: Data()
+            )
+        )
+        let deadlineID = try #require(sessionMirror.pendingPaneSeedDeadlineIDs[7])
+        sessionMirror.expirePendingPaneSeedDelivery(paneId: 7, deadlineID: deadlineID)
+
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(sessionMirror.pendingPaneSeedBytes[7] == nil)
+        #expect(sessionMirror.pendingPaneSeedByteCounts[7] == nil)
+        #expect(sessionMirror.pendingPaneSeedTotalByteCount == 0)
+        #expect(sessionMirror.deferredFullPaneReseeds == [7])
+        #expect(sessionMirror.paneSeedFrameDemandReleases[7] != nil)
+        #expect(!sessionMirror.paneSeedReadinessObserverTokens.isEmpty)
+        let panelID = try #require(sessionMirror.panelIdByPane[7])
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        #expect(panel.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)
+    }
+
+    @Test func staleDeliveryDeadlineCannotExpireReplacementSeed() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: manager.selectedWorkspace!
+        )
+        defer { sessionMirror.detachObserver() }
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [], snapshot: Data("first".utf8),
+                catchUpOutput: [], state: Data()
+            )
+        )
+        let firstDeadlineID = try #require(sessionMirror.pendingPaneSeedDeadlineIDs[7])
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [], snapshot: Data("replacement".utf8),
+                catchUpOutput: [], state: Data()
+            )
+        )
+        let replacementDeadlineID = try #require(
+            sessionMirror.pendingPaneSeedDeadlineIDs[7]
+        )
+        #expect(firstDeadlineID != replacementDeadlineID)
+
+        sessionMirror.expirePendingPaneSeedDelivery(
+            paneId: 7,
+            deadlineID: firstDeadlineID
+        )
+
+        #expect(sessionMirror.pendingPaneSeedBytes[7] != nil)
+        #expect(sessionMirror.pendingPaneSeedDeadlineIDs[7] == replacementDeadlineID)
+        #expect(sessionMirror.deferredFullPaneReseeds.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func lateGridAfterExpiredFullAndVisibleRepaintRequestsOneFullRecovery() async throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let panelID = try #require(sessionMirror.panelIdByPane[7])
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let terminal = try hostedTerminal(panel.surface)
+        defer { terminal.window.orderOut(nil) }
+        await waitForLiveSurface(terminal.surface)
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: ["initial"],
+            paneHeight: 24,
+            startingAt: 200
+        )
+        sessionMirror.clearPendingPaneSeedDeliveries()
+
+        terminal.surface.setAssignedGrid(columns: 40, rows: 12)
+        await waitForAppliedTerminalGrid(terminal.surface, columns: 40, rows: 12)
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [], snapshot: Data("full-a".utf8),
+                catchUpOutput: [], state: Data()
+            )
+        )
+        let deadlineID = try #require(sessionMirror.pendingPaneSeedDeadlineIDs[7])
+        sessionMirror.expirePendingPaneSeedDelivery(paneId: 7, deadlineID: deadlineID)
+        #expect(sessionMirror.deferredFullPaneReseeds == [7])
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .visibleRepaint,
+                discardedOutput: [], snapshot: Data("visible-b".utf8),
+                catchUpOutput: [], state: Data()
+            )
+        )
+        #expect(sessionMirror.deferredFullPaneReseeds == [7])
+        #expect(sessionMirror.pendingPaneSeedBytes[7] == nil)
+        #expect(terminal.surface.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)
+
+        // The real terminal grid applies asynchronously after the request-time
+        // callback. Remove that callback so only the pane-local rendered-frame
+        // path can discover readiness and request recovery. XCTest windows can
+        // be WindowServer-occluded even after `makeKeyAndOrderFront`, so inject
+        // the exact view callback the Metal layer delivers instead of depending
+        // on a nondeterministic drawable being vended by the test process.
+        terminal.surface.onManualSizeApplied = nil
+        terminal.surface.setAssignedGrid(columns: 80, rows: 24)
+        await waitForAppliedTerminalGridUsingTicks(
+            terminal.surface,
+            columns: 80,
+            rows: 24
+        )
+        NotificationCenter.default.post(
+            name: .ghosttyDidRenderFrame,
+            object: terminal.surface.hostedView.surfaceView
+        )
+
+        #expect(sessionMirror.deferredFullPaneReseeds.isEmpty)
+        #expect(
+            fixture.connection.pendingPaneSeeds[7]?.filter {
+                $0.kind == .fullHistory
+            }.count == 1
+        )
+        #expect(!terminal.surface.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)
+
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: ["full-c"],
+            paneHeight: 24,
+            startingAt: 300
+        )
+        #expect(fixture.connection.pendingPaneSeeds[7] == nil)
+        #expect(sessionMirror.pendingPaneSeedBytes[7] == nil)
+        #expect(!terminal.surface.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)
+    }
+
+    @Test func aggregateConnectionSeedBudgetReconnectsAndReleasesBytes() throws {
+        let fixture = attachedConnection(pendingPaneSeedByteLimit: 5)
+        defer { fixture.close() }
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 7,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data("abc".utf8)
+        ))
+        #expect(fixture.connection.pendingPaneSeedByteCount == 3)
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 8,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 8,
+            data: Data("def".utf8)
+        ))
+
+        #expect(fixture.connection.connectionState == .reconnecting)
+        #expect(fixture.connection.pendingPaneSeedByteCount == 0)
+        #expect(fixture.connection.pendingPaneSeeds.isEmpty)
+    }
+
+    @Test func connectionSeedCountersReleaseOnFinishPruneAndDisconnect() throws {
+        let fixture = attachedConnection(pendingPaneSeedByteLimit: 32)
+        defer { fixture.close() }
+
+        let finishedID = try #require(fixture.connection.beginPaneSeed(
+            paneId: 7,
+            clearScrollback: false,
+            kind: .fullHistory
+        ))
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data("finish".utf8)
+        ))
+        fixture.connection.finishPaneSeed(paneId: 7, seedID: finishedID, state: Data())
+        #expect(fixture.connection.pendingPaneSeedByteCount == 0)
+
+        _ = try #require(fixture.connection.beginPaneSeed(
+            paneId: 8,
+            clearScrollback: false,
+            kind: .fullHistory
+        ))
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 8,
+            data: Data("prune".utf8)
+        ))
+        fixture.connection.discardPendingPaneSeeds(keeping: [])
+        #expect(fixture.connection.pendingPaneSeedByteCount == 0)
+
+        _ = try #require(fixture.connection.beginPaneSeed(
+            paneId: 9,
+            clearScrollback: false,
+            kind: .fullHistory
+        ))
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 9,
+            data: Data("disconnect".utf8)
+        ))
+        fixture.connection.beginReconnecting()
+        #expect(fixture.connection.pendingPaneSeedByteCount == 0)
+        #expect(fixture.connection.pendingPaneSeeds.isEmpty)
+    }
+
+    @Test func aggregateConsumerBudgetRecoversOnlyOverflowingPane() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 1_001,
+            height: 500,
+            layout: RemoteTmuxLayoutNode(
+                width: 1_001,
+                height: 500,
+                x: 0,
+                y: 0,
+                content: .horizontal([
+                    RemoteTmuxLayoutNode(
+                        width: 500, height: 500, x: 0, y: 0, content: .pane(7)
+                    ),
+                    RemoteTmuxLayoutNode(
+                        width: 500, height: 500, x: 501, y: 0, content: .pane(8)
+                    ),
+                ])
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7, 8])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: manager.selectedWorkspace!,
+            pendingPaneSeedByteLimit: 10
+        )
+        defer { sessionMirror.detachObserver() }
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [], snapshot: Data("123456".utf8),
+                catchUpOutput: [], state: Data()
+            )
+        )
+        #expect(sessionMirror.pendingPaneSeedByteCounts[7] == 6)
+        #expect(sessionMirror.pendingPaneSeedTotalByteCount == 6)
+
+        sessionMirror.routeSeed(
+            paneId: 8,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [], snapshot: Data("abcdef".utf8),
+                catchUpOutput: [], state: Data()
+            )
+        )
+
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(Set(sessionMirror.pendingPaneSeedBytes.keys) == [7])
+        #expect(sessionMirror.pendingPaneSeedByteCounts[7] == 6)
+        #expect(sessionMirror.pendingPaneSeedByteCounts[8] == nil)
+        #expect(sessionMirror.pendingPaneSeedTotalByteCount == 6)
+        #expect(sessionMirror.deferredFullPaneReseeds == [8])
+
+        sessionMirror.reconcilePendingPaneSeedDeliveries(keeping: [8])
+        #expect(sessionMirror.pendingPaneSeedTotalByteCount == 0)
+        #expect(sessionMirror.pendingPaneSeedByteCounts.isEmpty)
+        #expect(sessionMirror.deferredFullPaneReseeds == [8])
+
+        sessionMirror.clearPendingPaneSeedDeliveries()
+        #expect(sessionMirror.paneSeedFrameDemandReleases.isEmpty)
+    }
+
+    @Test func pendingSeedCoalescesTinyLiveOutputChunks() throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
 
-        let seedID = fixture.connection.beginPaneSeed(paneId: 7, clearScrollback: true)
+        let seedID = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 7,
+                clearScrollback: true,
+                kind: .fullHistory
+            )
+        )
         for _ in 0..<10_000 {
             #expect(
                 fixture.connection.absorbPaneOutputIntoPendingSeed(
@@ -435,6 +845,7 @@ import Testing
         let seed = try #require(seeds.first)
         #expect(seeds.count == 1)
         #expect(liveWrites.isEmpty)
+        #expect(seed.kind == .fullHistory)
         #expect(seed.discardedOutput == [Data("before-capture".utf8)])
         #expect(seed.catchUpOutput == [Data("after-capture".utf8)])
 
@@ -483,6 +894,7 @@ import Testing
         }
 
         #expect(seeds.count == 2)
+        #expect(seeds.allSatisfy { $0.kind == .visibleRepaint })
         var expectedAlternate = RemoteTmuxControlConnection.altScreenEnterSequence
         expectedAlternate.append(Data("\u{1b}[H\u{1b}[2JALT_SCREEN".utf8))
         #expect(seeds.first?.snapshot == expectedAlternate)
@@ -816,10 +1228,13 @@ import Testing
         }
     }
 
-    private func attachedConnection() -> Fixture {
+    private func attachedConnection(
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
+    ) -> Fixture {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "seed-transport.test"),
-            sessionName: "work"
+            sessionName: "work",
+            pendingPaneSeedByteLimit: pendingPaneSeedByteLimit
         )
         let pipe = Pipe()
         let writer = RemoteTmuxControlPipeWriter(
@@ -921,6 +1336,46 @@ import Testing
                 includeTheme: false
             )?.frame else { return false }
             return frame.columns == columns && frame.rows == rows
+        }
+    }
+
+    private func waitForAppliedTerminalGridUsingTicks(
+        _ surface: TerminalSurface,
+        columns: Int,
+        rows: Int
+    ) async {
+        let gridIsApplied = {
+            surface.mobileRenderGridFrame(
+                stateSeq: 0,
+                scrollbackLines: 0,
+                includeTheme: false
+            )?.frame
+        }
+        if let frame = gridIsApplied(), frame.columns == columns, frame.rows == rows {
+            return
+        }
+
+        let releaseTicks = GhosttyApp.retainTickNotifications()
+        defer { releaseTicks() }
+        let (events, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let token = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidTick,
+            object: nil,
+            queue: .main
+        ) { _ in
+            continuation.yield()
+        }
+        defer {
+            NotificationCenter.default.removeObserver(token)
+            continuation.finish()
+        }
+
+        GhosttyApp.shared.scheduleTick()
+        for await _ in events {
+            guard let frame = gridIsApplied() else { continue }
+            if frame.columns == columns, frame.rows == rows { return }
         }
     }
 

@@ -124,6 +124,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     var windowIdByPane: [Int: Int] = [:]
     var controlPaneIdByPane: [Int: PaneID] = [:]
     var controlSurfaceIdByPane: [Int: UUID] = [:]
+    var tmuxPaneIdByControlSurface: [UUID: Int] = [:]
     /// Last-known working directory per tmux pane, so switching the active pane of
     /// a multi-pane window can re-project that pane's directory onto the tab.
     var cwdByPane: [Int: String] = [:]
@@ -140,12 +141,25 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Published pane grid each gated seed must observe in the terminal-locked
     /// render-grid export before delivery.
     var pendingPaneSeedTargetGrids: [Int: (columns: Int, rows: Int)] = [:]
+    /// Delivery kind determines whether a later visible repaint may replace the
+    /// pending bytes or must follow a full-history snapshot.
+    var pendingPaneSeedKinds: [Int: RemoteTmuxPaneSeedKind] = [:]
     /// Total retained seed plus live-output bytes per pane.
     var pendingPaneSeedByteCounts: [Int: Int] = [:]
-    /// Ghostty readiness signals are retained only while at least one seed waits.
+    /// Aggregate retained consumer bytes across every pane in this mirror.
+    var pendingPaneSeedTotalByteCount = 0
+    let pendingPaneSeedByteLimit: Int
+    /// Per-pane expiry drops retained bytes if a surface never reaches its target grid.
+    var pendingPaneSeedDeadlineTasks: [Int: Task<Void, Never>] = [:]
+    /// Generation token preventing a canceled older deadline from expiring its replacement.
+    var pendingPaneSeedDeadlineIDs: [Int: UUID] = [:]
+    /// Panes whose expired delivery needs one fresh full seed after a later ready frame.
+    var deferredFullPaneReseeds: Set<Int> = []
+    /// Pane-local frame demand stays retained until this pane renders or leaves.
+    var paneSeedFrameDemandReleases: [Int: () -> Void] = [:]
+    var paneSeedFrameObserverTokens: [Int: NSObjectProtocol] = [:]
+    /// Ghostty readiness observers are retained only while a pane waits.
     var paneSeedReadinessObserverTokens: [NSObjectProtocol] = []
-    var releasePaneSeedTickNotifications: (() -> Void)?
-    var releasePaneSeedFrameNotifications: (() -> Void)?
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var pendingExplicitFocusWindowId: Int?
@@ -158,6 +172,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         connection: RemoteTmuxControlConnection,
         tabManager: TabManager,
         workspace: Workspace,
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
         onControlPaneRemoved: @escaping (PaneID, UUID?) -> Void = { _, _ in },
         onControlSurfaceRemoved: @escaping (UUID) -> Void = { _ in }
     ) {
@@ -165,6 +180,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.sessionName = sessionName
         self.seededSessionId = seededSessionId
         self.connection = connection
+        self.pendingPaneSeedByteLimit = max(0, pendingPaneSeedByteLimit)
         self.onControlPaneRemoved = onControlPaneRemoved
         self.onControlSurfaceRemoved = onControlSurfaceRemoved
         self.tabManager = tabManager
@@ -330,12 +346,14 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 if let terminalPanel = workspace.panels[panel.id] as? TerminalPanel {
                     let surface = terminalPanel.surface
                     surface.onRuntimeReady = { [weak self, weak surface] in
-                        guard let surface, let grid = surface.renderedGridCells() else { return }
-                        self?.claimSinglePaneDisplaySize(
-                            windowId: windowId,
-                            columns: grid.columns, rows: grid.rows,
-                            cellSizePt: surface.cellSizePoints()
-                        )
+                        if let surface, let grid = surface.renderedGridCells() {
+                            self?.claimSinglePaneDisplaySize(
+                                windowId: windowId,
+                                columns: grid.columns, rows: grid.rows,
+                                cellSizePt: surface.cellSizePoints()
+                            )
+                        }
+                        self?.handlePaneSeedSurfaceProgress(paneId: firstPaneId)
                     }
                     surface.onManualSizeApplied = { [weak self] sample in
                         self?.claimSinglePaneDisplaySize(
@@ -343,6 +361,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                             columns: sample.columns, rows: sample.rows,
                             cellSizePt: Self.cellSizePoints(of: sample)
                         )
+                        self?.handlePaneSeedSurfaceProgress(paneId: firstPaneId)
                     }
                 }
                 if Self.shouldSeedSinglePaneDisplay(for: window) {
