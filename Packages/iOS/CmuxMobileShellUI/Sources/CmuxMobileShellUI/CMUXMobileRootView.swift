@@ -31,7 +31,6 @@ struct CMUXMobileRootView: View {
     @State private var didExceedStartupRestoringGate = false
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
-    @State private var pendingPairingPresentation: PairingPresentation?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -125,7 +124,7 @@ struct CMUXMobileRootView: View {
 
     var body: some View {
         rootContent
-        .sheet(isPresented: addDeviceSheetBinding, onDismiss: presentPendingPairingIfNeeded) {
+        .sheet(isPresented: addDeviceSheetBinding) {
             pairingSheet
         }
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
@@ -208,7 +207,6 @@ struct CMUXMobileRootView: View {
             if connectionState == .connected {
                 isShowingAddDeviceSheet = false
                 pairingPresentation = .manual
-                pendingPairingPresentation = nil
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
             }
@@ -310,6 +308,7 @@ struct CMUXMobileRootView: View {
             cancelPairing: cancelPairing,
             cancel: dismissAddDeviceSheet
         )
+        .id(pairingPresentation.analyticsEntry)
         #if os(iOS)
         .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
         .presentationDragIndicator(.visible)
@@ -496,8 +495,7 @@ struct CMUXMobileRootView: View {
     private func presentAddDevice(_ presentation: PairingPresentation) {
         if isShowingAddDeviceSheet {
             guard pairingPresentation != presentation else { return }
-            pendingPairingPresentation = presentation
-            isShowingAddDeviceSheet = false
+            pairingPresentation = presentation
             return
         }
         pairingPresentation = presentation
@@ -505,16 +503,6 @@ struct CMUXMobileRootView: View {
         addDeviceSheetDetent = .large
         #endif
         isShowingAddDeviceSheet = true
-    }
-
-    private func presentPendingPairingIfNeeded() {
-        guard let pendingPairingPresentation else { return }
-        self.pendingPairingPresentation = nil
-        pairingPresentation = pendingPairingPresentation
-        Task { @MainActor in
-            await Task.yield()
-            isShowingAddDeviceSheet = true
-        }
     }
 
     private func connectAttachURL(_ rawURL: String) {

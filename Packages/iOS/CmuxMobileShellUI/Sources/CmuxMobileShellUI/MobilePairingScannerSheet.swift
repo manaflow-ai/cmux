@@ -101,10 +101,15 @@ struct MobilePairingScannerSheet: View {
                         } actions: { manualEntryButton }
                         .accessibilityIdentifier("MobilePairingCameraRestricted")
                     @unknown default:
-                        ContentUnavailableView(
-                            L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable"),
-                            systemImage: "camera.fill"
-                        )
+                        ContentUnavailableView {
+                            Label(
+                                L10n.string(
+                                    "mobile.pairing.cameraUnavailable",
+                                    defaultValue: "Camera Unavailable"
+                                ),
+                                systemImage: "camera.fill"
+                            )
+                        } actions: { manualEntryButton }
                     }
                 }
             }
