@@ -96,7 +96,7 @@ private func setRendererRealizedResult(_ result: Bool)
         #expect(rendererRealizedCalls() == [false, true])
     }
 
-    @Test func hiddenBirthReleaseFailureSchedulesOneRepairUntilRecovery() {
+    @Test func hiddenBirthReleaseFailureUsesBoundedRepairBudgetUntilRecovery() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
@@ -119,17 +119,17 @@ private func setRendererRealizedResult(_ result: Bool)
 
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false, false])
-        #expect(scheduler.scheduledPassCount == 1)
+        #expect(scheduler.scheduledPassCount == 2)
 
         setRendererRealizedResult(true)
         surface.ensureRendererPresented()
 
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false, false, false, true])
-        #expect(scheduler.scheduledPassCount == 1)
+        #expect(scheduler.scheduledPassCount == 2)
     }
 
-    @Test func persistentRealizeFailureSchedulesOncePerVisibilityEpoch() {
+    @Test func persistentRealizeFailureSchedulesBoundedRepairsPerVisibilityEpoch() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
@@ -147,22 +147,27 @@ private func setRendererRealizedResult(_ result: Bool)
         resetGhosttyRuntimeStubs()
         setRendererRealizedResult(false)
         surface.setRendererPortalVisible(true)
-        surface.ensureRendererPresented()
+        for _ in 0..<5 {
+            surface.ensureRendererPresented()
+        }
 
         #expect(!surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [true, true])
-        #expect(scheduler.scheduledPassCount == 1)
+        #expect(rendererRealizedCalls() == Array(repeating: true, count: 6))
+        #expect(scheduler.scheduledPassCount == 3)
 
         surface.setRendererPortalVisible(false)
         surface.setRendererPortalVisible(true)
+        for _ in 0..<5 {
+            surface.ensureRendererPresented()
+        }
 
-        #expect(scheduler.scheduledPassCount == 2)
+        #expect(scheduler.scheduledPassCount == 6)
 
         setRendererRealizedResult(true)
         surface.ensureRendererPresented()
 
         #expect(surface.isRendererPresented)
-        #expect(scheduler.scheduledPassCount == 2)
+        #expect(scheduler.scheduledPassCount == 6)
     }
 
     private func rendererRealizedCalls() -> [Bool] {

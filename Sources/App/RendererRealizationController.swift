@@ -101,9 +101,12 @@ final class RendererRealizationController {
     func scheduleImmediatePass() {
         guard immediatePassTask == nil else { return }
         immediatePassTask = Task { @MainActor [weak self] in
+            await Task.yield()
             guard let self, !Task.isCancelled else { return }
-            self.evaluate(now: Date())
+            // Clear before evaluating so a failed repair can enqueue the next
+            // bounded turn without being mistaken for duplicate fanout.
             self.immediatePassTask = nil
+            self.evaluate(now: Date())
         }
     }
 

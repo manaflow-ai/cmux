@@ -77,8 +77,10 @@ extension TerminalSurface {
     @MainActor
     public func setRendererPortalVisible(_ visible: Bool) {
         let wasVisible = rendererPortalVisible
-        if !visible {
-            rendererPresentationRetryScheduled = false
+        if visible, !wasVisible {
+            rendererPresentationImmediateRetriesRemaining = Self.rendererPresentationImmediateRetryLimit
+        } else if !visible {
+            rendererPresentationImmediateRetriesRemaining = 0
         }
         // This is the single presentation transition for both a renderer that
         // was reclaimed and one that was born hidden and never got a drawable.
@@ -113,7 +115,7 @@ extension TerminalSurface {
     @MainActor
     func rendererRuntimeSurfaceDidCreate() {
         rendererPresentationPhase = .awaitingFirstPresentation
-        rendererPresentationRetryScheduled = false
+        rendererPresentationImmediateRetriesRemaining = 0
         guard surface != nil else { return }
         if rendererPortalVisible {
             rendererPresentationPhase = .presented
@@ -145,7 +147,7 @@ extension TerminalSurface {
         // controller retries rather than desyncing from Ghostty's live renderer.
         if ghostty_surface_set_renderer_realized(surface, false) {
             rendererPresentationPhase = .released
-            rendererPresentationRetryScheduled = false
+            rendererPresentationImmediateRetriesRemaining = 0
             return true
         }
         return false
@@ -187,7 +189,7 @@ extension TerminalSurface {
         // never block the main actor waiting on the renderer thread.
         if ghostty_surface_set_renderer_realized(surface, true) {
             rendererPresentationPhase = .presented
-            rendererPresentationRetryScheduled = false
+            rendererPresentationImmediateRetriesRemaining = 0
         } else {
             // Enqueue dropped (full mailbox, i.e. the renderer thread is not
             // draining). Kick an immediate reclamation pass so the controller
@@ -199,13 +201,13 @@ extension TerminalSurface {
 #endif
     }
 
-    /// Requests at most one next-turn repair for an unresolved presentation.
-    /// A failed repair remains eligible for the controller's periodic pass, but
-    /// cannot recursively enqueue main-actor work while the mailbox stays full.
+    /// Requests a bounded next-turn repair for an unresolved presentation.
+    /// Exhausting this visibility epoch's budget falls back to natural portal
+    /// updates and the controller's periodic pass instead of spinning forever.
     @MainActor
     private func scheduleRendererPresentationRetryIfNeeded() {
-        guard !rendererPresentationRetryScheduled else { return }
-        rendererPresentationRetryScheduled = true
+        guard rendererPresentationImmediateRetriesRemaining > 0 else { return }
+        rendererPresentationImmediateRetriesRemaining -= 1
         rendererRealization.scheduleImmediatePass()
     }
 }
