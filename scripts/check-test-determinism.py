@@ -196,7 +196,7 @@ _SLEEP_CALL = re.compile(
   | \busleep\s*\(
   | \bnanosleep\s*\(
   | Thread\.sleep\s*\(
-  | Task\.sleep\s*\(
+  | \bTask(?:\s*<[^>\n]+>)?\s*\.sleep\s*\(
   | try\s+await\s+Task\.sleep
   | \b(?:ContinuousClock|SuspendingClock)\s*\(\s*\)\.sleep\s*\(
   | \basyncio\.sleep\s*\(
