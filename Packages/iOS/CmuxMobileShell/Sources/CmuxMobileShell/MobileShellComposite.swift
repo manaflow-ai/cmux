@@ -4141,7 +4141,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
         connections[macDeviceID]?.route
     }
-    func storedMacReconnectGenerationForTesting() -> Int { storedMacReconnectGeneration }
     func refreshRoutesFromRegistryForTesting(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot

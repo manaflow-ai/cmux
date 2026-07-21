@@ -69,7 +69,7 @@ extension ReconnectRouteSelectionTests {
         }
         #expect(deadlineElapsed)
 
-        let firstGeneration = store.storedMacReconnectGenerationForTesting()
+        let firstGeneration = store.storedMacReconnectGeneration
         store.storedMacReconnectRestoringDeadlineSeconds = 5
         let retry = Task {
             await store.retryActiveMacReconnect(stackUserID: "user-1")
@@ -77,7 +77,7 @@ extension ReconnectRouteSelectionTests {
         var retryOwnsFlags = false
         for _ in 0..<1000 {
             let loadCount = await pairedStore.currentLoadAllCount()
-            if store.storedMacReconnectGenerationForTesting() > firstGeneration,
+            if store.storedMacReconnectGeneration > firstGeneration,
                store.isReconnectingStoredMac,
                loadCount >= 2 {
                 retryOwnsFlags = true
@@ -89,7 +89,7 @@ extension ReconnectRouteSelectionTests {
 
         await pairedStore.release(teamID: nil)
         #expect(await firstAttempt.value == false)
-        #expect(store.storedMacReconnectGenerationForTesting() > firstGeneration)
+        #expect(store.storedMacReconnectGeneration > firstGeneration)
         #expect(store.isReconnectingStoredMac)
 
         await pairedStore.release(teamID: nil)
