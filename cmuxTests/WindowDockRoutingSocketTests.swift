@@ -294,6 +294,180 @@ struct WindowDockRoutingSocketTests {
             return
         }
         #expect(try String(contentsOf: noteURL, encoding: .utf8) == "socket write")
+
+        let reservedSocketSequence = writer.reserveSequence()
+        let newerLocalEditSequence = writer.reserveSequence()
+        guard case .saved = writer.saveSynchronously(
+            content: "reserved socket write",
+            sequence: reservedSocketSequence
+        ), case .saved = writer.saveSynchronously(
+            content: "newer local edit",
+            sequence: newerLocalEditSequence
+        ) else {
+            Issue.record("Expected ordered socket and local note writes to succeed")
+            return
+        }
+        #expect(try String(contentsOf: noteURL, encoding: .utf8) == "newer local edit")
+    }
+
+    @Test("Socket note updates follow a note moved out of its floating Dock")
+    @MainActor
+    func socketNoteUpdatesFollowMovedNotePanel() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-move-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Movable note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: root.appendingPathComponent("note.md").path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let notePanel = try #require(dock.notePanel)
+            let transfer = try #require(dock.store.detachSurface(panelId: notePanel.id))
+            let destinationPane = try #require(workspace.bonsplitController.allPaneIds.first)
+            #expect(workspace.attachDetachedSurface(transfer, inPane: destinationPane, focus: false) == notePanel.id)
+            #expect(dock.notePanel == nil)
+            #expect(workspace.filePreviewPanel(for: notePanel.id) === notePanel)
+
+            let response = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+                "text": "updated after move",
+            ])
+            #expect(response["ok"] as? Bool == true)
+            #expect(notePanel.textContent == "updated after move")
+            #expect(try String(contentsOfFile: dock.noteFilePath, encoding: .utf8) == "updated after move")
+        }
+    }
+
+    @Test("Floating terminal reports remain owned by their workspace")
+    @MainActor
+    func floatingTerminalReportsRemainOwnedByWorkspace() throws {
+        try withSocketAppContext { manager, workspace, _ in
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Reporting terminal",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-report-note-\(UUID().uuidString).md").path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let sourcePanel = try #require(workspace.panels.values.compactMap { $0 as? TerminalPanel }.first)
+            let transfer = try #require(workspace.detachSurface(panelId: sourcePanel.id))
+            let dockPane = try #require(dock.store.bonsplitController.allPaneIds.first)
+            #expect(dock.store.attachDetachedSurface(transfer, inPane: dockPane, focus: true) == sourcePanel.id)
+            dock.ownsInputFocus = true
+            #expect(workspace.panels[sourcePanel.id] == nil)
+
+            let pwd = TerminalController.shared.controlSurfaceReportPWD(
+                workspaceID: workspace.id,
+                requestedSurfaceID: sourcePanel.id,
+                path: "/tmp/floating-report"
+            )
+            guard case .recorded(let reportedSurfaceID) = pwd else {
+                Issue.record("Expected floating terminal pwd report to resolve")
+                return
+            }
+            #expect(reportedSurfaceID == sourcePanel.id)
+            #expect(workspace.panelDirectories[sourcePanel.id] == "/tmp/floating-report")
+
+            let tty = TerminalController.shared.controlSurfaceReportTTY(
+                workspaceID: workspace.id,
+                requestedSurfaceID: sourcePanel.id,
+                ttyName: "ttys999"
+            )
+            guard case .recorded(let ttySurfaceID) = tty else {
+                Issue.record("Expected floating terminal tty report to resolve")
+                return
+            }
+            #expect(ttySurfaceID == sourcePanel.id)
+            #expect(workspace.surfaceTTYNames[sourcePanel.id] == "ttys999")
+            #expect(TerminalController.shared.controlSidebarSetPorts(
+                tabArg: workspace.id.uuidString,
+                panelArg: sourcePanel.id.uuidString,
+                ports: [4317]
+            ) == .done)
+            #expect(workspace.surfaceListeningPorts[sourcePanel.id] == [4317])
+
+            manager.updateSurfaceShellActivity(
+                tabId: workspace.id,
+                surfaceId: sourcePanel.id,
+                state: .commandRunning
+            )
+            #expect(sourcePanel.shellActivity.state == .commandRunning)
+            #expect(dock.store.detachedSurfaceTransfersByPanelId[sourcePanel.id]?.shellActivityState == .commandRunning)
+
+            dock.store.closeAllPanels()
+            #expect(!dock.store.containsPanel(sourcePanel.id))
+            #expect(workspace.panelDirectories[sourcePanel.id] == nil)
+            #expect(workspace.surfaceTTYNames[sourcePanel.id] == nil)
+            #expect(workspace.surfaceListeningPorts[sourcePanel.id] == nil)
+        }
+    }
+
+    @Test("Floating Dock mutations change the session autosave fingerprint")
+    @MainActor
+    func floatingDockMutationsChangeSessionAutosaveFingerprint() throws {
+        try withSocketAppContext { manager, workspace, _ in
+            let baseline = manager.sessionAutosaveFingerprint()
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Fingerprint",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: true,
+                noteFilePath: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-fingerprint-note-\(UUID().uuidString).md").path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let created = manager.sessionAutosaveFingerprint()
+            #expect(created != baseline)
+
+            dock.frame.origin.x += 40
+            let moved = manager.sessionAutosaveFingerprint()
+            #expect(moved != created)
+
+            dock.isPresented = false
+            #expect(manager.sessionAutosaveFingerprint() != moved)
+        }
+    }
+
+    @Test("Failed initial browser creation does not append an empty floating Dock")
+    @MainActor
+    func failedInitialBrowserCreationDoesNotAppendFloatingDock() throws {
+        try withSocketAppContext { _, workspace, _ in
+            let defaults = UserDefaults.standard
+            let previous = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+            BrowserAvailabilitySettings.setDisabled(true, defaults: defaults)
+            defer {
+                if let previous {
+                    defaults.set(previous, forKey: BrowserAvailabilitySettings.disabledKey)
+                } else {
+                    defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                }
+            }
+
+            let initialCount = workspace.floatingDocks.count
+            #expect(workspace.createFloatingDock(initialContent: .browser) == nil)
+            #expect(workspace.floatingDocks.count == initialCount)
+        }
     }
 
 
