@@ -4,9 +4,13 @@ import Foundation
 /// embedding in a `mobile.sync.delta` event. `nil` change means the tick was a
 /// no-op and nothing travels.
 public struct MobileSyncCollectionChange<Record: MobileSyncRecord>: Equatable, Sendable {
+    /// The head revision before this tick.
     public let fromRev: UInt64
+    /// The head revision after this tick.
     public let toRev: UInt64
+    /// Full rows changed in this tick.
     public let records: [Record]
+    /// Ids removed in this tick.
     public let removedIDs: [String]
 }
 
@@ -37,6 +41,7 @@ public final class MobileSyncCollectionStore<Record: MobileSyncRecord> {
     /// workspace-churn rate; the bound exists so memory never tracks history.
     private let maximumTombstoneCount: Int
 
+    /// The collection's current head revision (monotonic within the epoch).
     public private(set) var headRev: UInt64 = 0
     private var stampedByID: [String: Stamped] = [:]
     private var tombstones: [Tombstone] = []
@@ -46,6 +51,8 @@ public final class MobileSyncCollectionStore<Record: MobileSyncRecord> {
     /// oldest retained tombstone (which may be a partial batch).
     private var discardedTombstoneRevBound: UInt64 = 0
 
+    /// Creates a store retaining at most `maximumTombstoneCount` removal
+    /// tombstones before old cursors are forced to snapshot.
     public init(maximumTombstoneCount: Int = 1024) {
         self.maximumTombstoneCount = maximumTombstoneCount
     }
@@ -152,10 +159,14 @@ public final class MobileSyncCollectionStore<Record: MobileSyncRecord> {
 /// invalidates every client cursor from a previous run.
 @MainActor
 public final class MobileStateSyncStore {
+    /// The epoch every cursor from this store is scoped to (fresh each run).
     public let epoch: String
+    /// The workspaces collection store.
     public let workspaces: MobileSyncCollectionStore<WorkspaceSyncRecord>
+    /// The groups collection store.
     public let groups: MobileSyncCollectionStore<GroupSyncRecord>
 
+    /// Creates a root store; a fresh epoch invalidates every prior cursor.
     public init(epoch: String = UUID().uuidString) {
         self.epoch = epoch
         self.workspaces = MobileSyncCollectionStore()

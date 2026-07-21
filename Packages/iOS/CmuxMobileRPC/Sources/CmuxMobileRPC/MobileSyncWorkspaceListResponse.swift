@@ -214,6 +214,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 // already-synced local source (mobile state sync v2 projects its record mirror
 // through the same apply path the decoded wire response uses).
 extension MobileSyncWorkspaceListResponse {
+    /// Memberwise construction for locally-synced sources (state sync v2
+    /// projects its record mirror through the same apply path).
     public init(
         workspaces: [Workspace],
         groups: [Group],

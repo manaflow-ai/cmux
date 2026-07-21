@@ -212,7 +212,7 @@ extension MobileShellComposite {
         guard remoteClient === client, connectionState == .connected, !Task.isCancelled else { return false }
         let params: [String: Any]
         do {
-            params = try MobileSyncFrameJSON.jsonObject(from: stateSyncMirror.fetchRequest)
+            params = try MobileSyncFrameCoder().jsonObject(from: stateSyncMirror.fetchRequest)
         } catch {
             return false
         }

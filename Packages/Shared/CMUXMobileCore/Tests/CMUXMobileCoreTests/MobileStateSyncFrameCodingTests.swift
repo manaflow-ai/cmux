@@ -31,7 +31,7 @@ struct MobileStateSyncFrameCodingTests {
     }
 
     @Test func workspaceRecordUsesLegacyWireKeys() throws {
-        let object = try MobileSyncFrameJSON.jsonObject(from: workspace)
+        let object = try MobileSyncFrameCoder().jsonObject(from: workspace)
         #expect(object["id"] as? String == "ws-1")
         #expect(object["window_id"] as? String == "win-1")
         #expect(object["current_directory"] as? String == "/repo")
@@ -56,12 +56,12 @@ struct MobileStateSyncFrameCodingTests {
             records: [workspace],
             removedIDs: ["ws-9"]
         )
-        let object = try MobileSyncFrameJSON.jsonObject(from: event)
+        let object = try MobileSyncFrameCoder().jsonObject(from: event)
         #expect(object["from_rev"] as? UInt64 == 41)
         #expect(object["to_rev"] as? UInt64 == 42)
         #expect(object["removed_ids"] as? [String] == ["ws-9"])
 
-        let decoded = try MobileSyncFrameJSON.decode(
+        let decoded = try MobileSyncFrameCoder().decode(
             MobileSyncDeltaEvent<WorkspaceSyncRecord>.self,
             fromJSONObject: object
         )
@@ -77,8 +77,8 @@ struct MobileStateSyncFrameCodingTests {
             records: [],
             removedIDs: []
         )
-        let object = try MobileSyncFrameJSON.jsonObject(from: event)
-        let header = try MobileSyncFrameJSON.decode(MobileSyncDeltaEventHeader.self, fromJSONObject: object)
+        let object = try MobileSyncFrameCoder().jsonObject(from: event)
+        let header = try MobileSyncFrameCoder().decode(MobileSyncDeltaEventHeader.self, fromJSONObject: object)
         #expect(header.collection == .groups)
     }
 
@@ -90,7 +90,7 @@ struct MobileStateSyncFrameCodingTests {
                 ["id": "future_collection", "epoch": "e1", "rev": 3],
             ]
         ]
-        let request = try MobileSyncFrameJSON.decode(MobileSyncFetchRequest.self, fromJSONObject: params)
+        let request = try MobileSyncFrameCoder().decode(MobileSyncFetchRequest.self, fromJSONObject: params)
         #expect(request.collections.count == 3)
         #expect(request.collections[0].cursor == MobileSyncCursor(epoch: "e1", rev: 12))
         #expect(request.collections[1].cursor == nil)
@@ -109,18 +109,18 @@ struct MobileStateSyncFrameCodingTests {
             ),
             groups: nil
         )
-        let object = try MobileSyncFrameJSON.jsonObject(from: response)
+        let object = try MobileSyncFrameCoder().jsonObject(from: response)
         #expect(object["groups"] == nil)
         let section = object["workspaces"] as? [String: Any]
         #expect(section?["mode"] as? String == "snapshot")
         #expect(section?["from_rev"] == nil)
 
-        let decoded = try MobileSyncFrameJSON.decode(MobileSyncFetchResponse.self, fromJSONObject: object)
+        let decoded = try MobileSyncFrameCoder().decode(MobileSyncFetchResponse.self, fromJSONObject: object)
         #expect(decoded == response)
     }
 
     @Test func unknownCollectionIDDecodesInsteadOfFailing() throws {
-        let decoded = try MobileSyncFrameJSON.decode(
+        let decoded = try MobileSyncFrameCoder().decode(
             MobileSyncDeltaEventHeader.self,
             fromJSONString: #"{"collection":"records_from_the_future"}"#
         )

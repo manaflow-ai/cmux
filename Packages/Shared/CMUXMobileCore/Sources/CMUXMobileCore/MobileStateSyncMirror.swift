@@ -18,10 +18,13 @@ public enum MobileSyncApplyResult: Equatable, Sendable {
 /// consumer, the shell state.
 @MainActor
 public final class MobileSyncCollectionMirror<Record: MobileSyncRecord> {
+    /// The store epoch the mirrored state belongs to; nil before first state.
     public private(set) var epoch: String?
+    /// The last revision applied within that epoch.
     public private(set) var rev: UInt64 = 0
     private var recordsByID: [String: Record] = [:]
 
+    /// Creates an empty mirror awaiting its first snapshot.
     public init() {}
 
     /// Records in presentation order: `syncSortIndex`, then id for
@@ -117,9 +120,12 @@ public final class MobileSyncCollectionMirror<Record: MobileSyncRecord> {
 /// cursor plumbing a `mobile.sync.fetch` round-trip needs.
 @MainActor
 public final class MobileStateSyncMirror {
+    /// The workspaces collection mirror.
     public let workspaces = MobileSyncCollectionMirror<WorkspaceSyncRecord>()
+    /// The groups collection mirror.
     public let groups = MobileSyncCollectionMirror<GroupSyncRecord>()
 
+    /// Creates an empty root mirror awaiting its first fetch.
     public init() {}
 
     /// The fetch request that brings both collections current from their
@@ -154,6 +160,7 @@ public final class MobileStateSyncMirror {
         return .staleIgnored
     }
 
+    /// Drops all state for both collections (sign-out, unpair).
     public func reset() {
         workspaces.reset()
         groups.reset()

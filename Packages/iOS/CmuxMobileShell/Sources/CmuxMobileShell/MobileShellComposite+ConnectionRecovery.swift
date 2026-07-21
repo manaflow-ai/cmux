@@ -922,7 +922,11 @@ extension MobileShellComposite {
                     once.finish(await operationTask.value)
                 }
                 Task {
-                    try? await Task.sleep(nanoseconds: nanoseconds)
+                    // Intentional bounded deadline timer (not a polling wait);
+                    // cancellation of the race cancels the operation via the
+                    // handler above, and this timer resolves the race at the
+                    // bound either way.
+                    try? await ContinuousClock().sleep(for: .nanoseconds(Int64(nanoseconds)))
                     operationTask.cancel()
                     once.finish(nil)
                 }

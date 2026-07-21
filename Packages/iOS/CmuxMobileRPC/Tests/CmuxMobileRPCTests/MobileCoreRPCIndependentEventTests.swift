@@ -182,7 +182,7 @@ struct MobileCoreRPCIndependentEventTests {
         let envelope = try JSONSerialization.data(withJSONObject: [
             "kind": "event",
             "topic": "mobile.sync.delta",
-            "payload": try MobileSyncFrameJSON.jsonObject(from: delta),
+            "payload": try MobileSyncFrameCoder().jsonObject(from: delta),
         ])
         await source.yield(try MobileSyncFrameCodec.encodeFrame(envelope))
 

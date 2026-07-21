@@ -17,8 +17,10 @@ public protocol MobileSyncRecord: Codable, Equatable, Sendable {
 /// enum) so an older client can skip frames for collections it does not know
 /// instead of failing to decode the envelope.
 public struct MobileSyncCollectionID: RawRepresentable, Codable, Hashable, Sendable {
+    /// The collection's wire name.
     public let rawValue: String
 
+    /// Creates a collection id from its wire name.
     public init(rawValue: String) {
         self.rawValue = rawValue
     }
@@ -35,12 +37,18 @@ public struct MobileSyncCollectionID: RawRepresentable, Codable, Hashable, Senda
 public struct WorkspaceSyncRecord: MobileSyncRecord {
     /// One terminal row within a workspace.
     public struct Terminal: Codable, Equatable, Sendable {
+        /// Stable terminal identifier.
         public let id: String
+        /// User-facing terminal title (custom rename aware).
         public let title: String
+        /// The terminal's current working directory, when reported.
         public let currentDirectory: String?
+        /// Whether the terminal surface is ready to render.
         public let isReady: Bool
+        /// Whether the terminal currently holds focus in its workspace.
         public let isFocused: Bool
 
+        /// Creates a terminal row from its wire fields.
         public init(
             id: String,
             title: String,
@@ -64,23 +72,39 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         }
     }
 
+    /// Stable workspace identifier.
     public let id: String
+    /// Owning Mac window identifier, when reported.
     public let windowID: String?
+    /// User-facing workspace title.
     public let title: String
+    /// The workspace's presented working directory, when reported.
     public let currentDirectory: String?
+    /// Whether the Mac currently has this workspace selected.
     public let isSelected: Bool
+    /// Whether the workspace is pinned on the Mac.
     public let isPinned: Bool
+    /// The owning group's identifier; nil for ungrouped workspaces.
     public let groupID: String?
+    /// One-line plain-text preview of the latest activity, when any.
     public let preview: String?
+    /// Unix epoch seconds of the preview's activity, when any.
     public let previewAt: Double?
+    /// Unix epoch seconds of the workspace's last activity.
     public let lastActivityAt: Double
+    /// Whether the workspace has unread activity on the Mac.
     public let hasUnread: Bool
+    /// Position in the Mac's presented cross-window order.
     public let sortIndex: Int
+    /// Terminal rows belonging to this workspace, in spatial order.
     public let terminals: [Terminal]
 
+    /// ``MobileSyncRecord`` identity: the workspace id.
     public var syncID: String { id }
+    /// ``MobileSyncRecord`` ordering key: the presented list position.
     public var syncSortIndex: Int { sortIndex }
 
+    /// Creates a workspace row from its wire fields.
     public init(
         id: String,
         windowID: String?,
@@ -133,16 +157,25 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
 /// `group_id` in workspace order, exactly as the legacy list is consumed, so
 /// this record intentionally carries no member array to invalidate.
 public struct GroupSyncRecord: MobileSyncRecord {
+    /// Stable group identifier.
     public let id: String
+    /// User-facing group name (section header label).
     public let name: String
+    /// Whether the group is collapsed on the Mac.
     public let isCollapsed: Bool
+    /// Whether the group is pinned on the Mac.
     public let isPinned: Bool
+    /// The anchor workspace that owns this group.
     public let anchorWorkspaceID: String
+    /// Position in the Mac's presented section order.
     public let sortIndex: Int
 
+    /// ``MobileSyncRecord`` identity: the group id.
     public var syncID: String { id }
+    /// ``MobileSyncRecord`` ordering key: the presented section position.
     public var syncSortIndex: Int { sortIndex }
 
+    /// Creates a group row from its wire fields.
     public init(
         id: String,
         name: String,

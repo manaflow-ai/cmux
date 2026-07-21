@@ -77,7 +77,7 @@ private func syncDeltaEventFrame(
     let envelope: [String: Any] = [
         "kind": "event",
         "topic": "mobile.sync.delta",
-        "payload": try MobileSyncFrameJSON.jsonObject(from: event),
+        "payload": try MobileSyncFrameCoder().jsonObject(from: event),
     ]
     return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
 }

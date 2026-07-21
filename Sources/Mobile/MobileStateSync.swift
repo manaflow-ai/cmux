@@ -45,7 +45,7 @@ final class MobileStateSyncHost {
     func fetch(params: [String: Any]) -> TerminalController.V2CallResult {
         let request: MobileSyncFetchRequest
         do {
-            request = try MobileSyncFrameJSON.decode(MobileSyncFetchRequest.self, fromJSONObject: params)
+            request = try MobileSyncFrameCoder().decode(MobileSyncFetchRequest.self, fromJSONObject: params)
         } catch {
             return .err(code: "invalid_params", message: "Missing or invalid collections", data: nil)
         }
@@ -54,7 +54,7 @@ final class MobileStateSyncHost {
         }
         refreshAndBroadcast()
         let response = store.fetchResponse(for: request)
-        guard let payload = try? MobileSyncFrameJSON.jsonObject(from: response) else {
+        guard let payload = try? MobileSyncFrameCoder().jsonObject(from: response) else {
             return .err(code: "internal_error", message: "Failed to encode sync response", data: nil)
         }
         return .ok(payload)
@@ -84,7 +84,7 @@ final class MobileStateSyncHost {
             records: change.records,
             removedIDs: change.removedIDs
         )
-        guard let payload = try? MobileSyncFrameJSON.jsonObject(from: event) else { return }
+        guard let payload = try? MobileSyncFrameCoder().jsonObject(from: event) else { return }
         MobileHostService.shared.emitEvent(topic: Self.deltaTopic, payload: payload)
     }
 
