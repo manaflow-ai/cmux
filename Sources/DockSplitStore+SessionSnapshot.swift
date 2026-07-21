@@ -462,6 +462,16 @@ extension DockSplitStore {
         let expectedSessionId = managedBinding != nil
             ? managedBinding?.checkpointId
             : restorableAgent?.sessionId
+        let remoteAgentRuntime = agentRuntimeByPanelId[terminal.id] ?? transfer?.agentRuntime
+        if managedBinding?.recordsLivePersistentSSHAgent(
+            in: authoritativelyConnectedPersistentSSHResumeContext(
+                panelId: terminal.id
+            ),
+            shellActivityState: terminal.shellActivity.state,
+            agentPIDKeys: remoteAgentRuntime?.agentPIDKeys ?? []
+        ) == true {
+            return true
+        }
         let relevantObservation = observation.flatMap { entry -> RestorableAgentSessionIndex.Entry? in
             guard let expectedKind,
                   let expectedSessionId,

@@ -49,6 +49,21 @@ extension DockSplitStore {
         default:
             break
         }
+        if state == .promptIdle {
+            clearRemoteAgentRuntimeAfterShellPrompt(panelId: panelId)
+        }
+    }
+
+    /// A remote shell prompt consumes the detached session runtime before a
+    /// later unrelated command can reuse its binding/lifecycle evidence.
+    private func clearRemoteAgentRuntimeAfterShellPrompt(panelId: UUID) {
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
+              transfer.isRemoteTerminal else {
+            return
+        }
+        agentRuntimeByPanelId.removeValue(forKey: panelId)
+        transfer.agentRuntime = nil
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
     }
 
     /// Keeps a Workspace-owned restore boundary coherent while its live panel

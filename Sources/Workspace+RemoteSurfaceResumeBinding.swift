@@ -44,6 +44,21 @@ extension Workspace {
         )
     }
 
+    /// Returns the persistent-SSH owner only while the current attach is
+    /// authoritatively connected under this workspace's remote configuration.
+    func authoritativelyConnectedPersistentSSHResumeContext(
+        panelID: UUID
+    ) -> SurfaceResumeRemoteContext? {
+        guard let context = persistentSSHResumeContext(panelID: panelID),
+              let configuration = remoteConfiguration,
+              let state = remoteTerminalSessionStatesBySurfaceId[panelID],
+              state.phase == .connected,
+              state.authority.matches(configuration) else {
+            return nil
+        }
+        return context
+    }
+
     func persistentSSHResumeCommand(
         for binding: SurfaceResumeBindingSnapshot?,
         expectedWorkspaceID: UUID,

@@ -483,6 +483,15 @@ extension Workspace {
                           let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding.checkpointId) else {
                         return false
                     }
+                    if resumeBinding.recordsLivePersistentSSHAgent(
+                        in: authoritativelyConnectedPersistentSSHResumeContext(
+                            panelID: panelId
+                        ),
+                        shellActivityState: panelShellActivityStates[panelId],
+                        agentPIDKeys: agentPIDKeysByPanelId[panelId] ?? []
+                    ) {
+                        return true
+                    }
                     if restoredAgentLifecycleConfirmsRunning(resumeBinding, panelId: panelId) {
                         return true
                     }
@@ -1563,7 +1572,7 @@ extension Workspace {
             }()
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? hostShellWorkingDirectory
-            let restoredAgentWillRunStartupCommand = restorableAgent != nil &&
+            let restoredAgentWillRunStartupCommand =
                 restoredPersistentSSHResumeCommand != nil &&
                 resumeBinding?.isAgentHookBinding == true
             let restoredAgentWillRunStartupInput =
@@ -5032,7 +5041,13 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
-        if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        if state == .promptIdle {
+            if isRemoteTerminalSurface(panelId) {
+                clearRemoteAgentRuntimeAfterShellPrompt(panelId: panelId)
+            } else {
+                _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
+            }
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +

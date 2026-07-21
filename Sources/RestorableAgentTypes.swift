@@ -114,6 +114,14 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         return nil
     }
 
+    /// The structured lifecycle slot used by agent hooks for this kind.
+    var lifecycleStatusKey: String {
+        switch self {
+        case .claude: return "claude_code"
+        default: return rawValue
+        }
+    }
+
     var displayName: String {
         switch self {
         case .claude: return "Claude Code"

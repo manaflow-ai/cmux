@@ -24799,9 +24799,12 @@ struct CMUXCLI {
                         telemetry: telemetry
                     )
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                try? recordClaudeAgentPID(
+                    client: client,
+                    sessionId: isForkSessionLaunch ? nil : parsedInput.sessionId,
+                    pid: claudePid,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
                 )
             }
             if isClearSessionStart, !suppressVisibleMutations {
@@ -24819,8 +24822,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     value: "Running",
                     icon: "bolt.fill",
-                    color: "#4C8DFF",
-                    pid: claudePid
+                    color: "#4C8DFF"
                 )
             }
             printClaudeHookAck()
@@ -25054,9 +25056,10 @@ struct CMUXCLI {
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
-            setAgentLifecycle(
+            setClaudeAgentLifecycle(
                 client: client,
-                key: Self.claudeCodeStatusKey,
+                sessionId: parsedInput.sessionId,
+                pid: claudePid,
                 lifecycle: .running,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
@@ -25243,9 +25246,10 @@ struct CMUXCLI {
             }
 
             if !suppressNeedsInputState {
-                setAgentLifecycle(
+                setClaudeAgentLifecycle(
                     client: client,
-                    key: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    pid: claudePid,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
@@ -25256,7 +25260,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     value: "Needs input",
                     icon: "bell.fill",
-                    color: "#4C8DFF", pid: claudePid
+                    color: "#4C8DFF"
                 )
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
@@ -25298,9 +25302,11 @@ struct CMUXCLI {
                        client: client
                    ),
                    forkTarget.isAuthoritative {
-                    _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) --clear-status",
-                        client: client
+                    clearClaudeAgentPID(
+                        client: client,
+                        sessionId: nil,
+                        workspaceId: forkTarget.workspaceId,
+                        surfaceId: forkTarget.surfaceId
                     )
                 }
                 printClaudeHookAck()
@@ -25391,9 +25397,11 @@ struct CMUXCLI {
                     env: ProcessInfo.processInfo.environment
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
-                    _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status",
-                        client: client
+                    clearClaudeAgentPID(
+                        client: client,
+                        sessionId: consumedSession.sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: cleanupSurfaceId
                     )
                     try? sessionStore.clearAgentLifecycleIfPresent(
                         sessionId: consumedSession.sessionId,
@@ -25515,9 +25523,10 @@ struct CMUXCLI {
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
                 )
-                setAgentLifecycle(
+                setClaudeAgentLifecycle(
                     client: client,
-                    key: Self.claudeCodeStatusKey,
+                    sessionId: parsedInput.sessionId,
+                    pid: claudePid,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId
@@ -25544,8 +25553,7 @@ struct CMUXCLI {
                         surfaceId: existingSurfaceId,
                         value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
                         icon: "bell.fill",
-                        color: "#4C8DFF",
-                        pid: claudePid
+                        color: "#4C8DFF"
                     )
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
@@ -25580,9 +25588,10 @@ struct CMUXCLI {
                 )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
-            setAgentLifecycle(
+            setClaudeAgentLifecycle(
                 client: client,
-                key: Self.claudeCodeStatusKey,
+                sessionId: parsedInput.sessionId,
+                pid: claudePid,
                 lifecycle: .running,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
@@ -25601,8 +25610,7 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: statusValue,
                 icon: "bolt.fill",
-                color: "#4C8DFF",
-                pid: claudePid
+                color: "#4C8DFF"
             )
             printClaudeHookAck()
 
@@ -25660,14 +25668,82 @@ struct CMUXCLI {
         surfaceId: String? = nil,
         value: String,
         icon: String,
-        color: String,
-        pid: Int? = nil
+        color: String
     ) throws {
-        var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+        let command = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+        _ = try client.send(command: command)
+    }
+
+    /// Claude's status slot is kind-scoped, but remote restore liveness must
+    /// bind PID ownership to the exact conversation that published it.
+    private func recordClaudeAgentPID(
+        client: SocketClient,
+        sessionId: String?,
+        pid: Int,
+        workspaceId: String,
+        surfaceId: String?
+    ) throws {
+        let key = claudeAgentPIDKey(sessionId: sessionId)
+        _ = try sendV1Command(
+            "set_agent_pid \(key) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
+    }
+
+    /// Updates exact-session PID ownership before the kind-scoped lifecycle so
+    /// replacing an older session cannot clear the newly published state.
+    private func setClaudeAgentLifecycle(
+        client: SocketClient,
+        sessionId: String?,
+        pid: Int?,
+        lifecycle: AgentHibernationLifecycleState,
+        workspaceId: String,
+        surfaceId: String?
+    ) {
         if let pid {
-            cmd += " --pid=\(pid)"
+            try? recordClaudeAgentPID(
+                client: client,
+                sessionId: sessionId,
+                pid: pid,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
         }
-        _ = try client.send(command: cmd)
+        setAgentLifecycle(
+            client: client,
+            key: Self.claudeCodeStatusKey,
+            lifecycle: lifecycle,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+    }
+
+    /// Clears both exact-session ownership and the legacy kind-only key so a
+    /// mixed-version running session cannot leave either representation live.
+    private func clearClaudeAgentPID(
+        client: SocketClient,
+        sessionId: String?,
+        workspaceId: String,
+        surfaceId: String?
+    ) {
+        let sessionKey = claudeAgentPIDKey(sessionId: sessionId)
+        let keys = sessionKey == Self.claudeCodeStatusKey
+            ? [sessionKey]
+            : [sessionKey, Self.claudeCodeStatusKey]
+        for key in keys {
+            _ = try? sendV1Command(
+                "clear_agent_pid \(key) --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --clear-status",
+                client: client
+            )
+        }
+    }
+
+    private func claudeAgentPIDKey(sessionId: String?) -> String {
+        guard let sessionId = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionId.isEmpty else {
+            return Self.claudeCodeStatusKey
+        }
+        return "\(Self.claudeCodeStatusKey).\(sessionId)"
     }
 
     private func setAgentLifecycle(

@@ -241,6 +241,31 @@ extension Workspace {
         }
     }
 
+    /// A remote shell prompt proves that no agent command still owns the PTY.
+    /// Consume every session-scoped runtime key before another shell command
+    /// can make stale lifecycle state look live again.
+    func clearRemoteAgentRuntimeAfterShellPrompt(panelId: UUID) {
+        let keys = agentPIDKeysByPanelId[panelId] ?? []
+        var didChange = false
+        for key in keys {
+            if clearAgentPID(
+                key: key,
+                panelId: panelId,
+                clearStatus: true,
+                refreshPorts: false
+            ) {
+                didChange = true
+            }
+        }
+        if agentLifecycleStatesByPanelId[panelId] != nil {
+            clearAgentLifecycleStates(panelId: panelId)
+            didChange = true
+        }
+        if didChange {
+            refreshTrackedAgentPorts()
+        }
+    }
+
     private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
         guard pid > 0,
               let recordedIdentity = agentPIDProcessIdentitiesByKey[key],

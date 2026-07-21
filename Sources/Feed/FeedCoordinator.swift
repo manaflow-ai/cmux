@@ -568,17 +568,9 @@ extension FeedCoordinator {
         }
     }
 
-    /// Maps a feed `source` (agent id) to the agent-lifecycle status key the
-    /// sidebar reads. Claude reports under `claude_code`; every other agent
-    /// keys its status by its own source name. Returning the agent's own key
-    /// is what lets the existing per-agent resume hooks (e.g. Claude's
-    /// `pre-tool-use`) clear the needs-input badge once the agent continues.
-    private static let lifecycleStatusKeyOverrides = [
-        "claude": "claude_code",
-    ]
-
+    /// Maps a feed `source` to the same lifecycle slot its agent kind owns.
     static func lifecycleStatusKey(forSource source: String) -> String {
-        lifecycleStatusKeyOverrides[source] ?? source
+        RestorableAgentKind(rawValue: source)?.lifecycleStatusKey ?? source
     }
 
     /// Identifies the sidebar slot an attention overlay lights up. Overlays

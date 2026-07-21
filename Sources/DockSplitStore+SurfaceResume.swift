@@ -212,9 +212,7 @@ extension DockSplitStore {
         clearRestoredAgentContinuationState(panelId: panelId)
     }
 
-    func persistentSSHResumeRegistration(
-        panelId: UUID
-    ) -> (context: SurfaceResumeRemoteContext, relayToken: String)? {
+    func persistentSSHResumeContext(panelId: UUID) -> SurfaceResumeRemoteContext? {
         guard let transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
               let sessionID = transfer.remotePTYSessionID?
@@ -222,7 +220,37 @@ extension DockSplitStore {
               !sessionID.isEmpty else {
             return nil
         }
-        let sourceWorkspaceId = transfer.sessionRestoreWorkspaceId
+        return SurfaceResumeRemoteContext(
+            workspaceID: transfer.sessionRestoreWorkspaceId,
+            surfaceID: panelId,
+            persistentPTYSessionID: sessionID
+        )
+    }
+
+    /// Returns the persistent-SSH owner only while the detached terminal's
+    /// current attach is authoritatively connected to its persistent transport.
+    func authoritativelyConnectedPersistentSSHResumeContext(
+        panelId: UUID
+    ) -> SurfaceResumeRemoteContext? {
+        guard let context = persistentSSHResumeContext(panelId: panelId),
+              let transfer = detachedSurfaceTransfersByPanelId[panelId],
+              transfer.remoteTerminalSessionPhase == .connected,
+              let authority = transfer.remoteTerminalAuthority,
+              authority.preservesRemotePTYAcrossAttachAttempts,
+              transfer.remoteCleanupConfiguration.map(authority.matches) ?? true else {
+            return nil
+        }
+        return context
+    }
+
+    func persistentSSHResumeRegistration(
+        panelId: UUID
+    ) -> (context: SurfaceResumeRemoteContext, relayToken: String)? {
+        guard let transfer = detachedSurfaceTransfersByPanelId[panelId],
+              let context = persistentSSHResumeContext(panelId: panelId) else {
+            return nil
+        }
+        let sourceWorkspaceId = context.workspaceID
         let sourceWorkspace = AppDelegate.shared?.workspaceFor(tabId: sourceWorkspaceId)
         guard let configuration = transfer.remoteCleanupConfiguration ?? sourceWorkspace?.remoteConfiguration,
               configuration.transport == .ssh,
@@ -233,11 +261,7 @@ extension DockSplitStore {
             return nil
         }
         return (
-            SurfaceResumeRemoteContext(
-                workspaceID: sourceWorkspaceId,
-                surfaceID: panelId,
-                persistentPTYSessionID: sessionID
-            ),
+            context,
             relayToken
         )
     }
