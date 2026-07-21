@@ -401,6 +401,64 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: unmanaged.path))
     }
 
+    func testAsynchronousSessionWriteDoesNotDeleteInterveningFloatingDockNote() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-stale-retention-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = root.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Simulate a note created after an asynchronous session write captured
+        // its retention snapshot but before that queued write reached cleanup.
+        let interveningNote = workspaceDirectory
+            .appendingPathComponent("\(UUID().uuidString.lowercased()).md")
+        try "created while save was queued".write(to: interveningNote, atomically: true, encoding: .utf8)
+
+        WorkspaceFloatingDockNoteStorage.removeOrphanedFilesAfterSessionWrite(
+            retaining: [],
+            sessionWriteIsSynchronous: false,
+            rootDirectory: root
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: interveningNote.path))
+    }
+
+    @MainActor
+    func testConcurrentInitialFloatingDockNoteReadsRemainUnloadedUntilApplied() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-concurrent-read-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("note.md")
+        try "persisted text".write(to: noteURL, atomically: true, encoding: .utf8)
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Concurrent note",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            isPresented: false,
+            noteFilePath: noteURL.path,
+            initialContent: nil,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        let firstGeneration = dock.reserveNoteSnapshotRead()
+        XCTAssertNil(dock.loadedNoteTextSnapshot)
+        let secondGeneration = dock.reserveNoteSnapshotRead()
+        XCTAssertEqual(firstGeneration, secondGeneration)
+
+        XCTAssertEqual(
+            dock.applyLoadedNoteTextSnapshot("persisted text", generation: firstGeneration),
+            "persisted text"
+        )
+        XCTAssertEqual(
+            dock.applyLoadedNoteTextSnapshot("persisted text", generation: secondGeneration),
+            "persisted text"
+        )
+    }
+
     func testFloatingDockNoteStorageDoesNotTraverseSymbolicLinks() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-floating-note-gc-root-\(UUID().uuidString)", isDirectory: true)

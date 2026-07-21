@@ -443,6 +443,14 @@ enum WorkspaceFloatingDockNoteStorage {
             }
         }
     }
+
+    static func removeOrphanedFilesAfterSessionWrite(
+        retaining retainedPaths: Set<String>,
+        sessionWriteIsSynchronous _: Bool,
+        rootDirectory: URL = rootDirectory()
+    ) {
+        removeOrphanedFiles(retaining: retainedPaths, rootDirectory: rootDirectory)
+    }
 }
 
 private enum FloatingDockRestorePlacement {

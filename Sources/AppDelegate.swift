@@ -4347,8 +4347,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let snapshot {
                 Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
                 if self.sessionSnapshotStore.save(snapshot, fileURL: nil), canRemoveOrphanedNotes {
-                    WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
-                        retaining: retainedFloatingNotePaths
+                    WorkspaceFloatingDockNoteStorage.removeOrphanedFilesAfterSessionWrite(
+                        retaining: retainedFloatingNotePaths,
+                        sessionWriteIsSynchronous: synchronously
                     )
                 }
             } else if removeWhenEmpty {
@@ -4359,8 +4360,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 self.sessionSnapshotStore.removeSnapshot(fileURL: nil)
                 if canRemoveOrphanedNotes {
-                    WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
-                        retaining: retainedFloatingNotePaths
+                    WorkspaceFloatingDockNoteStorage.removeOrphanedFilesAfterSessionWrite(
+                        retaining: retainedFloatingNotePaths,
+                        sessionWriteIsSynchronous: synchronously
                     )
                 }
             }
