@@ -996,6 +996,10 @@ final class cmuxUITests: XCTestCase {
 
         tap(create, in: app)
 
+        let failureTitle = app.staticTexts["MobileTaskComposerFailureTitle"]
+        XCTAssertTrue(failureTitle.waitForExistence(timeout: 3))
+        XCTAssertEqual(failureTitle.label, "Couldn’t start Claude")
+
         let failure = app.staticTexts["MobileTaskComposerFailure"]
         XCTAssertTrue(failure.waitForExistence(timeout: 3))
         XCTAssertTrue(keyboard.exists, "Submission failure must not require dismissing the keyboard")
