@@ -101,6 +101,40 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotPreservesRegularFilePreviewInFloatingDock() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-preview-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let previewURL = root.appendingPathComponent("reference.txt")
+        try "reference".write(to: previewURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let preview = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: workspacePane,
+            filePath: previewURL.path,
+            focus: false
+        ))
+        let transfer = try XCTUnwrap(workspace.detachSurface(panelId: preview.id))
+        let dockPane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        _ = try XCTUnwrap(dock.store.attachDetachedSurface(transfer, inPane: dockPane, focus: false))
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        let restoredPreview = try XCTUnwrap(restoredDock.store.panels.values
+            .compactMap { $0 as? FilePreviewPanel }
+            .first(where: { $0.filePath == previewURL.path }))
+        XCTAssertEqual(restoredPreview.presentation, .file)
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)

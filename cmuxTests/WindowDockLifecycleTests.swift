@@ -176,6 +176,25 @@ struct WindowDockLifecycleTests {
         #expect(!appDelegate.closeWindowDockRuntimeSurface(surfaceId: UUID(), force: true))
     }
 
+    @Test("Runtime close routes workspace floating Dock surfaces through their own store")
+    @MainActor
+    func runtimeCloseRoutesWorkspaceFloatingDockSurfaces() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = try #require(workspace.createFloatingDock(initialContent: .note))
+        let panel = try #require(dock.notePanel)
+
+        #expect(appDelegate.closeWindowDockRuntimeSurface(surfaceId: panel.id, force: true))
+        #expect(!dock.store.containsPanel(panel.id))
+    }
+
     @Test("Window Dock close confirmation uses the owning window manager")
     @MainActor
     func windowDockCloseConfirmationUsesOwningWindowManager() async throws {

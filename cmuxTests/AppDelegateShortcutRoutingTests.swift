@@ -590,6 +590,42 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testFloatingDockWindowOwnsSurfaceAndCloseShortcuts() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = try XCTUnwrap(appDelegate.createWorkspaceFloatingDock(in: manager, focus: true))
+        let dockWindow = try XCTUnwrap(NSApp.windows.first(where: {
+            $0.identifier?.rawValue == "cmux.workspace.float.\(dock.id.uuidString)"
+        }))
+        dockWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(cmuxWindowShouldOwnCloseShortcut(dockWindow))
+        let workspacePanelCount = workspace.panels.count
+        let dockPanelCount = dock.store.panels.count
+        withTemporaryShortcut(action: .newSurface) {
+            let event = try XCTUnwrap(makeKeyDownEvent(
+                key: "t",
+                modifiers: [.command],
+                keyCode: UInt16(kVK_ANSI_T),
+                windowNumber: dockWindow.windowNumber
+            ))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        }
+        XCTAssertEqual(workspace.panels.count, workspacePanelCount)
+        XCTAssertEqual(dock.store.panels.count, dockPanelCount + 1)
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
     func testNewBrowserWorkspaceShortcutIsBlockedWhileBrowserDisabled() throws {
 #if DEBUG
         guard let appDelegate = AppDelegate.shared else {

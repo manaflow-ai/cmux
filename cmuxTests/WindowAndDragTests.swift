@@ -3300,6 +3300,58 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(dock.store.dockPortalReconcileState.reconcilePassCount, 0)
     }
 
+    func testWorkspaceFloatingDockDoesNotTreatRegularFilePreviewAsItsNote() throws {
+        let noteURL = try temporaryTextFile(contents: "", encoding: .utf8)
+        let previewURL = try temporaryTextFile(contents: "reference", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: noteURL)
+            try? FileManager.default.removeItem(at: previewURL)
+        }
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Terminal",
+            frame: CGRect(x: 20, y: 20, width: 500, height: 360),
+            isPresented: true,
+            noteFilePath: noteURL.path,
+            initialContent: .terminal,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+        let preview = FilePreviewPanel(workspaceId: dock.workspaceId, filePath: previewURL.path)
+        let pane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        dock.store.panels[preview.id] = preview
+        let tab = try XCTUnwrap(dock.store.bonsplitController.createTab(
+            title: preview.displayTitle,
+            icon: preview.displayIcon,
+            kind: "filePreview",
+            isDirty: false,
+            inPane: pane
+        ))
+        dock.store.surfaceIdToPanelId[tab] = preview.id
+
+        XCTAssertNil(dock.notePanel)
+    }
+
+    func testFailedNoteAutosaveStopsUntilAnotherEdit() async throws {
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: "/dev/null/cmux-note.md",
+            presentation: .note(title: "Notes")
+        )
+        await panel.loadTextContent().value
+
+        panel.updateTextContent("cannot persist")
+        for _ in 0..<500 where panel.isSaving {
+            await Task.yield()
+        }
+
+        XCTAssertFalse(panel.isSaving)
+        XCTAssertTrue(panel.isDirty)
+    }
+
     func testWorkspaceFloatingDockDefaultsToTerminalSurface() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }

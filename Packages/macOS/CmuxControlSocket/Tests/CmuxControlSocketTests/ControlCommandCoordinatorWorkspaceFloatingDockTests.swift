@@ -147,4 +147,64 @@ struct ControlCommandCoordinatorWorkspaceFloatingDockTests {
         #expect(code == "not_found")
         #expect(message == "Floating Dock not found")
     }
+
+    @Test func malformedWorkspaceSelectorFailsBeforeDispatch() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(request("workspace.float.create", [
+            "workspace_id": .string("not-a-workspace"),
+        ]))
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid params")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastAction == nil)
+    }
+
+    @Test func malformedPaneSelectorFailsBeforeSurfaceCreation() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(request("workspace.float.surface.create", [
+            "float": .string("float:1"),
+            "kind": .string("terminal"),
+            "pane_id": .string("not-a-pane"),
+        ]))
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid params")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastAction == nil)
+    }
+
+    @Test func malformedSplitSourceFailsBeforePaneCreation() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(request("workspace.float.pane.create", [
+            "float": .string("float:1"),
+            "kind": .string("terminal"),
+            "surface_id": .string("not-a-surface"),
+        ]))
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid params")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastAction == nil)
+    }
+
+    @Test func internalFailureDetailsStayOffTheWire() {
+        let (coordinator, context) = makeCoordinator()
+        context.resolution = .operationFailed("private implementation detail")
+        let result = coordinator.handle(request("workspace.float.list"))
+
+        guard case .err(let code, let message, _) = result else {
+            Issue.record("Expected internal error")
+            return
+        }
+        #expect(code == "internal_error")
+        #expect(!message.contains("private implementation detail"))
+        #expect(!message.contains("TabManager"))
+    }
 }
