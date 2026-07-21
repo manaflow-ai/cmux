@@ -9,6 +9,8 @@ final class SidebarWorkspaceTableContainerView: NSView {
     let reorderDropView = SidebarWorkspaceReorderDropView()
     let bonsplitDropView = SidebarBonsplitTabWorkspaceDropView()
     let emptyDropIndicatorView = SidebarWorkspaceTableEmptyDropIndicatorView()
+    var viewportWidthDidChange: ((CGFloat) -> Void)?
+    private var lastReportedViewportWidth: CGFloat = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -43,5 +45,13 @@ final class SidebarWorkspaceTableContainerView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        let width = clipView.bounds.width
+        guard width > 0, floor(width) != floor(lastReportedViewportWidth) else { return }
+        lastReportedViewportWidth = width
+        viewportWidthDidChange?(width)
     }
 }

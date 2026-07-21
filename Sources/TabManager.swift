@@ -1602,14 +1602,16 @@ class TabManager: ObservableObject {
         toIndex targetIndex: Int,
         isDragOperation: Bool = false,
         usesTopLevelRows: Bool = false,
-        explicitGroupId: UUID? = nil
+        explicitGroupId: UUID? = nil,
+        targetPinnedState: Bool? = nil
     ) -> Bool {
         workspaceReordering.reorderSidebarWorkspace(
             tabId: tabId,
             toIndex: targetIndex,
             isDragOperation: isDragOperation,
             usesTopLevelRows: usesTopLevelRows,
-            explicitGroupId: explicitGroupId
+            explicitGroupId: explicitGroupId,
+            targetPinnedState: targetPinnedState
         )
     }
 

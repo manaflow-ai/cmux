@@ -366,7 +366,7 @@ struct SidebarAppKitRowCellTests {
         activeCell.applyModelProbeForTesting = { activePaint.append($0.isActive) }
         pressedCell.applyModelProbeForTesting = { pressedPaint.append($0.isActive) }
 
-        controller.pointerMouseDown(row: 1, modifiers: [], hitView: nil)
+        controller.pointerMouseDown(row: 1, modifiers: [])
 
         #expect(manager.selectedTabId == pressedWorkspace.id)
         #expect(activePaint.last == false)
@@ -414,6 +414,13 @@ struct SidebarAppKitRowCellTests {
         let narrowHeight = container.tableView.rect(ofRow: 0).height
 
         #expect(narrowHeight > wideHeight)
+
+        window.setContentSize(NSSize(width: 640, height: 240))
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let restoredHeight = container.tableView.rect(ofRow: 0).height
+
+        #expect(abs(restoredHeight - wideHeight) < 0.5)
     }
 
     @Test

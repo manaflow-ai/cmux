@@ -145,12 +145,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
-    /// True when a press at this view should not repaint selection (the
-    /// close button closes without selecting).
-    func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
-        hitView === closeButton || hitView.isDescendant(of: closeButton)
-    }
-
     private func applyBackgroundStyle(_ style: SidebarWorkspaceRowBackgroundStyle) {
         backgroundView.layer?.backgroundColor = (style.color ?? .clear)
             .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor

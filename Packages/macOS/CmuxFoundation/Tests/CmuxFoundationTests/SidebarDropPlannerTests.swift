@@ -46,6 +46,7 @@ import Testing
         #expect(targetIndex == 0)
         #expect(usesTopLevelRows)
         #expect(explicitGroupId == nil)
+        #expect(plan.targetPinnedState == true)
     }
 
     @Test func unpinnedGroupedChildDroppedAboveSecondPinnedRowUsesSecondPointerSlot() throws {
@@ -62,6 +63,7 @@ import Testing
         #expect(targetIndex == 1)
         #expect(usesTopLevelRows)
         #expect(explicitGroupId == nil)
+        #expect(plan.targetPinnedState == true)
     }
 
     private struct PinnedBoundaryFixture {

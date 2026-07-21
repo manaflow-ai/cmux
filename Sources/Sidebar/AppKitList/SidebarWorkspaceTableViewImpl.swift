@@ -53,15 +53,12 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         if clickedRow >= 0 {
             workspaceController?.pointerMouseDown(
                 row: clickedRow,
-                modifiers: event.modifierFlags,
-                hitView: hitTest(point)
+                modifiers: event.modifierFlags
             )
         }
         super.mouseDown(with: event)
-        // The table action transitions a completed click to activating during
-        // super.mouseDown. If neither that action nor drag startup consumed
-        // the press, tracking was cancelled and the optimistic paint rolls
-        // back synchronously here.
+        // Clear pointer-action deduplication after AppKit's tracking loop.
+        // Selection itself was committed before tracking began.
         workspaceController?.pointerTrackingDidEnd()
         if event.clickCount == 2, clickedRow < 0 {
             workspaceController?.doubleClickEmptyArea()

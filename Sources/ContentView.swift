@@ -13220,7 +13220,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 toIndex: targetIndex,
                 isDragOperation: true,
                 usesTopLevelRows: usesTopLevelRows,
-                explicitGroupId: explicitGroupId
+                explicitGroupId: explicitGroupId,
+                targetPinnedState: plan.targetPinnedState
             )
             syncSidebarSelectionAfterWorkspaceReorder(
                 preserving: selectionBeforeReorder,

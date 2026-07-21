@@ -345,7 +345,7 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         #expect(explicitGroupId == nil)
     }
 
-    @Test func PinnedGroupedChildPromotedToRootClampsToPinnedTier() throws {
+    @Test func PinnedGroupedChildDroppedOnUnpinnedRootPromotesAndUnpins() throws {
         let fixture = reorderFixture()
 
         let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
@@ -356,15 +356,16 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
             )
         ))
 
-        expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.rootBefore, edge: .top))
+        expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.rootAfter, edge: .top))
         expectEqual(plan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.topLevel)
         guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
             Issue.record("Expected local reorder plan")
             return
         }
-        expectEqual(targetIndex, 0)
+        expectEqual(targetIndex, 2)
         expectTrue(usesTopLevelRows)
         #expect(explicitGroupId == nil)
+        #expect(plan.targetPinnedState == false)
     }
 
     @Test func UnpinnedGroupedChildDroppedAbovePinnedRowsUsesTopPointerSlot() throws {
@@ -381,6 +382,7 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         expectEqual(targetIndex, 0)
         expectTrue(usesTopLevelRows)
         #expect(explicitGroupId == nil)
+        #expect(plan.targetPinnedState == true)
     }
 
     @Test func UnpinnedGroupedChildDroppedAboveSecondPinnedRowUsesSecondPointerSlot() throws {
@@ -397,6 +399,7 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         expectEqual(targetIndex, 1)
         expectTrue(usesTopLevelRows)
         #expect(explicitGroupId == nil)
+        #expect(plan.targetPinnedState == true)
     }
 
     @Test func RootSelfDropDoesNotInventIndicator() {
