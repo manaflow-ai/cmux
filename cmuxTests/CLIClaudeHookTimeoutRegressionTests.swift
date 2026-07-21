@@ -4,6 +4,70 @@ import Testing
 
 @Suite(.serialized)
 struct CLIClaudeHookTimeoutRegressionTests {
+    @Test("Claude launch falls back when hook settings generation hangs")
+    func settingsGenerationHasAStartupDeadline() throws {
+        let fileManager = FileManager.default
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapper = repositoryRoot.appendingPathComponent(
+            "Resources/bin/cmux-claude-wrapper",
+            isDirectory: false
+        )
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-claude-settings-deadline-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        let fakeCLI = binDirectory.appendingPathComponent("cmux", isDirectory: false)
+        let fakeClaude = binDirectory.appendingPathComponent("claude", isDirectory: false)
+        let capturedSettings = root.appendingPathComponent("settings.json", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("claude-deadline")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? fileManager.removeItem(at: root)
+        }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "if [ \"${1:-}\" = \"--socket\" ] && [ \"${3:-}\" = \"ping\" ]; then exit 0; fi",
+            "if [ \"${1:-}\" = \"hooks\" ] && [ \"${2:-}\" = \"claude\" ] && [ \"${3:-}\" = \"inject-settings\" ]; then exec /bin/sleep 30; fi",
+            "exit 1",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeClaude, lines: [
+            "#!/bin/sh",
+            "while [ \"$#\" -gt 0 ]; do",
+            "  if [ \"$1\" = \"--settings\" ]; then shift; printf '%s' \"$1\" > \"$CMUX_TEST_SETTINGS\"; fi",
+            "  shift",
+            "done",
+        ])
+
+        let wrapperRun = runCodexHookProcess(
+            executablePath: wrapper.path,
+            arguments: [],
+            environment: [
+                "HOME": root.path,
+                "PATH": "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR": root.path,
+                "CMUX_SURFACE_ID": "surface-8535-deadline",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CUSTOM_CLAUDE_PATH": fakeClaude.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_TEST_SETTINGS": capturedSettings.path,
+            ],
+            timeout: 3
+        )
+
+        #expect(!wrapperRun.timedOut, Comment(rawValue: wrapperRun.stderr))
+        #expect(wrapperRun.status == 0, Comment(rawValue: wrapperRun.stderr))
+        let settings = try String(contentsOf: capturedSettings, encoding: .utf8)
+        #expect(settings.contains(#"hooks claude prompt-submit","timeout":10"#))
+    }
+
     @Test("Claude prompt admission does not wait for cmux delivery")
     func promptSubmitReturnsBeforeSlowDeliveryFinishes() throws {
         let fileManager = FileManager.default
