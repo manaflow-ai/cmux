@@ -1478,6 +1478,42 @@ final class TerminalControllerSocketSecurityTests {
         _ = try XCTUnwrap(workspace.panels[other.id])
     }
 
+    @Test func testV2SurfaceCloseRejectsEmptyStringSurfaceIdAndPreservesFocusedSurface() throws {
+        let manager = TabManager()
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        // Two surfaces; the SECOND is focused — the stand-in for the caller's own tab.
+        let other = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        let focused = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true))
+        TerminalController.shared.setActiveTabManager(manager)
+
+        // A raw-socket client sending an explicit *empty-string* surface_id must NOT
+        // silently degrade to the focused surface. `string()` normalises "" to nil, so
+        // the coordinator has to detect presence via `hasNonNull` rather than the
+        // trimming `string()` helper — otherwise "" reopens the self-decapitation hole
+        // that the unresolvable-ref guard closes for non-empty values.
+        let response = try handleV2Request(
+            method: "surface.close",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": ""
+            ]
+        )
+
+        // Hard error, not a silent close.
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        // Neither the caller's focused surface nor the other surface may be closed.
+        _ = try XCTUnwrap(workspace.panels[focused.id])
+        _ = try XCTUnwrap(workspace.panels[other.id])
+    }
+
     @Test func testBrowserOpenSplitDoesNotExternallyOpenDiffViewerWhenBrowserDisabled() throws {
         let defaults = UserDefaults.standard
         let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
