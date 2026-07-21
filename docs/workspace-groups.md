@@ -58,7 +58,8 @@ All group operations are scriptable via `cmux workspace-group <subcommand>`. The
 cmux workspace-group list [--json]
 cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>]
 cmux workspace-group ungroup <group-id>
-cmux workspace-group delete  <group-id>   # destructive: closes every member workspace
+cmux workspace-group delete <group-id>                         # dissolve; keep workspaces
+cmux workspace-group delete <group-id> --close-workspaces      # explicitly destructive
 cmux workspace-group rename <group-id> --name "new name"
 cmux workspace-group collapse <group-id>
 cmux workspace-group expand <group-id>
@@ -70,14 +71,16 @@ cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
 ```
 
-`create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
+`create` returns a group handle (`workspace_group:N` by default). Omitting `--from` creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass `--json` for the full structured payload.
+
+`delete` dissolves the group and keeps its workspaces by default. Pass `--close-workspaces` only when you intend to close every member workspace and terminate its processes. The response reports whether the group was dissolved or its workspaces were closed, including the affected count.
 
 ### Examples
 
-Group the three currently selected workspaces under a name:
+Group two explicitly chosen workspaces under a name:
 
 ```bash
-cmux workspace-group create --name manaflow
+cmux workspace-group create --name manaflow --from workspace:1,workspace:2
 ```
 
 Spin up a new workspace inside an existing group (e.g. wired to a worktree script):
