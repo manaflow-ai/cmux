@@ -87,6 +87,67 @@ struct WindowDockLifecycleTests {
         try body(appDelegate)
     }
 
+    @Test("Closing a main window refuses to discard a failed note autosave")
+    @MainActor
+    func mainWindowCloseRefusesFailedNoteAutosave() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-window-close-note-flush-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocker = root.appendingPathComponent("not-a-directory")
+        try "block".write(to: blocker, atomically: true, encoding: .utf8)
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        AppDelegate.shared = appDelegate
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Unsaved note",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            isPresented: false,
+            noteFilePath: blocker.appendingPathComponent("note.md").path,
+            initialContent: .note,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let note = try #require(dock.notePanel)
+        await note.loadTextContent().value
+        note.updateTextContent("must remain recoverable")
+        defer {
+            try? note.applyPersistedAutosavedTextContent("")
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            workspace.teardownAllPanels()
+            window.orderOut(nil)
+            window.close()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(!appDelegate.closeMainWindow(windowId: windowId))
+        #expect(appDelegate.mainWindow(for: windowId) === window)
+        #expect(note.isDirty)
+        #expect(note.textContent == "must remain recoverable")
+    }
+
     @Test("Each window gets its own independent Dock store")
     @MainActor
     func windowDocksAreIndependentPerWindow() {

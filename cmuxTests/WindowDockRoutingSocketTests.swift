@@ -401,6 +401,7 @@ struct WindowDockRoutingSocketTests {
             ])
             #expect(failed["ok"] as? Bool == false)
             #expect(blockedDock.noteTextSnapshot.isEmpty)
+            #expect(blockedDock.loadedNoteTextSnapshot == nil)
         }
     }
 
@@ -436,7 +437,7 @@ struct WindowDockRoutingSocketTests {
             let result = try #require(envelope["result"] as? [String: Any])
 
             #expect(result["text"] as? String == "persisted before restore")
-            #expect(dock.loadedNoteTextSnapshot == nil)
+            #expect(dock.loadedNoteTextSnapshot == "persisted before restore")
         }
     }
 

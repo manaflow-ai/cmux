@@ -682,7 +682,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
-    func testFloatingDockNoteReadsStayLazyAndDoNotRetainPersistedText() throws {
+    func testFloatingDockNoteReadsLoadLazilyAndCacheFirstExplicitRead() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-floating-note-concurrent-read-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -716,7 +716,47 @@ final class SessionPersistenceTests: XCTestCase {
             dock.applyLoadedNoteTextSnapshot("persisted text", generation: secondGeneration),
             "persisted text"
         )
-        XCTAssertNil(dock.loadedNoteTextSnapshot)
+        XCTAssertEqual(dock.loadedNoteTextSnapshot, "persisted text")
+    }
+
+    @MainActor
+    func testRestoredFloatingDockCopiesManagedNoteWhenStableIdentityIsRemapped() throws {
+        let source = Workspace()
+        let sourceDock = try XCTUnwrap(source.createFloatingDock(initialContent: .note))
+        let sourceWorkspaceDirectory = URL(fileURLWithPath: sourceDock.noteFilePath)
+            .deletingLastPathComponent()
+        var restoredWorkspaceDirectory: URL?
+        defer {
+            source.teardownAllPanels()
+            try? FileManager.default.removeItem(at: sourceWorkspaceDirectory)
+            if let restoredWorkspaceDirectory {
+                try? FileManager.default.removeItem(at: restoredWorkspaceDirectory)
+            }
+        }
+        try FileManager.default.createDirectory(
+            at: sourceWorkspaceDirectory,
+            withIntermediateDirectories: true
+        )
+        try "note from the original stable identity".write(
+            toFile: sourceDock.noteFilePath,
+            atomically: true,
+            encoding: .utf8
+        )
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot, excludingStableIdentities: [source.stableId])
+
+        XCTAssertNotEqual(restored.stableId, source.stableId)
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        restoredWorkspaceDirectory = URL(fileURLWithPath: restoredDock.noteFilePath)
+            .deletingLastPathComponent()
+        XCTAssertNotEqual(restoredDock.noteFilePath, sourceDock.noteFilePath)
+        XCTAssertEqual(
+            try String(contentsOfFile: restoredDock.noteFilePath, encoding: .utf8),
+            "note from the original stable identity"
+        )
     }
 
     func testFloatingDockNoteStorageDoesNotTraverseSymbolicLinks() throws {
