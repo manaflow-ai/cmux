@@ -160,6 +160,10 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastLineCount: Int?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
+    /// A durable compact-lifecycle obligation. `SessionStart(source=compact)`
+    /// sets it before best-effort replay, and a later Stop clears it only after
+    /// the app confirms every affected title target was resolved.
+    var autoNameTitleReconciliationPending: Bool?
     /// Wall-clock of the last summarization attempt (success OR failure), so a
     /// persistently failing summarizer (rate-limited, signed out, timing out)
     /// gets the same minInterval cooldown instead of respawning every turn.
@@ -372,13 +376,84 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Records an explicit Claude compaction before any best-effort title
+    /// replay. Returns false when this session has no generated title to keep.
+    func markAutoNamingTitleReconciliationPending(sessionId: String) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized], record.autoNameLastTitle != nil else {
+                return false
+            }
+            record.autoNameTitleReconciliationPending = true
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+            return true
+        }
+    }
+
+    /// Claims a pending title replay with the same in-flight marker used by
+    /// regular naming. A pending-but-unclaimed result means another hook owns
+    /// the replay and callers must skip normal throttle/LLM work.
+    func claimPendingAutoNamingTitleReconciliation(
+        sessionId: String,
+        transcriptLineCount: Int?,
+        now: Date,
+        engine: AutoNamingEngine
+    ) throws -> (pending: Bool, title: String?, compactedLineCount: Int?) {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return (false, nil, nil) }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.autoNameTitleReconciliationPending == true else {
+                return (false, nil, nil)
+            }
+            guard let title = record.autoNameLastTitle else {
+                record.autoNameTitleReconciliationPending = nil
+                record.updatedAt = now.timeIntervalSince1970
+                state.sessions[normalized] = record
+                return (false, nil, nil)
+            }
+            if let inFlightAt = record.autoNameInFlightAt,
+               now.timeIntervalSince1970 - inFlightAt < engine.config.inFlightExpiry {
+                return (true, nil, nil)
+            }
+            record.autoNameInFlightAt = now.timeIntervalSince1970
+            record.updatedAt = now.timeIntervalSince1970
+            state.sessions[normalized] = record
+            let compactedLineCount = transcriptLineCount.flatMap { current in
+                guard let previous = record.autoNameLastLineCount,
+                      record.autoNameLastNamedAt != nil,
+                      current < previous else { return nil }
+                return current
+            }
+            return (true, title, compactedLineCount)
+        }
+    }
+
+    /// Manual workspace ownership satisfies any pending automatic replay
+    /// without mutating the title.
+    func resolvePendingAutoNamingTitleReconciliation(sessionId: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.autoNameTitleReconciliationPending == true else { return }
+            record.autoNameTitleReconciliationPending = nil
+            record.autoNameInFlightAt = nil
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+        }
+    }
+
     /// Completes a transcript-shrink reconciliation without changing normal
     /// naming cooldown or title history. The compacted baseline becomes
     /// durable only after the app confirms that it preserved the stored title.
     func finishAutoNamingReconciliation(
         sessionId: String,
-        compactedLineCount: Int,
-        confirmedApply: Bool
+        compactedLineCount: Int?,
+        confirmedApply: Bool,
+        clearPendingOnConfirmation: Bool = true
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -386,7 +461,12 @@ final class ClaudeHookSessionStore {
             guard var record = state.sessions[normalized] else { return }
             record.autoNameInFlightAt = nil
             if confirmedApply {
-                record.autoNameLastLineCount = compactedLineCount
+                if let compactedLineCount {
+                    record.autoNameLastLineCount = compactedLineCount
+                }
+                if clearPendingOnConfirmation {
+                    record.autoNameTitleReconciliationPending = nil
+                }
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
@@ -23898,6 +23978,7 @@ struct CMUXCLI {
                 fallbackPID: claudePid
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
+            let isCompactSessionStart = isClaudeCompactSessionStart(parsedInput)
             let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -23936,6 +24017,16 @@ struct CMUXCLI {
                         observedPermissionMode: observedHookPermissionMode
                     )
                 }
+            }
+            if isCompactSessionStart, !isForkSessionLaunch {
+                runClaudeCompactAutoNameHook(
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionStore: sessionStore,
+                    client: client,
+                    telemetry: telemetry
+                )
             }
             // Register PID for stale-session detection and OSC suppression.
             // Startup/resume SessionStart remains non-visible; /clear is a
@@ -24946,11 +25037,20 @@ struct CMUXCLI {
         }
     }
 
-    private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+    private func claudeSessionStartSource(_ parsedInput: ClaudeHookParsedInput) -> String? {
         guard let source = parsedInput.object?["source"] as? String else {
-            return false
+            return nil
         }
-        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+        let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        claudeSessionStartSource(parsedInput) == "clear"
+    }
+
+    private func isClaudeCompactSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        claudeSessionStartSource(parsedInput) == "compact"
     }
 
     private func socketPanelOption(_ surfaceId: String?) -> String {

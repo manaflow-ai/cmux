@@ -346,6 +346,54 @@ import Testing
         }
     }
 
+    @Test func reconciliationReplayPreservesManualWorkspaceAndPanelProvenance() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+                #expect(workspace.setCustomTitle("Earlier automatic topic", source: .auto))
+                #expect(workspace.setPanelCustomTitle(
+                    panelId: panelId,
+                    title: "Earlier automatic topic",
+                    source: .auto
+                ))
+                #expect(workspace.setCustomTitle("My Project", source: .user))
+                #expect(workspace.setPanelCustomTitle(
+                    panelId: panelId,
+                    title: "Manual tab name",
+                    source: .user
+                ))
+
+                let probe = try call(method: "workspace.set_auto_title", params: [
+                    "probe": true,
+                    "workspace_id": workspace.id.uuidString,
+                ])
+                let probeResult = try #require(probe["result"] as? [String: Any])
+                #expect(probeResult["workspace_user_owned"] as? Bool == true)
+
+                let replay = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "expected_workspace_title": "Earlier automatic topic",
+                    "title": "Earlier automatic topic",
+                    "clear_status_on_apply": false,
+                ])
+                let replayResult = try #require(replay["result"] as? [String: Any])
+                #expect(replayResult["workspace_applied"] as? Bool == false)
+                #expect(replayResult["panel_applied"] as? Bool == false)
+                #expect(workspace.title == "My Project")
+                #expect(workspace.effectiveCustomTitleSource == .user)
+                #expect(workspace.panelCustomTitles[panelId] == "Manual tab name")
+                #expect(workspace.panelCustomTitleSources[panelId] == .user)
+                #expect(workspace.bonsplitController.tab(tabId)?.title == "Manual tab name")
+            }
+        }
+    }
+
     @Test func rejectedWhenSettingDisabled() throws {
         try withAutoNamingSetting(false) {
             try withManager { _, workspace in

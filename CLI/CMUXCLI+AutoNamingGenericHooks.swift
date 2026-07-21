@@ -199,6 +199,55 @@ extension CMUXCLI {
         )
     }
 
+    /// Services the durable replay obligation created by an explicit Claude
+    /// compact event. Returns true whenever pending work exists, including
+    /// when another hook currently owns its in-flight claim, so callers never
+    /// fall through to throttle/LLM work in the same pass.
+    @discardableResult
+    func reconcilePendingAutoNamingTitleIfNeeded(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        transcriptLineCount: Int?,
+        clearPendingOnConfirmation: Bool,
+        sessionStore: ClaudeHookSessionStore,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+        let engine = AutoNamingEngine()
+        guard let claim = try? sessionStore.claimPendingAutoNamingTitleReconciliation(
+            sessionId: sessionId,
+            transcriptLineCount: transcriptLineCount,
+            now: Date(),
+            engine: engine
+        ), claim.pending else {
+            return false
+        }
+        guard let title = claim.title else {
+            telemetry.breadcrumb("\(telemetryKey).in-flight")
+            return true
+        }
+        let applyOutcome = applyAutoNamingTitle(
+            title,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            expectedWorkspaceTitle: title,
+            clearStatusOnApply: false,
+            client: client,
+            telemetryKey: telemetryKey,
+            telemetry: telemetry
+        )
+        let confirmedApply = (try? applyOutcome.get())?.targetsResolved == true
+        try? sessionStore.finishAutoNamingReconciliation(
+            sessionId: sessionId,
+            compactedLineCount: claim.compactedLineCount,
+            confirmedApply: confirmedApply,
+            clearPendingOnConfirmation: clearPendingOnConfirmation
+        )
+        return true
+    }
+
     private func runAutoNamingPass(
         sessionId: String,
         workspaceId: String,
