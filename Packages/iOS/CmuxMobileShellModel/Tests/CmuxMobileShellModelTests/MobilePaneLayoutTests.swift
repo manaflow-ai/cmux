@@ -58,6 +58,17 @@ import Testing
         #expect(try #require(rects["pane-c"]) == CGRect(x: 0.5, y: 0.25, width: 0.5, height: 0.75))
     }
 
+    @Test func splitInitializerEnforcesFiniteDisplayableRatios() {
+        #expect(split(ratio: -1).ratio == 0.05)
+        #expect(split(ratio: 0.01).ratio == 0.05)
+        #expect(split(ratio: 0.25).ratio == 0.25)
+        #expect(split(ratio: 0.99).ratio == 0.95)
+        #expect(split(ratio: 2).ratio == 0.95)
+        #expect(split(ratio: .nan).ratio == 0.5)
+        #expect(split(ratio: .infinity).ratio == 0.5)
+        #expect(split(ratio: -.infinity).ratio == 0.5)
+    }
+
     @Test func paneLookupAndOrderedPanesFollowDepthFirstOrder() {
         let firstPane = pane(
             "pane-a",
@@ -104,6 +115,16 @@ import Testing
         surfaces: [MobilePaneSurface] = []
     ) -> MobilePaneNode {
         MobilePaneNode(id: id, selectedSurfaceID: surfaces.first?.id, surfaces: surfaces)
+    }
+
+    private func split(ratio: Double) -> MobilePaneSplit {
+        MobilePaneSplit(
+            id: "split",
+            orientation: .horizontal,
+            ratio: ratio,
+            first: .pane(pane("pane-a")),
+            second: .pane(pane("pane-b"))
+        )
     }
 
     private func surface(
