@@ -118,6 +118,81 @@ struct RestorableAgentProcessGenerationTests {
         )?.processLiveness == .running)
     }
 
+    @Test("A current PID owner does not authenticate a record without stored generation identity")
+    func currentPIDOwnerDoesNotAuthenticateRecordWithoutStoredGenerationIdentity() throws {
+        let fixture = try makeFixture(prefix: "cmux-unbound-pid-generation")
+        defer { cleanup(fixture) }
+        let currentIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt - 1),
+            startMicroseconds: 0
+        )
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: codexProcessArguments(for: fixture),
+            processIdentity: currentIdentity
+        )
+
+        #expect(index.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.processLiveness == .unknown)
+    }
+
+    @Test("Shared cache publishes a same-PID process generation change")
+    func sharedCachePublishesSamePIDProcessGenerationChange() async throws {
+        let fixture = try makeFixture(prefix: "cmux-same-pid-cache-generation")
+        defer { cleanup(fixture) }
+        let firstIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt - 2),
+            startMicroseconds: 0
+        )
+        let secondIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt - 1),
+            startMicroseconds: 0
+        )
+        let processArguments = codexProcessArguments(for: fixture)
+        let firstIndex = loadRunningFixture(
+            fixture,
+            processArguments: processArguments,
+            processIdentity: firstIdentity
+        )
+        let secondIndex = loadRunningFixture(
+            fixture,
+            processArguments: processArguments,
+            processIdentity: secondIdentity
+        )
+        let pendingIndexes = OSAllocatedUnfairLock(initialState: [firstIndex, secondIndex])
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let index = pendingIndexes.withLock { indexes in
+                    indexes.isEmpty ? secondIndex : indexes.removeFirst()
+                }
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow()
+        #expect(sharedIndex.index?.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.agentProcessIdentities[fixture.processID] == firstIdentity)
+
+        await sharedIndex.refreshForkAvailabilityNow()
+        #expect(sharedIndex.index?.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.agentProcessIdentities[fixture.processID] == secondIdentity)
+    }
+
     private func loadRunningFixture(
         _ fixture: Fixture,
         processArguments: CmuxTopProcessArguments,
@@ -135,6 +210,17 @@ struct RestorableAgentProcessGenerationTests {
             processIdentityProvider: { pid in
                 pid == fixture.processID ? processIdentity : nil
             }
+        )
+    }
+
+    private func codexProcessArguments(for fixture: Fixture) -> CmuxTopProcessArguments {
+        CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/codex"],
+            environment: [
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+            ]
         )
     }
 
