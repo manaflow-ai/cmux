@@ -436,7 +436,72 @@ struct WindowDockRoutingSocketTests {
             let result = try #require(envelope["result"] as? [String: Any])
 
             #expect(result["text"] as? String == "persisted before restore")
-            #expect(dock.noteTextSnapshot == "persisted before restore")
+            #expect(dock.loadedNoteTextSnapshot == nil)
+        }
+    }
+
+    @Test("Socket note updates follow a managed note in another window")
+    @MainActor
+    func socketNoteUpdatesFollowManagedNoteInAnotherWindow() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let sourceManager = TabManager(autoWelcomeIfNeeded: false)
+            let destinationManager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = sourceManager
+            TerminalController.shared.setActiveTabManager(sourceManager)
+            let sourceWindowID = appDelegate.registerMainWindowContextForTesting(tabManager: sourceManager)
+            let destinationWindowID = appDelegate.registerMainWindowContextForTesting(tabManager: destinationManager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: sourceWindowID)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: destinationWindowID)
+                sourceManager.tabs.forEach { $0.teardownAllPanels() }
+                destinationManager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let sourceWorkspace = try #require(sourceManager.tabs.first)
+            let destinationWorkspace = try #require(destinationManager.tabs.first)
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-cross-window-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            try "before socket".write(to: noteURL, atomically: true, encoding: .utf8)
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: sourceWorkspace.id,
+                title: "Cross-window note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: noteURL.path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            sourceWorkspace.floatingDocks.append(dock)
+            let destinationPane = try #require(destinationWorkspace.bonsplitController.allPaneIds.first)
+            let notePanel = try #require(destinationWorkspace.newFilePreviewSurface(
+                inPane: destinationPane,
+                filePath: noteURL.path,
+                presentation: .note(title: "Cross-window note"),
+                focus: false
+            ))
+            await notePanel.loadTextContent().value
+
+            let response = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
+                "workspace_id": sourceWorkspace.id.uuidString,
+                "float": dock.id.uuidString,
+                "text": "updated across windows",
+            ])
+
+            #expect(response["ok"] as? Bool == true)
+            #expect(notePanel.textContent == "updated across windows")
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "updated across windows")
         }
     }
 

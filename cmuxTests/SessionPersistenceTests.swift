@@ -380,6 +380,50 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredMovedFloatingNoteRebindsToItsDockOwner() async throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(
+            title: "Moved note",
+            isPresented: false,
+            initialContent: .note
+        ))
+        defer { try? FileManager.default.removeItem(atPath: dock.noteFilePath) }
+        let note = try XCTUnwrap(dock.notePanel)
+        let transfer = try XCTUnwrap(dock.store.detachSurface(panelId: note.id))
+        let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        XCTAssertEqual(
+            workspace.attachDetachedSurface(transfer, inPane: workspacePane, focus: false),
+            note.id
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        let restoredNote = try XCTUnwrap(restored.panels.values
+            .compactMap { $0 as? FilePreviewPanel }
+            .first(where: { $0.filePath == restoredDock.noteFilePath }))
+        await restoredNote.loadTextContent().value
+        restoredNote.updateTextContent("edited after restore")
+
+        XCTAssertEqual(restoredDock.loadedNoteTextSnapshot, "edited after restore")
+        let mutation = restoredDock.reserveNoteMutation()
+        guard case .saved = restoredDock.noteWriter.saveSynchronously(
+            content: "socket after restore",
+            sequence: mutation.writeSequence
+        ) else {
+            XCTFail("Expected restored Dock note write to succeed")
+            return
+        }
+        XCTAssertTrue(restoredDock.applyPersistedNoteText("socket after restore", to: restoredNote))
+        XCTAssertEqual(restoredNote.textContent, "socket after restore")
+        XCTAssertEqual(restoredDock.loadedNoteTextSnapshot, "socket after restore")
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotDefersAndFullyRestoresFloatingBrowser() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/restored"))
         let workspace = Workspace()
@@ -638,7 +682,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
-    func testConcurrentInitialFloatingDockNoteReadsRemainUnloadedUntilApplied() throws {
+    func testFloatingDockNoteReadsStayLazyAndDoNotRetainPersistedText() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-floating-note-concurrent-read-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -658,6 +702,7 @@ final class SessionPersistenceTests: XCTestCase {
         )
         defer { dock.close() }
 
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
         let firstGeneration = dock.reserveNoteSnapshotRead()
         XCTAssertNil(dock.loadedNoteTextSnapshot)
         let secondGeneration = dock.reserveNoteSnapshotRead()
@@ -671,6 +716,7 @@ final class SessionPersistenceTests: XCTestCase {
             dock.applyLoadedNoteTextSnapshot("persisted text", generation: secondGeneration),
             "persisted text"
         )
+        XCTAssertNil(dock.loadedNoteTextSnapshot)
     }
 
     func testFloatingDockNoteStorageDoesNotTraverseSymbolicLinks() throws {
