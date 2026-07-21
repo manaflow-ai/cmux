@@ -41,9 +41,10 @@ extension Workspace {
         panelId: UUID,
         currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
     ) -> Set<AgentPIDProcessIdentity> {
-        let key = agent.kind == .claude
-            ? "claude_code"
-            : "\(agent.kind.rawValue).\(agent.sessionId)"
+        // Claude's `claude_code` key identifies only a panel, not a session, so it
+        // cannot prove that a live process supersedes this cached session generation.
+        guard agent.kind != .claude else { return [] }
+        let key = "\(agent.kind.rawValue).\(agent.sessionId)"
         guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
               let pid = agentPIDs[key],
               pid > 0,

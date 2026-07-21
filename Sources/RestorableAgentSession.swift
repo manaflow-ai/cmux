@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import CMUXAgentLaunch
+import CmuxWorkspaces
 import Darwin
 import os
 
@@ -1167,14 +1168,19 @@ struct RestorableAgentSessionIndex: Sendable {
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
-                let processObservation = scopedProcessObservation(
-                    for: effectiveRecord,
-                    kind: kind,
-                    workspaceId: workspaceId,
-                    panelId: panelId,
-                    processArgumentsProvider: processArgumentsProvider,
-                    processPresenceProvider: processPresenceProvider
-                )
+                let processObservation = RestorableAgentProcessLiveness.scopedProcessObservation(
+                    recordedProcessID: effectiveRecord.pid
+                ) { pid in
+                    scopedProcessMatch(
+                        for: effectiveRecord,
+                        kind: kind,
+                        workspaceId: workspaceId,
+                        panelId: panelId,
+                        processID: pid,
+                        processArgumentsProvider: processArgumentsProvider,
+                        processPresenceProvider: processPresenceProvider
+                    )
+                }
                 let liveProcessID = processObservation.processID
                 let entry = Entry(
                     snapshot: snapshot,
@@ -2177,51 +2183,40 @@ struct RestorableAgentSessionIndex: Sendable {
         regularFileState(atPath: path, fileManager: fileManager) == .nonEmpty
     }
 
-    private static func scopedProcessObservation(
+    private static func scopedProcessMatch(
         for record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
         workspaceId: UUID,
         panelId: UUID,
+        processID: Int,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
         processPresenceProvider: (Int) -> PIDPresence
-    ) -> (processID: Int?, liveness: RestorableAgentProcessLiveness) {
-        guard let pid = record.pid else {
-            return (nil, .unknown)
-        }
-        guard pid > 0, pid <= Int(Int32.max) else {
-            return (nil, .exited)
-        }
-        guard let process = processArgumentsProvider(pid) else {
+    ) -> RestorableAgentProcessMatch {
+        guard let process = processArgumentsProvider(processID) else {
             // A present process may be temporarily uninspectable. Only ESRCH-grade
             // absence proves that the recorded generation exited.
-            let liveness: RestorableAgentProcessLiveness = processPresenceProvider(pid) == .absent
-                ? .exited
-                : .unknown
-            return (nil, liveness)
+            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
         }
         guard process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
-            return (nil, .exited)
+            return .mismatches
         }
 
         if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
            liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
-            return (nil, .exited)
+            return .mismatches
         }
 
         guard let recordedExecutable = recordedExecutableBasename(record),
               let liveExecutable = process.arguments.first.map(executableBasename) else {
-            return (pid, .running)
+            return .matches
         }
-        guard liveProcessExecutableMatchesRecordedAgent(
+        return liveProcessExecutableMatchesRecordedAgent(
             kind: kind,
             liveExecutable: liveExecutable,
             recordedExecutable: recordedExecutable,
             arguments: process.arguments,
             environment: process.environment
-        ) else {
-            return (nil, .exited)
-        }
-        return (pid, .running)
+        ) ? .matches : .mismatches
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {

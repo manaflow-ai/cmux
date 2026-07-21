@@ -205,6 +205,19 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let currentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             $0 == Int(livePID) ? liveIdentity : nil
         }
+        source.recordAgentPID(key: "claude_code", pid: livePID, panelId: panelID, refreshPorts: false)
+        let claudeSnapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "different-claude-session",
+            workingDirectory: nil,
+            launchCommand: nil
+        )
+        #expect(source.confirmedRuntimeAgentProcessIdentities(
+            for: claudeSnapshot,
+            panelId: panelID,
+            currentProcessIdentity: currentProcessIdentity
+        ).isEmpty)
+
         source.recordAgentPID(
             key: "codex.wrong-session",
             pid: livePID,
