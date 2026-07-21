@@ -6,7 +6,7 @@ extension RemoteTmuxControlConnection {
     /// Seed buffering is normally one control-channel round trip. Bound it so a
     /// stalled command behind a flooding pane cannot grow memory indefinitely;
     /// reconnecting re-establishes both parser order and an authoritative seed.
-    private static let maximumPendingPaneSeedLiveBytes = 8 * 1_024 * 1_024
+    static let maximumPendingPaneSeedBytes = 8 * 1_024 * 1_024
 
     func beginPaneSeed(paneId: Int, clearScrollback: Bool) -> UUID {
         let id = UUID()
@@ -47,7 +47,7 @@ extension RemoteTmuxControlConnection {
     func absorbPaneOutputIntoPendingSeed(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty, pendingPaneSeeds[paneId]?.isEmpty == false else { return false }
         let nextCount = pendingPaneSeeds[paneId]![0].bufferedLiveByteCount + data.count
-        guard nextCount <= Self.maximumPendingPaneSeedLiveBytes else {
+        guard nextCount <= Self.maximumPendingPaneSeedBytes else {
             record("pane-seed-backpressure %\(paneId)")
             beginReconnecting()
             return true

@@ -130,6 +130,22 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Per-pane filter that strips the screen/tmux `ESC k <title> ST` window-title
     /// escape from `%output` (stateful across chunk boundaries).
     var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
+    /// Authoritative seed bytes waiting for Ghostty's terminal grid to consume
+    /// the pane's published dimensions. Surface sizing APIs expose the requested
+    /// grid before Ghostty's I/O thread applies it, so seed delivery cannot use
+    /// those APIs as its readiness boundary.
+    var pendingPaneSeedBytes: [Int: Data] = [:]
+    /// Cleaned live output received after a gated seed, retained in stream order.
+    var pendingPaneSeedLiveOutput: [Int: [Data]] = [:]
+    /// Published pane grid each gated seed must observe in the terminal-locked
+    /// render-grid export before delivery.
+    var pendingPaneSeedTargetGrids: [Int: (columns: Int, rows: Int)] = [:]
+    /// Total retained seed plus live-output bytes per pane.
+    var pendingPaneSeedByteCounts: [Int: Int] = [:]
+    /// Ghostty readiness signals are retained only while at least one seed waits.
+    var paneSeedReadinessObserverTokens: [NSObjectProtocol] = []
+    var releasePaneSeedTickNotifications: (() -> Void)?
+    var releasePaneSeedFrameNotifications: (() -> Void)?
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var pendingExplicitFocusWindowId: Int?
@@ -192,7 +208,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // and a filter stuck mid-title from before the drop would swallow them.
                 // Resetting on the disconnect edge is ordering-independent (no output
                 // arrives while not connected).
-                if state != .connected { self?.titleFilters.removeAll() }
+                if state != .connected {
+                    self?.titleFilters.removeAll()
+                    self?.clearPendingPaneSeedDeliveries()
+                }
             }
         )
         rebuild()
@@ -232,6 +251,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// multi-pane renderers (called when the mirror is torn down so its callbacks
     /// don't linger on a shared connection and its pane surfaces don't leak).
     func detachObserver() {
+        clearPendingPaneSeedDeliveries()
         if let observerToken {
             connection.removeObserver(observerToken)
             self.observerToken = nil
@@ -383,6 +403,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         panelIdByPane = panelIdByPane.filter { livePanes.contains($0.key) }
         cwdByPane = cwdByPane.filter { livePanes.contains($0.key) }
         titleFilters = titleFilters.filter { livePanes.contains($0.key) }
+        reconcilePendingPaneSeedDeliveries(keeping: Set(windowIdByPane.keys))
         closeDefaultTabsIfNeeded()
         // Follow out-of-band tmux window reorders (a second client, or a manual
         // move-window / a new-window inserted mid-list): the cmux tabs are created
