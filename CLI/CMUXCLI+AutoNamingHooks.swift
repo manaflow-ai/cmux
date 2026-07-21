@@ -2,6 +2,23 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    enum AutoNamingTitleApplyOutcome: Equatable {
+        case applied
+        case rejected
+        case transportFailure
+
+        func namingPersistenceTitle(requestedTitle: String, previousTitle: String?) -> String? {
+            switch self {
+            case .applied:
+                return requestedTitle
+            case .rejected:
+                return previousTitle
+            case .transportFailure:
+                return nil
+            }
+        }
+    }
+
     /// Drives one auto-naming pass for a Claude session at turn end.
     func runClaudeAutoNameHook(
         parsedInput: ClaudeHookParsedInput,
@@ -209,11 +226,10 @@ extension CMUXCLI {
         _ title: String,
         workspaceId: String,
         surfaceId: String,
-        previousTitle: String?,
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> String? {
+    ) -> AutoNamingTitleApplyOutcome {
         guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
             "workspace_id": workspaceId,
             "panel_id": surfaceId,
@@ -221,13 +237,13 @@ extension CMUXCLI {
             "title": title
         ]) else {
             telemetry.breadcrumb("\(telemetryKey).socket-failed")
-            return nil
+            return .transportFailure
         }
         if payload["workspace_applied"] as? Bool == true {
             telemetry.breadcrumb("\(telemetryKey).applied")
-            return title
+            return .applied
         }
         telemetry.breadcrumb("\(telemetryKey).rejected")
-        return previousTitle
+        return .rejected
     }
 }

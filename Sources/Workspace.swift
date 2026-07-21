@@ -4118,6 +4118,9 @@ final class Workspace: Identifiable, ObservableObject {
                 // A user write still claims ownership. Keep going so an
                 // idempotent write also repairs derived tab chrome.
                 if source == .user { panelCustomTitleSources[panelId] = .user }
+                // Remote `%window-renamed` events are authoritative. Reapplying
+                // the stored auto-title must not overwrite that remote choice.
+                if isRemoteTmuxMirror, source == .auto { return true }
             } else {
                 panelCustomTitles[panelId] = trimmed
                 panelCustomTitleSources[panelId] = source
@@ -4131,8 +4134,8 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
-        // Propagate changed custom text or reconcile a divergent authoritative remote title.
-        if isRemoteTmuxMirror, previous != trimmed || panelTitles[panelId] != trimmed {
+        // A remote tmux mirror tab rename propagates to `rename-window`.
+        if isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
             )

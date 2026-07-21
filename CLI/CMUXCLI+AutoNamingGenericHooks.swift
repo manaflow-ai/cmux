@@ -220,20 +220,26 @@ extension CMUXCLI {
             now: Date(),
             engine: engine
         ) else { return }
-        if case .reseedBaseline = outcome.decision {
+        if case .reseedBaseline(let compactedLineCount) = outcome.decision {
+            let applyOutcome: AutoNamingTitleApplyOutcome
             if let lastTitle = outcome.lastTitle {
-                _ = applyAutoNamingTitle(
+                applyOutcome = applyAutoNamingTitle(
                     lastTitle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    previousTitle: lastTitle,
                     client: client,
                     telemetryKey: "\(telemetryKey).reconcile",
                     telemetry: telemetry
                 )
             } else {
                 telemetry.breadcrumb("\(telemetryKey).throttled")
+                applyOutcome = .rejected
             }
+            try? sessionStore.finishAutoNamingReconciliation(
+                sessionId: sessionId,
+                compactedLineCount: compactedLineCount,
+                confirmedApply: applyOutcome == .applied
+            )
             return
         }
         guard case .proceed(let baseline) = outcome.decision else {
@@ -255,14 +261,17 @@ extension CMUXCLI {
             return
         }
         guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else { return }
-        confirmedTitle = applyAutoNamingTitle(
+        let applyOutcome = applyAutoNamingTitle(
             sanitized,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            previousTitle: outcome.lastTitle,
             client: client,
             telemetryKey: telemetryKey,
             telemetry: telemetry
+        )
+        confirmedTitle = applyOutcome.namingPersistenceTitle(
+            requestedTitle: sanitized,
+            previousTitle: outcome.lastTitle
         )
         // Re-report a missing override only after the apply, so the app's
         // clear-on-apply doesn't immediately wipe the Settings note.

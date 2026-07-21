@@ -322,11 +322,12 @@ final class ClaudeHookSessionStore {
     }
 
     /// Atomically evaluates the auto-naming throttle for a session and, when
-    /// the decision is to proceed, records the in-flight marker inside the
-    /// same locked transaction so a concurrent Stop hook sees it and skips.
+    /// the decision starts either naming or reconciliation, records the
+    /// in-flight marker inside the same locked transaction so a concurrent
+    /// Stop hook sees it and skips.
     /// When no session record exists yet (the auto-name hook can race the
     /// sync Stop hook's upsert), a minimal record is synthesized so the
-    /// marker and baseline writes are never silently dropped.
+    /// in-flight reservation is never silently dropped.
     func beginAutoNaming(
         sessionId: String,
         workspaceId: String,
@@ -360,16 +361,35 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             switch decision {
-            case .proceed:
+            case .proceed, .reseedBaseline:
                 record.autoNameInFlightAt = now.timeIntervalSince1970
-            case .reseedBaseline(let to):
-                record.autoNameLastLineCount = to
             case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
                 break
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
             return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
+        }
+    }
+
+    /// Completes a transcript-shrink reconciliation without changing normal
+    /// naming cooldown or title history. The compacted baseline becomes
+    /// durable only after the app confirms that it preserved the stored title.
+    func finishAutoNamingReconciliation(
+        sessionId: String,
+        compactedLineCount: Int,
+        confirmedApply: Bool
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            record.autoNameInFlightAt = nil
+            if confirmedApply {
+                record.autoNameLastLineCount = compactedLineCount
+            }
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
         }
     }
 
