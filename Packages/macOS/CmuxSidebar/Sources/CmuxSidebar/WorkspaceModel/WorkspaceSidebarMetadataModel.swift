@@ -5,7 +5,7 @@ public import Observation
 /// The per-workspace sidebar-metadata sub-model: owns the sidebar status
 /// entries, metadata blocks, log entries, progress, and git-branch /
 /// pull-request presentation state the legacy `Workspace` god object kept as
-/// loose `@Published` stored properties (`statusEntries`, `metadataBlocks`,
+/// loose published stored properties (`statusEntries`, `metadataBlocks`,
 /// `logEntries`, `progress`, `gitBranch`, `panelGitBranches`, `pullRequest`,
 /// `panelPullRequests`).
 ///
@@ -13,14 +13,14 @@ public import Observation
 /// through a computed `get`/`set` pair, so every call site (`statusEntries[key]
 /// = …`, `logEntries.append(…)`, `workspace.progress`) stays byte-identical.
 ///
-/// Byte-identical observer parity: the legacy properties were `@Published`, and
+/// Byte-identical observer parity: the legacy properties were published, and
 /// the sidebar observation publishers (`Workspace.sidebarObservationPublisher`)
 /// fused their `$projection`s through `CombineLatest` + `removeDuplicates()`.
 /// To preserve that exactly, each property here mirrors its value into a
 /// `CurrentValueSubject` in `didSet`; the matching `…Publisher` accessor
 /// replaces the former `$property`. `CombineLatest` over current-value subjects
 /// seeded with the initial values, then deduplicated, produces the identical
-/// sequence of distinct fused states the `@Published` projections did, so the
+/// sequence of distinct fused states the legacy projections did, so the
 /// debounced sidebar refresh fires at the same moments.
 @MainActor
 @Observable

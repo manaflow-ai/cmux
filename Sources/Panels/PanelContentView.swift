@@ -192,7 +192,7 @@ struct PanelContentView: View {
 }
 
 private struct CloudVMLoadingPanelView: View {
-    @ObservedObject var panel: CloudVMLoadingPanel
+    let panel: CloudVMLoadingPanel
 
     var body: some View {
         let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)

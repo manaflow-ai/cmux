@@ -555,10 +555,10 @@ final class DockSplitStore: BonsplitDelegate {
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
             let cancellable = Publishers.CombineLatest4(
-                browser.$pageTitle.removeDuplicates(),
-                browser.$isLoading.removeDuplicates(),
-                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
-                browser.$isMuted.removeDuplicates()
+                browser.pageTitlePublisher.removeDuplicates(),
+                browser.isLoadingPublisher.removeDuplicates(),
+                browser.faviconPNGDataPublisher.removeDuplicates(by: { $0 == $1 }),
+                browser.isMutedPublisher.removeDuplicates()
             )
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak browser] _ in
@@ -587,7 +587,7 @@ final class DockSplitStore: BonsplitDelegate {
             }
             panelCancellables[panel.id] = cancellable
         } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
-            let cancellable = terminal.$title
+            let cancellable = terminal.titlePublisher
                 .removeDuplicates()
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak terminal] _ in

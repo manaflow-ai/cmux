@@ -1,6 +1,6 @@
 import AppKit
-import Combine
 import Foundation
+import Observation
 
 /// A pane that shows one workspace's todo status and full checklist. The
 /// checklist itself lives on `Workspace.todoState` (the panel holds no copy),
@@ -9,18 +9,19 @@ import Foundation
 /// entry points. One todo pane exists per workspace
 /// (`openOrFocusWorkspaceTodoSurface` dedupes).
 @MainActor
-final class WorkspaceTodoPanel: Panel, ObservableObject {
-    let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .workspaceTodo
+@Observable
+final class WorkspaceTodoPanel: Panel {
+    @ObservationIgnored let id: UUID
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .workspaceTodo
 
     /// The workspace whose todo state this pane renders. Weak: the workspace
     /// owns this panel through `panels`, so a strong reference would cycle.
-    private(set) weak var workspace: Workspace?
+    @ObservationIgnored private(set) weak var workspace: Workspace?
 
     /// The owning workspace's identifier (stable even if the weak reference
     /// clears during teardown).
-    let workspaceId: UUID
+    @ObservationIgnored let workspaceId: UUID
 
     var displayTitle: String {
         String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
@@ -29,12 +30,12 @@ final class WorkspaceTodoPanel: Panel, ObservableObject {
     var displayIcon: String? { "checklist" }
 
     /// Token incremented to trigger the focus flash animation.
-    @Published private(set) var focusFlashToken: Int = 0
+    private(set) var focusFlashToken: Int = 0
 
     /// Bumped when an open-or-focus entry point (checklist popover footer,
     /// palette, CLI) lands on this pane, so the add field re-arms even when
     /// the pane was ALREADY focused and `isFocused` never transitions.
-    @Published private(set) var addFieldArmToken: Int = 0
+    private(set) var addFieldArmToken: Int = 0
 
     func armAddField() {
         addFieldArmToken += 1

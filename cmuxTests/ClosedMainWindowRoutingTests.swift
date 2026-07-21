@@ -71,7 +71,7 @@ struct ClosedMainWindowRoutingTests {
         let terminalPanelB = try #require(workspaceB.focusedTerminalPanel)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelB.id) === terminalPanelB.surface)
         var surfacePortPublicationCount = 0
-        let surfacePortCancellable = workspaceB.$surfaceListeningPorts.dropFirst().sink { _ in
+        let surfacePortCancellable = workspaceB.surfaceListeningPortsPublisher.dropFirst().sink { _ in
             surfacePortPublicationCount += 1
         }
         defer { surfacePortCancellable.cancel() }

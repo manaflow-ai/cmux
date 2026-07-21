@@ -1,3 +1,4 @@
+import Observation
 import XCTest
 import AppKit
 import Darwin
@@ -17,6 +18,35 @@ final class TerminalNotificationQueueTests: XCTestCase {
     override func tearDown() {
         TerminalController.shared.stop()
         super.tearDown()
+    }
+
+    @MainActor
+    func testMenuSnapshotUnreadCountInvalidatesWhenOrdinaryNotificationArrives() {
+        // Regression: the titlebar bell badge renders from a tracked, coalesced
+        // unread projection. An ordinary notification (no workspace unread
+        // indicator involved) must fire observation for that projection, or the
+        // badge goes stale until an unrelated redraw (caught by autoreview on
+        // the @Observable migration).
+        let store = TerminalNotificationStore.shared
+        store.clearAll()
+        var fired = false
+        withObservationTracking {
+            _ = store.notificationMenuSnapshot.unreadCount
+        } onChange: {
+            fired = true
+        }
+        store.addNotification(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "badge-probe",
+            subtitle: "",
+            body: "unread badge observation probe"
+        )
+        XCTAssertTrue(
+            fired,
+            "notificationMenuSnapshot.unreadCount must invalidate observers when an ordinary notification arrives"
+        )
+        store.clearAll()
     }
 
     func testNotifyTargetAsyncQueuesNotificationForResolvedSurface() async throws {

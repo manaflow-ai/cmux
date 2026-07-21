@@ -157,7 +157,7 @@ struct WorkspaceContentView: View {
         let forceInitialApply: Bool
     }
 
-    @ObservedObject var workspace: Workspace
+    let workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     /// True when the right sidebar (Dock / Files / Find) owns keyboard focus in
@@ -179,7 +179,7 @@ struct WorkspaceContentView: View {
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @Environment(TerminalNotificationStore.self) var notificationStore
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
@@ -751,9 +751,9 @@ extension WorkspaceContentView {
 
 /// View shown for empty panes
 struct EmptyPanelView: View {
-    @ObservedObject var workspace: Workspace
+    let workspace: Workspace
     let paneId: PaneID
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     private struct ShortcutHint: View {
         let text: String

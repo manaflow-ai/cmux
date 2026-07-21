@@ -208,23 +208,23 @@ extension Workspace {
     static let sidebarImmediateObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(50)
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
-            $customTitle,
-            $customDescription,
-            $isPinned,
-            $customColor
+            customTitlePublisher,
+            customDescriptionPublisher,
+            isPinnedPublisher,
+            customColorPublisher
         )
         let conversationFields = Publishers.CombineLatest3(
-            $latestConversationMessage,
-            $latestSubmittedMessage,
-            $latestSubmittedAt
+            latestConversationMessagePublisher,
+            latestSubmittedMessagePublisher,
+            latestSubmittedAtPublisher
         )
         // Todo state is row-affecting (status pill, checklist progress) but
         // lives in its own sub-model, so fold its publishers in here the same
-        // way the workspace's own @Published fields are.
+        // way the workspace's own tracked fields are.
         let todoFields = Publishers.CombineLatest3(
-            todoState.$statusOverride,
-            todoState.$statusHidden,
-            todoState.$checklist
+            todoState.statusOverridePublisher,
+            todoState.statusHiddenPublisher,
+            todoState.checklistPublisher
         )
 
         let immediateFields = workspaceFields
@@ -271,10 +271,10 @@ extension Workspace {
 
     func makeSidebarObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
-            $currentDirectory,
-            $extensionSidebarProjectRootPath,
+            currentDirectoryPublisher,
+            extensionSidebarProjectRootPathPublisher,
             panelsPublisher.map(SidebarPanelObservationState.init),
-            $panelDirectories
+            panelDirectoriesPublisher
         )
         let metadataFields = Publishers.CombineLatest4(
             sidebarMetadata.statusEntriesPublisher,
@@ -289,10 +289,10 @@ extension Workspace {
             sidebarMetadata.panelPullRequestsPublisher
         )
         let remoteFields = Publishers.CombineLatest4(
-            $remoteConfiguration,
-            $remoteConnectionState,
-            $remoteConnectionDetail,
-            $activeRemoteTerminalSessionCount
+            remoteConfigurationPublisher,
+            remoteConnectionStatePublisher,
+            remoteConnectionDetailPublisher,
+            activeRemoteTerminalSessionCountPublisher
         )
         let directoryChangeRevision = currentDirectoryChangeRevisionPublisher()
         return Publishers.CombineLatest4(
@@ -301,7 +301,7 @@ extension Workspace {
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .combineLatest(listeningPortsPublisher, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
             .combineLatest(directoryChangeRevision)
             .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }

@@ -116,7 +116,7 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
 
 // MARK: - Store Tests
 
-/// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
+/// The store's observable state is driven by unstructured `Task { ... }` calls that
 /// hop to `@MainActor`. Pinning the test class to `@MainActor` keeps observations on
 /// the same actor as the mutations, so reads see a consistent snapshot.
 @MainActor

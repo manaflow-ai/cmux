@@ -1,6 +1,8 @@
 import CmuxFoundation
 import AppKit
+import Combine
 import Foundation
+import Observation
 import os
 import UserNotifications
 import Bonsplit
@@ -144,7 +146,8 @@ enum NotificationAuthorizationState: Equatable, Sendable {
 }
 
 @MainActor
-final class TerminalNotificationStore: ObservableObject {
+@Observable
+final class TerminalNotificationStore {
     private struct TabSurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID?
@@ -159,7 +162,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     static let shared = TerminalNotificationStore()
-    let notificationHookCache = CmuxNotificationHookCache()
+    @ObservationIgnored let notificationHookCache = CmuxNotificationHookCache()
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
@@ -204,9 +207,9 @@ final class TerminalNotificationStore: ObservableObject {
     /// notification ids stable, so a phone that reconnects after this app
     /// restarted must still learn that a banner it holds was dismissed here
     /// even when the silent dismiss push never reached it.
-    private var dismissedTombstoneIDs = Set<UUID>()
-    private var dismissedTombstoneOrder: [UUID] = []
-    private var dismissedTombstonesLoaded = false
+    @ObservationIgnored private var dismissedTombstoneIDs = Set<UUID>()
+    @ObservationIgnored private var dismissedTombstoneOrder: [UUID] = []
+    @ObservationIgnored private var dismissedTombstonesLoaded = false
     private static let dismissedTombstoneCapacity = 512
     static let dismissedTombstoneDefaultsKey = "cmux.notifications.dismissedTombstoneIds"
 
@@ -258,7 +261,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// the older (stale-text) banner — the pre-existing throttle behavior — and
     /// the reconcile sweep still classifies the ids correctly because they are
     /// tombstoned at supersede time.
-    private var supersededPhoneDismissBuffer = SupersededPhoneDismissBuffer()
+    @ObservationIgnored private var supersededPhoneDismissBuffer = SupersededPhoneDismissBuffer()
 
     /// Classify which of the phone's delivered banner ids have been handled on
     /// this Mac: still in the store and read, or recently removed (tombstoned).
@@ -333,7 +336,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     /// The last unread count pushed over ``badgeEventTopic``, so the chokepoint
     /// only emits on real transitions.
-    private var lastEmittedPhoneBadgeCount: Int?
+    @ObservationIgnored private var lastEmittedPhoneBadgeCount: Int?
 
     /// Pushes the authoritative unread count to an attached phone whenever it
     /// changes. Runs from ``refreshUnreadPresentation()`` — the same chokepoint
@@ -357,35 +360,68 @@ final class TerminalNotificationStore: ObservableObject {
         case settingsTest = "settings_test"
     }
 
-    @Published private(set) var notifications: [TerminalNotification] = [] {
+    /// Legacy Combine bridge for the remaining `.$notifications` subscribers. Emits the
+    /// new value during willSet and replays the current value on subscribe — the
+    /// exact `Published.Publisher` semantics those call sites were written
+    /// against. Delete when the subscribers move to @Observable observation.
+    @ObservationIgnored let notificationsPublisher = CurrentValueSubject<[TerminalNotification], Never>([])
+    private(set) var notifications: [TerminalNotification] = [] {
+        willSet { notificationsPublisher.send(newValue) }
         didSet {
             indexes = Self.buildIndexes(for: notifications)
             refreshUnreadPresentation()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
-    @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
+    /// Legacy Combine bridge for the remaining `.$notificationMenuSnapshot` subscribers. Emits the
+    /// new value during willSet and replays the current value on subscribe — the
+    /// exact `Published.Publisher` semantics those call sites were written
+    /// against. Delete when the subscribers move to @Observable observation.
+    @ObservationIgnored let notificationMenuSnapshotPublisher = CurrentValueSubject<NotificationMenuSnapshot, Never>(
+        NotificationMenuSnapshotBuilder.make(notifications: [])
+    )
+    private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: []) {
+        willSet { notificationMenuSnapshotPublisher.send(newValue) }
+    }
     /// Coalesced, equality-guarded per-workspace unread projection for the
     /// sidebar. The workspace list observes THIS instead of the whole store so
     /// high-frequency notification churn that does not change a workspace's
     /// badge count or latest-message text never republishes to the sidebar.
     /// This is the boundary that keeps the workspace list off the store's hot
     /// publish path (issue #2586 class of sidebar re-render spins). Owned (not
-    /// `@Published`) so its updates stay independent of the store's own
-    /// `objectWillChange`.
-    let sidebarUnread = SidebarUnreadModel()
+    /// tracked state) so its updates stay independent of the store's own
+    /// observation traffic.
+    @ObservationIgnored let sidebarUnread = SidebarUnreadModel()
     // Workspace-level unread drives sidebar workspace badges; pane-level manual
     // unread remains owned by Workspace.manualUnreadPanelIds.
-    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
+    /// Legacy Combine bridge for the remaining `.$manualUnreadWorkspaceIds` subscribers. Emits the
+    /// new value during willSet and replays the current value on subscribe — the
+    /// exact `Published.Publisher` semantics those call sites were written
+    /// against. Delete when the subscribers move to @Observable observation.
+    @ObservationIgnored let manualUnreadWorkspaceIdsPublisher = CurrentValueSubject<Set<UUID>, Never>([])
+    private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
+        willSet { manualUnreadWorkspaceIdsPublisher.send(newValue) }
         didSet { refreshUnreadPresentation() }
     }
-    @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
+    /// Legacy Combine bridge for the remaining `.$panelDerivedUnreadWorkspaceIds` subscribers. Emits the
+    /// new value during willSet and replays the current value on subscribe — the
+    /// exact `Published.Publisher` semantics those call sites were written
+    /// against. Delete when the subscribers move to @Observable observation.
+    @ObservationIgnored let panelDerivedUnreadWorkspaceIdsPublisher = CurrentValueSubject<Set<UUID>, Never>([])
+    private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
+        willSet { panelDerivedUnreadWorkspaceIdsPublisher.send(newValue) }
         didSet { refreshUnreadPresentation() }
     }
-    @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
+    /// Legacy Combine bridge for the remaining `.$restoredUnreadWorkspaceIds` subscribers. Emits the
+    /// new value during willSet and replays the current value on subscribe — the
+    /// exact `Published.Publisher` semantics those call sites were written
+    /// against. Delete when the subscribers move to @Observable observation.
+    @ObservationIgnored let restoredUnreadWorkspaceIdsPublisher = CurrentValueSubject<Set<UUID>, Never>([])
+    private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
+        willSet { restoredUnreadWorkspaceIdsPublisher.send(newValue) }
         didSet { refreshUnreadPresentation() }
     }
-    @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:] {
+    private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:] {
         didSet {
             // The sidebar/pane read-indicator presentation derives from this map
             // (see hasVisibleNotificationIndicator); keep the coalesced
@@ -394,40 +430,40 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
-    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
-    private var suppressNotificationDiffPublishing = false
+    private(set) var authorizationState: NotificationAuthorizationState = .unknown
+    @ObservationIgnored private var suppressNotificationDiffPublishing = false
 
-    private let center = UNUserNotificationCenter.current()
-    private var hasRequestedAutomaticAuthorization = false
-    private var hasDeferredAuthorizationRequest = false
-    private var hasPromptedForSettings = false
-    private var userDefaultsObserver: NSObjectProtocol?
-    private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
-    private let settingsPromptWindowRetryLimit = 20
-    private var notificationSettingsWindowProvider: () -> NSWindow? = {
+    @ObservationIgnored private let center = UNUserNotificationCenter.current()
+    @ObservationIgnored private var hasRequestedAutomaticAuthorization = false
+    @ObservationIgnored private var hasDeferredAuthorizationRequest = false
+    @ObservationIgnored private var hasPromptedForSettings = false
+    @ObservationIgnored private var userDefaultsObserver: NSObjectProtocol?
+    @ObservationIgnored private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
+    @ObservationIgnored private let settingsPromptWindowRetryLimit = 20
+    @ObservationIgnored private var notificationSettingsWindowProvider: () -> NSWindow? = {
         NSApp.keyWindow ?? NSApp.mainWindow
     }
-    private var notificationSettingsAlertFactory: () -> NSAlert = {
+    @ObservationIgnored private var notificationSettingsAlertFactory: () -> NSAlert = {
         NSAlert()
     }
-    private var notificationSettingsScheduler: (_ delay: TimeInterval, _ block: @escaping () -> Void) -> Void = {
+    @ObservationIgnored private var notificationSettingsScheduler: (_ delay: TimeInterval, _ block: @escaping () -> Void) -> Void = {
         delay,
         block in
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             block()
         }
     }
-    private var notificationSettingsURLOpener: (URL) -> Void = { url in
+    @ObservationIgnored private var notificationSettingsURLOpener: (URL) -> Void = { url in
         NSWorkspace.shared.open(url)
     }
-    private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
+    @ObservationIgnored private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
-    private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
-    private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
+    @ObservationIgnored private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
+    @ObservationIgnored private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
         effects in
@@ -439,10 +475,10 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private static let notificationHookFailureThrottle: TimeInterval = 300
-    var lastNotificationDateByCooldownKey: [String: Date] = [:]
-    var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
-    private var indexes = NotificationIndexes()
-    private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
+    @ObservationIgnored var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    @ObservationIgnored var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    @ObservationIgnored private var indexes = NotificationIndexes()
+    @ObservationIgnored private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
     private init() {
         notificationFeedHistory = NotificationFeedHistoryStore(
             fileURL: NotificationFeedHistoryStore.defaultFileURL()
@@ -2301,18 +2337,19 @@ struct SidebarSurfaceUnreadKey: Hashable {
 /// instead of `TerminalNotificationStore`. `TerminalNotificationStore` drives it
 /// from its single `refreshUnreadPresentation()` coalescing hub with equality
 /// guards, so notification activity that does not change any workspace's badge,
-/// latest-text, per-surface unread, or read-indicator never fires
-/// `objectWillChange` here. That is what stops high-frequency notification churn
+/// latest-text, per-surface unread, or read-indicator never invalidates this
+/// model. That is what stops high-frequency notification churn
 /// from re-rendering the workspace list (issue #2586 class of sidebar re-render
 /// spins). The query methods mirror the equivalent `TerminalNotificationStore`
 /// reads exactly so callers can switch source without behavior change.
 @MainActor
-final class SidebarUnreadModel: ObservableObject {
-    @Published private(set) var totalUnreadCount: Int = 0
-    @Published private(set) var summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary] = [:]
-    @Published private(set) var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
-    @Published private(set) var focusedReadIndicatorByWorkspaceId: [UUID: UUID] = [:]
-    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
+@Observable
+final class SidebarUnreadModel {
+    private(set) var totalUnreadCount: Int = 0
+    private(set) var summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary] = [:]
+    private(set) var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+    private(set) var focusedReadIndicatorByWorkspaceId: [UUID: UUID] = [:]
+    private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
 
     func apply(
         totalUnreadCount: Int,

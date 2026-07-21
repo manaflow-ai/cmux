@@ -1,8 +1,8 @@
 import AppKit
 import CmuxWorkspaces
-import Combine
 import Darwin
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -12,14 +12,14 @@ import Testing
 #endif
 
 @MainActor
-private final class DockTransferTestPanel: Panel {
-    let objectWillChange = ObservableObjectPublisher()
-    let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType
-    var displayTitle: String
-    let displayIcon: String?
-    let isDirty = false
+@Observable
+fileprivate final class DockTransferTestPanel: Panel {
+    @ObservationIgnored let id: UUID
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType
+    @ObservationIgnored var displayTitle: String
+    @ObservationIgnored let displayIcon: String?
+    @ObservationIgnored let isDirty = false
 
     init(
         id: UUID = UUID(),

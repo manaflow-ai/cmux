@@ -1432,7 +1432,10 @@ final class WindowBrowserSlotView: NSView {
         }
 
         let overlay = BrowserDesignModeComposerHostingView(
-            rootView: BrowserDesignModePopoverHost(controller: configuration.controller)
+            rootView: BrowserDesignModePopoverHost(
+                controller: configuration.controller,
+                dragBridge: BrowserDesignModeCardDragBridge()
+            )
         )
         overlay.rootView = Self.makeDesignComposerRootView(
             configuration: configuration,

@@ -1,6 +1,6 @@
 import AppKit
 import Bonsplit
-import Combine
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -420,14 +420,15 @@ private extension DockShortcutRoutingTests {
 }
 
 @MainActor
-private final class DockShortcutTestPanel: Panel, ObservableObject {
-    let id = UUID()
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .terminal
-    let displayTitle = "Dock Shortcut Test Panel"
-    let displayIcon: String? = "terminal.fill"
-    var isDirty = false
-    private(set) var flashCount = 0
+@Observable
+fileprivate final class DockShortcutTestPanel: Panel {
+    @ObservationIgnored let id = UUID()
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .terminal
+    @ObservationIgnored let displayTitle = "Dock Shortcut Test Panel"
+    @ObservationIgnored let displayIcon: String? = "terminal.fill"
+    @ObservationIgnored var isDirty = false
+    @ObservationIgnored private(set) var flashCount = 0
 
     func close() {}
     func focus() {}

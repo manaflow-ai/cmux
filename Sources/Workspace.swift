@@ -1968,7 +1968,8 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject {
+@Observable
+final class Workspace: Identifiable {
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -1986,12 +1987,13 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
-    let id: UUID
+
+    @ObservationIgnored let id: UUID
     /// Restart-stable workspace identifier persisted for durable deep links.
-    private(set) var stableId = UUID()
+@ObservationIgnored private(set) var stableId = UUID()
     /// Durable idempotency key for task-composer workspace creation.
-    var taskCreateOperationID: UUID?
-    private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
+    @ObservationIgnored var taskCreateOperationID: UUID?
+    @ObservationIgnored private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
 
     func beginForkAgentConversationAction(panelId: UUID) -> Bool {
         guard !forkAgentConversationInFlightPanelIds.contains(panelId) else {
@@ -2009,21 +2011,59 @@ final class Workspace: Identifiable, ObservableObject {
     /// (creation, or restore at launch). The mobile list's last-activity
     /// fallback: a workspace that never fired a notification still carries a
     /// real timestamp instead of nothing.
-    let createdAt = Date()
-    @Published var title: String
-    @Published var customTitle: String?
+    @ObservationIgnored let createdAt = Date()
+    /// Legacy Combine bridges for the remaining `workspace.$prop`
+    /// subscribers. They emit the new value during willSet and replay the
+    /// current value on subscribe — the exact `Published.Publisher` semantics
+    /// those call sites were written against. Delete with those subscribers.
+    @ObservationIgnored let titlePublisher: CurrentValueSubject<String, Never>
+    @ObservationIgnored let customTitlePublisher = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored let customDescriptionPublisher = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored let isPinnedPublisher = CurrentValueSubject<Bool, Never>(false)
+    @ObservationIgnored let groupIdPublisher = CurrentValueSubject<UUID?, Never>(nil)
+    @ObservationIgnored let customColorPublisher = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored let currentDirectoryPublisher: CurrentValueSubject<String, Never>
+    @ObservationIgnored let extensionSidebarProjectRootPathPublisher = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored let surfaceTabBarDirectoryPublisher: CurrentValueSubject<String?, Never>
+    @ObservationIgnored let panelDirectoriesPublisher = CurrentValueSubject<[UUID: String], Never>([:])
+    @ObservationIgnored let panelTitlesPublisher = CurrentValueSubject<[UUID: String], Never>([:])
+    @ObservationIgnored let panelCustomTitlesPublisher = CurrentValueSubject<[UUID: String], Never>([:])
+    @ObservationIgnored let latestConversationMessagePublisher = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored let latestSubmittedMessagePublisher = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored let latestSubmittedAtPublisher = CurrentValueSubject<Date?, Never>(nil)
+    @ObservationIgnored let surfaceListeningPortsPublisher = CurrentValueSubject<[UUID: [Int]], Never>([:])
+    @ObservationIgnored let remoteConfigurationPublisher = CurrentValueSubject<WorkspaceRemoteConfiguration?, Never>(nil)
+    @ObservationIgnored let remoteConnectionStatePublisher = CurrentValueSubject<WorkspaceRemoteConnectionState, Never>(.disconnected)
+    @ObservationIgnored let remoteConnectionDetailPublisher = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored let remoteDaemonStatusPublisher = CurrentValueSubject<WorkspaceRemoteDaemonStatus, Never>(WorkspaceRemoteDaemonStatus())
+    @ObservationIgnored let listeningPortsPublisher = CurrentValueSubject<[Int], Never>([])
+    @ObservationIgnored let activeRemoteTerminalSessionCountPublisher = CurrentValueSubject<Int, Never>(0)
+    var title: String {
+        willSet { titlePublisher.send(newValue) }
+    }
+    var customTitle: String? {
+        willSet { customTitlePublisher.send(newValue) }
+    }
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
     /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
     /// custom title is set. A present title with absent provenance is
     /// treated as `.user` so auto-naming never overwrites a title it
     /// cannot prove it owns.
-    @Published var customTitleSource: CustomTitleSource?
-    @Published var customDescription: String?
-    @Published var isPinned: Bool = false
+    var customTitleSource: CustomTitleSource?
+    var customDescription: String? {
+        willSet { customDescriptionPublisher.send(newValue) }
+    }
+    var isPinned: Bool = false {
+        willSet { isPinnedPublisher.send(newValue) }
+    }
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
-    @Published var groupId: UUID?
-    @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    var groupId: UUID? {
+        willSet { groupIdPublisher.send(newValue) }
+    }
+    var customColor: String? {  // hex string, e.g. "#C0392B"
+        willSet { customColorPublisher.send(newValue) }
+    }
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -2033,11 +2073,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// `mergedStartupEnvironment(...)`, so a workspace env entry can never clobber
     /// the variables the daemon relies on (CMUX_WORKSPACE_ID, CMUX_SOCKET_PATH, …).
     /// Persisted in the session manifest and restored before surfaces are rebuilt.
-    @Published var workspaceEnvironment: [String: String] = [:]
+    var workspaceEnvironment: [String: String] = [:]
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
-    @Published private(set) var terminalScrollBarHidden: Bool = false
-    @Published var currentDirectory: String {
+    private(set) var terminalScrollBarHidden: Bool = false
+    var currentDirectory: String {
+        willSet { currentDirectoryPublisher.send(newValue) }
         didSet {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2055,22 +2096,27 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
     }
-    @Published private(set) var extensionSidebarProjectRootPath: String?
-    private var extensionSidebarProjectRootRefreshID: UInt64 = 0
-    @Published private(set) var surfaceTabBarDirectory: String?
-    private(set) var preferredBrowserProfileID: UUID?
-    let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    private(set) var extensionSidebarProjectRootPath: String? {
+        willSet { extensionSidebarProjectRootPathPublisher.send(newValue) }
+    }
+    @ObservationIgnored private var extensionSidebarProjectRootRefreshID: UInt64 = 0
+    private(set) var surfaceTabBarDirectory: String? {
+        willSet { surfaceTabBarDirectoryPublisher.send(newValue) }
+    }
+    @ObservationIgnored private(set) var preferredBrowserProfileID: UUID?
+    @ObservationIgnored let closeTabWarningDefaults: UserDefaults
+    @ObservationIgnored let agentSessionAutoResumeDefaults: UserDefaults
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
-    var portOrdinal: Int = 0
+    @ObservationIgnored var portOrdinal: Int = 0
 
     /// The bonsplit controller managing the split panes for this workspace
-    let bonsplitController: BonsplitController
+    @ObservationIgnored let bonsplitController: BonsplitController
 
     /// Backing store for `dockSplit`, created on first access. Kept optional so
     /// workspace teardown can tear down the Dock only when it was actually used
     /// (and so reading it during teardown does not lazily create one).
-    private(set) var _dockSplit: DockSplitStore?
+    @ObservationIgnored private(set) var _dockSplit: DockSplitStore?
 
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
@@ -2098,11 +2144,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// How this workspace lays out its panels. Mutate through
     /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
     /// are seeded from the split layout on first entry.
-    @Published var layoutMode: WorkspaceLayoutMode = .splits
+    var layoutMode: WorkspaceLayoutMode = .splits
 
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
-    let canvasModel = CanvasModel(metricsProvider: { CanvasLayoutSettings.currentMetrics() })
+    @ObservationIgnored let canvasModel = CanvasModel(metricsProvider: { CanvasLayoutSettings.currentMetrics() })
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
         let builtInAction: CmuxSurfaceTabBarBuiltInAction?
@@ -2110,36 +2156,36 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalCommandSourcePath: String?
     }
 
-    private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
-    private var surfaceTabBarButtonSourcePath: String?
-    private var surfaceTabBarButtonGlobalConfigPath: String?
+    @ObservationIgnored private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
+    @ObservationIgnored private var surfaceTabBarButtonSourcePath: String?
+    @ObservationIgnored private var surfaceTabBarButtonGlobalConfigPath: String?
 
     /// The pane-tree sub-model (CmuxPanes): owns the panel registry, the
     /// surface-id mapping, and the pane-layout bookkeeping. The legacy
     /// accessors below forward here; `Workspace` hosts the property-observer
     /// hooks via `PaneTreeHosting`.
-    let paneTree = PaneTreeModel<any Panel>()
+    @ObservationIgnored let paneTree = PaneTreeModel<any Panel>()
 
     /// The surface-list derivation sub-model (CmuxWorkspaces): derives
     /// the ordered panel-id lists, focused panel, representative panel, per-pane
     /// selection, the `tabIdsTo*` pane queries, and the `paneLayoutVersion`
     /// reorder bump. `Workspace` is its tree-reading host via
     /// `WorkspaceSurfaceTreeReading`; the legacy accessors below forward here.
-    let surfaceList = WorkspaceSurfaceListModel()
+    @ObservationIgnored let surfaceList = WorkspaceSurfaceListModel()
 
     /// The surface-registry sub-model (CmuxWorkspaceCore): owns the
     /// per-surface registry annotations (tty names, shell-activity states)
     /// and the transient tab-selection/focus-reassert request state. The
     /// legacy accessors below forward here. None of the moved properties
-    /// were `@Published`, so no observer hooks are required.
-    let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
+    /// were never observation-tracked, so no observer hooks are required.
+    @ObservationIgnored let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
 
     /// The split-layout sub-model (CmuxPanes): owns the split/detach
     /// choreography bookkeeping (programmatic-split flag, detaching surface
     /// ids, captured transfer payloads, detach-close transaction count). The
     /// legacy accessors below forward here. None of the moved properties
-    /// were `@Published`, so no observer hooks are required.
-    private let splitLayout = SplitLayoutModel<DetachedSurfaceTransfer>()
+    /// were never observation-tracked, so no observer hooks are required.
+    @ObservationIgnored private let splitLayout = SplitLayoutModel<DetachedSurfaceTransfer>()
 
     /// Legacy Combine bridge for the remaining `workspace.$panels`
     /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
@@ -2147,10 +2193,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// subscribe — the exact `Published.Publisher` semantics those call
     /// sites were written against. Single seam; delete when the subscribers
     /// move to @Observable observation.
-    let panelsPublisher = CurrentValueSubject<[UUID: any Panel], Never>([:])
+    @ObservationIgnored let panelsPublisher = CurrentValueSubject<[UUID: any Panel], Never>([:])
     /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
     /// subscribers; same contract as `panelsPublisher`.
-    let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
+    @ObservationIgnored let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
 
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
@@ -2161,24 +2207,24 @@ final class Workspace: Identifiable, ObservableObject {
     /// Monotonic counter bumped only when the spatial (left-to-right, top-to-bottom)
     /// order of panels changes without the panel *set* changing — i.e. a pure
     /// drag-reorder of tabs within or across panes. Membership changes already
-    /// fire `$panels`; pure reorders mutate only `bonsplitController` state, which
-    /// is not `@Published`, so observers (e.g. the mobile workspace-list observer)
+    /// fire `panelsPublisher`; pure reorders mutate only `bonsplitController` state,
+    /// which is not observation-tracked, so observers (e.g. the mobile workspace-list observer)
     /// would otherwise never learn about a reorder. We gate the bump on an actual
     /// change of `orderedPanelIds` so that divider drags and selection-only events
-    /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
+    /// (which also flow through `didChangeGeometry`) do not notify observers.
     var paneLayoutVersion: Int {
         get { paneTree.paneLayoutVersion }
         set { paneTree.paneLayoutVersion = newValue }
     }
 
     /// Subscriptions for panel updates (e.g., browser title changes)
-    var panelSubscriptions: [UUID: AnyCancellable] = [:]
-    private var agentSessionPanelCallbackIds: Set<UUID> = []
+    @ObservationIgnored var panelSubscriptions: [UUID: AnyCancellable] = [:]
+    @ObservationIgnored private var agentSessionPanelCallbackIds: Set<UUID> = []
 
     /// Aggregate media-device activity across every browser pane in this
     /// workspace (audio / microphone / camera), surfaced to the sidebar
     /// workspace row so a noisy or capturing background pane is discoverable.
-    private(set) var browserMediaActivity = BrowserMediaActivity()
+    @ObservationIgnored private(set) var browserMediaActivity = BrowserMediaActivity()
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels);
     /// stored in the split-layout sub-model.
@@ -2186,20 +2232,20 @@ final class Workspace: Identifiable, ObservableObject {
         get { splitLayout.isProgrammaticSplit }
         set { splitLayout.isProgrammaticSplit = newValue }
     }
-    private var debugStressPreloadSelectionDepth = 0
+    @ObservationIgnored private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
-    var lastTerminalConfigInheritancePanelId: UUID?
+    @ObservationIgnored var lastTerminalConfigInheritancePanelId: UUID?
     /// Last known terminal font points from inheritance sources. Used as fallback when
     /// no live terminal surface is currently available.
-    private var lastTerminalConfigInheritanceFontPoints: Float?
+    @ObservationIgnored private var lastTerminalConfigInheritanceFontPoints: Float?
     /// Per-panel inherited zoom lineage. Descendants reuse this root value unless
     /// a panel is explicitly re-zoomed by the user.
-    var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
+    @ObservationIgnored var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
-    var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
-    weak var owningTabManager: TabManager?
+    @ObservationIgnored var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
+    @ObservationIgnored weak var owningTabManager: TabManager?
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
@@ -2243,7 +2289,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Published directory for each panel
-    @Published var panelDirectories: [UUID: String] = [:]
+    var panelDirectories: [UUID: String] = [:] {
+        willSet { panelDirectoriesPublisher.send(newValue) }
+    }
     /// Optional human-friendly sidebar label per panel, reported via
     /// `report_pwd <label> --path=<real-path>`. Display-only: the File
     /// Explorer, Finder root, and git probing always use `panelDirectories`.
@@ -2255,21 +2303,25 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.panelDirectoryDisplayLabels }
         set { sidebarMetadata.panelDirectoryDisplayLabels = newValue }
     }
-    @Published var panelTitles: [UUID: String] = [:]
-    @Published var panelCustomTitles: [UUID: String] = [:]
+    var panelTitles: [UUID: String] = [:] {
+        willSet { panelTitlesPublisher.send(newValue) }
+    }
+    var panelCustomTitles: [UUID: String] = [:] {
+        willSet { panelCustomTitlesPublisher.send(newValue) }
+    }
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
-    var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
-    @Published var pinnedPanelIds: Set<UUID> = []
-    var pinMutationTokensByPanelId: [UUID: UUID] = [:]
-    @Published var manualUnreadPanelIds: Set<UUID> = [] {
+    @ObservationIgnored var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
+    var pinnedPanelIds: Set<UUID> = []
+    @ObservationIgnored var pinMutationTokensByPanelId: [UUID: UUID] = [:]
+    var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {
             guard manualUnreadPanelIds != oldValue else { return }
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    @Published private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
+    private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
         didSet {
             guard restoredUnreadPanelIndicators != oldValue else { return }
             syncPanelDerivedWorkspaceUnread()
@@ -2278,20 +2330,20 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredUnreadPanelIds: Set<UUID> { Set(restoredUnreadPanelIndicators.keys) }
 
     var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
-    @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
-    @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
-    @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
-    @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
-    var manualUnreadMarkedAt: [UUID: Date] = [:]
+    private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    private(set) var tmuxWorkspaceFlashPanelId: UUID?
+    private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
+    private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
+    @ObservationIgnored var manualUnreadMarkedAt: [UUID: Date] = [:]
     /// The sidebar-metadata sub-model (CmuxSidebar): owns the
     /// sidebar status entries, metadata blocks, log entries, progress, and
     /// git-branch / pull-request presentation state. The legacy accessors below
-    /// forward here. The moved properties were `@Published` and fed the sidebar
+    /// forward here. The moved properties were tracked and fed the sidebar
     /// observation publishers, so the model exposes per-field Combine publishers
     /// (`statusEntriesPublisher` etc.) that `makeSidebarObservationPublisher()`
     /// subscribes to in place of the former `$projection`s, preserving the
     /// debounced refresh timing byte-identically.
-    let sidebarMetadata = WorkspaceSidebarMetadataModel(
+    @ObservationIgnored let sidebarMetadata = WorkspaceSidebarMetadataModel(
         limitProvider: WorkspaceSidebarLogEntryLimitProvider()
     )
     var statusEntries: [String: SidebarStatusEntry] {
@@ -2302,9 +2354,15 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
     }
-    @Published private(set) var latestConversationMessage: String?
-    @Published private(set) var latestSubmittedMessage: String?
-    @Published private(set) var latestSubmittedAt: Date?
+    private(set) var latestConversationMessage: String? {
+        willSet { latestConversationMessagePublisher.send(newValue) }
+    }
+    private(set) var latestSubmittedMessage: String? {
+        willSet { latestSubmittedMessagePublisher.send(newValue) }
+    }
+    private(set) var latestSubmittedAt: Date? {
+        willSet { latestSubmittedAtPublisher.send(newValue) }
+    }
     var logEntries: [SidebarLogEntry] {
         get { sidebarMetadata.logEntries }
         set { sidebarMetadata.logEntries = newValue }
@@ -2329,43 +2387,57 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.panelPullRequests }
         set { sidebarMetadata.panelPullRequests = newValue }
     }
-    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
-    var agentListeningPorts: [Int] = []
-    @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
-    @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
-    @Published var remoteConnectionDetail: String?
-    @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
-    @Published var remoteDetectedPorts: [Int] = []
-    @Published var remoteForwardedPorts: [Int] = []
-    @Published var remotePortConflicts: [Int] = []
-    @Published var remoteProxyEndpoint: BrowserProxyEndpoint?
-    @Published var remoteHeartbeatCount: Int = 0
-    @Published var remoteLastHeartbeatAt: Date?
-    @Published var listeningPorts: [Int] = []
-    @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
-    var remoteSessionController: RemoteSessionCoordinator?
+    var surfaceListeningPorts: [UUID: [Int]] = [:] {
+        willSet { surfaceListeningPortsPublisher.send(newValue) }
+    }
+    @ObservationIgnored var agentListeningPorts: [Int] = []
+    var remoteConfiguration: WorkspaceRemoteConfiguration? {
+        willSet { remoteConfigurationPublisher.send(newValue) }
+    }
+    var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected {
+        willSet { remoteConnectionStatePublisher.send(newValue) }
+    }
+    var remoteConnectionDetail: String? {
+        willSet { remoteConnectionDetailPublisher.send(newValue) }
+    }
+    var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus() {
+        willSet { remoteDaemonStatusPublisher.send(newValue) }
+    }
+    var remoteDetectedPorts: [Int] = []
+    var remoteForwardedPorts: [Int] = []
+    var remotePortConflicts: [Int] = []
+    var remoteProxyEndpoint: BrowserProxyEndpoint?
+    var remoteHeartbeatCount: Int = 0
+    var remoteLastHeartbeatAt: Date?
+    var listeningPorts: [Int] = [] {
+        willSet { listeningPortsPublisher.send(newValue) }
+    }
+    private(set) var activeRemoteTerminalSessionCount: Int = 0 {
+        willSet { activeRemoteTerminalSessionCountPublisher.send(newValue) }
+    }
+    @ObservationIgnored var remoteSessionController: RemoteSessionCoordinator?
     // Retains each detached controller until cleanup finishes or ownership transfers.
-    var remoteSessionCleanupControllers: [UUID: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)] = [:]
-    var remoteSessionTransitionTask: Task<Void, Never>?
-    var remoteSessionTransitionID: UUID?
+    @ObservationIgnored var remoteSessionCleanupControllers: [UUID: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)] = [:]
+    @ObservationIgnored var remoteSessionTransitionTask: Task<Void, Never>?
+    @ObservationIgnored var remoteSessionTransitionID: UUID?
     enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
     }
-    var remoteForegroundAuthenticationPhase: RemoteForegroundAuthenticationPhase?
-    var activeRemoteSessionControllerID: UUID?
-    private var remoteLastErrorFingerprint: String?
-    private var remoteLastDaemonErrorFingerprint: String?
-    private var remoteLastPortConflictFingerprint: String?
-    private var remoteDetectedSurfaceIds: Set<UUID> = []
-    var activeRemoteTerminalSurfaceIds: Set<UUID> = []
-    private(set) var remoteDirectoryTrustRequiredPanelIds: Set<UUID> = []
-    private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
-    var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
-    var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
-    private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
-    private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
-    private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
-    var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
+    @ObservationIgnored var remoteForegroundAuthenticationPhase: RemoteForegroundAuthenticationPhase?
+    @ObservationIgnored var activeRemoteSessionControllerID: UUID?
+    @ObservationIgnored private var remoteLastErrorFingerprint: String?
+    @ObservationIgnored private var remoteLastDaemonErrorFingerprint: String?
+    @ObservationIgnored private var remoteLastPortConflictFingerprint: String?
+    @ObservationIgnored private var remoteDetectedSurfaceIds: Set<UUID> = []
+    @ObservationIgnored var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    @ObservationIgnored private(set) var remoteDirectoryTrustRequiredPanelIds: Set<UUID> = []
+    @ObservationIgnored private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
+    @ObservationIgnored var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
+    @ObservationIgnored var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
+    @ObservationIgnored private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
+    @ObservationIgnored private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
+    @ObservationIgnored private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
+    @ObservationIgnored var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
 
     struct PendingRemoteDisconnectReplacement {
         enum Phase {
@@ -2383,9 +2455,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Remote disconnect metadata follows the surface whose process ended.
-    var pendingRemoteDisconnectReplacementsBySurfaceId: [UUID: PendingRemoteDisconnectReplacement] = [:]
-    let remoteDisconnectPreparationService = RemoteDisconnectPreparationService()
-    var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
+    @ObservationIgnored var pendingRemoteDisconnectReplacementsBySurfaceId: [UUID: PendingRemoteDisconnectReplacement] = [:]
+    @ObservationIgnored let remoteDisconnectPreparationService = RemoteDisconnectPreparationService()
+    @ObservationIgnored var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
@@ -2400,7 +2472,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// session coordinator's subprocess results. Instance-scoped injection of
     /// the package process-runner seam (replaces the legacy process-wide
     /// `WorkspaceRemoteSessionController.runProcessOverrideForTesting` static).
-    var remoteSessionProcessRunnerOverrideForTesting: (any RemoteSessionProcessRunning)?
+    @ObservationIgnored var remoteSessionProcessRunnerOverrideForTesting: (any RemoteSessionProcessRunning)?
 #endif
     /// The shell-activity classification per panel id; stored in the
     /// surface-registry sub-model.
@@ -2409,30 +2481,30 @@ final class Workspace: Identifiable, ObservableObject {
         set { surfaceRegistry.panelShellActivityStates = newValue }
     }
     /// Agent runtime maps that affect sidebar status visibility.
-    let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
+    @ObservationIgnored let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
-    let todoState = WorkspaceTodoState()
-    let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
-    let nativeSSHConnectionBroker: NativeSSHConnectionBroker
-    var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+@ObservationIgnored let todoState = WorkspaceTodoState()
+    @ObservationIgnored let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
+    @ObservationIgnored let nativeSSHConnectionBroker: NativeSSHConnectionBroker
+    @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
-    var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
-    var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
+    @ObservationIgnored var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
+    @ObservationIgnored var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
-    let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
+    @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] {
         get { restoredAgentLifecycle.snapshotsByPanelId }
         set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
     }
-    var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
-    private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    @ObservationIgnored private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the lifetime of the resumed run (unlike the one-shot report guard
     /// above, which the first spurious report consumes) so split/new-tab cwd
     /// inheritance can rescue a clobbered tracked cwd while the resumed agent
     /// still holds the pane's foreground (#7155). Internal so
     /// `Workspace+PanelLifecycle` can clear it on panel close.
-    var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    @ObservationIgnored var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable, awaitingAutoResumeCommand, autoResumeCommandRunning, observedAgentCommandRunning, completedAgentExit
     }
@@ -2444,16 +2516,16 @@ final class Workspace: Identifiable, ObservableObject {
         get { restoredAgentLifecycle.invalidatedFingerprintsByPanelId }
         set { restoredAgentLifecycle.invalidatedFingerprintsByPanelId = newValue }
     }
-    private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
-    private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
+    @ObservationIgnored private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    @ObservationIgnored private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
 
     // Sidebar rows cache snapshots, so observation must begin with the current
-    // workspace state. Build state publishers from @Published current values
+    // workspace state. Build state publishers from the legacy bridge current values
     // instead of dropping the first value and repairing timing with a Void event.
-    lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = makeSidebarImmediateObservationPublisher()
-    lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = makeSidebarObservationPublisher()
+    @ObservationIgnored lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = makeSidebarImmediateObservationPublisher()
+    @ObservationIgnored lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = makeSidebarObservationPublisher()
 
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
@@ -2558,7 +2630,7 @@ final class Workspace: Identifiable, ObservableObject {
         set { panelDirectories = newValue }
     }
 
-    var processTitle: String
+    @ObservationIgnored var processTitle: String
 
     nonisolated static func resolveCloseConfirmation(
         shellActivityState: PanelShellActivityState?,
@@ -2950,6 +3022,7 @@ final class Workspace: Identifiable, ObservableObject {
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.id = UUID()
+        self.titlePublisher = CurrentValueSubject(title)
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
@@ -2969,6 +3042,8 @@ final class Workspace: Identifiable, ObservableObject {
         let initialDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
+        self.currentDirectoryPublisher = CurrentValueSubject(initialDirectory)
+        self.surfaceTabBarDirectoryPublisher = CurrentValueSubject(initialDirectory)
         self.currentDirectory = initialDirectory
         self.surfaceTabBarDirectory = initialDirectory
 
@@ -3215,13 +3290,21 @@ final class Workspace: Identifiable, ObservableObject {
                         }
                         self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
                     }
+                    // No blanket invalidation here (the legacy objectWillChange
+                    // send is gone deliberately): reconcile above mutates the
+                    // tracked RestoredAgentLifecycleCoordinator state, and the
+                    // remaining SharedLiveAgentIndex-derived surface — fork
+                    // conversation availability — is pulled at NSMenu build
+                    // time (bonsplit TabContextMenuBuilder.makeMenu and
+                    // GhosttyNSView+ForkConversationContextMenu), so menus
+                    // opened after a probe read fresh state and open menus
+                    // never live-updated under ObservableObject either.
                 }
-                self.objectWillChange.send()
             }
         }
     }
 
-    private var sharedLiveAgentIndexObserver: NSObjectProtocol?
+    @ObservationIgnored private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
@@ -3381,35 +3464,35 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
     /// This is used by app-level confirmation prompts (for example, Close Tab) so the
     /// Bonsplit delegate doesn't block the close after the user already confirmed.
-    private var forceCloseTabIds: Set<TabID> = []
+    @ObservationIgnored private var forceCloseTabIds: Set<TabID> = []
 
     /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
-    private var pendingCloseConfirmTabIds: Set<TabID> = []
+    @ObservationIgnored private var pendingCloseConfirmTabIds: Set<TabID> = []
 
     /// tmux pane ids (multi-pane mirror ✕) with a close-time activity query or
     /// confirmation in flight, so click spam can't double-kill or stack dialogs.
-    private var pendingRemoteTmuxPaneCloseIds: Set<Int> = []
+    @ObservationIgnored private var pendingRemoteTmuxPaneCloseIds: Set<Int> = []
 
     /// User-initiated close attempts, distinct from internal close/move flows.
-    private var explicitUserCloseTabIds: Set<TabID> = []
-    private var closeHistoryEligibleTabIds: Set<TabID> = []
-    private var closeHistoryEligiblePanelIds: Set<UUID> = []
-    private var suppressClosedPanelHistory = false
+    @ObservationIgnored private var explicitUserCloseTabIds: Set<TabID> = []
+    @ObservationIgnored private var closeHistoryEligibleTabIds: Set<TabID> = []
+    @ObservationIgnored private var closeHistoryEligiblePanelIds: Set<UUID> = []
+    @ObservationIgnored private var suppressClosedPanelHistory = false
     /// Stable identities not re-adopted by the in-flight snapshot restore.
-    let sessionRestoreIdentityExclusions = SessionRestoreIdentityExclusions()
-    private var tabStripCloseButtonByTabId: [TabID: Bool] = [:]
-    private var remoteTmuxWorkspaceCloseButtonByTabId: [TabID: Bool] = [:]
-    private var remoteTmuxKeepWorkspaceOpenTabIds: Set<TabID> = []
-    private var remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false
+    @ObservationIgnored let sessionRestoreIdentityExclusions = SessionRestoreIdentityExclusions()
+    @ObservationIgnored private var tabStripCloseButtonByTabId: [TabID: Bool] = [:]
+    @ObservationIgnored private var remoteTmuxWorkspaceCloseButtonByTabId: [TabID: Bool] = [:]
+    @ObservationIgnored private var remoteTmuxKeepWorkspaceOpenTabIds: Set<TabID> = []
+    @ObservationIgnored private var remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false
     /// Deterministic tab selection to apply after a tab closes, keyed by closing tab ID.
-    private var postCloseSelectTabId: [TabID: TabID] = [:]
-    private var postCloseClearSplitZoomTabIds: Set<TabID> = []
+    @ObservationIgnored private var postCloseSelectTabId: [TabID: TabID] = [:]
+    @ObservationIgnored private var postCloseClearSplitZoomTabIds: Set<TabID> = []
     /// Panel IDs that were in a pane when a pane-close operation was approved.
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
-    private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
-    private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
-    private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
+    @ObservationIgnored private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
+    @ObservationIgnored private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
+    @ObservationIgnored private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
     /// Re-entrancy guard for the tab-selection apply loop; stored in the
     /// surface-registry sub-model.
     private var isApplyingTabSelection: Bool {
@@ -3433,29 +3516,29 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.pendingTabSelection }
         set { surfaceRegistry.pendingTabSelection = newValue }
     }
-    private var isReconcilingFocusState = false
-    private var focusReconcileScheduled = false
+    @ObservationIgnored private var isReconcilingFocusState = false
+    @ObservationIgnored private var focusReconcileScheduled = false
 #if DEBUG
-    private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
-    private var debugLastDidMoveTabTimestamp: TimeInterval = 0
-    private var debugDidMoveTabEventCount: UInt64 = 0
+    @ObservationIgnored private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+    @ObservationIgnored private var debugLastDidMoveTabTimestamp: TimeInterval = 0
+    @ObservationIgnored private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
-    private var layoutFollowUpObservers: [NSObjectProtocol] = []
-    private var layoutFollowUpPanelsCancellable: AnyCancellable?
-    private var layoutFollowUpTimeoutWorkItem: DispatchWorkItem?
-    private var layoutFollowUpReason: String?
-    private var layoutFollowUpTerminalFocusPanelId: UUID?
-    private var layoutFollowUpBrowserPanelId: UUID?
-    private var layoutFollowUpBrowserExitFocusPanelId: UUID?
-    private var layoutFollowUpNeedsGeometryPass = false
-    private var layoutFollowUpAttemptScheduled = false
-    private var layoutFollowUpAttemptVersion: Int = 0
-    private var layoutFollowUpStalledAttemptCount = 0
-    private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
-    private var portalRenderingEnabled = true
-    private var agentHibernationAutoResumePresentationVisible = true
-    private var isAttemptingLayoutFollowUp = false
-    private var isNormalizingPinnedTabOrder = false
+    @ObservationIgnored private var layoutFollowUpObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var layoutFollowUpPanelsCancellable: AnyCancellable?
+    @ObservationIgnored private var layoutFollowUpTimeoutWorkItem: DispatchWorkItem?
+    @ObservationIgnored private var layoutFollowUpReason: String?
+    @ObservationIgnored private var layoutFollowUpTerminalFocusPanelId: UUID?
+    @ObservationIgnored private var layoutFollowUpBrowserPanelId: UUID?
+    @ObservationIgnored private var layoutFollowUpBrowserExitFocusPanelId: UUID?
+    @ObservationIgnored private var layoutFollowUpNeedsGeometryPass = false
+    @ObservationIgnored private var layoutFollowUpAttemptScheduled = false
+    @ObservationIgnored private var layoutFollowUpAttemptVersion: Int = 0
+    @ObservationIgnored private var layoutFollowUpStalledAttemptCount = 0
+    @ObservationIgnored private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
+    @ObservationIgnored private var portalRenderingEnabled = true
+    @ObservationIgnored private var agentHibernationAutoResumePresentationVisible = true
+    @ObservationIgnored private var isAttemptingLayoutFollowUp = false
+    @ObservationIgnored private var isNormalizingPinnedTabOrder = false
     /// The pending non-focusing-split focus re-assert request (the value
     /// type now lives in CmuxWorkspaceCore); stored in the surface-registry
     /// sub-model.
@@ -3483,18 +3566,18 @@ final class Workspace: Identifiable, ObservableObject {
     }
     private var isDetachingCloseTransaction: Bool { splitLayout.isDetachingCloseTransaction }
     /// Single transaction owner for focus-neutral remote-tmux topology bookkeeping.
-    let remoteTmuxMirrorMutations = RemoteTmuxMirrorMutationCoordinator()
-    private var pendingRemoteSurfaceTTYName: String?
-    private var pendingRemoteSurfaceTTYSurfaceId: UUID?
-    private var pendingRemoteSurfacePortKickReason: PortScanKickReason?
-    private var pendingRemoteSurfacePortKickSurfaceId: UUID?
-    private var pendingRemoteSurfacePWD: String?
-    private var pendingRemoteSurfacePWDSurfaceId: UUID?
+    @ObservationIgnored let remoteTmuxMirrorMutations = RemoteTmuxMirrorMutationCoordinator()
+    @ObservationIgnored private var pendingRemoteSurfaceTTYName: String?
+    @ObservationIgnored private var pendingRemoteSurfaceTTYSurfaceId: UUID?
+    @ObservationIgnored private var pendingRemoteSurfacePortKickReason: PortScanKickReason?
+    @ObservationIgnored private var pendingRemoteSurfacePortKickSurfaceId: UUID?
+    @ObservationIgnored private var pendingRemoteSurfacePWD: String?
+    @ObservationIgnored private var pendingRemoteSurfacePWDSurfaceId: UUID?
     // When the last live remote terminal is detached out, the source workspace may be
     // closed immediately after the move succeeds. That teardown must not shut down the
     // shared SSH control master that is still serving the moved terminal.
-    private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
-    var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
+    @ObservationIgnored private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+    @ObservationIgnored var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
 
 #if DEBUG
     private func debugElapsedMs(since start: TimeInterval) -> String {
@@ -3702,11 +3785,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
         let browserTabState = Publishers.CombineLatest4(
-            browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
-            browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
+            browserPanel.pageTitlePublisher.removeDuplicates(), browserPanel.currentURLPublisher.removeDuplicates(),
+            browserPanel.isLoadingPublisher.removeDuplicates(), browserPanel.faviconPNGDataPublisher.removeDuplicates(by: { $0 == $1 })
         )
         let subscription = browserTabState
-        .combineLatest(browserPanel.$isMuted.removeDuplicates())
+        .combineLatest(browserPanel.isMutedPublisher.removeDuplicates())
         .receive(on: DispatchQueue.main)
         .sink { [weak self, weak browserPanel] output in
             let ((_, _, isLoading, favicon), isMuted) = output
@@ -3791,8 +3874,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {
         let subscription = Publishers.CombineLatest(
-            markdownPanel.$displayTitle.removeDuplicates(),
-            markdownPanel.$isDirty.removeDuplicates()
+            markdownPanel.displayTitlePublisher.removeDuplicates(),
+            markdownPanel.isDirtyPublisher.removeDuplicates()
         )
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak markdownPanel] newTitle, isDirty in
@@ -3820,12 +3903,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
         let titleAndDirty = Publishers.CombineLatest(
-            filePreviewPanel.$displayTitle.removeDuplicates(),
-            filePreviewPanel.$isDirty.removeDuplicates()
+            filePreviewPanel.displayTitlePublisher.removeDuplicates(),
+            filePreviewPanel.isDirtyPublisher.removeDuplicates()
         )
         let subscription = Publishers.CombineLatest(
             titleAndDirty,
-            filePreviewPanel.$displayIcon.removeDuplicates()
+            filePreviewPanel.displayIconPublisher.removeDuplicates()
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self, weak filePreviewPanel] titleAndDirty, displayIcon in
@@ -5079,10 +5162,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Ephemeral remote tmux mirror; excluded from cmux session restore.
-    var isRemoteTmuxMirror: Bool = false
-    weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
+    @ObservationIgnored var isRemoteTmuxMirror: Bool = false
+    @ObservationIgnored weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
     /// Bound action for this mirror's outbound window-order mutation boundary.
-    var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
+    @ObservationIgnored var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
 
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
@@ -5093,7 +5176,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setRemoteTmuxWindowMirror(_ mirror: RemoteTmuxWindowMirror?, forPanelId panelId: UUID) {
-        objectWillChange.send()
         if let mirror {
             remoteTmuxWindowMirrors[panelId] = mirror
         } else {
@@ -6491,7 +6573,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// ``resumedAgentPaneWorkingDirectoryRescue(panelId:)``. Nil selects the
     /// libproc-backed default, which requires a live foreground process on the
     /// pane's surface; injecting a substitute decouples callers from libproc.
-    var foregroundProcessWorkingDirectoryProvider: ((UUID) -> String?)?
+    @ObservationIgnored var foregroundProcessWorkingDirectoryProvider: ((UUID) -> String?)?
 
     /// Rescues split/new-tab cwd inheritance from a pane whose restored
     /// auto-resume command is still running (#7155).
@@ -11072,13 +11154,12 @@ final class Workspace: Identifiable, ObservableObject {
 
 // MARK: - BonsplitDelegate
 
-// MARK: - PaneTreeHosting (legacy @Published observer hooks)
+// MARK: - PaneTreeHosting (legacy publisher hooks)
 
 extension Workspace: PaneTreeHosting {
-    /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
-    /// Combine bridge at the exact timing `@Published` used.
+    /// Legacy `panels` willSet: re-emits the Combine bridge at the exact timing
+    /// the projected publisher used. Observation tracks `paneTree.panels`.
     func panelsWillChange(to newValue: [UUID: any Panel]) {
-        objectWillChange.send()
         setBrowserMediaActivity(
             currentBrowserMediaActivity(panels: newValue),
             invalidateSidebarObservation: false
@@ -11086,9 +11167,8 @@ extension Workspace: PaneTreeHosting {
         panelsPublisher.send(newValue)
     }
 
-    /// Legacy `@Published paneLayoutVersion` willSet; same contract.
+    /// Legacy `paneLayoutVersion` willSet; same contract.
     func paneLayoutVersionWillChange(to newValue: Int) {
-        objectWillChange.send()
         paneLayoutVersionPublisher.send(newValue)
     }
 }
@@ -11410,7 +11490,7 @@ extension Workspace: BonsplitDelegate {
         pullRequest = panelPullRequests[panelId]
 
         // Broadcast the focus change. This is deferred + coalesced (not posted
-        // synchronously) so the `@Published` mutations above settle before any
+        // synchronously) so the tracked mutations above settle before any
         // observer runs, and so a notification-driven focus cycle (command-palette
         // restore + cross-workspace handoff) cannot synchronously re-enter
         // applyTabSelectionNow and hang the main thread. See issue #5100.
@@ -12592,10 +12672,10 @@ extension Workspace: BonsplitDelegate {
         )
         // Every order/membership mutation (same-pane reorder, cross-pane move,
         // split, close) routes through here. A pure reorder mutates only
-        // bonsplit's internal state, which is not `@Published`, so observers
+        // bonsplit's internal state, which is not observation-tracked, so observers
         // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
         // sequence actually changed, so divider drags and selection-only events
-        // (also routed here) do not fire `objectWillChange` app-wide.
+        // (also routed here) do not notify workspace observers app-wide.
         surfaceList.registerGeometryChange()
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {

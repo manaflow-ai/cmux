@@ -58,11 +58,11 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
-    @StateObject private var tabManager: TabManager
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
-    @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
-    @StateObject private var sidebarState = SidebarState()
-    @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var tabManager: TabManager
+    @State private var notificationStore = TerminalNotificationStore.shared
+    @State var closedItemHistoryStore = ClosedItemHistoryStore.shared
+    @State private var sidebarState = SidebarState()
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyle = TitlebarControlsStyle.defaultRawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
@@ -70,7 +70,7 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
-    @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
+    @State var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
@@ -194,7 +194,7 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        _tabManager = StateObject(wrappedValue: TabManager(
+_tabManager = State(initialValue: TabManager(
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         ))
         StartupBreadcrumbLog.append("app.init.tabManager.complete")

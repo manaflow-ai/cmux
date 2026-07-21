@@ -1250,7 +1250,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             defaultValue: "Remote terminal session disconnected"
         )
         var publishedDetails: [String?] = []
-        let cancellable = workspace.$remoteConnectionDetail
+        let cancellable = workspace.remoteConnectionDetailPublisher
             .dropFirst()
             .sink { publishedDetails.append($0) }
         defer { cancellable.cancel() }

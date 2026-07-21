@@ -709,7 +709,8 @@ private func installFileDropOverlayWhenReady(
 }
 
 @MainActor
-private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+@Observable
+private final class SelectedWorkspaceDirectoryObserver {
     private struct Snapshot: Equatable {
         let workspaceId: UUID?
         let currentDirectory: String?
@@ -720,9 +721,9 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let activeRemoteTerminalSessionCount: Int
     }
 
-    @Published private(set) var directoryChangeGeneration: UInt64 = 0
-    private weak var tabManager: TabManager?
-    private var cancellable: AnyCancellable?
+    private(set) var directoryChangeGeneration: UInt64 = 0
+    @ObservationIgnored private weak var tabManager: TabManager?
+    @ObservationIgnored private var cancellable: AnyCancellable?
 
     func wire(tabManager: TabManager) {
         guard self.tabManager !== tabManager || cancellable == nil else { return }
@@ -750,15 +751,15 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                     .eraseToAnyPublisher()
                 }
                 let directoryChangeRevision = workspace.currentDirectoryChangeRevisionPublisher()
-                return workspace.$currentDirectory
+                return workspace.currentDirectoryPublisher
                     .combineLatest(
-                        workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState,
-                        workspace.$remoteConnectionDetail
+                        workspace.remoteConfigurationPublisher,
+                        workspace.remoteConnectionStatePublisher,
+                        workspace.remoteConnectionDetailPublisher
                     )
                     .combineLatest(
-                        workspace.$remoteDaemonStatus,
-                        workspace.$activeRemoteTerminalSessionCount
+                        workspace.remoteDaemonStatusPublisher,
+                        workspace.activeRemoteTerminalSessionCountPublisher
                     )
                     .map { values in
                         let (
@@ -799,19 +800,19 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     // ContentView observes the coalesced unread projection, NOT the notification
     // store. Reading `notificationStore` directly here would re-render the entire
     // content view + sidebar on every notification publish (terminal/agent
     // activity), which reconstructs every workspace row and starves the main
     // thread (issue #2586 class; surfaced as scroll lag). `notificationStore`
     // stays available as an unobserved singleton for actions and pass-down.
-    @EnvironmentObject var sidebarUnread: SidebarUnreadModel
+    @Environment(SidebarUnreadModel.self) var sidebarUnread
     var notificationStore: TerminalNotificationStore { .shared }
-    @EnvironmentObject var sidebarState: SidebarState
-    @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
-    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
-    @EnvironmentObject var fileExplorerState: FileExplorerState
+    @Environment(SidebarState.self) var sidebarState
+    @Environment(SidebarSelectionState.self) var sidebarSelectionState
+    @Environment(CmuxConfigStore.self) var cmuxConfigStore
+    @Environment(FileExplorerState.self) var fileExplorerState
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -850,10 +851,10 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
-    @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
-    @StateObject private var fileExplorerStore = FileExplorerStore()
-    @StateObject private var sessionIndexStore = SessionIndexStore()
-    @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    @State private var fullscreenControlsViewModel = TitlebarControlsViewModel()
+    @State private var fileExplorerStore = FileExplorerStore()
+    @State private var sessionIndexStore = SessionIndexStore()
+    @State private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
@@ -1672,6 +1673,7 @@ struct ContentView: View {
     }
 
     private var sidebarView: some View {
+        @Bindable var sidebarSelectionState = sidebarSelectionState
         let sidebar = VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
@@ -1773,6 +1775,7 @@ struct ContentView: View {
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
+        @Bindable var sidebarSelectionState = sidebarSelectionState
         let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId
@@ -2686,11 +2689,11 @@ struct ContentView: View {
             await backgroundWorkspacePrimeCoordinator.primePendingBackgroundWorkspaces(tabManager: tabManager)
         })
 
-        view = AnyView(view.onReceive(tabManager.$debugPinnedWorkspaceLoadIds) { _ in
+        view = AnyView(view.onChange(of: tabManager.debugPinnedWorkspaceLoadIds, initial: true) { _, _ in
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
+        view = AnyView(view.onChange(of: tabManager.mountedBackgroundWorkspaceLoadIds, initial: true) { _, _ in
             reconcileMountedWorkspaceIds()
         })
 
@@ -3115,7 +3118,7 @@ struct ContentView: View {
         // portal anchor callbacks own live geometry, and the drag-end handler
         // below runs the full settle once.
         view = AnyView(view.onReceive(
-            sidebarLayout.$width.removeDuplicates().receive(on: DispatchQueue.main)
+            sidebarLayout.widthPublisher.removeDuplicates().receive(on: DispatchQueue.main)
         ) { _ in
             guard !isResizerDragging else { return }
             settleSidebarWidth()
@@ -10298,15 +10301,16 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
 }
 
 @MainActor
-private final class SidebarTabItemSettingsStore: ObservableObject {
-    @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
+@Observable
+private final class SidebarTabItemSettingsStore {
+    private(set) var snapshot: SidebarTabItemSettingsSnapshot
 
     private let defaults: UserDefaults
     private let sidebarFontSizeProvider: () async -> CGFloat
-    private var sidebarFontSize: CGFloat
-    private var sidebarFontSizeLoadTask: Task<Void, Never>?
-    private var defaultsObserver: NSObjectProtocol?
-    private var ghosttyConfigObserver: NSObjectProtocol?
+    @ObservationIgnored private var sidebarFontSize: CGFloat
+    @ObservationIgnored private var sidebarFontSizeLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+    @ObservationIgnored private var ghosttyConfigObserver: NSObjectProtocol?
 
     init(
         defaults: UserDefaults = .standard,
@@ -10407,32 +10411,32 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
+    let fileExplorerState: FileExplorerState
     let windowId: UUID
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     // Observe the coalesced unread projection instead of the notification store
     // so notification churn (terminal/agent activity) no longer reconstructs
     // every workspace row. The store stays available as an unobserved singleton
     // for context-menu actions and pass-down. See SidebarUnreadModel / #2586.
-    @EnvironmentObject var sidebarUnread: SidebarUnreadModel
+    @Environment(SidebarUnreadModel.self) var sidebarUnread
     var notificationStore: TerminalNotificationStore { .shared }
-    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @Environment(CmuxConfigStore.self) var cmuxConfigStore
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
-    @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State var dragAutoScrollController = SidebarDragAutoScrollController()
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
-    @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
+    @State private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var dragState = SidebarDragState()
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
@@ -14217,7 +14221,7 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 
 private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
+    let fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
 
@@ -14235,7 +14239,7 @@ private struct SidebarFooter: View {
 
 struct SidebarFooterButtons: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
+    let fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
@@ -14311,7 +14315,7 @@ private struct SidebarHelpMenuButton: View {
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
     private let buttonSize: CGFloat = 22
     private let iconSize: CGFloat = 11
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     let onSendFeedback: () -> Void
 

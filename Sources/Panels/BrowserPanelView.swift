@@ -243,8 +243,8 @@ private struct BrowserChromeStyle {
 
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
-    @ObservedObject var panel: BrowserPanel
-    @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
+    let panel: BrowserPanel
+    private let browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -279,7 +279,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
@@ -1022,7 +1022,10 @@ struct BrowserPanelView: View {
             // portal-hosted WKWebView. This SwiftUI mount only covers the empty
             // new-tab state, e.g. surfacing the "open a page first" error.
             if !panel.shouldRenderWebView {
-                BrowserDesignModePopoverHost(controller: panel.designModeController)
+                BrowserDesignModePopoverHost(
+                    controller: panel.designModeController,
+                    dragBridge: BrowserDesignModeCardDragBridge()
+                )
             }
         }
     }
@@ -1100,7 +1103,7 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             handleMoveOmnibarSelection(notification)
         }
-        .onReceive(panel.historyStore.$entries) { _ in
+        .onChange(of: panel.historyStore.entries, initial: true) { _, _ in
             handleHistoryEntriesChange()
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserDidBlurAddressBar)) { notification in

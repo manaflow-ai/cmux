@@ -1,15 +1,16 @@
 public import AppKit
-public import Combine
+public import Observation
 
 /// Drives sidebar auto-scrolling while a drag hovers near the scroll view's top
 /// or bottom edge. Prefers AppKit's native `NSClipView.autoscroll(with:)` when a
 /// drag event is available and falls back to a manual per-tick scroll computed
 /// from `SidebarDragAutoScrollPlanner`.
 @MainActor
-public final class SidebarDragAutoScrollController: ObservableObject {
-    private weak var scrollView: NSScrollView?
-    private var timer: Timer?
-    private var activePlan: SidebarAutoScrollPlan?
+@Observable
+public final class SidebarDragAutoScrollController {
+    @ObservationIgnored private weak var scrollView: NSScrollView?
+    @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var activePlan: SidebarAutoScrollPlan?
 
     public init() {}
 

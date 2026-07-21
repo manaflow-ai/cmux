@@ -30,7 +30,7 @@ private final class RecordingPaneTreeHost: PaneTreeHosting {
 @MainActor
 @Suite("PaneTreeModel")
 struct PaneTreeModelTests {
-    /// The hooks replace `@Published` willSet observers: they must see the
+    /// The hooks replace legacy willSet observers: they must see the
     /// new value as an argument while the property still reads the OLD value.
     @Test func hooksFireAtWillSetTimeWithNewValue() {
         let host = RecordingPaneTreeHost()
@@ -50,7 +50,7 @@ struct PaneTreeModelTests {
         #expect(host.versionValueAtHookTime == 0)
     }
 
-    /// `@Published` fired on every assignment, never comparing; the hooks
+    /// The legacy publisher fired on every assignment, never comparing; the hooks
     /// must keep equal-assignment emissions.
     @Test func hooksFireOnEqualAssignment() {
         let host = RecordingPaneTreeHost()

@@ -1,23 +1,25 @@
 import AppKit
 import Combine
+import Observation
 import SwiftUI
 
 @MainActor
-final class RightSidebarToolPanel: Panel, ObservableObject {
-    let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .rightSidebarTool
-    let mode: RightSidebarMode
+@Observable
+final class RightSidebarToolPanel: Panel {
+    @ObservationIgnored let id: UUID
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .rightSidebarTool
+    @ObservationIgnored let mode: RightSidebarMode
 
-    @Published private(set) var focusFlashToken: Int = 0
+    private(set) var focusFlashToken: Int = 0
 
-    private weak var workspace: Workspace?
-    private weak var fileExplorerContainerView: FileExplorerContainerView?
-    private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
-    private var fileExplorerStoreStorage: FileExplorerStore?
-    private var fileExplorerStateStorage: FileExplorerState?
-    private var sessionIndexStoreStorage: SessionIndexStore?
-    private var workspaceObservationCancellable: AnyCancellable?
+    @ObservationIgnored private weak var workspace: Workspace?
+    @ObservationIgnored private weak var fileExplorerContainerView: FileExplorerContainerView?
+    @ObservationIgnored private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
+    @ObservationIgnored private var fileExplorerStoreStorage: FileExplorerStore?
+    @ObservationIgnored private var fileExplorerStateStorage: FileExplorerState?
+    @ObservationIgnored private var sessionIndexStoreStorage: SessionIndexStore?
+    @ObservationIgnored private var workspaceObservationCancellable: AnyCancellable?
 
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
@@ -169,16 +171,16 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
-            workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+            workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.panelDirectoriesPublisher.map { _ in () }.eraseToAnyPublisher(),
             workspace.currentDirectoryChangeRevisionPublisher()
                 .map { _ in () }
                 .eraseToAnyPublisher(),
-            workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+            workspace.activeRemoteTerminalSessionCountPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConfigurationPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionStatePublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionDetailPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteDaemonStatusPublisher.map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self, weak workspace] _ in
             Task { @MainActor in
@@ -237,8 +239,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 }
 
 struct RightSidebarToolPanelView: View {
-    @ObservedObject var panel: RightSidebarToolPanel
-    @EnvironmentObject private var tabManager: TabManager
+    let panel: RightSidebarToolPanel
+    @Environment(TabManager.self) private var tabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance

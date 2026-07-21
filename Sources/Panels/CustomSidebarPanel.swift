@@ -1,18 +1,19 @@
 import AppKit
-import Combine
+import Observation
 
 @MainActor
-final class CustomSidebarPanel: Panel, ObservableObject {
-    let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .customSidebar
-    let name: String
-    let fileURL: URL
+@Observable
+final class CustomSidebarPanel: Panel {
+    @ObservationIgnored let id: UUID
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .customSidebar
+    @ObservationIgnored let name: String
+    @ObservationIgnored let fileURL: URL
 
-    @Published private(set) var focusFlashToken: Int = 0
+    private(set) var focusFlashToken: Int = 0
 
-    private weak var workspace: Workspace?
-    private weak var focusAnchorView: RightSidebarToolFocusAnchorView?
+    @ObservationIgnored private weak var workspace: Workspace?
+    @ObservationIgnored private weak var focusAnchorView: RightSidebarToolFocusAnchorView?
 
     init(workspace: Workspace, name: String, fileURL: URL) {
         self.id = UUID()

@@ -2,9 +2,9 @@ import CmuxFoundation
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
-import Combine
 import Darwin
 import Foundation
+import Observation
 import os
 import SQLite3
 
@@ -183,12 +183,13 @@ enum SectionIcon: Equatable {
 }
 
 /// Owns the "which section is currently being dragged" bit, separate from
-/// `SessionIndexStore`. Isolating this means drag start/end does not emit
-/// `objectWillChange` on the data store, so rows and gaps don't re-render
+/// `SessionIndexStore`. Isolating this means drag start/end does not invalidate
+/// the data store, so rows and gaps don't re-render
 /// every time a drag begins or clears.
 @MainActor
-final class SessionDragCoordinator: ObservableObject {
-    @Published var draggedKey: SectionKey? = nil
+@Observable
+final class SessionDragCoordinator {
+    var draggedKey: SectionKey? = nil
 }
 
 /// Immutable per-directory snapshot consumed by `SectionPopoverView` for
@@ -202,21 +203,22 @@ struct DirectorySnapshot: Sendable {
 }
 
 @MainActor
-final class SessionIndexStore: ObservableObject {
-    @Published private(set) var entries: [SessionEntry] = [] {
+@Observable
+final class SessionIndexStore {
+    private(set) var entries: [SessionEntry] = [] {
         didSet {
             guard entries != oldValue else { return }
             invalidateSectionsCache()
         }
     }
-    @Published private(set) var isLoading: Bool = false
-    @Published var scopeToCurrentDirectory: Bool = false {
+    private(set) var isLoading: Bool = false
+    var scopeToCurrentDirectory: Bool = false {
         didSet {
             guard scopeToCurrentDirectory != oldValue else { return }
             invalidateSectionsCache()
         }
     }
-    @Published var currentDirectory: String? = nil {
+    var currentDirectory: String? = nil {
         didSet {
             guard scopeToCurrentDirectory, currentDirectory != oldValue else { return }
             invalidateSectionsCache()
@@ -228,7 +230,7 @@ final class SessionIndexStore: ObservableObject {
         currentDirectory = next
     }
 
-    @Published var grouping: SessionGrouping {
+    var grouping: SessionGrouping {
         didSet {
             guard grouping != oldValue else { return }
             UserDefaults.standard.set(grouping.rawValue, forKey: Self.groupingKey)
@@ -244,7 +246,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Persisted order for agent sections.
-    @Published var agentOrder: [SessionAgent] {
+    var agentOrder: [SessionAgent] {
         didSet {
             guard !Self.agentOrderPresentationEqual(agentOrder, oldValue) else { return }
             Self.persistAgentOrder(agentOrder)
@@ -253,7 +255,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Persisted order for directory sections (absolute paths; "" means "no folder").
-    @Published var directoryOrder: [String] {
+    var directoryOrder: [String] {
         didSet {
             guard directoryOrder != oldValue else { return }
             Self.persistDirectoryOrder(directoryOrder)
@@ -264,9 +266,9 @@ final class SessionIndexStore: ObservableObject {
     private static let groupingKey = "sessionIndex.grouping"
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
     private static let directoryOrderDefaultsKey = "sessionIndex.directoryOrder"
-    private var sectionsCacheRevision: UInt64 = 0
-    private var cachedSectionsRevision: UInt64?
-    private var cachedSections: [IndexSection] = []
+    @ObservationIgnored private var sectionsCacheRevision: UInt64 = 0
+    @ObservationIgnored private var cachedSectionsRevision: UInt64?
+    @ObservationIgnored private var cachedSections: [IndexSection] = []
 
     init() {
         self.agentOrder = Self.loadAgentOrder()
@@ -330,7 +332,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Extend `directoryOrder` with any cwds seen in `entries` that aren't
-    /// already tracked. Kept out of the view-body path: it mutates `@Published`
+    /// already tracked. Kept out of the view-body path: it mutates observable
     /// state and must only run in response to real data changes (new scan
     /// results, grouping switch) — not on every SwiftUI update tick.
     private func backfillDirectoryOrderFromEntries() {
@@ -532,7 +534,7 @@ final class SessionIndexStore: ObservableObject {
         UserDefaults.standard.set(order, forKey: directoryOrderDefaultsKey)
     }
 
-    private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     func reload() {
         loadTask?.cancel()
@@ -562,15 +564,15 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: - Directory snapshot cache
 
-    private var directorySnapshotCache: [String: DirectorySnapshot] = [:]
-    private var directorySnapshotLRU: [String] = []
+    @ObservationIgnored private var directorySnapshotCache: [String: DirectorySnapshot] = [:]
+    @ObservationIgnored private var directorySnapshotLRU: [String] = []
     /// Bumped on every `reload()`. Snapshot builds capture this at start;
     /// if it changes before the build completes (reload raced with an
     /// in-flight build), the build's result is discarded instead of
     /// being written back into the cache — otherwise the stale
     /// pre-reload result would repopulate the cache after invalidation
     /// and be reused on the next popover open.
-    private var directorySnapshotGeneration: Int = 0
+    @ObservationIgnored private var directorySnapshotGeneration: Int = 0
     private static let directorySnapshotCacheCapacity = 16
 
     /// Return a cached or freshly-built merged snapshot for a cwd-scoped

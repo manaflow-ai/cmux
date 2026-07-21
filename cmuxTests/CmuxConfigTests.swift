@@ -1,4 +1,4 @@
-import Combine
+import Observation
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -698,13 +698,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         let didAutoReload = expectation(description: "cmux.json should not hot reload")
         didAutoReload.isInverted = true
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "second" }) {
-                didAutoReload.fulfill()
-            }
-        }
-
         try """
         {
           "actions": {
@@ -720,7 +713,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
         store.loadAll()
         XCTAssertNil(store.resolvedAction(id: "first"))
         XCTAssertNotNil(store.resolvedAction(id: "second"))
-        cancellable?.cancel()
     }
 
     @MainActor
@@ -802,11 +794,10 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         let loaded = expectation(description: "created local cmux config is loaded")
         loaded.assertForOverFulfill = false
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "created" }) {
-                loaded.fulfill()
-            }
+        withObservationTracking {
+            _ = store.loadedActions
+        } onChange: {
+            loaded.fulfill()
         }
 
         try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
@@ -822,9 +813,9 @@ final class CmuxConfigDecodingTests: XCTestCase {
         // watcher) to observe the .cmux directory creation, re-arm onto the new
         // cmux.json, reload, and republish loadedActions. vnode notification +
         // re-arm + reload latency is nondeterministic under CI I/O load, so use a
-        // generous deadline; the sink still fulfills as soon as the watcher fires.
+        // generous deadline; Observation still fulfills as soon as the watcher fires.
         await fulfillment(of: [loaded], timeout: 15)
-        cancellable?.cancel()
+        XCTAssertNotNil(store.resolvedAction(id: "created"))
     }
 
     @MainActor
@@ -850,11 +841,10 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         let loaded = expectation(description: "created legacy cmux config is loaded")
         loaded.assertForOverFulfill = false
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "legacy-created" }) {
-                loaded.fulfill()
-            }
+        withObservationTracking {
+            _ = store.loadedActions
+        } onChange: {
+            loaded.fulfill()
         }
 
         try """
@@ -868,9 +858,9 @@ final class CmuxConfigDecodingTests: XCTestCase {
         // The store observes the legacy cmux.json write via a DispatchSource vnode
         // watcher, then reloads and republishes loadedActions. Filesystem
         // notification + reload latency is nondeterministic under CI I/O load, so
-        // use a generous deadline; the sink still fulfills the moment the watcher fires.
+        // use a generous deadline; Observation still fulfills the moment the watcher fires.
         await fulfillment(of: [loaded], timeout: 15)
-        cancellable?.cancel()
+        XCTAssertNotNil(store.resolvedAction(id: "legacy-created"))
     }
 
     @MainActor

@@ -11,6 +11,7 @@ import func XCTest.XCTFail
 import func XCTest.XCTUnwrap
 import Combine
 import AppKit
+import Observation
 import Testing
 import SwiftUI
 import UniformTypeIdentifiers
@@ -3763,16 +3764,17 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             !panel.isDeveloperToolsVisible()
         }
 
-        var publishCount = 0
-        let cancellable = panel.objectWillChange.sink {
-            publishCount += 1
+        var observationInvalidationCount = 0
+        withObservationTracking {
+            _ = panel.preferredDeveloperToolsVisible
+        } onChange: {
+            observationInvalidationCount += 1
         }
-        defer { _ = cancellable }
 
         panel.syncDeveloperToolsPreferenceFromInspector()
 
         XCTAssertEqual(
-            publishCount,
+            observationInvalidationCount,
             0,
             "Repeated hidden-inspector syncs should not republish the same hidden DevTools intent"
         )

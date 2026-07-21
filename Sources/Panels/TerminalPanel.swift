@@ -5,6 +5,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
+import Observation
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
@@ -34,24 +35,25 @@ enum AgentHibernationResumePreparation: Equatable {
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
-final class TerminalPanel: Panel, ObservableObject {
+@Observable
+final class TerminalPanel: Panel {
     private enum TextBoxInputFocusIntent: Equatable {
         case hidden
         case terminal
         case textBox
     }
 
-    let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .terminal
+    @ObservationIgnored let id: UUID
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .terminal
 
     /// The underlying terminal surface
-    let surface: TerminalSurface
+    @ObservationIgnored let surface: TerminalSurface
 
     /// The workspace ID this panel belongs to
-    private(set) var workspaceId: UUID
+    @ObservationIgnored private(set) var workspaceId: UUID
 
-    var ownedSessionScrollbackReplayFileURL: URL? = nil
+    @ObservationIgnored var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's
     /// `workspaceEnvironment` at creation. The same panel travels when a surface is
     /// moved between workspaces, so a respawn uses these to drop the (possibly
@@ -60,29 +62,36 @@ final class TerminalPanel: Panel, ObservableObject {
     /// happens to share a workspace key (e.g. a layout `env` AWS_PROFILE=staging in
     /// a workspace with AWS_PROFILE=prod) is preserved on respawn rather than being
     /// stripped and replaced by the workspace value (issue #5995).
-    var seededWorkspaceEnvironment: [String: String] = [:]
+    @ObservationIgnored var seededWorkspaceEnvironment: [String: String] = [:]
 
+    /// Legacy Combine bridge for the remaining `terminal.$title` subscriber. Emits the
+    /// new value during willSet and replays the current value on subscribe — the
+    /// exact `Published.Publisher` semantics that call site was written
+    /// against. Delete when the subscriber moves to @Observable observation.
+    @ObservationIgnored let titlePublisher = CurrentValueSubject<String, Never>("Terminal")
     /// Published title from the terminal process
-    @Published private(set) var title: String = "Terminal"
+    private(set) var title: String = "Terminal" {
+        willSet { titlePublisher.send(newValue) }
+    }
 
     /// Published directory from the terminal
-    @Published private(set) var directory: String = ""
+    private(set) var directory: String = ""
 
-    @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
-    let shellActivity = TerminalPanelShellActivityModel()
-    let textBoxState = TerminalPanelTextBoxState()
-    @Published var isTextBoxActive: Bool = false
-    @Published var textBoxContent: String = ""
-    @Published var textBoxAttachments: [TextBoxAttachment] = []
-    weak var textBoxInputView: TextBoxInputTextView?
-    private var shouldFocusTextBoxWhenAvailable = false
-    private var shouldOpenTextBoxFilePickerWhenAvailable = false
-    private var shouldHideTextBoxOnNextEscape = false
-    private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
-    private var preservedTextBoxAttributedContent: NSAttributedString?
-    private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
-    private var isClosingPanel = false
-    private var didDiscardTextBoxContentForClose = false
+    private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
+    @ObservationIgnored let shellActivity = TerminalPanelShellActivityModel()
+    @ObservationIgnored let textBoxState = TerminalPanelTextBoxState()
+    var isTextBoxActive: Bool = false
+    var textBoxContent: String = ""
+    var textBoxAttachments: [TextBoxAttachment] = []
+    @ObservationIgnored weak var textBoxInputView: TextBoxInputTextView?
+    @ObservationIgnored private var shouldFocusTextBoxWhenAvailable = false
+    @ObservationIgnored private var shouldOpenTextBoxFilePickerWhenAvailable = false
+    @ObservationIgnored private var shouldHideTextBoxOnNextEscape = false
+    @ObservationIgnored private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
+    @ObservationIgnored private var preservedTextBoxAttributedContent: NSAttributedString?
+    @ObservationIgnored private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
+    @ObservationIgnored private var isClosingPanel = false
+    @ObservationIgnored private var didDiscardTextBoxContentForClose = false
 #if DEBUG
     private struct DebugTextBoxInlineFixture {
         let localURL: URL?
@@ -90,7 +99,7 @@ final class TerminalPanel: Panel, ObservableObject {
         let afterText: String
     }
 
-    private var pendingDebugTextBoxInlineFixture: DebugTextBoxInlineFixture?
+    @ObservationIgnored private var pendingDebugTextBoxInlineFixture: DebugTextBoxInlineFixture?
 
     var debugHasPendingTextBoxFocusRequest: Bool {
         shouldFocusTextBoxWhenAvailable || shouldOpenTextBoxFilePickerWhenAvailable
@@ -102,7 +111,7 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
 
     /// Search state for find functionality
-    @Published var searchState: TerminalSurface.SearchState? {
+    var searchState: TerminalSurface.SearchState? {
         didSet {
             surface.searchState = searchState
         }
@@ -113,14 +122,14 @@ final class TerminalPanel: Panel, ObservableObject {
     ///
     /// Without this, certain pane-close sequences can leave terminal views detached
     /// (hostedView.window == nil) until the user switches workspaces.
-    @Published var viewReattachToken: UInt64 = 0
+    var viewReattachToken: UInt64 = 0
 
-    @Published private(set) var agentHibernationState: AgentHibernationPanelState?
+    private(set) var agentHibernationState: AgentHibernationPanelState?
 
-    var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
-    var onRequestAgentHibernationResume: ((Bool) -> Bool)?
+    @ObservationIgnored var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
+    @ObservationIgnored var onRequestAgentHibernationResume: ((Bool) -> Bool)?
 
-    private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
@@ -176,7 +185,7 @@ final class TerminalPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.surface = surface
         // Subscribe to surface's search state changes
-        surface.$searchState
+        surface.searchStatePublisher
             .sink { [weak self] state in
                 if self?.searchState !== state {
                     self?.searchState = state

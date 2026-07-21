@@ -10,7 +10,7 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 /// shape of the workspace list materially changes. Replaces per-RPC emit hooks
 /// Any mutation surface (UI new-tab, keyboard shortcut, drag-reorder,
 /// debug-cli, session restore, etc.) automatically syncs because we observe
-/// the `@Published` source of truth instead of trying to catch every caller.
+/// the source-of-truth publishers instead of trying to catch every caller.
 @MainActor
 final class MobileWorkspaceListObserver {
     private weak var tabManager: TabManager?
@@ -149,12 +149,12 @@ final class MobileWorkspaceListObserver {
         // Last-activity preview lines come from the notification store, which is
         // not part of the TabManager graph. A new notification (or a cleared one)
         // changes a row's preview + relative time without touching the tab set,
-        // groups, panels, or title, so observe `$notifications` to push it.
-        // Marking a notification read also flows through `$notifications` (the
+        // groups, panels, or title, so observe `notificationsPublisher` to push it.
+        // Marking a notification read also flows through `notificationsPublisher` (the
         // mutated element re-publishes the array), which the unread flag in the
         // per-workspace signature turns into a hash change.
         //
-        // Ordering invariant: `@Published` emits from `willSet`, but every sink
+        // Ordering invariant: the legacy bridge emits from `willSet`, but every sink
         // here reads the store's post-`didSet` state (latestNotification /
         // unread indexes) rather than the emitted value. That is safe because
         // `throttle(for:scheduler: RunLoop.main)` always hops through the run
@@ -162,7 +162,7 @@ final class MobileWorkspaceListObserver {
         // index rebuild) completes; it never fires synchronously from
         // `willSet`. The pre-existing `$tabs` / `$selectedTabId` sinks rely on
         // the same property.
-        notificationsCancellable = notificationStore?.$notifications
+        notificationsCancellable = notificationStore?.notificationsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
@@ -173,9 +173,9 @@ final class MobileWorkspaceListObserver {
         // touching anything else this observer watches, so merge all three here.
         if let notificationStore {
             unreadIndicatorsCancellable = Publishers.MergeMany(
-                notificationStore.$manualUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
-                notificationStore.$panelDerivedUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
-                notificationStore.$restoredUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher()
+                notificationStore.manualUnreadWorkspaceIdsPublisher.map { _ in () }.eraseToAnyPublisher(),
+                notificationStore.panelDerivedUnreadWorkspaceIdsPublisher.map { _ in () }.eraseToAnyPublisher(),
+                notificationStore.restoredUnreadWorkspaceIdsPublisher.map { _ in () }.eraseToAnyPublisher()
             )
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
@@ -231,35 +231,35 @@ final class MobileWorkspaceListObserver {
         for workspace in tabs where perWorkspaceCancellables[workspace.id] == nil {
             let publishers: [AnyPublisher<Void, Never>] = [
                 workspace.panelsPublisher.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelTitlesPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Renaming a terminal sets `panelCustomTitles` (not `panelTitles`),
                 // so without this a terminal rename never re-emits to the phone.
-                workspace.$panelCustomTitles.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$title.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelCustomTitlesPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.titlePublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pin/unpin is iOS-facing (the phone shows a Pinned section), and
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
-                workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
+                workspace.isPinnedPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Group membership is iOS-facing (the phone nests members under
                 // their group header). Moving a workspace into or out of a group
                 // mutates only this workspace's `groupId`; it need not change the
                 // tab set, `workspaceGroups`, the panel set, or the title, so
                 // without this the phone never learns the membership changed.
-                workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+                workspace.groupIdPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelDirectoriesPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Todo status override + checklist are workspace-list-facing
                 // (status lane, checklist progress) and live in their own
                 // sub-model, so a pure todo mutation would otherwise never
                 // re-emit to external listeners.
-                workspace.todoState.$statusOverride.map { _ in () }.eraseToAnyPublisher(),
-                workspace.todoState.$checklist.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.statusOverridePublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.checklistPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.currentDirectoryChangeRevisionPublisher()
                     .map { _ in () }
                     .eraseToAnyPublisher(),
-                workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
+                workspace.activeRemoteTerminalSessionCountPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
-                // set; bonsplit selection state is not `@Published`, so this counter
+                // set; bonsplit selection state is not observation-tracked, so this counter
                 // is the only signal the observer gets for a reorder.
                 workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
             ]

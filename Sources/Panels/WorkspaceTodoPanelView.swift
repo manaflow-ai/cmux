@@ -14,7 +14,7 @@ import SwiftUI
 /// opens the same `SidebarWorkspaceStatusPopover` through the shared
 /// NSPopover host, anchored in-pane.
 struct WorkspaceTodoPanelView: View {
-    @ObservedObject var panel: WorkspaceTodoPanel
+    let panel: WorkspaceTodoPanel
     let isFocused: Bool
     let onRequestPanelFocus: () -> Void
 
@@ -109,8 +109,8 @@ private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
 /// inferred-status recomputes) and its todo state (for override and checklist
 /// churn) directly.
 private struct WorkspaceTodoPaneContent: View {
-    @ObservedObject var workspace: Workspace
-    @ObservedObject var todoState: WorkspaceTodoState
+    let workspace: Workspace
+    let todoState: WorkspaceTodoState
     let paneTitle: String
     let isFocused: Bool
     /// Open-or-focus bump; re-arms the add field when `isFocused` doesn't transition.

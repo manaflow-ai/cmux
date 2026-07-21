@@ -2,19 +2,21 @@ import Combine
 import CmuxFoundation
 import CmuxSettings
 import Foundation
+import Observation
 import os
 
 nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
 /// Publishes keyboard-shortcut revisions and owns the right-sidebar matcher snapshot.
 @MainActor
-final class KeyboardShortcutSettingsObserver: ObservableObject {
+@Observable
+final class KeyboardShortcutSettingsObserver {
     static let shared = KeyboardShortcutSettingsObserver()
 
-    @Published private(set) var revision: UInt64 = 0
+    private(set) var revision: UInt64 = 0
     let rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher()
-    private var settingsCancellable: AnyCancellable?
-    private var recorderCancellable: AnyCancellable?
+    @ObservationIgnored private var settingsCancellable: AnyCancellable?
+    @ObservationIgnored private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
         settingsCancellable = notificationCenter.publisher(

@@ -2426,7 +2426,7 @@ struct TextBoxInputContainer: View {
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
     @State var pendingProviderLaunchTimeoutTimer: Timer?
-    @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
+    private let commentPool: DiffCommentSubmissionPool = .shared
 
     private var pendingCommentCount: Int {
         commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)

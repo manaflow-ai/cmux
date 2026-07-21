@@ -2,6 +2,7 @@ import CmuxFoundation
 import AppKit
 import Combine
 import Foundation
+import Observation
 import QuartzCore
 import SwiftUI
 
@@ -707,24 +708,40 @@ enum FileExplorerSelectionRestoration {
 /// All access must happen on the main thread. Properties are not marked @MainActor
 /// because NSOutlineView data source/delegate methods are called on the main thread
 /// but are not annotated @MainActor.
-final class FileExplorerStore: ObservableObject {
-    @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = []
-    @Published private(set) var isRootLoading: Bool = false
-    @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
-    @Published private(set) var contentRevision = 0
-    @Published private(set) var rootStatusMessage: String?
+@Observable
+final class FileExplorerStore {
+    /// AppKit reload bridge for the NSOutlineView coordinator, which cannot use
+    /// SwiftUI's automatic Observation tracking.
+    @ObservationIgnored let changePublisher = PassthroughSubject<Void, Never>()
+    var rootPath: String = "" {
+        didSet { changePublisher.send() }
+    }
+    var rootNodes: [FileExplorerNode] = [] {
+        didSet { changePublisher.send() }
+    }
+    private(set) var isRootLoading: Bool = false {
+        didSet { changePublisher.send() }
+    }
+    private(set) var gitStatusByPath: [String: GitFileStatus] = [:] {
+        didSet { changePublisher.send() }
+    }
+    private(set) var contentRevision = 0 {
+        didSet { changePublisher.send() }
+    }
+    private(set) var rootStatusMessage: String? {
+        didSet { changePublisher.send() }
+    }
     private(set) var workspaceRootIdentity: UUID?
 
-    var provider: FileExplorerProvider?
+    @ObservationIgnored var provider: FileExplorerProvider?
 
     /// Whether hidden files are shown. Set from FileExplorerState externally.
-    var showHiddenFiles: Bool = false
+    @ObservationIgnored var showHiddenFiles: Bool = false
 
     /// Watches the root directory for filesystem changes (local only).
-    private var directoryWatcher: FileWatcher?
-    private var directoryWatchTask: Task<Void, Never>?
-    private var directoryWatchPath: String?
+    @ObservationIgnored private var directoryWatcher: FileWatcher?
+    @ObservationIgnored private var directoryWatchTask: Task<Void, Never>?
+    @ObservationIgnored private var directoryWatchPath: String?
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -736,24 +753,24 @@ final class FileExplorerStore: ObservableObject {
     private(set) var selectedPaths: Set<String> = []
 
     /// Folder path whose first child should be selected once its async load completes.
-    private var pendingDescendIntoFirstChildPath: String?
+    @ObservationIgnored private var pendingDescendIntoFirstChildPath: String?
 
     /// Paths currently being loaded
     private(set) var loadingPaths: Set<String> = []
 
     /// In-flight load tasks keyed by path
-    private var loadTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var loadTasks: [String: Task<Void, Never>] = [:]
 
     /// Cache of path -> node for quick lookup
-    private var nodesByPath: [String: FileExplorerNode] = [:]
+    @ObservationIgnored private var nodesByPath: [String: FileExplorerNode] = [:]
 
     /// Prefetch debounce: path -> work item
-    private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
+    @ObservationIgnored private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
 
-    private var remoteHomeResolutionTask: Task<Void, Never>?
-    private var remoteHomeResolutionKey: String?
+    @ObservationIgnored private var remoteHomeResolutionTask: Task<Void, Never>?
+    @ObservationIgnored private var remoteHomeResolutionKey: String?
 
-    private let gitStatusProvider: GitStatusProvider
+    @ObservationIgnored private let gitStatusProvider: GitStatusProvider
 
     init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
         self.gitStatusProvider = gitStatusProvider
@@ -799,7 +816,7 @@ final class FileExplorerStore: ObservableObject {
             )
         }
     }
-    private func setWorkspaceRootIdentity(_ identity: UUID?) { guard workspaceRootIdentity != identity else { return }; objectWillChange.send(); workspaceRootIdentity = identity }
+    private func setWorkspaceRootIdentity(_ identity: UUID?) { guard workspaceRootIdentity != identity else { return }; changePublisher.send(); workspaceRootIdentity = identity }
 
     func setRootPath(_ path: String) {
         guard path != rootPath else {
@@ -937,7 +954,7 @@ final class FileExplorerStore: ObservableObject {
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
-            objectWillChange.send()
+            changePublisher.send()
             let nodePath = node.path
             let task = Task { [weak self] in
                 guard let self else { return }
@@ -952,7 +969,7 @@ final class FileExplorerStore: ObservableObject {
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
-        objectWillChange.send()
+        changePublisher.send()
     }
 
     func isExpanded(_ node: FileExplorerNode) -> Bool {
@@ -1029,7 +1046,7 @@ final class FileExplorerStore: ObservableObject {
         if !silent {
             loadingPaths.insert(path)
             parentNode?.error = nil
-            objectWillChange.send()
+            changePublisher.send()
         }
 
         do {
@@ -1065,12 +1082,12 @@ final class FileExplorerStore: ObservableObject {
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)
-            objectWillChange.send()
+            changePublisher.send()
 
             // Auto-expand children that were previously expanded
             for child in children where child.isDirectory && expandedPaths.contains(child.path) {
                 child.isLoading = true
-                objectWillChange.send()
+                changePublisher.send()
                 let childPath = child.path
                 let childTask = Task { [weak self] in
                     guard let self else { return }
@@ -1089,7 +1106,7 @@ final class FileExplorerStore: ObservableObject {
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
-                objectWillChange.send()
+                changePublisher.send()
             }
         }
     }

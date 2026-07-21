@@ -4,6 +4,7 @@ import AVKit
 import Bonsplit
 import Combine
 import Foundation
+import Observation
 import PDFKit
 import Quartz
 import SwiftUI
@@ -976,32 +977,46 @@ enum FilePreviewTextSaver {
 }
 
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
-    let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .filePreview
-    let filePath: String
-    private(set) var workspaceId: UUID
-    @Published private(set) var displayTitle: String
-    @Published private(set) var displayIcon: String?
-    @Published private(set) var isFileUnavailable = false
-    @Published private(set) var textContent = ""
-    @Published private(set) var isDirty = false
-    @Published private(set) var isSaving = false
-    @Published private(set) var focusFlashToken = 0
-    @Published private(set) var previewMode: FilePreviewMode
+@Observable
+final class FilePreviewPanel: Panel, FilePreviewTextEditingPanel {
+    @ObservationIgnored let id: UUID
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .filePreview
+    @ObservationIgnored let filePath: String
+    @ObservationIgnored private(set) var workspaceId: UUID
+    /// Legacy Combine bridges for the remaining `filePreviewPanel.$prop`
+    /// subscribers. They emit the new value during willSet and replay the
+    /// current value on subscribe — the exact `Published.Publisher` semantics
+    /// those call sites were written against. Delete with those subscribers.
+    @ObservationIgnored let displayTitlePublisher: CurrentValueSubject<String, Never>
+    @ObservationIgnored let displayIconPublisher: CurrentValueSubject<String?, Never>
+    @ObservationIgnored let isDirtyPublisher = CurrentValueSubject<Bool, Never>(false)
+    private(set) var displayTitle: String {
+        willSet { displayTitlePublisher.send(newValue) }
+    }
+    private(set) var displayIcon: String? {
+        willSet { displayIconPublisher.send(newValue) }
+    }
+    private(set) var isFileUnavailable = false
+    private(set) var textContent = ""
+    private(set) var isDirty = false {
+        willSet { isDirtyPublisher.send(newValue) }
+    }
+    private(set) var isSaving = false
+    private(set) var focusFlashToken = 0
+    private(set) var previewMode: FilePreviewMode
 
-    let nativeViewSessions = FilePreviewNativeViewSessions()
+    @ObservationIgnored let nativeViewSessions = FilePreviewNativeViewSessions()
 
-    private var originalTextContent = ""
-    private var textEncoding: String.Encoding = .utf8
-    private var previewModeGeneration = 0
-    private var textLoadGeneration = 0
-    private var saveGeneration = 0
-    private var activeSaveGeneration: Int?
-    weak var textView: NSTextView?
-    let focusCoordinator: FilePreviewFocusCoordinator
-    private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
+    @ObservationIgnored private var originalTextContent = ""
+    @ObservationIgnored private var textEncoding: String.Encoding = .utf8
+    @ObservationIgnored private var previewModeGeneration = 0
+    @ObservationIgnored private var textLoadGeneration = 0
+    @ObservationIgnored private var saveGeneration = 0
+    @ObservationIgnored private var activeSaveGeneration: Int?
+    @ObservationIgnored weak var textView: NSTextView?
+    @ObservationIgnored let focusCoordinator: FilePreviewFocusCoordinator
+    @ObservationIgnored private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
@@ -1017,12 +1032,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
-        self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
+        let initialDisplayTitle = URL(fileURLWithPath: filePath).lastPathComponent
+        self.displayTitle = initialDisplayTitle
+        self.displayTitlePublisher = CurrentValueSubject(initialDisplayTitle)
         self.textLoader = textLoader
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
-        self.displayIcon = FilePreviewKindResolver.iconName(for: initialPreviewMode)
+        let initialDisplayIcon = FilePreviewKindResolver.iconName(for: initialPreviewMode)
+        self.displayIcon = initialDisplayIcon
+        self.displayIconPublisher = CurrentValueSubject(initialDisplayIcon)
         self.focusCoordinator = FilePreviewFocusCoordinator(
             preferredIntent: Self.defaultFocusIntent(for: initialPreviewMode)
         )
@@ -1278,7 +1297,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 }
 
 struct FilePreviewPanelView: View {
-    @ObservedObject var panel: FilePreviewPanel
+    let panel: FilePreviewPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int

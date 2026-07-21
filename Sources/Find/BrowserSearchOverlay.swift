@@ -5,7 +5,7 @@ import SwiftUI
 
 struct BrowserSearchOverlay: View {
     let panelId: UUID
-    @ObservedObject var searchState: BrowserSearchState
+    @Bindable var searchState: BrowserSearchState
     let focusRequestGeneration: UInt64
     let canApplyFocusRequest: (UInt64) -> Bool
     let onNext: () -> Void

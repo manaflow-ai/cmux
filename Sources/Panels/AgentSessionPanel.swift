@@ -1,22 +1,24 @@
 import AppKit
 import Foundation
+import Observation
 
 @MainActor
+@Observable
 final class AgentSessionPanel: Panel {
-    let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .agentSession
-    private(set) var workspaceId: UUID
-    let rendererKind: AgentSessionRendererKind
-    let initialProviderID: AgentSessionProviderID
-    private(set) var workingDirectory: String?
-    let rendererSession = AgentSessionWebRendererSession()
+    @ObservationIgnored let id: UUID
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .agentSession
+    @ObservationIgnored private(set) var workspaceId: UUID
+    @ObservationIgnored let rendererKind: AgentSessionRendererKind
+    @ObservationIgnored let initialProviderID: AgentSessionProviderID
+    @ObservationIgnored private(set) var workingDirectory: String?
+    @ObservationIgnored let rendererSession = AgentSessionWebRendererSession()
 
-    private(set) var currentProviderID: AgentSessionProviderID
-    private(set) var displayTitle: String
+    @ObservationIgnored private(set) var currentProviderID: AgentSessionProviderID
+    @ObservationIgnored private(set) var displayTitle: String
     var displayIcon: String? { "sparkles.rectangle.stack" }
-    private(set) var isDirty: Bool = false
-    var onDisplayStateChanged: ((String, Bool) -> Void)? {
+    @ObservationIgnored private(set) var isDirty: Bool = false
+    @ObservationIgnored var onDisplayStateChanged: ((String, Bool) -> Void)? {
         didSet {
             onDisplayStateChanged?(displayTitle, isDirty)
         }

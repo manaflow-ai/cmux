@@ -15,6 +15,7 @@ import SQLite3
 import CryptoKit
 import Darwin
 import CmuxTerminal
+import Observation
 #if canImport(CommonCrypto)
 import CommonCrypto
 #endif
@@ -342,13 +343,14 @@ private struct BrowserProfileFileRemover: BrowserProfileFileRemoving {
 }
 
 @MainActor
-final class BrowserProfileStore: ObservableObject {
+@Observable
+final class BrowserProfileStore {
     static let shared = BrowserProfileStore()
 
-    @Published private(set) var profiles: [BrowserProfileDefinition] = []
-    @Published private(set) var lastUsedProfileID: UUID = BrowserProfileRepository.builtInDefaultProfileID
+    private(set) var profiles: [BrowserProfileDefinition] = []
+    private(set) var lastUsedProfileID: UUID = BrowserProfileRepository.builtInDefaultProfileID
 
-    private let repository: BrowserProfileRepository
+    @ObservationIgnored private let repository: BrowserProfileRepository
 
     init(defaults: UserDefaults = .standard) {
         repository = BrowserProfileRepository(
@@ -1232,7 +1234,8 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
 }
 
 @MainActor
-final class BrowserHistoryStore: ObservableObject {
+@Observable
+final class BrowserHistoryStore {
     static let shared = BrowserHistoryStore()
 
     /// Persisted history record. Owned by `CmuxBrowser`; this alias keeps
@@ -1245,24 +1248,24 @@ final class BrowserHistoryStore: ObservableObject {
     // suggestion cache here is the one enforced invalidation point. Setting it
     // to nil both frees the retained Entry/URL strings promptly (so clearing
     // history does not leave browsing history resident in the cache) and forces
-    // a rebuild on next use. It must stay `@Published` for SwiftUI observation.
+    // a rebuild on next use. It stays Observation-tracked for SwiftUI observation.
     // Do not add a writer that bypasses this setter (e.g. an unsafe-buffer bulk
     // write or an external `Binding<[Entry]>`) without dropping the cache.
-    @Published private(set) var entries: [Entry] = [] {
+    private(set) var entries: [Entry] = [] {
         didSet { cachedSuggestionCandidates = nil }
     }
 
-    private let fileURL: URL?
-    private var didLoad: Bool = false
-    private var saveTask: Task<Void, Never>?
-    private let maxEntries: Int = 5000
-    private let saveDebounceNanoseconds: UInt64 = 120_000_000
+    @ObservationIgnored private let fileURL: URL?
+    @ObservationIgnored private var didLoad: Bool = false
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private let maxEntries: Int = 5000
+    @ObservationIgnored private let saveDebounceNanoseconds: UInt64 = 120_000_000
 
     // Pure suggestion matching/scoring and persistence I/O live in
-    // `CmuxBrowser`; the store owns only the @Published entry list, the
+    // `CmuxBrowser`; the store owns only the tracked entry list, the
     // first-load lifecycle, and the debounced-save scheduling.
-    private let suggestionEngine = BrowserHistorySuggestionEngine()
-    private let fileRepository = BrowserHistoryFileRepository()
+    @ObservationIgnored private let suggestionEngine = BrowserHistorySuggestionEngine()
+    @ObservationIgnored private let fileRepository = BrowserHistoryFileRepository()
 
     var isLoaded: Bool {
         didLoad
@@ -1282,7 +1285,7 @@ final class BrowserHistoryStore: ObservableObject {
     // beachball). `nil` means "not built / just invalidated"; it is rebuilt only
     // when `entries` changes (via the didSet above), so steady-state typing
     // reuses it and pays only the cheap substring scoring in `suggestionScore`.
-    private var cachedSuggestionCandidates: [SuggestionCandidate]?
+    @ObservationIgnored private var cachedSuggestionCandidates: [SuggestionCandidate]?
 
     /// Number of suggestion candidates currently resident in the cache, or 0
     /// when the cache has been invalidated. Used by tests to verify that
@@ -2601,20 +2604,28 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
 /// Observable state for browser find-in-page. Mirrors `TerminalSurface.SearchState`.
 @MainActor
-final class BrowserSearchState: ObservableObject {
-    @Published var needle: String
-    @Published var selected: UInt?
-    @Published var total: UInt?
+@Observable
+final class BrowserSearchState {
+    /// Legacy Combine bridge for BrowserPanel's debounced needle subscriber.
+    /// Emits during willSet and replays the current value on subscribe.
+    @ObservationIgnored let needlePublisher: CurrentValueSubject<String, Never>
+    var needle: String {
+        willSet { needlePublisher.send(newValue) }
+    }
+    var selected: UInt?
+    var total: UInt?
 
     init(needle: String = "") {
         self.needle = needle
+        self.needlePublisher = CurrentValueSubject(needle)
     }
 }
 
 @MainActor
-final class BrowserPanel: Panel, ObservableObject {
+@Observable
+final class BrowserPanel: Panel {
     /// Popup windows owned by this panel (for lifecycle cleanup)
-    private var popupControllers: [BrowserPopupWindowController] = []
+    @ObservationIgnored private var popupControllers: [BrowserPopupWindowController] = []
 
     static let telemetryHookBootstrapScriptSource = """
     (() => {
@@ -2711,49 +2722,43 @@ final class BrowserPanel: Panel, ObservableObject {
     })()
     """
 
-    let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .browser
+    @ObservationIgnored let id: UUID
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .browser
 
     /// The workspace ID this panel belongs to
-    private(set) var workspaceId: UUID
+    @ObservationIgnored private(set) var workspaceId: UUID
 
-    @Published private(set) var profileID: UUID
-    @Published private(set) var historyStore: BrowserHistoryStore
+    private(set) var profileID: UUID
+    private(set) var historyStore: BrowserHistoryStore
 
     /// The underlying web view
-    private(set) var webView: WKWebView
-    let viewportHostView = BrowserViewportHostView(frame: .zero)
-    let viewportModel = BrowserViewportModel()
-    var browserViewportHostRestorationTask: Task<Void, Never>?
-    var browserViewportHostRestorationPending = false
-    var websiteDataStore: WKWebsiteDataStore
-    var browserAutomationUserScripts: [WKUserScript] = []
-    var browserAutomationInitScriptCount = 0
-    var browserAutomationStyleScriptCount = 0
-    var webViewDidRequestClose: (() -> Void)?
+    @ObservationIgnored private(set) var webView: WKWebView
+    @ObservationIgnored let viewportHostView = BrowserViewportHostView(frame: .zero)
+    @ObservationIgnored let viewportModel = BrowserViewportModel()
+    @ObservationIgnored var browserViewportHostRestorationTask: Task<Void, Never>?
+    @ObservationIgnored var browserViewportHostRestorationPending = false
+    @ObservationIgnored var websiteDataStore: WKWebsiteDataStore
+    @ObservationIgnored var browserAutomationUserScripts: [WKUserScript] = []
+    @ObservationIgnored var browserAutomationInitScriptCount = 0
+    @ObservationIgnored var browserAutomationStyleScriptCount = 0
+    @ObservationIgnored var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
-    @Published private(set) var webViewInstanceID: UUID = UUID()
-    private(set) var hasRecoverableWebContentTermination = false {
-        willSet {
-            if newValue != hasRecoverableWebContentTermination {
-                objectWillChange.send()
-            }
-        }
-    }
-    private var pendingWebContentRecoveryURL: URL?
+    private(set) var webViewInstanceID: UUID = UUID()
+    private(set) var hasRecoverableWebContentTermination = false
+    @ObservationIgnored private var pendingWebContentRecoveryURL: URL?
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
-    private var suppressOmnibarAutofocusUntil: Date?
+    @ObservationIgnored private var suppressOmnibarAutofocusUntil: Date?
 
     /// Prevent forcing web-view focus when another UI path requested omnibar focus.
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
-    private var suppressWebViewFocusUntil: Date?
-    private var suppressWebViewFocusForAddressBar: Bool = false
-    private let blankURLString = "about:blank"
+    @ObservationIgnored private var suppressWebViewFocusUntil: Date?
+    @ObservationIgnored private var suppressWebViewFocusForAddressBar: Bool = false
+    @ObservationIgnored private let blankURLString = "about:blank"
 
     /// Owns the address-bar page-focus capture/restore subsystem.
     ///
@@ -2761,13 +2766,17 @@ final class BrowserPanel: Panel, ObservableObject {
     /// through ``BrowserOmnibarPageFocusAdapter``, which reaches back to this
     /// panel's current `webView` weakly so the panel and repository do not retain
     /// each other.
-    private lazy var omnibarPageFocusRepository = BrowserOmnibarPageFocusRepository(
+    @ObservationIgnored private lazy var omnibarPageFocusRepository = BrowserOmnibarPageFocusRepository(
         evaluator: BrowserOmnibarPageFocusAdapter(panel: self),
         logSink: Self.omnibarPageFocusLogSink
     )
 
+    /// Legacy Combine bridge for the remaining `browserPanel.$currentURL`
+    /// subscriber. Emits during willSet and replays the current value.
+    @ObservationIgnored let currentURLPublisher = CurrentValueSubject<URL?, Never>(nil)
     /// Published URL being displayed
-    @Published private(set) var currentURL: URL? {
+    private(set) var currentURL: URL? {
+        willSet { currentURLPublisher.send(newValue) }
         didSet {
             guard oldValue != currentURL else { return }
             applyConfiguredWebViewBackground()
@@ -2776,7 +2785,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Whether the browser panel should render its WKWebView in the content area.
     /// New browser tabs stay in an empty "new tab" state until first navigation.
-    @Published var shouldRenderWebView: Bool = false {
+    var shouldRenderWebView: Bool = false {
         didSet {
             if oldValue != shouldRenderWebView {
                 refreshWebViewLifecycleState()
@@ -2784,40 +2793,45 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
     }
-    @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
-    let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
-    var hasCommittedDocumentSinceWebViewReplacement = false
-    var userStoppedLoadSinceWebViewReplacement = false
-    var pendingDiscardRestoreNavigation: WKNavigation?
-    var currentDiscardRestoreAttemptID: UUID?
+    private(set) var backgroundAppearanceRevision: UInt64 = 0
+    @ObservationIgnored let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
+    @ObservationIgnored var hasCommittedDocumentSinceWebViewReplacement = false
+    @ObservationIgnored var userStoppedLoadSinceWebViewReplacement = false
+    @ObservationIgnored var pendingDiscardRestoreNavigation: WKNavigation?
+    @ObservationIgnored var currentDiscardRestoreAttemptID: UUID?
 
-    @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
-    private(set) var webViewLastVisibleAt: Date?
-    private(set) var webViewLastHiddenAt: Date?
-    private(set) var webViewLastVisibilityChangeAt: Date?
-    private(set) var webViewLastVisibilityChangeReason: String?
+    /// Legacy Combine bridge for lifecycle tests. Emits during willSet and
+    /// replays `.newTab` on subscribe, matching `Published.Publisher`.
+    @ObservationIgnored let webViewLifecycleStatePublisher = CurrentValueSubject<BrowserWebViewLifecycleState, Never>(.newTab)
+    private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab {
+        willSet { webViewLifecycleStatePublisher.send(newValue) }
+    }
+    @ObservationIgnored private(set) var webViewLastVisibleAt: Date?
+    @ObservationIgnored private(set) var webViewLastHiddenAt: Date?
+    @ObservationIgnored private(set) var webViewLastVisibilityChangeAt: Date?
+    @ObservationIgnored private(set) var webViewLastVisibilityChangeReason: String?
     var hasBackgroundPreloadHost: Bool {
         backgroundPreloadWindow != nil
     }
-    private var shouldPreloadInitialNavigationInBackground: Bool
-    private var backgroundPreloadWindow: NSWindow?
-    private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
-    let automationWatchdog = BrowserAutomationWatchdog()
-    let automationDocumentReadiness = BrowserAutomationDocumentReadiness()
-    var activeVisualAutomationCaptureCount: Int = 0
+    @ObservationIgnored private var shouldPreloadInitialNavigationInBackground: Bool
+    @ObservationIgnored private var backgroundPreloadWindow: NSWindow?
+    @ObservationIgnored private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
+    @ObservationIgnored let automationWatchdog = BrowserAutomationWatchdog()
+    @ObservationIgnored let automationDocumentReadiness = BrowserAutomationDocumentReadiness()
+    @ObservationIgnored var activeVisualAutomationCaptureCount: Int = 0
     private struct PendingInteractiveBrowserPrompt {
         let present: (NSWindow, @escaping () -> Void) -> Void
         let cancel: () -> Void
     }
-    private var pendingInteractiveBrowserPrompts: [PendingInteractiveBrowserPrompt] = []
-    private var isPresentingPendingInteractiveBrowserPrompt = false
-    private var isWebViewVisibleInUI: Bool = false
-    var isClosingWebViewLifecycle: Bool = false
+    @ObservationIgnored private var pendingInteractiveBrowserPrompts: [PendingInteractiveBrowserPrompt] = []
+    @ObservationIgnored private var isPresentingPendingInteractiveBrowserPrompt = false
+    @ObservationIgnored private var isWebViewVisibleInUI: Bool = false
+    @ObservationIgnored var isClosingWebViewLifecycle: Bool = false
 
     /// True while a canvas pane hosts this browser's webview inline (in the
     /// pane's own hierarchy). Portal-side reconcilers must not rebind or
     /// re-sync the webview into the window portal while this is set.
-    var canvasInlineHostingActive: Bool = false
+    @ObservationIgnored var canvasInlineHostingActive: Bool = false
 
     /// True when the browser is showing the internal empty new-tab page.
     var isShowingNewTabPage: Bool {
@@ -2834,38 +2848,54 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
+    /// Legacy Combine bridges for tab-state subscribers. Each emits the new
+    /// value during willSet and replays the current value on subscribe — the
+    /// exact `Published.Publisher` semantics those call sites expect.
+    @ObservationIgnored let pageTitlePublisher = CurrentValueSubject<String, Never>("")
+    @ObservationIgnored let faviconPNGDataPublisher = CurrentValueSubject<Data?, Never>(nil)
+    @ObservationIgnored let isLoadingPublisher = CurrentValueSubject<Bool, Never>(false)
+    @ObservationIgnored let isMutedPublisher = CurrentValueSubject<Bool, Never>(false)
+
     /// Published page title
-    @Published private(set) var pageTitle: String = ""
+    private(set) var pageTitle: String = "" {
+        willSet { pageTitlePublisher.send(newValue) }
+    }
 
     /// Published favicon (PNG data). When present, the tab bar can render it instead of a SF symbol.
-    @Published private(set) var faviconPNGData: Data?
+    private(set) var faviconPNGData: Data? {
+        willSet { faviconPNGDataPublisher.send(newValue) }
+    }
 
     /// Published loading state
-    @Published private(set) var isLoading: Bool = false
+    private(set) var isLoading: Bool = false {
+        willSet { isLoadingPublisher.send(newValue) }
+    }
 
     /// Published download state for browser downloads (navigation + context menu).
-    @Published private(set) var isDownloading: Bool = false
+    private(set) var isDownloading: Bool = false
 
     /// Recent downloads for this pane, newest first, surfaced in the downloads
     /// toolbar popover (Safari/Chrome-style). Capped at `maxRecentDownloads`.
-    @Published private(set) var recentDownloads: [BrowserDownloadRecord] = []
+    private(set) var recentDownloads: [BrowserDownloadRecord] = []
 
     private static let maxRecentDownloads = 25
 
-    @Published private(set) var renderedPDFDocumentURL: URL?
+    private(set) var renderedPDFDocumentURL: URL?
 
     /// Per-pane browser audio mute intent. BrowserPanel owns this so the state
     /// survives WKWebView replacement and can be applied to each new page.
-    @Published private(set) var isMuted: Bool = false
+    private(set) var isMuted: Bool = false {
+        willSet { isMutedPublisher.send(newValue) }
+    }
 
     /// Published can go back state
-    @Published private(set) var canGoBack: Bool = false
+    private(set) var canGoBack: Bool = false
 
     /// Published can go forward state
-    @Published private(set) var canGoForward: Bool = false
+    private(set) var canGoForward: Bool = false
 
-    private var nativeCanGoBack: Bool = false
-    private var nativeCanGoForward: Bool = false
+    @ObservationIgnored private var nativeCanGoBack: Bool = false
+    @ObservationIgnored private var nativeCanGoForward: Bool = false
 
     /// The replayable back/forward session history this surface restores from a
     /// prior launch. The pure stack state machine lives in `CmuxBrowser`;
@@ -2873,7 +2903,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// and performs the `WKWebView` calls its decisions return. The temporary-URL
     /// classification (diff viewer + remote loopback proxy alias) is inverted into
     /// the injected sanitizer seam.
-    private var restoredSessionHistory = RestoredSessionHistory(
+    @ObservationIgnored private var restoredSessionHistory = RestoredSessionHistory(
         sanitizer: SessionHistoryURLSanitizer { browserIsTemporaryHistoryURL($0) }
     )
 
@@ -2883,42 +2913,42 @@ final class BrowserPanel: Panel, ObservableObject {
     var restoredHistoryCurrentURL: URL? {
         restoredSessionHistory.current
     }
-    var isMainFrameProvisionalNavigationActive: Bool = false
+    @ObservationIgnored var isMainFrameProvisionalNavigationActive: Bool = false
 
     /// Published estimated progress (0.0 - 1.0)
-    @Published private(set) var estimatedProgress: Double = 0.0
+    private(set) var estimatedProgress: Double = 0.0
 
     /// Increment to request a UI-only flash highlight (e.g. from a keyboard shortcut).
-    @Published private(set) var focusFlashToken: Int = 0
+    private(set) var focusFlashToken: Int = 0
 
     /// Browser focus mode gives the focused WKWebView first ownership of page/app shortcuts.
-    @Published private(set) var isBrowserFocusModeActive: Bool = false
+    private(set) var isBrowserFocusModeActive: Bool = false
 
     /// A first plain Escape in browser focus mode is forwarded to the page and arms exit.
-    @Published private(set) var isBrowserFocusModeExitArmed: Bool = false
+    private(set) var isBrowserFocusModeExitArmed: Bool = false
 
     private static let browserFocusModeEscapeSequenceInterval: TimeInterval = 1.6
-    private var browserFocusModeExitArmedAt: TimeInterval?
-    private var lastBrowserFocusModePlainEscapeEventFingerprint: BrowserFocusModePlainEscapeEventFingerprint?
+    @ObservationIgnored private var browserFocusModeExitArmedAt: TimeInterval?
+    @ObservationIgnored private var lastBrowserFocusModePlainEscapeEventFingerprint: BrowserFocusModePlainEscapeEventFingerprint?
 
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
-    @Published private(set) var pendingAddressBarFocusRequestId: UUID?
-    private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+    private(set) var pendingAddressBarFocusRequestId: UUID?
+    @ObservationIgnored private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
 
     /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
     /// the omnibar without changing the global browser default.
-    @Published private(set) var isOmnibarVisible: Bool
+    private(set) var isOmnibarVisible: Bool
 
     /// Semantic in-panel focus target used by split switching and transient overlays.
-    private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
+    @ObservationIgnored private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
 
     /// Incremented whenever async browser find focus ownership changes.
-    @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
-    private var lastSearchNeedle = ""
+    private(set) var searchFocusRequestGeneration: UInt64 = 0
+    @ObservationIgnored private var lastSearchNeedle = ""
 
     /// Find-in-page state. Non-nil when the find bar is visible.
-    @Published var searchState: BrowserSearchState? = nil {
+    var searchState: BrowserSearchState? = nil {
         didSet {
             if let searchState {
                 clearBrowserFocusMode(reason: "searchStateCreated")
@@ -2926,7 +2956,7 @@ final class BrowserPanel: Panel, ObservableObject {
 #if DEBUG
                 cmuxDebugLog("browser.find.state.created panel=\(id.uuidString.prefix(5))")
 #endif
-                searchNeedleCancellable = searchState.$needle
+                searchNeedleCancellable = searchState.needlePublisher
                     .removeDuplicates()
                     .map { needle -> AnyPublisher<String, Never> in
                         if needle.isEmpty || needle.count >= 3 {
@@ -2956,17 +2986,17 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
     }
-    @Published private(set) var isElementFullscreenActive: Bool = false
-    private var searchNeedleCancellable: AnyCancellable?
+    private(set) var isElementFullscreenActive: Bool = false
+    @ObservationIgnored private var searchNeedleCancellable: AnyCancellable?
 
     /// Find-in-page search execution: generates the find scripts, evaluates them against the
     /// panel's live `webView` through ``BrowserFindWebViewEvaluator``, and parses results into
     /// `BrowserFindMatchCount`. The panel owns the find bar visibility, focus, and `searchState`;
     /// this service owns only the script generation and result parsing.
-    private lazy var findService = BrowserFindService(
+    @ObservationIgnored private lazy var findService = BrowserFindService(
         evaluator: BrowserFindWebViewEvaluator(panel: self)
     )
-    let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
+    @ObservationIgnored let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
     private struct PortalHostLock {
         let hostId: ObjectIdentifier
         let paneId: UUID
@@ -2975,40 +3005,40 @@ final class BrowserPanel: Panel, ObservableObject {
         case attached
         case detached
     }
-    private var activePortalHostLease: PortalHostLease?
-    private var pendingDistinctPortalHostReplacementPaneId: UUID?
-    private var lockedPortalHost: PortalHostLock?
-    private var webViewCancellables = Set<AnyCancellable>()
-    private(set) var navigationDelegate: BrowserNavigationDelegate?
-    private var uiDelegate: BrowserUIDelegate?
-    var downloadDelegate: BrowserDownloadDelegate?
-    private let webAuthnCoordinator = BrowserWebAuthnCoordinator()
-    private var webViewObservers: [NSKeyValueObservation] = []
-    private var activeDownloadCount: Int = 0
+    @ObservationIgnored private var activePortalHostLease: PortalHostLease?
+    @ObservationIgnored private var pendingDistinctPortalHostReplacementPaneId: UUID?
+    @ObservationIgnored private var lockedPortalHost: PortalHostLock?
+    @ObservationIgnored private var webViewCancellables = Set<AnyCancellable>()
+    @ObservationIgnored private(set) var navigationDelegate: BrowserNavigationDelegate?
+    @ObservationIgnored private var uiDelegate: BrowserUIDelegate?
+    @ObservationIgnored var downloadDelegate: BrowserDownloadDelegate?
+    @ObservationIgnored private let webAuthnCoordinator = BrowserWebAuthnCoordinator()
+    @ObservationIgnored private var webViewObservers: [NSKeyValueObservation] = []
+    @ObservationIgnored private var activeDownloadCount: Int = 0
     // Avoid flickering the loading indicator for very fast navigations.
-    private let minLoadingIndicatorDuration: TimeInterval = 0.35
-    private var loadingStartedAt: Date?
-    private var loadingEndWorkItem: DispatchWorkItem?
-    private var loadingGeneration: Int = 0
-    private var faviconTask: Task<Void, Never>?
-    private var faviconRefreshGeneration: Int = 0
-    private var lastFaviconURLString: String?
-    private let minPageZoom: CGFloat = 0.25
-    private let maxPageZoom: CGFloat = 5.0
-    private let pageZoomStep: CGFloat = 0.1
-    private var insecureHTTPBypassHostOnce: String?
-    var activeInteractiveBrowserPromptIDs: Set<UUID> = []
-    var insecureHTTPAlertFactory: () -> NSAlert
-    var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
+    @ObservationIgnored private let minLoadingIndicatorDuration: TimeInterval = 0.35
+    @ObservationIgnored private var loadingStartedAt: Date?
+    @ObservationIgnored private var loadingEndWorkItem: DispatchWorkItem?
+    @ObservationIgnored private var loadingGeneration: Int = 0
+    @ObservationIgnored private var faviconTask: Task<Void, Never>?
+    @ObservationIgnored private var faviconRefreshGeneration: Int = 0
+    @ObservationIgnored private var lastFaviconURLString: String?
+    @ObservationIgnored private let minPageZoom: CGFloat = 0.25
+    @ObservationIgnored private let maxPageZoom: CGFloat = 5.0
+    @ObservationIgnored private let pageZoomStep: CGFloat = 0.1
+    @ObservationIgnored private var insecureHTTPBypassHostOnce: String?
+    @ObservationIgnored var activeInteractiveBrowserPromptIDs: Set<UUID> = []
+    @ObservationIgnored var insecureHTTPAlertFactory: () -> NSAlert
+    @ObservationIgnored var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
-    @Published private(set) var preferredDeveloperToolsVisible: Bool = false
-    @Published var isReactGrabActive: Bool = false {
+    private(set) var preferredDeveloperToolsVisible: Bool = false
+    var isReactGrabActive: Bool = false {
         didSet {
             guard oldValue != isReactGrabActive else { return }
             reevaluateHiddenWebViewDiscardScheduling(reason: "react_grab_changed")
         }
     }
-    lazy var designModeController = BrowserDesignModeController(
+    @ObservationIgnored lazy var designModeController = BrowserDesignModeController(
         surfaceID: id,
         script: BrowserDesignModeScript(),
         promptFormatter: BrowserDesignModePromptFormatter(),
@@ -3043,29 +3073,29 @@ final class BrowserPanel: Panel, ObservableObject {
             clearBrowserFocusMode(reason: "designMode.activated")
         }
     }
-    var reactGrabMessageHandler: ReactGrabMessageHandler?
-    var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
+    @ObservationIgnored var reactGrabMessageHandler: ReactGrabMessageHandler?
+    @ObservationIgnored var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     /// Whether the live page currently has any actively-playing `<video>` or
     /// `<audio>` element, in the main frame or any iframe, reported by the
     /// injected media-playback hook. Keeps an actively-playing pane alive in the
     /// background instead of being discarded after the hidden delay
     /// (https://github.com/manaflow-ai/cmux/issues/5409).
-    private(set) var isPlayingMedia: Bool = false {
+    @ObservationIgnored private(set) var isPlayingMedia: Bool = false {
         didSet {
             guard oldValue != isPlayingMedia else { return }
             reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
         }
     }
     /// Live media activity. ``Workspace`` publishes it to tab/sidebar surfaces.
-    private(set) var mediaActivity = BrowserMediaActivity()
+    @ObservationIgnored private(set) var mediaActivity = BrowserMediaActivity()
     var isPlayingAudio: Bool { mediaActivity.isPlayingAudio }
     var isUsingMicrophone: Bool { mediaActivity.isUsingMicrophone }
     var isUsingCamera: Bool { mediaActivity.isUsingCamera }
-    var onMediaActivityChanged: ((BrowserMediaActivity) -> Void)?
+    @ObservationIgnored var onMediaActivityChanged: ((BrowserMediaActivity) -> Void)?
     /// Frame ids reporting playing media; keeps hidden panes alive while non-empty.
-    private var playingMediaFrameIDs: Set<String> = []
-    private var audibleMediaFrameIDs: Set<String> = []
-    var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
+    @ObservationIgnored private var playingMediaFrameIDs: Set<String> = []
+    @ObservationIgnored private var audibleMediaFrameIDs: Set<String> = []
+    @ObservationIgnored var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
 
     private func setMediaActivity(
         isPlayingAudio: Bool? = nil,
@@ -3099,51 +3129,51 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func refreshAudioMediaActivity(reason: String) { setMediaActivity(isPlayingAudio: !audibleMediaFrameIDs.isEmpty && !isMuted, reason: reason) }
-    var pendingReactGrabReturnTargetPanelId: UUID?
-    var pendingReactGrabRoundTripToken: String?
-    let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+    @ObservationIgnored var pendingReactGrabReturnTargetPanelId: UUID?
+    @ObservationIgnored var pendingReactGrabRoundTripToken: String?
+    @ObservationIgnored let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
     var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .detached
-    var forceDeveloperToolsRefreshOnNextAttach: Bool = false
-    private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
-    private var developerToolsRestoreRetryAttempt: Int = 0
-    private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
-    private let developerToolsRestoreRetryMaxAttempts: Int = 40
-    private var remoteProxyEndpoint: BrowserProxyEndpoint?
-    @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
-    private var usesRemoteWorkspaceProxy: Bool
+    @ObservationIgnored var forceDeveloperToolsRefreshOnNextAttach: Bool = false
+    @ObservationIgnored private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
+    @ObservationIgnored private var developerToolsRestoreRetryAttempt: Int = 0
+    @ObservationIgnored private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
+    @ObservationIgnored private let developerToolsRestoreRetryMaxAttempts: Int = 40
+    @ObservationIgnored private var remoteProxyEndpoint: BrowserProxyEndpoint?
+    private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
+    @ObservationIgnored private var usesRemoteWorkspaceProxy: Bool
     private struct PendingRemoteNavigation {
         let request: URLRequest
         let recordTypedNavigation: Bool
         let preserveRestoredSessionHistory: Bool
     }
-    private var pendingRemoteNavigation: PendingRemoteNavigation?
-    private let bypassesRemoteWorkspaceProxy: Bool
+    @ObservationIgnored private var pendingRemoteNavigation: PendingRemoteNavigation?
+    @ObservationIgnored private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
     /// is made fully clear over a transparent Ghostty theme so the page's own
     /// CSS owns the background. See `applyWebViewBackground(color:)`.
-    private let usesTransparentBackground: Bool
-    private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
-    var developerToolsDetachedOpenGraceDeadline: Date?
-    var developerToolsTransitionTargetVisible: Bool?
-    var pendingDeveloperToolsTransitionTargetVisible: Bool?
-    var developerToolsTransitionSettleWorkItem: DispatchWorkItem?
-    private var developerToolsVisibilityLossCheckWorkItem: DispatchWorkItem?
-    let developerToolsTransitionSettleDelay: TimeInterval = 0.15
-    let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
-    let developerToolsDetachedWindowCloseResolutionMaxDuration: TimeInterval = 2.0
-    var developerToolsLastAttachedHostAt: Date?
-    var developerToolsLastKnownVisibleAt: Date?
-    var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
+    @ObservationIgnored private let usesTransparentBackground: Bool
+    @ObservationIgnored private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
+    @ObservationIgnored var developerToolsDetachedOpenGraceDeadline: Date?
+    @ObservationIgnored var developerToolsTransitionTargetVisible: Bool?
+    @ObservationIgnored var pendingDeveloperToolsTransitionTargetVisible: Bool?
+    @ObservationIgnored var developerToolsTransitionSettleWorkItem: DispatchWorkItem?
+    @ObservationIgnored private var developerToolsVisibilityLossCheckWorkItem: DispatchWorkItem?
+    @ObservationIgnored let developerToolsTransitionSettleDelay: TimeInterval = 0.15
+    @ObservationIgnored let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
+    @ObservationIgnored let developerToolsDetachedWindowCloseResolutionMaxDuration: TimeInterval = 2.0
+    @ObservationIgnored var developerToolsLastAttachedHostAt: Date?
+    @ObservationIgnored var developerToolsLastKnownVisibleAt: Date?
+    @ObservationIgnored var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
     // One-shot DispatchSourceTimer bridges WebKit's synchronous window-close
     // callback to a bounded redock deadline.
-    var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
-    var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
-    var detachedDeveloperToolsWindowDismissalTasks: [Task<Void, Never>] = []
-    var developerToolsDockControlNormalizationTask: Task<Void, Never>?
-    var detachedDeveloperToolsExplicitUserCloseWindowIds = Set<ObjectIdentifier>()
-    var developerToolsPreservedVisibleIntentForNextAttach: Bool = false
-    private var browserThemeMode: BrowserThemeMode
+    @ObservationIgnored var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
+    @ObservationIgnored var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
+    @ObservationIgnored var detachedDeveloperToolsWindowDismissalTasks: [Task<Void, Never>] = []
+    @ObservationIgnored var developerToolsDockControlNormalizationTask: Task<Void, Never>?
+    @ObservationIgnored var detachedDeveloperToolsExplicitUserCloseWindowIds = Set<ObjectIdentifier>()
+    @ObservationIgnored var developerToolsPreservedVisibleIntentForNextAttach: Bool = false
+    @ObservationIgnored private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -4219,6 +4249,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let initialRequest {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
+            currentURLPublisher.send(currentURL)
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
@@ -4238,6 +4269,7 @@ final class BrowserPanel: Panel, ObservableObject {
         } else if let url = initialURL {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
+            currentURLPublisher.send(currentURL)
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
             if adoptedPrewarmedWebView {
@@ -6508,9 +6540,6 @@ extension BrowserPanel {
     func setPreferredDeveloperToolsPresentation(_ next: DeveloperToolsPresentation) {
         guard preferredDeveloperToolsPresentation != next else { return }
         preferredDeveloperToolsPresentation = next
-        DispatchQueue.main.async { [weak self] in
-            self?.objectWillChange.send()
-        }
     }
 
     func setPreferredDeveloperToolsVisible(_ next: Bool) {

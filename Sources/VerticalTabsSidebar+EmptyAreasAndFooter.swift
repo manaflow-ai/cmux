@@ -44,7 +44,7 @@ private struct SidebarFooterIconButtonStyleBody: View {
 #if DEBUG
 struct SidebarDevFooter: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
+    let fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
@@ -67,7 +67,7 @@ struct SidebarDevFooter: View {
 #endif
 
 struct SidebarEmptyArea: View {
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>

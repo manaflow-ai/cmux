@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Combine
 import CmuxTestSupport
 import SwiftUI
 
@@ -878,10 +879,18 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     }
 }
 
-final class MinimalModeSidebarChromeHoverState: ObservableObject {
+@Observable
+final class MinimalModeSidebarChromeHoverState {
     static let shared = MinimalModeSidebarChromeHoverState()
 
-    @Published private(set) var hoveredWindowNumber: Int?
+    /// Legacy Combine bridge for the remaining `.$hoveredWindowNumber` subscribers. Emits the
+    /// new value during willSet and replays the current value on subscribe — the
+    /// exact `Published.Publisher` semantics those call sites were written
+    /// against. Delete when the subscribers move to @Observable observation.
+    @ObservationIgnored let hoveredWindowNumberPublisher = CurrentValueSubject<Int?, Never>(nil)
+    private(set) var hoveredWindowNumber: Int? {
+        willSet { hoveredWindowNumberPublisher.send(newValue) }
+    }
 
     private init() {}
 

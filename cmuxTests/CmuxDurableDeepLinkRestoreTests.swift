@@ -1,7 +1,7 @@
 import AppKit
 import Bonsplit
-import Combine
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -11,12 +11,13 @@ import Testing
 #endif
 
 @MainActor
-private final class DurableDeepLinkDockTestPanel: Panel, ObservableObject {
-    let id = UUID()
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .terminal
-    let displayTitle = "Docked duplicate identity"
-    let displayIcon: String? = "terminal.fill"
+@Observable
+fileprivate final class DurableDeepLinkDockTestPanel: Panel {
+    @ObservationIgnored let id = UUID()
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .terminal
+    @ObservationIgnored let displayTitle = "Docked duplicate identity"
+    @ObservationIgnored let displayIcon: String? = "terminal.fill"
 
     func close() {}
     func focus() {}

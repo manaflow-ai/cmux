@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import Bonsplit
+import Observation
 import OSLog
 
 private let closedItemHistoryLogger = Logger(
@@ -125,21 +126,22 @@ enum ClosedWindowRestoreValidation {
 }
 
 @MainActor
-final class ClosedItemHistoryStore: ObservableObject {
+@Observable
+final class ClosedItemHistoryStore {
     static let shared = ClosedItemHistoryStore(
         capacity: nil,
         fileURL: defaultHistoryFileURL()
     )
 
-    @Published private(set) var revision: UInt64 = 0
-    @Published private var records: [ClosedItemHistoryRecord] = []
+    private(set) var revision: UInt64 = 0
+    private var records: [ClosedItemHistoryRecord] = []
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
-    private var didFinishPersistedRecordsLoad: Bool
-    private var needsPersistenceAfterPersistedRecordsLoad = false
-    private var shouldDiscardPersistedRecordsOnLoad = false
-    private var pendingPersistedRecordMutations: [PendingPersistedRecordMutation] = []
+    @ObservationIgnored private var didFinishPersistedRecordsLoad: Bool
+    @ObservationIgnored private var needsPersistenceAfterPersistedRecordsLoad = false
+    @ObservationIgnored private var shouldDiscardPersistedRecordsOnLoad = false
+    @ObservationIgnored private var pendingPersistedRecordMutations: [PendingPersistedRecordMutation] = []
 
     private enum PendingPersistedRecordMutation {
         case remapPanelWorkspaceIds(

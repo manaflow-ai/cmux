@@ -14,8 +14,8 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     func saveTextContent() -> Task<Void, Never>?
 }
 
-struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
-    @ObservedObject var panel: PanelModel
+struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: FilePreviewTextEditingPanel {
+    let panel: PanelModel
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor

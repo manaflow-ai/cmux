@@ -1,6 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
-import Combine
+import Observation
 import SQLite3
 import SwiftUI
 import XCTest
@@ -256,18 +256,27 @@ final class SessionIndexViewTests: XCTestCase {
         return quoted.replacingOccurrences(of: "'\\''", with: "'")
     }
 
-    func testCurrentDirectorySetterDoesNotPublishEqualValue() {
+    func testCurrentDirectorySetterDoesNotInvalidateObservationForEqualValue() {
         let store = SessionIndexStore()
-        var emittedValues: [String?] = []
-        let cancellable = store.$currentDirectory
-            .dropFirst()
-            .sink { emittedValues.append($0) }
-        defer { cancellable.cancel() }
+        var observationInvalidationCount = 0
+        withObservationTracking {
+            _ = store.currentDirectory
+        } onChange: {
+            observationInvalidationCount += 1
+        }
 
         store.setCurrentDirectoryIfChanged("/foo")
+
+        XCTAssertEqual(observationInvalidationCount, 1)
+        withObservationTracking {
+            _ = store.currentDirectory
+        } onChange: {
+            observationInvalidationCount += 1
+        }
         store.setCurrentDirectoryIfChanged("/foo")
 
-        XCTAssertEqual(emittedValues, ["/foo"])
+        XCTAssertEqual(observationInvalidationCount, 1)
+        XCTAssertEqual(store.currentDirectory, "/foo")
     }
 
     func testDirectoryOrderBackfillUsesLatestModifiedForDuplicateDirectories() {

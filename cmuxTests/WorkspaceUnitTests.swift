@@ -6,6 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
+import Observation
 import Bonsplit
 import CmuxPanes
 import CmuxSettings
@@ -3017,14 +3018,14 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
 
 @MainActor
 final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
-    private final class DetachedWorkspaceTestPanel: Panel {
-        let objectWillChange = ObservableObjectPublisher()
-        let id: UUID
-        let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-        let panelType: PanelType = .terminal
-        let displayTitle = "Detached"
-        let displayIcon: String? = "terminal.fill"
-        let isDirty = false
+    @Observable
+    fileprivate final class DetachedWorkspaceTestPanel: Panel {
+        @ObservationIgnored let id: UUID
+        @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+        @ObservationIgnored let panelType: PanelType = .terminal
+        @ObservationIgnored let displayTitle = "Detached"
+        @ObservationIgnored let displayIcon: String? = "terminal.fill"
+        @ObservationIgnored let isDirty = false
 
         init(id: UUID = UUID()) {
             self.id = id
@@ -6623,7 +6624,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.isDirty), [false, true])
     }
 
-    func testUpdatingFocusedPanelGitBranchWithSameStateDoesNotRepublishWorkspace() {
+    func testUpdatingFocusedPanelGitBranchWithSameStateDoesNotRepublishSidebarObservation() {
         let workspace = Workspace()
         guard let panelId = workspace.focusedPanelId else {
             XCTFail("Expected initial focused panel")
@@ -6631,10 +6632,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
 
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink {
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
         let baselinePublishCount = publishCount
@@ -6642,7 +6644,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertGreaterThan(
             baselinePublishCount,
             0,
-            "Expected the first focused branch update to publish workspace changes"
+            "Expected the first focused branch update to publish sidebar observation changes"
         )
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
@@ -6650,11 +6652,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             publishCount,
             baselinePublishCount,
-            "Expected identical focused branch refreshes to avoid extra workspace publishes"
+            "Expected identical focused branch refreshes to avoid extra sidebar observation publishes"
         )
     }
 
-    func testUpdatingFocusedPanelPullRequestWithSameStateDoesNotRepublishWorkspace() {
+    func testUpdatingFocusedPanelPullRequestWithSameStateDoesNotRepublishSidebarObservation() {
         let workspace = Workspace()
         guard let panelId = workspace.focusedPanelId else {
             XCTFail("Expected initial focused panel")
@@ -6664,10 +6666,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
 
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink {
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
         workspace.updatePanelPullRequest(
@@ -6683,7 +6686,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertGreaterThan(
             baselinePublishCount,
             0,
-            "Expected the first focused pull request update to publish workspace changes"
+            "Expected the first focused pull request update to publish sidebar observation changes"
         )
 
         workspace.updatePanelPullRequest(
@@ -6698,7 +6701,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             publishCount,
             baselinePublishCount,
-            "Expected identical focused pull request refreshes to avoid extra workspace publishes"
+            "Expected identical focused pull request refreshes to avoid extra sidebar observation publishes"
         )
     }
 

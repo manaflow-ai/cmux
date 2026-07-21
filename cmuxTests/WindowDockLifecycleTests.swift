@@ -1,7 +1,7 @@
 import AppKit
 import Bonsplit
-import Combine
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -11,18 +11,19 @@ import Testing
 #endif
 
 @MainActor
-private final class WindowDockTestPanel: Panel, ObservableObject {
-    let id = UUID()
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .terminal
-    let displayTitle = "Test Dock Panel"
-    let displayIcon: String? = "terminal.fill"
-    var isDirty = false
+@Observable
+fileprivate final class WindowDockTestPanel: Panel {
+    @ObservationIgnored let id = UUID()
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .terminal
+    @ObservationIgnored let displayTitle = "Test Dock Panel"
+    @ObservationIgnored let displayIcon: String? = "terminal.fill"
+    @ObservationIgnored var isDirty = false
 
-    private(set) var closeCount = 0
-    private(set) var focusCount = 0
-    private(set) var unfocusCount = 0
-    private(set) var flashCount = 0
+    @ObservationIgnored private(set) var closeCount = 0
+    @ObservationIgnored private(set) var focusCount = 0
+    @ObservationIgnored private(set) var unfocusCount = 0
+    @ObservationIgnored private(set) var flashCount = 0
 
     func close() {
         closeCount += 1
