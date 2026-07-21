@@ -16,6 +16,9 @@ struct TerminalArtifactGalleryItemView: View {
     let layout: Layout
     let loader: ChatArtifactLoader
     let open: () -> Void
+    /// Reports a completed "Copy path" so the host confirms it (rows stay
+    /// below the snapshot boundary and never hold the toast center).
+    var onCopiedPath: () -> Void = {}
 
     @State private var thumbnail: ChatArtifactThumbnail?
     @State private var fileActionPresentation: ChatArtifactFileActionPresentation?
@@ -58,6 +61,7 @@ struct TerminalArtifactGalleryItemView: View {
             }
             Button {
                 UIPasteboard.general.string = artifact.path
+                onCopiedPath()
             } label: {
                 Label(
                     String(
