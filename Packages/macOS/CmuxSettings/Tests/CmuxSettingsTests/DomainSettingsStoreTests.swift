@@ -476,3 +476,21 @@ struct QuitConfirmationPolicyTests {
         ))
     }
 }
+
+@Suite("Open new window on cursor screen")
+struct OpenNewWindowOnCursorScreenSettingTests {
+    @Test func defaultsToFalse() {
+        let defaults = makeScratchDefaults()
+        let key = AppCatalogSection().openNewWindowOnCursorScreen
+        #expect(key.value(in: defaults) == false)
+        #expect(!key.hasStoredValue(in: defaults))
+    }
+
+    @Test func roundTrips() {
+        let defaults = makeScratchDefaults()
+        let key = AppCatalogSection().openNewWindowOnCursorScreen
+        key.set(true, in: defaults)
+        #expect(key.value(in: defaults) == true)
+        #expect(key.hasStoredValue(in: defaults))
+    }
+}

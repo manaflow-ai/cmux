@@ -451,6 +451,11 @@
           "default": true,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
         },
+        "openNewWindowOnCursorScreen": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open a new window on whichever display currently has the mouse cursor, instead of cascading from the source window's display."
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",

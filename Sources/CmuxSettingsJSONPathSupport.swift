@@ -138,6 +138,10 @@ enum AppSettingsFileMapping {
         ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
         .init(
+            jsonKey: "openNewWindowOnCursorScreen",
+            defaultsKey: app.openNewWindowOnCursorScreen.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),
@@ -395,6 +399,7 @@ extension CmuxSettingsFileStore {
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
+        "app.openNewWindowOnCursorScreen",
         "app.preferredEditor",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",

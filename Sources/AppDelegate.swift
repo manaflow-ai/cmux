@@ -8532,7 +8532,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sourceFrame = sourceWindow.frame
         let sourceScreen = sourceWindow.screen
             ?? NSScreen.screens.first(where: { $0.frame.intersects(sourceFrame) })
-        guard let visibleFrame = sourceScreen?.visibleFrame else {
+
+        // Opt-in: match iTerm2's behavior of opening new windows on whichever
+        // display currently has the mouse cursor, rather than always
+        // cascading off the source window's screen.
+        let openOnCursorScreen = UserDefaultsSettingsClient(defaults: .standard)
+            .value(for: SettingCatalog().app.openNewWindowOnCursorScreen)
+        let cursorScreen: NSScreen? = openOnCursorScreen
+            ? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
+            : nil
+        let targetScreen = cursorScreen ?? sourceScreen
+        guard let visibleFrame = targetScreen?.visibleFrame else {
             window.center()
             return
         }
@@ -8540,10 +8550,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let cascadeOffset: CGFloat = 24
         let minimumWindowSize = NSSize(width: 460, height: 360)
         var frame = window.frame
-        frame.origin = NSPoint(
-            x: sourceFrame.minX + cascadeOffset,
-            y: sourceFrame.maxY - cascadeOffset - frame.height
-        )
+        if let cursorScreen, cursorScreen != sourceScreen {
+            // The cursor is on a different display than the source window;
+            // center the new window there instead of cascading off a frame
+            // that lives on another screen entirely.
+            frame.origin = NSPoint(
+                x: visibleFrame.midX - frame.width / 2,
+                y: visibleFrame.midY - frame.height / 2
+            )
+        } else {
+            frame.origin = NSPoint(
+                x: sourceFrame.minX + cascadeOffset,
+                y: sourceFrame.maxY - cascadeOffset - frame.height
+            )
+        }
         window.setFrame(
             Self.clampFrame(
                 frame,

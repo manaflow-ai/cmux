@@ -70,6 +70,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "paneFirstClickFocus.enabled"
     )
 
+    /// When enabled, a new window opens on whichever display currently has
+    /// the mouse cursor instead of cascading from the source window's
+    /// display. Matches iTerm2's "open on active screen" behavior.
+    public let openNewWindowOnCursorScreen = DefaultsKey<Bool>(
+        id: "app.openNewWindowOnCursorScreen",
+        defaultValue: false,
+        userDefaultsKey: "openNewWindowOnCursorScreen"
+    )
+
     public let preferredEditor = DefaultsKey<String>(
         id: "app.preferredEditor",
         defaultValue: "",
