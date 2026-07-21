@@ -439,6 +439,166 @@ import Testing
         }
     }
 
+    /// A reconnect capture replaces the entire primary screen and scrollback.
+    /// Once that authoritative seed lands, reconnect readiness must not run the
+    /// legacy rows-minus-one attach kick: shrinking 26 -> 25 moves the first
+    /// visible row into local history, and the growth repaint then paints that
+    /// same row again at the viewport boundary.
+    @Test(.timeLimit(.minutes(1)))
+    func reconnectReseedReplacesPrimaryHistoryAtVisibleBoundary() async throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        let initialLayout = RemoteTmuxLayoutNode(
+            width: 80, height: 26, x: 0, y: 0, content: .pane(7)
+        )
+        let initialWindow = RemoteTmuxWindow(
+            id: 1,
+            name: "main",
+            width: 80,
+            height: 26,
+            layout: initialLayout
+        )
+        fixture.connection.windowsByID[1] = initialWindow
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let panelID = try #require(sessionMirror.panelIdByPane[7])
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let terminal = try hostedTerminal(panel.surface)
+        defer { terminal.window.orderOut(nil) }
+        await waitForLiveSurface(terminal.surface)
+        try #require(terminal.surface.hasLiveSurface)
+
+        terminal.surface.setAssignedGrid(columns: 80, rows: 26)
+        await waitForAppliedTerminalGrid(terminal.surface, columns: 80, rows: 26)
+
+        let markers = (1...66).map { String(format: "RECONNECT_ROW_%03d", $0) }
+        let authoritativeRows = markers + [
+            "P10K:DIR:/opt/cmux/fixture/tailscale VCS:issue-7990-a884",
+            "PROMPT:❯",
+            "",
+            "",
+            "",
+        ]
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: authoritativeRows,
+            paneHeight: 26,
+            startingAt: 20
+        )
+        await waitForTerminalText(terminal.surface) { text in
+            markers.allSatisfy { text.components(separatedBy: $0).count - 1 == 1 }
+        }
+
+        fixture.connection.pendingAttachRedrawKick = false
+        fixture.connection.lastClientSize = (columns: 80, rows: 26)
+        fixture.connection.lastWindowSizes[1] = (80, 26)
+        fixture.connection.lastSizeRequestWindowId = 1
+        _ = fixture.pipe.fileHandleForReading.availableData
+
+        fixture.connection.beginReconnecting()
+        let reconnectPipe = Pipe()
+        let reconnectWriter = RemoteTmuxControlPipeWriter(
+            handle: reconnectPipe.fileHandleForWriting,
+            label: "remote-tmux-pane-reconnect-kick-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        fixture.connection.installStdinWriterForTesting(reconnectWriter)
+        defer {
+            reconnectWriter.close()
+            try? reconnectPipe.fileHandleForReading.close()
+        }
+        fixture.connection.handleMessageForTesting(.enter)
+        fixture.connection.reseedAfterReconnect()
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: authoritativeRows,
+            paneHeight: 26,
+            startingAt: 50
+        )
+        await waitForTerminalText(terminal.surface) { text in
+            text.contains(markers[65])
+        }
+        await Task.yield()
+
+        let reconnectCommands = String(
+            decoding: reconnectPipe.fileHandleForReading.availableData,
+            as: UTF8.self
+        )
+        let emittedPostSeedShrink = reconnectCommands.contains(
+            "refresh-client -C '@1:80x25'"
+        )
+        #expect(
+            !emittedPostSeedShrink,
+            "an authoritative reconnect seed must not be followed by a 26 -> 25 attach kick"
+        )
+
+        if emittedPostSeedShrink {
+            terminal.surface.setManualIONoReflow(false)
+            let shrunkenLayout = RemoteTmuxLayoutNode(
+                width: 80, height: 25, x: 0, y: 0, content: .pane(7)
+            )
+            let shrunkenWindow = RemoteTmuxWindow(
+                id: 1,
+                name: "main",
+                width: 80,
+                height: 25,
+                layout: shrunkenLayout
+            )
+            fixture.connection.windowsByID[1] = shrunkenWindow
+            fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+            fixture.connection.observers.notifyTopologyChanged()
+            terminal.surface.setAssignedGrid(columns: 80, rows: 25)
+            await waitForAppliedTerminalGrid(terminal.surface, columns: 80, rows: 25)
+
+            let restoredWindow = RemoteTmuxWindow(
+                id: 1,
+                name: "main",
+                width: 80,
+                height: 26,
+                layout: initialLayout
+            )
+            fixture.connection.windowsByID[1] = restoredWindow
+            fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+            fixture.connection.observers.notifyTopologyChanged()
+            fixture.connection.repaintPanesThatGrew(
+                from: shrunkenWindow,
+                to: restoredWindow
+            )
+            terminal.surface.setAssignedGrid(columns: 80, rows: 26)
+            await waitForAppliedTerminalGrid(terminal.surface, columns: 80, rows: 26)
+            finishPendingCommands(
+                on: fixture.connection,
+                captureRows: Array(authoritativeRows.suffix(26)),
+                paneHeight: 26,
+                startingAt: 80
+            )
+            await waitForTerminalText(terminal.surface) { text in
+                text.contains(markers[65])
+            }
+        }
+
+        let rendered = try readFullTerminalText(terminal.surface)
+        for marker in markers {
+            #expect(
+                rendered.components(separatedBy: marker).count - 1 == 1,
+                "reconnect reseed must preserve exactly one copy of \(marker)"
+            )
+        }
+    }
+
     private static func seedRaceStream(
         preCaptureOutput: String,
         capturedRows: [String],
