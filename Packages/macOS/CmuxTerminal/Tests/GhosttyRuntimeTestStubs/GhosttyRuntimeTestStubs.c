@@ -115,6 +115,7 @@ bool ghostty_surface_process_exited(void *surface) {
 void ghostty_surface_process_output(void) {}
 void ghostty_surface_quicklook_font(void) {}
 void ghostty_surface_read_screen_tail_vt(void) {}
+void ghostty_surface_read_screen_tail_vt_with_output_sequence(void) {}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
 void ghostty_surface_render_grid_json(void) {}

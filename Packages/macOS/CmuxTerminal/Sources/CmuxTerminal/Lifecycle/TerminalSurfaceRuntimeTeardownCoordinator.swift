@@ -37,6 +37,12 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         request.read()
     }
 
+    func readRenderResynchronizationSnapshot(
+        _ request: TerminalSurfaceRuntimeScreenTailRequest
+    ) -> TerminalSurfaceRenderResynchronizationSnapshot? {
+        request.readWithOutputSequence()
+    }
+
     /// Queues a native-surface free from any isolation (the surface model's
     /// `deinit` is nonisolated and cannot await).
     ///

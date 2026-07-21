@@ -2,6 +2,7 @@ public import AppKit
 public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
+internal import CmuxTerminalRenderTransport
 internal import CMUXAgentLaunch
 internal import Darwin
 #if DEBUG
@@ -134,6 +135,7 @@ extension TerminalSurface {
             mobileByteTeeLease = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+            destroyRenderMirror()
             activePortalHostLease = nil
             portalHostAuthority = nil
             recordTeardownRequest(reason: reason)
@@ -234,6 +236,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+        destroyRenderMirror()
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -304,6 +307,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+        destroyRenderMirror()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -518,16 +522,58 @@ extension TerminalSurface {
 
         let scaleFactors = scaleFactors(for: view)
 
+        renderMirrorGeneration &+= 1
+        let mirrorGeneration = renderMirrorGeneration
+        let initialBackingSize = view.convertToBacking(
+            NSRect(origin: .zero, size: view.bounds.size)
+        ).size
+        let initialWidth = max(pixelDimension(from: initialBackingSize.width), 1)
+        let initialHeight = max(pixelDimension(from: initialBackingSize.height), 1)
+        let baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
+        let descriptor = TerminalRenderSurfaceDescriptor(
+            id: id,
+            generation: mirrorGeneration,
+            width: initialWidth,
+            height: initialHeight,
+            scaleX: scaleFactors.x,
+            scaleY: scaleFactors.y,
+            fontSize: CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: baseConfig.fontSize,
+                percent: globalFontMagnificationPercent()
+            ),
+            context: Int32(truncatingIfNeeded: surfaceContext.rawValue)
+        )
+        renderMirrorDescriptor = descriptor
+        surfaceView.configureRemoteRenderer(
+            surfaceID: id,
+            surfaceGeneration: mirrorGeneration,
+            width: initialWidth,
+            height: initialHeight
+        )
+        renderWorker.enqueueRenderCommand(.createSurface(descriptor))
+        let teeInstallation = byteTee.prepareTee(
+            workspaceID: tabId,
+            surfaceID: id,
+            surfaceGeneration: mirrorGeneration
+        )
+
         let runtimeSurfaceCreation = createNativeRuntimeSurface(
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            claudeShim: claudeShim
+            claudeShim: claudeShim,
+            teeInstallation: teeInstallation
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
+            teeInstallation.lease.release()
+            renderWorker.enqueueRenderCommand(.destroySurface(
+                id: id,
+                generation: mirrorGeneration
+            ))
+            renderMirrorDescriptor = nil
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
             manualIOContext?.release()
@@ -570,7 +616,7 @@ extension TerminalSurface {
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
         mobileByteTeeLease?.release()
-        mobileByteTeeLease = byteTee.installTee(on: createdSurface, workspaceID: tabId, surfaceID: id)
+        mobileByteTeeLease = teeInstallation.lease
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
@@ -632,6 +678,21 @@ extension TerminalSurface {
         // surface converges with any focus changes that happened while the
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
+        // Keep the authority parser/input surface alive while permanently
+        // relinquishing its local GPU renderer. The worker mirror is the sole
+        // owner of presentation resources.
+        ghostty_surface_set_occlusion(createdSurface, false)
+        _ = ghostty_surface_set_renderer_realized(createdSurface, false)
+        renderWorker.enqueueRenderCommand(.mutateSurface(
+            id: id,
+            generation: mirrorGeneration,
+            mutation: .focus(desiredFocusState)
+        ))
+        renderWorker.enqueueRenderCommand(.mutateSurface(
+            id: id,
+            generation: mirrorGeneration,
+            mutation: .occlusion(rendererPortalVisible)
+        ))
 
         flushPendingSocketInputIfNeeded()
 
@@ -640,6 +701,11 @@ extension TerminalSurface {
         // transition nudges the renderer.
         view.forceRefreshSurface()
         ghostty_surface_refresh(createdSurface)
+        renderWorker.enqueueRenderCommand(.mutateSurface(
+            id: id,
+            generation: mirrorGeneration,
+            mutation: .refresh
+        ))
 
         NotificationCenter.default.post(
             name: .terminalSurfaceDidBecomeReady,

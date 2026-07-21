@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTerminalCore
+public import CmuxTerminalRenderTransport
 
 /// The inner terminal NSView a ``TerminalSurface`` renders into.
 ///
@@ -34,4 +35,39 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     /// - Returns: Whether a refresh was performed.
     @discardableResult
     func forceRefreshSurface() -> Bool
+
+    /// Installs or retargets the host-owned IOSurface presentation layer.
+    func configureRemoteRenderer(
+        surfaceID: UUID,
+        surfaceGeneration: UInt64,
+        width: UInt32,
+        height: UInt32
+    )
+
+    /// Allows frames from a newly initialized worker generation.
+    func updateRemoteRendererWorkerGeneration(_ generation: UInt64)
+
+    /// Fences late frames from an exited worker without clearing the last frame.
+    func invalidateRemoteRendererWorkerGeneration(_ generation: UInt64)
+
+    /// Updates the exact pixel dimensions accepted by the presentation layer.
+    func updateRemoteRendererExpectedSize(width: UInt32, height: UInt32)
+
+    /// Presents one already generation-fenced remote frame.
+    @discardableResult
+    func presentRemoteRendererFrame(_ frame: TerminalRenderFrame) -> Bool
+}
+
+public extension TerminalSurfaceNativeViewing {
+    func configureRemoteRenderer(
+        surfaceID: UUID,
+        surfaceGeneration: UInt64,
+        width: UInt32,
+        height: UInt32
+    ) {}
+
+    func updateRemoteRendererWorkerGeneration(_ generation: UInt64) {}
+    func invalidateRemoteRendererWorkerGeneration(_ generation: UInt64) {}
+    func updateRemoteRendererExpectedSize(width: UInt32, height: UInt32) {}
+    @discardableResult func presentRemoteRendererFrame(_ frame: TerminalRenderFrame) -> Bool { false }
 }

@@ -21,8 +21,6 @@ import CmuxTerminal
 /// flag (the app re-executes its own binary that way so a crash in the
 /// interpreter or renderer kills only the worker process), run that worker
 /// loop instead of the app:
-/// - the render worker hosts its own faceless AppKit session and shares the
-///   rendered layer tree with the host;
 /// - the interpreter worker (stage-1 fallback path) runs before any
 ///   AppKit/SwiftUI setup.
 @main

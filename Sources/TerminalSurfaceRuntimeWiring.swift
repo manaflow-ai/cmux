@@ -4,6 +4,8 @@ import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
 import CmuxSettings
+import CmuxGhosttyRenderClient
+import CmuxTerminalRenderTransport
 import struct CmuxSettings.AgentIntegrationSettingsStore
 
 // The app-side conformances and bridges injected into the CmuxTerminal
@@ -73,6 +75,11 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
+    private let renderWorker: any TerminalRenderWorkerRouting
+
+    init(renderWorker: any TerminalRenderWorkerRouting) {
+        self.renderWorker = renderWorker
+    }
     /// Wraps the retained tee userdata; `release()` runs exactly where the
     /// surface released the legacy `Unmanaged` context.
     /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
@@ -91,27 +98,142 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     }
 
     @MainActor
-    func installTee(
-        on surface: ghostty_surface_t,
+    func prepareTee(
         workspaceID: UUID,
-        surfaceID: UUID
-    ) -> any TerminalByteTeeLease {
+        surfaceID: UUID,
+        surfaceGeneration: UInt64
+    ) -> TerminalByteTeeInstallation {
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
+            surfaceGeneration: surfaceGeneration,
+            renderWorker: renderWorker,
             agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
         ))
-        ghostty_surface_set_pty_tee_cb(
-            surface,
-            cmuxTerminalOutputTeeCallback,
-            teeContext.toOpaque()
+        return TerminalByteTeeInstallation(
+            callback: cmuxTerminalOutputTeeCallback,
+            userdata: teeContext.toOpaque(),
+            lease: Lease(context: teeContext)
         )
-        return Lease(context: teeContext)
     }
 
     @MainActor
     func dropSurface(surfaceID: UUID) {
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+    }
+}
+
+// MARK: Ghostty render worker
+
+/// Process-wide bridge to the supervised AppKit-free Ghostty renderer.
+final class GhosttyRenderRuntimeBridge: TerminalRenderWorkerRouting, @unchecked Sendable {
+    static let shared = GhosttyRenderRuntimeBridge()
+
+    private let client: GhosttyRenderWorkerClient?
+    private let revisionLock = NSLock()
+    private var nextConfigurationRevision: UInt64 = 1
+    private var observationStarted = false
+
+    private init() {
+        do {
+            client = try GhosttyRenderWorkerClient.bundledWorker()
+        } catch {
+            client = nil
+            cmuxDebugLog("ghostty render worker unavailable: \(error)")
+        }
+    }
+
+    func enqueueRenderCommand(_ command: TerminalRenderWorkerCommand) {
+        client?.commandSink.enqueue(command)
+    }
+
+    func updateConfiguration(_ config: ghostty_config_t) {
+        guard let client else { return }
+        let serialized = ghostty_config_serialize(config)
+        defer { ghostty_string_free(serialized) }
+        guard let bytes = serialized.ptr else { return }
+        let contents = String(
+            decoding: UnsafeRawBufferPointer(start: bytes, count: Int(serialized.len)),
+            as: UTF8.self
+        )
+        let state = revisionLock.withLock { () -> (revision: UInt64, startObservation: Bool) in
+            defer { nextConfigurationRevision &+= 1 }
+            let shouldStart = !observationStarted
+            observationStarted = true
+            return (nextConfigurationRevision, shouldStart)
+        }
+        let snapshot = TerminalRenderConfigurationSnapshot(
+            revision: state.revision,
+            contents: contents
+        )
+        if state.startObservation {
+            Task {
+                let events = await client.subscribeEvents()
+                let frames = await client.subscribeFrames()
+                await client.updateConfiguration(snapshot)
+                async let eventObservation: Void = observeEvents(events)
+                async let frameObservation: Void = observeFrames(frames)
+                _ = await (eventObservation, frameObservation)
+            }
+        } else {
+            Task { await client.updateConfiguration(snapshot) }
+        }
+    }
+
+    private func observeEvents(
+        _ events: AsyncStream<GhosttyRenderWorkerClientEvent>
+    ) async {
+        var activeWorkerGeneration: UInt64?
+        for await event in events {
+            switch event {
+            case let .initialized(workerGeneration, _):
+                activeWorkerGeneration = workerGeneration
+                await MainActor.run {
+                    for case let surface as TerminalSurface in GhosttyApp.terminalSurfaceRegistry.allSurfaces() {
+                        surface.renderWorkerDidBecomeReady(workerGeneration: workerGeneration)
+                    }
+                }
+            case let .surfaceCreated(surfaceID, _):
+                guard let activeWorkerGeneration else { continue }
+                await MainActor.run {
+                    guard let surface = GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceID)
+                        as? TerminalSurface else { return }
+                    surface.renderWorkerDidBecomeReady(workerGeneration: activeWorkerGeneration)
+                }
+            case let .resynchronizationRequired(surfaceID, surfaceGeneration):
+                Task { @MainActor in
+                    guard let surface = GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceID)
+                        as? TerminalSurface,
+                        let command = await surface.renderWorkerResynchronizationCommand(
+                            surfaceGeneration: surfaceGeneration
+                        ) else { return }
+                    self.enqueueRenderCommand(command)
+                }
+            case let .workerExited(workerGeneration):
+                if activeWorkerGeneration == workerGeneration {
+                    activeWorkerGeneration = nil
+                }
+                await MainActor.run {
+                    for case let surface as TerminalSurface in GhosttyApp.terminalSurfaceRegistry.allSurfaces() {
+                        surface.renderWorkerDidExit(workerGeneration: workerGeneration)
+                    }
+                }
+            case .outputApplied:
+                break
+            case let .failure(message):
+                cmuxDebugLog("ghostty render worker: \(message)")
+            }
+        }
+    }
+
+    private func observeFrames(_ frames: AsyncStream<TerminalRenderFrame>) async {
+        for await frame in frames {
+            await MainActor.run {
+                guard let surface = GhosttyApp.terminalSurfaceRegistry
+                    .surface(id: frame.metadata.surfaceID) as? TerminalSurface else { return }
+                surface.acceptRenderWorkerFrame(frame)
+            }
+        }
     }
 }
 

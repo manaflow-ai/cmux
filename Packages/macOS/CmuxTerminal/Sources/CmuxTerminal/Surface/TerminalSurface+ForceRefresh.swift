@@ -63,5 +63,6 @@ extension TerminalSurface {
             return
         }
         ghostty_surface_refresh(surface)
+        enqueueRenderMutation(.refresh)
     }
 }

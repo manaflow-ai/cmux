@@ -31,4 +31,34 @@ struct TerminalSurfaceRuntimeScreenTailRequest: @unchecked Sendable {
         }
         return String(bytes: Data(bytes: bytes, count: byteCount), encoding: .utf8)
     }
+
+    func readWithOutputSequence() -> TerminalSurfaceRenderResynchronizationSnapshot? {
+        var text = ghostty_text_s()
+        var nextOutputSequence: UInt64 = 0
+        guard ghostty_surface_read_screen_tail_vt_with_output_sequence(
+            surface,
+            UInt(maxRows),
+            UInt(maxBytes),
+            &text,
+            &nextOutputSequence
+        ) else {
+            return nil
+        }
+        defer { ghostty_surface_free_text(surface, &text) }
+        let data: Data
+        if let bytes = text.text, text.text_len > 0 {
+            data = Data(bytes: bytes, count: Int(text.text_len))
+        } else {
+            data = Data()
+        }
+        return TerminalSurfaceRenderResynchronizationSnapshot(
+            screenTailVT: data,
+            nextOutputSequence: nextOutputSequence
+        )
+    }
+}
+
+struct TerminalSurfaceRenderResynchronizationSnapshot: Sendable {
+    let screenTailVT: Data
+    let nextOutputSequence: UInt64
 }

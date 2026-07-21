@@ -304,6 +304,7 @@ extension TerminalSurface {
         let deferScaleUntilResized = scaleChanged && sizeChanged && (xScale > lastXScale || yScale > lastYScale)
         if scaleChanged && !deferScaleUntilResized {
             ghostty_surface_set_content_scale(surface, xScale, yScale)
+            updateRenderMirrorScale(x: xScale, y: yScale)
             lastXScale = xScale
             lastYScale = yScale
         }
@@ -351,6 +352,7 @@ extension TerminalSurface {
                 writeProcessOutputData(Self.decawmDisableSequence, to: surface)
             }
             ghostty_surface_set_size(surface, wpx, hpx)
+            updateRenderMirrorSize(width: wpx, height: hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
             if manualIO {
@@ -373,6 +375,7 @@ extension TerminalSurface {
         // applying the larger cell only shrinks it back to the final width.
         if deferScaleUntilResized {
             ghostty_surface_set_content_scale(surface, xScale, yScale)
+            updateRenderMirrorScale(x: xScale, y: yScale)
             lastXScale = xScale
             lastYScale = yScale
         }

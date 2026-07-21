@@ -3,6 +3,7 @@ public import Combine
 public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
+public import CmuxTerminalRenderTransport
 #if DEBUG
 internal import CMUXDebugLog
 #endif
@@ -80,6 +81,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let engine: any TerminalEngineHosting
     let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
     let byteTee: any TerminalByteTeeBinding
+    let renderWorker: any TerminalRenderWorkerRouting
     let rendererRealization: any TerminalRendererRealizationScheduling
     let hibernationRecorder: any AgentHibernationRecording
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
@@ -279,6 +281,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// coordinator's request). Releasing earlier is a use-after-free on the
     /// io-reader thread.
     var mobileByteTeeLease: (any TerminalByteTeeLease)?
+    /// Monotonic identity of the worker-owned visual mirror for the current
+    /// native authority surface. This is independent of pointer reuse.
+    var renderMirrorGeneration: UInt64 = 0
+    /// Latest descriptor replayed after worker restart.
+    var renderMirrorDescriptor: TerminalRenderSurfaceDescriptor?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it
@@ -497,6 +504,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.engine = dependencies.engine
         self.spawnPolicyProvider = dependencies.spawnPolicy
         self.byteTee = dependencies.byteTee
+        self.renderWorker = dependencies.renderWorker
         self.rendererRealization = dependencies.rendererRealization
         self.hibernationRecorder = dependencies.hibernationRecorder
         self.runtimeTeardown = dependencies.runtimeTeardown
@@ -576,6 +584,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         claudeCommandShimCompletionTask?.cancel()
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
+        destroyRenderMirror()
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
         // the NSWindow teardown hops to the main actor through the same kind of
         // @unchecked Sendable transport the runtime teardown request uses. The

@@ -1,6 +1,7 @@
 public import AppKit
 public import Foundation
 public import GhosttyKit
+public import CmuxTerminalRenderTransport
 
 // MARK: - Focus, occlusion, and renderer reclamation
 
@@ -16,6 +17,7 @@ extension TerminalSurface {
     /// Without this, `createSurface` would replay a stale state on recreation.
     public func recordExternalFocusState(_ focused: Bool) {
         desiredFocusState = focused
+        enqueueRenderMutation(.focus(focused))
     }
 
     /// Applies a focus state to the runtime surface (deduplicated).
@@ -29,6 +31,7 @@ extension TerminalSurface {
         // layout restoration). createSurface syncs the state once created.
         guard let surface = surface else { return }
         ghostty_surface_set_focus(surface, focused)
+        enqueueRenderMutation(.focus(focused))
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
         // Ghostty's CVDisplayLink can end up started before the display id is valid, leaving
@@ -45,15 +48,14 @@ extension TerminalSurface {
 
     /// Applies the occlusion state to the runtime surface.
     public func setOcclusion(_ visible: Bool) {
-        guard let surface = surface else { return }
-        ghostty_surface_set_occlusion(surface, visible)
+        enqueueRenderMutation(.occlusion(visible))
     }
 
     /// Whether this surface currently holds realized GPU renderer resources.
     /// Read by `RendererRealizationController` to skip surfaces with nothing to
     /// release. Requires a live runtime surface — the `rendererRealized` flag
     /// defaults to `true` even before `createSurface`, so gate on `surface`.
-    public var isRendererRealized: Bool { surface != nil && rendererRealized }
+    public var isRendererRealized: Bool { renderMirrorDescriptor != nil && rendererRealized }
 
     /// Whether this surface's portal is currently visible in the UI. This is the
     /// authoritative on-screen signal (the same one that drives occlusion via
@@ -98,22 +100,10 @@ extension TerminalSurface {
     public func releaseRenderer() -> Bool {
 #if os(macOS)
         guard rendererRealized, !rendererPortalVisible else { return false }
-        // The reclamation controller is default-on and scans every registered
-        // wrapper, so validate the native pointer (registry ownership +
-        // liveness) before the C call instead of trusting `surface != nil`.
-        // This self-heals a stale wrapper whose runtime surface was freed
-        // out-of-band rather than passing a dangling pointer to Ghostty.
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return false }
-        // Only advance our mirror state when the message was actually enqueued
-        // (a `.forever` push can still drop on a spurious wakeup while the
-        // mailbox is full). If it dropped, keep `rendererRealized = true` so the
-        // controller retries on its next pass rather than desyncing from
-        // Ghostty's still-realized swap chain.
-        if ghostty_surface_set_renderer_realized(surface, false) {
-            rendererRealized = false
-            return true
-        }
-        return false
+        guard renderMirrorDescriptor != nil else { return false }
+        enqueueRenderMutation(.rendererRealized(false))
+        rendererRealized = false
+        return true
 #else
         return false
 #endif
@@ -128,28 +118,121 @@ extension TerminalSurface {
     public func realizeRenderer() {
 #if os(macOS)
         guard !rendererRealized else { return }
-        // Validate the native pointer before the C call (see releaseRenderer).
-        // If the wrapper is stale this returns nil and tears it down; the next
-        // createSurface re-creates a fresh realized surface, so we never
-        // double-realize a defunct swap chain.
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.realize") else { return }
-        // Non-blocking enqueue (the C API pushes `.instant`): advance our mirror
-        // state only on success. On re-show the renderer mailbox is normally
-        // empty, so the realize enqueues immediately and the surface is never
-        // presented against a defunct swap chain. In the rare full-mailbox case
-        // the push drops, `rendererRealized` stays false, and the controller's
-        // pass re-realizes any visible-but-unrealized surface as the backstop. We
-        // never block the main actor waiting on the renderer thread.
-        if ghostty_surface_set_renderer_realized(surface, true) {
-            rendererRealized = true
-        } else {
-            // Enqueue dropped (full mailbox, i.e. the renderer thread is not
-            // draining). Kick an immediate reclamation pass so the controller
-            // re-realizes this now-visible surface on the next runloop turn
-            // instead of waiting for the periodic tick, minimizing how long a
-            // re-shown terminal could draw against a defunct swap chain.
-            rendererRealization.scheduleImmediatePass()
-        }
+        guard renderMirrorDescriptor != nil else { return }
+        enqueueRenderMutation(.rendererRealized(true))
+        rendererRealized = true
 #endif
+    }
+
+    func enqueueRenderMutation(_ mutation: TerminalRenderSurfaceMutation) {
+        guard let descriptor = renderMirrorDescriptor else { return }
+        renderWorker.enqueueRenderCommand(.mutateSurface(
+            id: id,
+            generation: descriptor.generation,
+            mutation: mutation
+        ))
+    }
+
+    /// Mirrors the host appearance into the worker-owned renderer.
+    public func setRenderColorScheme(_ rawValue: Int32) {
+        enqueueRenderMutation(.colorScheme(rawValue))
+    }
+
+    public func mirrorRenderPreedit(
+        _ text: String?,
+        selectionStart: Int,
+        selectionLength: Int
+    ) {
+        enqueueRenderMutation(.preedit(
+            text: text,
+            selectionStart: selectionStart,
+            selectionLength: selectionLength
+        ))
+    }
+
+    public func mirrorRenderMousePosition(x: Double, y: Double, modifiers: UInt32) {
+        enqueueRenderMutation(.mousePosition(x: x, y: y, modifiers: modifiers))
+    }
+
+    public func mirrorRenderMouseButton(state: Int32, button: Int32, modifiers: UInt32) {
+        enqueueRenderMutation(.mouseButton(
+            state: state,
+            button: button,
+            modifiers: modifiers
+        ))
+    }
+
+    public func mirrorRenderMouseScroll(deltaX: Double, deltaY: Double, modifiers: UInt32) {
+        enqueueRenderMutation(.mouseScroll(
+            deltaX: deltaX,
+            deltaY: deltaY,
+            modifiers: modifiers
+        ))
+    }
+
+    public func clearRenderSelection() {
+        enqueueRenderMutation(.clearSelection)
+    }
+
+    @MainActor
+    func updateRenderMirrorSize(width: UInt32, height: UInt32) {
+        guard let descriptor = renderMirrorDescriptor else { return }
+        renderMirrorDescriptor = TerminalRenderSurfaceDescriptor(
+            id: descriptor.id,
+            generation: descriptor.generation,
+            width: width,
+            height: height,
+            scaleX: descriptor.scaleX,
+            scaleY: descriptor.scaleY,
+            fontSize: descriptor.fontSize,
+            context: descriptor.context
+        )
+        enqueueRenderMutation(.resize(width: width, height: height))
+        surfaceView.updateRemoteRendererExpectedSize(width: width, height: height)
+    }
+
+    @MainActor
+    func updateRenderMirrorScale(x: Double, y: Double) {
+        guard let descriptor = renderMirrorDescriptor else { return }
+        renderMirrorDescriptor = TerminalRenderSurfaceDescriptor(
+            id: descriptor.id,
+            generation: descriptor.generation,
+            width: descriptor.width,
+            height: descriptor.height,
+            scaleX: x,
+            scaleY: y,
+            fontSize: descriptor.fontSize,
+            context: descriptor.context
+        )
+        enqueueRenderMutation(.contentScale(x: x, y: y))
+    }
+
+    func destroyRenderMirror() {
+        guard let descriptor = renderMirrorDescriptor else { return }
+        renderMirrorDescriptor = nil
+        rendererRealized = false
+        renderWorker.enqueueRenderCommand(.destroySurface(
+            id: descriptor.id,
+            generation: descriptor.generation
+        ))
+    }
+
+    /// Updates the view's frame fence after the worker or this mirror becomes ready.
+    @MainActor
+    public func renderWorkerDidBecomeReady(workerGeneration: UInt64) {
+        guard renderMirrorDescriptor != nil else { return }
+        surfaceView.updateRemoteRendererWorkerGeneration(workerGeneration)
+    }
+
+    /// Retains the last frame while fencing messages from an exited worker.
+    @MainActor
+    public func renderWorkerDidExit(workerGeneration: UInt64) {
+        surfaceView.invalidateRemoteRendererWorkerGeneration(workerGeneration)
+    }
+
+    /// Hands an imported IOSurface to the main-actor presentation layer.
+    @MainActor
+    public func acceptRenderWorkerFrame(_ frame: TerminalRenderFrame) {
+        _ = surfaceView.presentRemoteRendererFrame(frame)
     }
 }

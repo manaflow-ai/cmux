@@ -4,6 +4,7 @@ import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
+import CmuxTerminalRenderTransport
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxTestSupport
@@ -297,6 +298,57 @@ extension GhosttySurfaceCallbackContext {
 extension GhosttyNSView: TerminalSurfaceNativeViewing {}
 extension GhosttySurfaceScrollView: TerminalSurfacePaneHosting {}
 
+extension GhosttyNSView {
+    func configureRemoteRenderer(
+        surfaceID: UUID,
+        surfaceGeneration: UInt64,
+        width: UInt32,
+        height: UInt32
+    ) {
+        let pixelSize = GhosttyRenderPixelSize(width: width, height: height)
+        if let remoteLayer = layer as? GhosttyRemoteIOSurfaceLayer,
+           remoteLayer.surfaceID == surfaceID {
+            remoteLayer.updateSurfaceGeneration(surfaceGeneration)
+            remoteLayer.updateExpectedPixelSize(pixelSize)
+            return
+        }
+
+        let remoteLayer = GhosttyRemoteIOSurfaceLayer(
+            surfaceID: surfaceID,
+            workerGeneration: 0,
+            surfaceGeneration: surfaceGeneration,
+            expectedPixelSize: pixelSize,
+            backingScaleFactor: window?.backingScaleFactor ?? 1
+        )
+        remoteLayer.frame = bounds
+        // AppKit owns the geometry of a view's root backing layer. Giving that
+        // layer an autoresizing mask applies the view's size delta a second
+        // time and can collapse a terminal to one point during split resize.
+        remoteLayer.masksToBounds = true
+        remoteLayer.isOpaque = false
+        layer = remoteLayer
+    }
+
+    func updateRemoteRendererWorkerGeneration(_ generation: UInt64) {
+        (layer as? GhosttyRemoteIOSurfaceLayer)?.updateWorkerGeneration(generation)
+    }
+
+    func invalidateRemoteRendererWorkerGeneration(_ generation: UInt64) {
+        (layer as? GhosttyRemoteIOSurfaceLayer)?.invalidateWorkerGeneration(generation)
+    }
+
+    func updateRemoteRendererExpectedSize(width: UInt32, height: UInt32) {
+        (layer as? GhosttyRemoteIOSurfaceLayer)?.updateExpectedPixelSize(
+            GhosttyRenderPixelSize(width: width, height: height)
+        )
+    }
+
+    @discardableResult
+    func presentRemoteRendererFrame(_ frame: TerminalRenderFrame) -> Bool {
+        (layer as? GhosttyRemoteIOSurfaceLayer)?.present(frame) ?? false
+    }
+}
+
 extension TerminalSurface {
     /// Concrete-typed convenience over ``TerminalSurface/paneHost`` for app
     /// callers. The pane host is always the app's `GhosttySurfaceScrollView`:
@@ -399,7 +451,8 @@ class GhosttyApp {
         engine: GhosttyApp.shared,
         viewProvider: TerminalSurfaceViewFactory(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        byteTee: TerminalOutputByteTeeBridge(),
+        byteTee: TerminalOutputByteTeeBridge(renderWorker: GhosttyRenderRuntimeBridge.shared),
+        renderWorker: GhosttyRenderRuntimeBridge.shared,
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
@@ -1035,6 +1088,9 @@ class GhosttyApp {
         }
 
         // Notify observers that a usable config is available (initial load).
+        if let config {
+            GhosttyRenderRuntimeBridge.shared.updateConfiguration(config)
+        }
         synchronizeGhosttyRuntimeColorScheme(effectiveTerminalColorSchemePreference, source: "initialize")
         lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
@@ -1795,6 +1851,7 @@ class GhosttyApp {
             let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
             ghostty_app_update_config(app, config)
+            GhosttyRenderRuntimeBridge.shared.updateConfiguration(config)
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
@@ -1838,6 +1895,7 @@ class GhosttyApp {
             ghostty_config_free(oldConfig)
         }
         config = newConfig
+        GhosttyRenderRuntimeBridge.shared.updateConfiguration(newConfig)
         lastAppearanceColorScheme = reloadColorScheme
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(
@@ -4146,6 +4204,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
                 lastDrawableSize = drawablePixelSize
             }
+        } else if let remoteLayer = layer as? GhosttyRemoteIOSurfaceLayer {
+            deferredSurfaceSizeNonMetalRetryCount = 0
+            needsSurfaceSizeRetryAfterMetalLayerRealizes = false
+            remoteLayer.updateBackingScaleFactor(layerScale)
+            remoteLayer.updateExpectedPixelSize(GhosttyRenderPixelSize(
+                width: UInt32(clamping: Int(drawablePixelSize.width)),
+                height: UInt32(clamping: Int(drawablePixelSize.height))
+            ))
+            lastDrawableSize = drawablePixelSize
         } else if deferredSurfaceSizeNonMetalRetryCount < Self.maxDeferredSurfaceSizeNonMetalRetryCount,
                   scheduleDeferredSurfaceSizeRetryIfNeeded() {
             needsSurfaceSizeRetryAfterMetalLayerRealizes = true
@@ -4205,6 +4272,57 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return CGSize(width: pointsSize.width * scale, height: pointsSize.height * scale)
     }
 
+    private func mirroredMousePosition(
+        _ surface: ghostty_surface_t,
+        _ x: Double,
+        _ y: Double,
+        _ modifiers: ghostty_input_mods_e
+    ) {
+        ghostty_surface_mouse_pos(surface, x, y, modifiers)
+        terminalSurface?.mirrorRenderMousePosition(
+            x: x,
+            y: y,
+            modifiers: modifiers.rawValue
+        )
+    }
+
+    @discardableResult
+    private func mirroredMouseButton(
+        _ surface: ghostty_surface_t,
+        _ state: ghostty_input_mouse_state_e,
+        _ button: ghostty_input_mouse_button_e,
+        _ modifiers: ghostty_input_mods_e
+    ) -> Bool {
+        let handled = ghostty_surface_mouse_button(surface, state, button, modifiers)
+        terminalSurface?.mirrorRenderMouseButton(
+            state: Int32(truncatingIfNeeded: state.rawValue),
+            button: Int32(truncatingIfNeeded: button.rawValue),
+            modifiers: modifiers.rawValue
+        )
+        return handled
+    }
+
+    private func mirroredMouseScroll(
+        _ surface: ghostty_surface_t,
+        _ deltaX: Double,
+        _ deltaY: Double,
+        _ modifiers: ghostty_input_scroll_mods_t
+    ) {
+        ghostty_surface_mouse_scroll(surface, deltaX, deltaY, modifiers)
+        terminalSurface?.mirrorRenderMouseScroll(
+            deltaX: deltaX,
+            deltaY: deltaY,
+            modifiers: UInt32(bitPattern: Int32(modifiers))
+        )
+    }
+
+    @discardableResult
+    private func clearMirroredSelection(_ surface: ghostty_surface_t) -> Bool {
+        let cleared = GhosttyRuntimeCInterop.clearSelection(surface)
+        terminalSurface?.clearRenderSelection()
+        return cleared
+    }
+
     // Convenience accessor for the ghostty surface
     private var surface: ghostty_surface_t? {
         terminalSurface?.surface
@@ -4229,6 +4347,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         ghostty_surface_set_color_scheme(surface, scheme)
+        terminalSurface?.setRenderColorScheme(Int32(truncatingIfNeeded: scheme.rawValue))
         appliedColorScheme = scheme
         if GhosttyApp.shared.backgroundLogEnabled {
             let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
@@ -4277,10 +4396,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
     func performBindingAction(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
-        return action.withCString { cString in
-            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
-        }
+        terminalSurface?.performBindingAction(action) ?? false
     }
 
     @discardableResult
@@ -4288,7 +4404,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard surface != nil else { return false }
         setKeyboardCopyModeActive(!keyboardCopyModeActive)
         if !keyboardCopyModeActive, let surface {
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+            _ = clearMirroredSelection(surface)
         }
         return true
     }
@@ -4302,7 +4418,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         clearKeyboardCopyModeViewportJumpCursorSync()
         keyboardCopyModeActive = active
         if active, let surface {
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+            _ = clearMirroredSelection(surface)
             keyboardCopyModeCursor = keyboardCopyModeInitialCursor(surface: surface)
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         } else {
@@ -4653,22 +4769,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             rectMaxX: Double(rect.maxX),
             boundsWidth: Double(bounds.width)
         ) else {
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+            _ = clearMirroredSelection(surface)
             return false
         }
         let mods = GHOSTTY_MODS_NONE
 
-        _ = GhosttyRuntimeCInterop.clearSelection(surface)
-        ghostty_surface_mouse_pos(surface, xRange.startX, Double(y), mods)
-        guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+        _ = clearMirroredSelection(surface)
+        mirroredMousePosition(surface, xRange.startX, Double(y), mods)
+        guard mirroredMouseButton(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
+            _ = clearMirroredSelection(surface)
             return false
         }
-        ghostty_surface_mouse_pos(surface, xRange.endX, Double(y), mods)
+        mirroredMousePosition(surface, xRange.endX, Double(y), mods)
         let selectedCursorCell = ghostty_surface_has_selection(surface)
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        _ = mirroredMouseButton(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         guard selectedCursorCell else {
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+            _ = clearMirroredSelection(surface)
             return false
         }
         return true
@@ -4684,7 +4800,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let rows = metrics.rows
         let targetRow = max(0, min(rows - 1, startRow))
         let endRow = min(rows - 1, targetRow + clampedCount - 1)
-        _ = GhosttyRuntimeCInterop.clearSelection(surface)
+        _ = clearMirroredSelection(surface)
 
         let yMax = max(bounds.height - 1, 0)
 
@@ -4701,14 +4817,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let endX = min(metrics.xInset + (CGFloat(metrics.columns) * metrics.cellWidth) - 0.5, xMax)
 
         let mods = GHOSTTY_MODS_NONE
-        ghostty_surface_mouse_pos(surface, Double(startX), Double(startY), mods)
-        guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
+        mirroredMousePosition(surface, Double(startX), Double(startY), mods)
+        guard mirroredMouseButton(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
             return false
         }
         defer {
-            _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+            _ = mirroredMouseButton(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         }
-        ghostty_surface_mouse_pos(surface, Double(endX), Double(endY), mods)
+        mirroredMousePosition(surface, Double(endX), Double(endY), mods)
         return ghostty_surface_has_selection(surface)
     }
     private func keyboardCopyModePendingVisualLineScrollOffset() -> UInt64? {
@@ -4752,7 +4868,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeVisualActive = false
         keyboardCopyModeVisualLineSelection = nil
         keyboardCopyModeVisualLineRuntimeSelectionSynced = false
-        _ = GhosttyRuntimeCInterop.clearSelection(surface)
+        _ = clearMirroredSelection(surface)
     }
 
     private func syncKeyboardCopyModeVisualLineRuntimeSelection(surface: ghostty_surface_t) -> Bool {
@@ -4761,7 +4877,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let scrollOffset = keyboardCopyModePendingVisualLineScrollOffset() ?? scrollbar?.offset ?? 0
         guard let visibleRows = selection.visibleIntersection(scrollOffset: scrollOffset, viewportRows: metrics.rows) else {
             keyboardCopyModeVisualLineRuntimeSelectionSynced = false
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+            _ = clearMirroredSelection(surface)
             return true
         }
 
@@ -4769,7 +4885,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let lineCount = Int(clamping: visibleRows.upperBound - visibleRows.lowerBound + 1)
         let selected = selectKeyboardCopyModeViewportLines(surface: surface, startRow: startRow, lineCount: lineCount)
         keyboardCopyModeVisualLineRuntimeSelectionSynced = selected
-        if !selected { _ = GhosttyRuntimeCInterop.clearSelection(surface) }
+        if !selected { _ = clearMirroredSelection(surface) }
         return selected
     }
 
@@ -4993,7 +5109,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         switch action {
         case .exit:
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+            _ = clearMirroredSelection(surface)
             setKeyboardCopyModeActive(false)
         case .startSelection:
             if selectKeyboardCopyModeCursorCell(surface: surface) {
@@ -5008,7 +5124,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             clearKeyboardCopyModeVisualLineSelection(surface: surface)
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case .copyAndExit:
-            if copyKeyboardCopyModeSelectionToClipboard(surface: surface) { _ = GhosttyRuntimeCInterop.clearSelection(surface); setKeyboardCopyModeActive(false) }
+            if copyKeyboardCopyModeSelectionToClipboard(surface: surface) { _ = clearMirroredSelection(surface); setKeyboardCopyModeActive(false) }
         case .copyLineAndExit:
             let startRow = currentKeyboardCopyModeViewportRow(surface: surface)
             if copyCurrentViewportLinesToClipboard(
@@ -5016,7 +5132,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 startRow: startRow,
                 lineCount: count
             ) {
-                _ = GhosttyRuntimeCInterop.clearSelection(surface)
+                _ = clearMirroredSelection(surface)
                 setKeyboardCopyModeActive(false)
             }
         case let .scrollLines(delta):
@@ -6190,7 +6306,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 #endif
-        ghostty_surface_mouse_pos(
+        mirroredMousePosition(
             surface,
             point.x,
             bounds.height - point.y,
@@ -6486,9 +6602,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
         if event.clickCount == 1 {
-            ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
+            mirroredMousePosition(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
         }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
+        _ = mirroredMouseButton(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
         hasPendingLeftMouseRelease = true
     }
 
@@ -6504,7 +6620,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard hasPendingLeftMouseRelease, let surface else { return false }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
+        mirroredMousePosition(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
         return true
     }
 
@@ -6514,7 +6630,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         hasPendingLeftMouseRelease = false
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
+        let consumed = mirroredMouseButton(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
         return true
     }
@@ -6868,7 +6984,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Refresh ghostty's cached mouse position so quicklook_word reads
         // up-to-date coordinates (mouseDown skips pos update on double-click).
         if let resolvedPoint {
-            ghostty_surface_mouse_pos(
+            mirroredMousePosition(
                 surface,
                 resolvedPoint.x,
                 bounds.height - resolvedPoint.y,
@@ -6979,8 +7095,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let mods = GHOSTTY_MODS_NONE
 
         window?.makeFirstResponder(self)
-        ghostty_surface_mouse_pos(surface, start.x, bounds.height - start.y, mods)
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+        mirroredMousePosition(surface, start.x, bounds.height - start.y, mods)
+        _ = mirroredMouseButton(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
 
         let steps = max(4, Int(max(abs(end.x - start.x), abs(end.y - start.y)) / max(cellSize.width, 1)))
         for step in 1...steps {
@@ -6990,7 +7106,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 y: start.y + ((end.y - start.y) * progress)
             )
             let clampedIntermediatePoint = clampedDebugPoint(intermediatePoint)
-            ghostty_surface_mouse_pos(
+            mirroredMousePosition(
                 surface,
                 clampedIntermediatePoint.x,
                 bounds.height - clampedIntermediatePoint.y,
@@ -6998,7 +7114,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        _ = mirroredMouseButton(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         return ghostty_surface_has_selection(surface)
     }
 
@@ -7008,7 +7124,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let flags: NSEvent.ModifierFlags = [.command]
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: flags)
 
-        ghostty_surface_mouse_pos(
+        mirroredMousePosition(
             surface,
             clampedPoint.x,
             bounds.height - clampedPoint.y,
@@ -7034,7 +7150,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let flags: NSEvent.ModifierFlags = [.command]
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: flags)
 
-        ghostty_surface_mouse_pos(
+        mirroredMousePosition(
             surface,
             clampedPoint.x,
             bounds.height - clampedPoint.y,
@@ -7073,9 +7189,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let mods = mouseModsFromFlags(flags)
 
         window?.makeFirstResponder(self)
-        ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, mods)
-        let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
-        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        mirroredMousePosition(surface, clampedPoint.x, bounds.height - clampedPoint.y, mods)
+        let pressHandled = mirroredMouseButton(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+        let releaseConsumed = mirroredMouseButton(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         let resolution = handleCommandClickRelease(
             at: clampedPoint,
             modifierFlags: flags,
@@ -7116,10 +7232,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         window?.makeFirstResponder(self)
-        ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, noMods)
+        mirroredMousePosition(surface, clampedPoint.x, bounds.height - clampedPoint.y, noMods)
         flagsChanged(with: cmdDown)
-        let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, commandMods)
-        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, commandMods)
+        let pressHandled = mirroredMouseButton(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, commandMods)
+        let releaseConsumed = mirroredMouseButton(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, commandMods)
         flagsChanged(with: cmdUp)
 
         return [
@@ -7162,8 +7278,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
+        mirroredMousePosition(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
+        _ = mirroredMouseButton(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
     }
 
     override func rightMouseUp(with event: NSEvent) {
@@ -7173,7 +7289,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
+        _ = mirroredMouseButton(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -7186,8 +7302,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
+        mirroredMousePosition(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
+        _ = mirroredMouseButton(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -7196,7 +7312,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         guard let surface = surface else { return }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
+        _ = mirroredMouseButton(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -7221,8 +7337,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         if sendsTerminalPointerEvent {
             let point = convert(event.locationInWindow, from: nil)
-            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
-            _ = ghostty_surface_mouse_button(
+            mirroredMousePosition(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
+            _ = mirroredMouseButton(
                 surface,
                 GHOSTTY_MOUSE_PRESS,
                 GHOSTTY_MOUSE_RIGHT,
@@ -7363,7 +7479,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        ghostty_surface_mouse_pos(
+        mirroredMousePosition(
             surface,
             eventPoint.x,
             bounds.height - eventPoint.y,
@@ -7386,7 +7502,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        ghostty_surface_mouse_pos(
+        mirroredMousePosition(
             surface,
             eventPoint.x,
             bounds.height - eventPoint.y,
@@ -7428,7 +7544,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if NSEvent.pressedMouseButtons != 0 {
             return
         }
-        ghostty_surface_mouse_pos(surface, -1, -1, mouseModsFromEvent(event))
+        mirroredMousePosition(surface, -1, -1, mouseModsFromEvent(event))
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -7438,7 +7554,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Forward the raw drag coordinates, including out-of-bounds positions.
         // Selection auto-scroll depends on libghostty observing the pointer leave
         // the viewport rather than a cached in-bounds hover point.
-        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
+        mirroredMousePosition(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
     }
 
     override func rightMouseDragged(with event: NSEvent) {
@@ -7508,7 +7624,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let momentumEnded = event.momentumPhase == .ended || event.momentumPhase == .cancelled
         GhosttyApp.shared.markScrollActivity(hasMomentum: hasMomentum, momentumEnded: momentumEnded)
 
-        ghostty_surface_mouse_scroll(
+        mirroredMouseScroll(
             surface,
             x,
             y,
@@ -11873,11 +11989,17 @@ extension GhosttyNSView: NSTextInputClient {
                     // Subtract 1 for the null terminator
                     ghostty_surface_preedit(surface, ptr, UInt(len - 1))
                 }
+                terminalSurface?.mirrorRenderPreedit(
+                    str,
+                    selectionStart: markedSelectedRange.location,
+                    selectionLength: markedSelectedRange.length
+                )
             }
         } else if clearIfNeeded {
             // If we had marked text before but don't now, we're no longer
             // in a preedit state so we can clear it.
             ghostty_surface_preedit(surface, nil, 0)
+            terminalSurface?.mirrorRenderPreedit(nil, selectionStart: 0, selectionLength: 0)
         }
     }
 
