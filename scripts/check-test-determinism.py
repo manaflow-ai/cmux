@@ -204,6 +204,14 @@ _SLEEP_CALL = re.compile(
     """
 )
 
+_NAMED_SLEEP_CALL = re.compile(r"\b([A-Za-z_]\w*)[?!]?\.sleep\s*\(")
+_LOCAL_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\b")
+_LOCAL_SCOPE_HEADER = re.compile(r"^\s*(?:func\b|init\s*\(|(?:async\s+)?def\b)")
+_REAL_CLOCK_TYPE = re.compile(
+    r":\s*(?:ContinuousClock|SuspendingClock)\??(?=\s|=|[,){]|$)"
+)
+_REAL_CLOCK_INIT = re.compile(r"=\s*(?:ContinuousClock|SuspendingClock)\s*\(")
+
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
 # Python / TS the same character sequence is almost always a quoted string
@@ -443,10 +451,38 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
+def _is_named_real_clock_sleep(lines: list[str], idx: int) -> bool:
+    """Recognize a local receiver explicitly bound to a standard real clock."""
+    sleep_match = _NAMED_SLEEP_CALL.search(lines[idx])
+    if not sleep_match:
+        return False
+    receiver = sleep_match.group(1)
+
+    # The nearest local binding owns the receiver's meaning. Include the prefix
+    # of the sleep line for compact `let clock = ...; await clock.sleep(...)`
+    # forms, but never infer an arbitrary injected `clock.sleep(...)` as real.
+    for j in range(idx, -1, -1):
+        candidate = lines[j]
+        if j == idx:
+            candidate = candidate[: sleep_match.start()]
+        elif _LOCAL_SCOPE_HEADER.search(candidate):
+            return False
+        bindings = list(_LOCAL_BINDING.finditer(candidate))
+        for binding in reversed(bindings):
+            if binding.group(1) != receiver:
+                continue
+            declaration = candidate[binding.end() :]
+            return bool(
+                _REAL_CLOCK_TYPE.search(declaration)
+                or _REAL_CLOCK_INIT.search(declaration)
+            )
+    return False
+
+
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
-    is_sleep = bool(_SLEEP_CALL.search(line))
+    is_sleep = bool(_SLEEP_CALL.search(line)) or _is_named_real_clock_sleep(lines, idx)
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -653,6 +689,13 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/NamedClockTests.swift",
+            "let clock = ContinuousClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/assert_sleep.py",
             "assert await asyncio.sleep(0.3) is None\n"
             "assert widget.is_rendered()\n",
@@ -823,6 +866,26 @@ def _self_test() -> int:
             "Packages/CmuxClock/Tests/QualifiedVirtualClockTests.swift",
             "let expected = TestRelayClock.Event.sleep(initialRefresh)\n"
             "#expect(await clockEvents.next() == expected)\n",
+        ),
+        # The same method spelling stays deterministic when the nearest local
+        # receiver binding is a test clock rather than a standard real clock.
+        (
+            "Packages/CmuxClock/Tests/InjectedVirtualClockTests.swift",
+            "let clock = TestRelayClock()\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
+        # A standard-clock binding in a previous function must not leak into a
+        # later function whose same-named clock is injected.
+        (
+            "Packages/CmuxClock/Tests/ScopedVirtualClockTests.swift",
+            "func makeRealClock() {\n"
+            "    let clock = ContinuousClock()\n"
+            "}\n"
+            "func verifyVirtual(clock: TestRelayClock) async {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
         ),
     ]
 
