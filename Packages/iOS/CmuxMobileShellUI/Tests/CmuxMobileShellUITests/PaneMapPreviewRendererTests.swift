@@ -26,6 +26,32 @@ import Testing
         #expect(rows == ["aXYd"])
     }
 
+    @Test func wideGlyphKeepsFollowingSpansInProducerColumns() {
+        let rows = PaneMapPreviewRenderer.rows(
+            columns: 6,
+            rowCount: 1,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "界A", cellWidth: 3),
+                .init(row: 0, column: 4, text: "Z"),
+            ]
+        )
+
+        #expect(rows == ["界A Z "])
+    }
+
+    @Test func laterSpanClearsWideGlyphWhoseContinuationItOverlaps() {
+        let rows = PaneMapPreviewRenderer.rows(
+            columns: 4,
+            rowCount: 1,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "界A", cellWidth: 3),
+                .init(row: 0, column: 1, text: "XY"),
+            ]
+        )
+
+        #expect(rows == [" XY "])
+    }
+
     @Test func textIsTruncatedAtFinalGridColumn() {
         let rows = PaneMapPreviewRenderer.rows(
             columns: 4,
