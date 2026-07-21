@@ -92,6 +92,9 @@ struct WorkspaceDetailView: View {
     var terminalFilesChipEnabled: Bool {
         displaySettings.terminalFilesChipEnabled
     }
+    var terminalFolderTapEnabled: Bool {
+        displaySettings.terminalFolderTapEnabled
+    }
     var activeSurface: WorkspaceActiveSurface {
         WorkspaceActiveSurface.derive(
             isChatMode: isChatMode,

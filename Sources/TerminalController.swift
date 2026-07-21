@@ -2633,35 +2633,20 @@ class TerminalController {
             v2MainSync {
                 let callerTabManager = AppDelegate.shared?.tabManagerFor(tabId: wsId) ?? tabManager
                 if let ws = callerTabManager.tabs.first(where: { $0.id == wsId }) {
-                    let callerWindowId = v2ResolveWindowId(tabManager: callerTabManager)
-                    var payload: [String: Any] = [
-                        "window_id": v2OrNull(callerWindowId?.uuidString),
-                        "window_ref": v2Ref(kind: .window, uuid: callerWindowId),
-                        "workspace_id": wsId.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
-                    ]
-
-                    if let surfaceId, let target = ws.controlSurfaceTarget(for: surfaceId) {
-                        payload["surface_id"] = target.surfaceID.uuidString
-                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: target.surfaceID)
-                        payload["tab_id"] = target.surfaceID.uuidString
-                        payload["tab_ref"] = v2TabRef(uuid: target.surfaceID)
-                        payload["surface_type"] = target.panel.panelType.rawValue
-                        payload["is_browser_surface"] = target.panel.panelType == .browser
-                        payload["pane_id"] = v2OrNull(target.paneID?.uuidString)
-                        payload["pane_ref"] = v2Ref(kind: .pane, uuid: target.paneID)
-                    } else {
-                        payload["surface_id"] = NSNull()
-                        payload["surface_ref"] = NSNull()
-                        payload["tab_id"] = NSNull()
-                        payload["tab_ref"] = NSNull()
-                        payload["surface_type"] = NSNull()
-                        payload["is_browser_surface"] = NSNull()
-                        payload["pane_id"] = NSNull()
-                        payload["pane_ref"] = NSNull()
-                    }
-                    resolvedCaller = payload
+                    resolvedCaller = v2IdentifyCallerPayload(
+                        workspace: ws,
+                        surfaceId: surfaceId,
+                        tabManager: callerTabManager
+                    )
                 }
+            }
+        }
+        if resolvedCaller == nil, let callerTTY = params["caller_tty"] as? String {
+            v2MainSync {
+                resolvedCaller = v2IdentifyCallerPayload(
+                    callerTTY: callerTTY,
+                    fallbackTabManager: tabManager
+                )
             }
         }
 
