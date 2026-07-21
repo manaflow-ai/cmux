@@ -96,6 +96,12 @@ extension WorkspaceListView {
                     moveFlatRows(from: sourceOffsets, to: destination)
                 }
             } : nil,
+            canDropIntoGroup: enablesReorder && grouped ? { workspaceID, groupID in
+                canJoinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
+            } : nil,
+            dropIntoGroup: enablesReorder && grouped ? { workspaceID, groupID in
+                joinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
+            } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,

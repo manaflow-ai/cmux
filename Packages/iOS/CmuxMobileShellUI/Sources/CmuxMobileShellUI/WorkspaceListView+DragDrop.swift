@@ -142,6 +142,59 @@ extension WorkspaceListView {
         case .groupFooter:
             return
         }
+        applyGroupedWorkspaceMove(
+            intent,
+            movedWorkspaceID: movedWorkspaceID,
+            sourceWorkspaces: sourceWorkspaces
+        )
+    }
+
+    func canJoinGroupAtEnd(
+        workspaceID: MobileWorkspacePreview.ID,
+        groupID: MobileWorkspaceGroupPreview.ID
+    ) -> Bool {
+        guard enablesWorkspaceReorder, rendersGroupedSections else { return false }
+        let sourceWorkspaces = displayedGroupedWorkspaces
+        return MobileWorkspaceMovePolicy(workspaces: sourceWorkspaces, groups: groups)
+            .normalizedIntent(
+                MobileWorkspaceMoveIntent(
+                    groupID: groupID,
+                    beforeWorkspaceID: nil,
+                    movesGroup: false
+                ),
+                movedWorkspaceID: workspaceID
+            ) != nil
+    }
+
+    func joinGroupAtEnd(
+        workspaceID: MobileWorkspacePreview.ID,
+        groupID: MobileWorkspaceGroupPreview.ID
+    ) {
+        guard enablesWorkspaceReorder, rendersGroupedSections else { return }
+        let sourceWorkspaces = displayedGroupedWorkspaces
+        let policy = MobileWorkspaceMovePolicy(workspaces: sourceWorkspaces, groups: groups)
+        guard let intent = policy.normalizedIntent(
+            MobileWorkspaceMoveIntent(
+                groupID: groupID,
+                beforeWorkspaceID: nil,
+                movesGroup: false
+            ),
+            movedWorkspaceID: workspaceID
+        ) else {
+            return
+        }
+        applyGroupedWorkspaceMove(
+            intent,
+            movedWorkspaceID: workspaceID,
+            sourceWorkspaces: sourceWorkspaces
+        )
+    }
+
+    private func applyGroupedWorkspaceMove(
+        _ intent: MobileWorkspaceMoveIntent,
+        movedWorkspaceID: MobileWorkspacePreview.ID,
+        sourceWorkspaces: [MobileWorkspacePreview]
+    ) {
         let movedWorkspaces = sourceWorkspaces.applyingWorkspaceMoveIntent(
             intent,
             movedWorkspaceID: movedWorkspaceID,

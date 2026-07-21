@@ -30,6 +30,8 @@ struct WorkspaceListTable: UIViewRepresentable {
     let initialConnectionDescription: String?
     let enablesReorder: Bool
     let moveRows: ((IndexSet, Int) -> Void)?
+    let canDropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Bool)?
+    let dropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Void)?
 
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)?
