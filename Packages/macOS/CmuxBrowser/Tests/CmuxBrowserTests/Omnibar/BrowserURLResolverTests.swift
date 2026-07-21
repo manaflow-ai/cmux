@@ -42,6 +42,21 @@ import Testing
         #expect(cell.isSelectable)
     }
 
+    @Test @MainActor func fieldEditorSanitizesTypeSpecificPastePath() throws {
+        let expected = "https://example.com/callback?scope=openid%20profile&state=abc123"
+        let wrapped = expected.replacingOccurrences(of: "&state=", with: "&\nstate=")
+        let pasteboard = NSPasteboard(name: .init("cmux.omnibar.tests.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(wrapped, forType: .string)
+        let cell = BrowserOmnibarPasteTextFieldCell(textCell: "")
+        let editor = try #require(
+            cell.fieldEditor(for: NSView()) as? BrowserOmnibarPasteFieldEditor
+        )
+
+        #expect(editor.readSelection(from: pasteboard, type: .string))
+        #expect(editor.string == expected)
+    }
+
     @Test func preservesMeaningfulSpacesInExplicitURLsAndSearchTerms() throws {
         let queryWithSpace = "https://example.com/search?q=hello world"
         let resolvedURL = try #require(resolver.navigableURL(from: queryWithSpace))
