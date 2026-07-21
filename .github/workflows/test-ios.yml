@@ -162,6 +162,14 @@ jobs:
         run: |
           swift test --package-path Packages/iOS/CmuxMobilePairedMac
 
+      - name: Run CmuxMobileRPC package tests
+        run: |
+          swift test --package-path Packages/iOS/CmuxMobileRPC
+
+      - name: Run CmuxMobileShellModel package tests
+        run: |
+          swift test --package-path Packages/iOS/CmuxMobileShellModel
+
       - name: Run CmuxMobileShell package tests
         run: |
           # iOS shell replay/liveness regressions live in this package target.
