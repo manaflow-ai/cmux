@@ -2230,9 +2230,9 @@ mod tests {
             );
         }
 
-        assert_eq!(Action::SelectScreen(1).screen_index(), Some(0));
-        assert_eq!(Action::SelectScreen(9).screen_index(), Some(8));
-        assert_eq!(Action::SelectScreen(0).screen_index(), Some(9));
+        assert_eq!(Action::SelectScreen(0).screen_index(), Some(0));
+        assert_eq!(Action::SelectScreen(1).screen_index(), Some(1));
+        assert_eq!(Action::SelectScreen(9).screen_index(), Some(9));
     }
 
     #[test]

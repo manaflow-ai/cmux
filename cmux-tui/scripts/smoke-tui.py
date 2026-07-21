@@ -636,11 +636,13 @@ ws0 = tree()[0]
 assert len(ws0["screens"]) == 2, ws0
 assert ws0["screens"][1]["active"], ws0
 assert len(ws0["screens"][1]["panes"]) == 1, ws0
+status_line = render_text_snapshot(output).splitlines()[-1]
+assert " screens  0  1  + " in status_line, status_line
 print("prefix-c new screen ok")
 
-# The status bar shows both screens; click screen 1's entry to switch
+# The status bar shows both screens; click screen 0's entry to switch
 # back. Status bar row is the last row (30). The bar starts after the
-# sidebar (col 23 SGR) with " screens " (9 cols), so entry 1 starts at
+# sidebar (col 23 SGR) with " screens " (9 cols), so entry 0 starts at
 # col 32.
 os.write(fd, b"\x1b[<0;33;30M\x1b[<0;33;30m")
 drain(1.0)

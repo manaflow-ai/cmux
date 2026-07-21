@@ -401,6 +401,22 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn unnamed_screens_use_zero_based_display_names() {
+        let screen = ScreenView {
+            id: 1,
+            short_id: "1".to_string(),
+            name: None,
+            layout: Node::Leaf(1),
+            active_pane: 1,
+            zoomed_pane: None,
+            panes: Vec::new(),
+        };
+
+        assert_eq!(screen.display_name(0), "0");
+        assert_eq!(screen.display_name(9), "9");
+    }
+
+    #[test]
     fn protocol_v8_parser_preserves_split_ids() {
         let tree = parse_tree(&json!({
             "workspaces": [{
