@@ -117,6 +117,28 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: firstTicket) == .committed)
     }
 
+    @Test("An abandoned terminal outcome is released with its ticket")
+    func abandonedTerminalOutcomeIsReleased() {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        coordinator.bind(to: instanceID)
+        weak var transaction: BrowserAutomationNavigationTransaction?
+
+        do {
+            let navigation = NSObject()
+            let ticket = coordinator.begin(instanceID: instanceID)
+            transaction = ticket.transaction
+            coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+            coordinator.didFail(
+                instanceID: instanceID,
+                navigationID: ObjectIdentifier(navigation),
+                message: "connection refused"
+            )
+        }
+
+        #expect(transaction == nil)
+    }
+
     @Test("A deferred load can bind when its real navigation starts")
     func deferredLoadBindsOnStart() async {
         let coordinator = BrowserAutomationNavigationCoordinator()

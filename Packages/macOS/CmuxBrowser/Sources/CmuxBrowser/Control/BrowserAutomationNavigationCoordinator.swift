@@ -17,13 +17,6 @@ public final class BrowserAutomationNavigationCoordinator {
     private var activeNavigationID: ObjectIdentifier?
     private var activeNavigationBeganProvisionally = false
     private var activeTargetURL: URL?
-    private var terminalOutcomes: [
-        BrowserAutomationNavigationTicket: BrowserAutomationNavigationOutcome
-    ] = [:]
-    private var waiter: (
-        transactionID: UUID,
-        continuation: AsyncStream<BrowserAutomationNavigationOutcome>.Continuation
-    )?
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
     public init(navigationTimeout: Duration = .seconds(15)) {
@@ -63,7 +56,7 @@ public final class BrowserAutomationNavigationCoordinator {
 
         let ticket = BrowserAutomationNavigationTicket(instanceID: instanceID)
         guard observedInstanceID == instanceID else {
-            terminalOutcomes[ticket] = .superseded
+            ticket.transaction.finish(with: .superseded)
             return ticket
         }
         activeTicket = ticket
@@ -217,19 +210,15 @@ public final class BrowserAutomationNavigationCoordinator {
     ) async -> BrowserAutomationNavigationOutcome {
         guard !Task.isCancelled else {
             cancel(ticket)
-            terminalOutcomes.removeValue(forKey: ticket)
+            ticket.transaction.discardTerminalOutcome()
             return .cancelled
         }
-        if let completed = terminalOutcomes.removeValue(forKey: ticket) {
+        if let completed = ticket.transaction.takeTerminalOutcome() {
             return completed
         }
         guard activeTicket == ticket else { return .superseded }
 
-        let (events, continuation) = AsyncStream.makeStream(
-            of: BrowserAutomationNavigationOutcome.self,
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        waiter = (ticket.transactionID, continuation)
+        let events = ticket.transaction.makeEventStream()
         let outcome = await withTaskGroup(
             of: BrowserAutomationNavigationOutcome.self,
             returning: BrowserAutomationNavigationOutcome.self
@@ -249,18 +238,15 @@ public final class BrowserAutomationNavigationCoordinator {
 
             let first = await group.next() ?? .cancelled
             group.cancelAll()
-            continuation.finish()
+            ticket.transaction.cancelWaiter()
             await group.waitForAll()
             return first
         }
 
-        if waiter?.transactionID == ticket.transactionID {
-            waiter = nil
-        }
-        terminalOutcomes.removeValue(forKey: ticket)
+        ticket.transaction.discardTerminalOutcome()
         if activeTicket == ticket {
             finish(ticket, with: Task.isCancelled ? .cancelled : outcome)
-            terminalOutcomes.removeValue(forKey: ticket)
+            ticket.transaction.discardTerminalOutcome()
         }
         return Task.isCancelled ? .cancelled : outcome
     }
@@ -288,11 +274,6 @@ public final class BrowserAutomationNavigationCoordinator {
         activeNavigationID = nil
         activeNavigationBeganProvisionally = false
         activeTargetURL = nil
-        terminalOutcomes[ticket] = outcome
-        if let waiter, waiter.transactionID == ticket.transactionID {
-            self.waiter = nil
-            waiter.continuation.yield(outcome)
-            waiter.continuation.finish()
-        }
+        ticket.transaction.finish(with: outcome)
     }
 }
