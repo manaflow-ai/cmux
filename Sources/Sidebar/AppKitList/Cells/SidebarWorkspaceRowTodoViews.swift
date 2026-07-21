@@ -318,14 +318,23 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
 
     override func mouseDown(with event: NSEvent) {
         // Swallow so the table row action does not also fire (legacy: the
-        // glyph Button consumes the click without selecting the row).
+        // glyph Button consumes the click without selecting the row), and
+        // dim while pressed like a SwiftUI plain Button.
+        alphaValue = SidebarRowPressedDim.pressedAlpha
     }
 
     override func mouseUp(with event: NSEvent) {
+        alphaValue = 1
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
         onClick?()
     }
+}
+
+/// The SwiftUI plain-button pressed treatment the legacy checklist/status
+/// Buttons had: content dims to half strength while the mouse is down.
+enum SidebarRowPressedDim {
+    static let pressedAlpha: CGFloat = 0.5
 }
 
 // MARK: - Compact status line (hidesAllDetails mode)
@@ -400,8 +409,11 @@ final class SidebarRowCompactStatusLine: NSControl {
     }
 
     override func mouseDown(with event: NSEvent) {
-        // Legacy SwiftUI `Menu` opens on press, not on release.
+        // Legacy SwiftUI `Menu` opens on press, not on release; dim while
+        // the menu tracks (popUp blocks until dismissal).
         guard let menu = menuProvider?() else { return }
+        alphaValue = SidebarRowPressedDim.pressedAlpha
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+        alphaValue = 1
     }
 }

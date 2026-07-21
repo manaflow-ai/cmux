@@ -531,10 +531,13 @@ final class SidebarRowChecklistSummaryLine: NSControl {
 
     override func mouseDown(with event: NSEvent) {
         // Swallow so the table row action does not also fire (legacy Button
-        // consumes the click without selecting the row).
+        // consumes the click without selecting the row), and dim while
+        // pressed like the SwiftUI plain Button this ports.
+        alphaValue = SidebarRowPressedDim.pressedAlpha
     }
 
     override func mouseUp(with event: NSEvent) {
+        alphaValue = 1
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
         onClick?()
@@ -1106,10 +1109,13 @@ final class SidebarRowChecklistGhostAddButton: NSControl {
     }
 
     override func mouseDown(with event: NSEvent) {
-        // Swallow so the table row action does not also fire.
+        // Swallow so the table row action does not also fire; dim while
+        // pressed like the SwiftUI plain Button this ports.
+        alphaValue = SidebarRowPressedDim.pressedAlpha
     }
 
     override func mouseUp(with event: NSEvent) {
+        alphaValue = 1
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
         onClick?()

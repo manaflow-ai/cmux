@@ -839,9 +839,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         ))
     }
 
-    /// Glyph click toggles the status popover (legacy
-    /// `SidebarWorkspaceManualStatusIndicatorMenu`: min width 200, max height
-    /// 400, presented below the glyph).
+    /// Glyph click toggles the status popover (min width 200, max height
+    /// 400). Presented to the RIGHT of the glyph: the glyph hugs the
+    /// sidebar's left edge, so a below-the-anchor popover puts its arrow
+    /// into the rounded corner and renders a deformed beak — `.maxX`
+    /// matches the checklist popover's clean left-edge arrow.
     private func toggleStatusPopover() {
         if statusPopoverPresenter.isShown {
             statusPopoverPresenter.close()
@@ -853,7 +855,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             statusPopoverContent(popoverModel),
             relativeTo: statusGlyphButton.bounds,
             of: statusGlyphButton,
-            preferredEdge: .maxY
+            preferredEdge: .maxX
         )
     }
 
@@ -1187,10 +1189,18 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 
         if !checklistSection.isHidden {
-            y += spacing
             let height = checklistSection.measuredHeight(width: contentWidth)
-            if apply { checklistSection.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
-            y += height
+            if height > 0 {
+                y += spacing
+                if apply { checklistSection.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
+                y += height
+            } else if apply {
+                // Anchor-only mount (zero-item popover style): the section
+                // stays mounted so the open checklist popover keeps its
+                // anchor, but it must not reserve any row height — opening
+                // the first-item popover previously nudged the row taller.
+                checklistSection.frame = NSRect(x: leading, y: y, width: contentWidth, height: 0)
+            }
         }
 
         y += 8
