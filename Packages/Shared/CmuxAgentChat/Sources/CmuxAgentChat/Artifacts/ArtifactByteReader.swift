@@ -25,24 +25,16 @@ public struct ArtifactByteReader: Sendable {
     /// Reads metadata for an already-authorized path.
     public func stat(path: String) throws -> ChatArtifactStat {
         let attributes = try attributes(path: path)
-        let isDirectory = (attributes[.type] as? FileAttributeType) == .typeDirectory
-        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-        let modifiedAt = attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
-        let kind = kind(path: path, isDirectory: isDirectory)
-        return ChatArtifactStat(
-            exists: true,
-            isDirectory: isDirectory,
-            size: size,
-            modifiedAt: modifiedAt,
-            kind: kind,
-            mimeType: mimeType(path: path, isDirectory: isDirectory)
-        )
+        return stat(path: path, attributes: attributes)
     }
 
     /// Reads one clamped byte chunk for an already-authorized file path.
     public func fetch(path: String, offset: Int64, length: Int) throws -> ChatArtifactChunk {
-        let stat = try stat(path: path)
-        guard !stat.isDirectory else { throw Error.unsupportedMedia }
+        let attributes = try attributes(path: path)
+        guard (attributes[.type] as? FileAttributeType) == .typeRegular else {
+            throw Error.unsupportedMedia
+        }
+        let stat = stat(path: path, attributes: attributes)
         guard let handle = FileHandle(forReadingAtPath: path) else {
             throw Error.fileNotFound
         }
@@ -57,6 +49,29 @@ public struct ArtifactByteReader: Sendable {
             offset: clampedOffset,
             totalSize: totalSize,
             eof: endOffset >= totalSize
+        )
+    }
+
+    private func stat(
+        path: String,
+        attributes: [FileAttributeKey: Any]
+    ) -> ChatArtifactStat {
+        let fileType = attributes[.type] as? FileAttributeType
+        let isDirectory = fileType == .typeDirectory
+        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        let modifiedAt = attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
+        let kind = kind(
+            path: path,
+            isDirectory: isDirectory,
+            isRegularFile: fileType == .typeRegular
+        )
+        return ChatArtifactStat(
+            exists: true,
+            isDirectory: isDirectory,
+            size: size,
+            modifiedAt: modifiedAt,
+            kind: kind,
+            mimeType: mimeType(path: path, isDirectory: isDirectory)
         )
     }
 
@@ -132,9 +147,24 @@ public struct ArtifactByteReader: Sendable {
         )
     }
 
-    /// Infers preview category from a path extension and a bounded UTF-8 sniff.
+    /// Infers preview category for a regular file from its extension and a bounded UTF-8 sniff.
     public func kind(path: String, isDirectory: Bool) -> ChatArtifactKind {
         if isDirectory { return .directory }
+        guard let attributes = try? attributes(path: path) else { return .binary }
+        return kind(
+            path: path,
+            isDirectory: false,
+            isRegularFile: (attributes[.type] as? FileAttributeType) == .typeRegular
+        )
+    }
+
+    private func kind(
+        path: String,
+        isDirectory: Bool,
+        isRegularFile: Bool
+    ) -> ChatArtifactKind {
+        if isDirectory { return .directory }
+        guard isRegularFile else { return .binary }
         let fileExtension = URL(fileURLWithPath: path).pathExtension
         let type = fileExtension.isEmpty ? nil : UTType(filenameExtension: fileExtension)
         guard let type, !type.isDynamic else {

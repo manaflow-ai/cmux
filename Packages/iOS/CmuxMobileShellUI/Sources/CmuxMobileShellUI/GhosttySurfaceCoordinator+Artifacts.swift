@@ -255,6 +255,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             didTapAtCol col: Int,
             row: Int
         ) async -> GhosttySurfaceTapDisposition {
+            guard self.surfaceView === surfaceView else { return .ignored }
             // Forward to the Mac's real surface as a left click; libghostty
             // reports it to a TUI with mouse mode, or no-ops on a normal screen.
             if artifactFilesEnabled,
@@ -296,25 +297,27 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     guard decision == .openArtifact else {
                         // Forward only against revalidated content; stale coordinates
                         // are dropped instead of clicking a changed TUI cell.
-                        guard self.surfaceView === surfaceView,
-                              let currentSnapshot = await surfaceView.visibleTextForArtifactHitTesting(),
-                              self.surfaceView === surfaceView,
+                        guard self.surfaceView === surfaceView else { return .ignored }
+                        let currentSnapshot = await surfaceView.visibleTextForArtifactHitTesting()
+                        guard self.surfaceView === surfaceView else { return .ignored }
+                        guard let currentSnapshot,
                               currentSnapshot.text == snapshot.text,
                               currentSnapshot.columns == snapshot.columns else {
                             return .focusTerminal
                         }
                         await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
-                        return .focusTerminal
+                        return self.surfaceView === surfaceView ? .focusTerminal : .ignored
                     }
                     guard self.surfaceView === surfaceView else {
-                        return .focusTerminal
+                        return .ignored
                     }
                     onArtifactPathTapped(path)
                     return .openedArtifact
                 }
             }
+            guard self.surfaceView === surfaceView else { return .ignored }
             await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
-            return .focusTerminal
+            return self.surfaceView === surfaceView ? .focusTerminal : .ignored
         }
 
         func ghosttySurfaceView(
