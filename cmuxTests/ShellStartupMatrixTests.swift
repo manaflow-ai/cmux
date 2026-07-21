@@ -208,6 +208,74 @@ struct ShellStartupMatrixTests {
     }
 
     @Test
+    func transportGenericBootstrapRetainsNormalHangupSemantics() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-generic-bootstrap-hup-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let shell = root.appendingPathComponent("hangup-probe")
+        let marker = root.appendingPathComponent("hangup-probe.txt")
+        let shieldingHelper = home.appendingPathComponent(".cmux/bin/cmux")
+        try fileManager.createDirectory(
+            at: shieldingHelper.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        printf 'started\n' > "\(marker.path)"
+        kill -HUP $$
+        printf 'survived\n' >> "\(marker.path)"
+        """
+        .write(to: shell, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shell.path)
+
+        try """
+        #!/bin/sh
+        [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+        shift
+        executable="${1:-}"
+        [ -n "$executable" ] || exit 2
+        shift
+        trap '' HUP
+        exec "$executable" "$@"
+        """
+        .write(to: shieldingHelper, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shieldingHelper.path)
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: ""
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(home.path)",
+                "SHELL=\(shell.path)",
+                "PATH=/usr/bin:/bin",
+                "USER=\(NSUserName())",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        expectFalse(result.timedOut, result.stderr)
+        expectTrue(
+            result.status != 0,
+            "Mosh and ordinary SSH bootstrap must not shield descendants from transport hangup"
+        )
+        expectEqual(
+            try String(contentsOf: marker, encoding: .utf8),
+            "started\n",
+            "the transport-generic shell must terminate before continuing after SIGHUP"
+        )
+    }
+
+    @Test
     func generatedStagedBootstrapUsesBundledCLIAsPersistentPTYExecHelper() throws {
         let result = try runGeneratedBootstrap(
             shellName: "sh",

@@ -789,6 +789,27 @@ func TestTerminateProcessesSerializesPTYClose(t *testing.T) {
 	}
 }
 
+func TestTerminateProcessesRunsOnlyOnce(t *testing.T) {
+	ptyFile, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open PTY stand-in: %v", err)
+	}
+	t.Cleanup(func() { _ = ptyFile.Close() })
+
+	session := &wsPTYSession{ptyFile: ptyFile}
+	lookupCount := 0
+	lookup := func(*os.File) int {
+		lookupCount++
+		return 0
+	}
+	session.terminateProcessesWithForegroundGroupLookup(lookup)
+	session.terminateProcessesWithForegroundGroupLookup(lookup)
+
+	if lookupCount != 1 {
+		t.Fatalf("process teardown ran %d times, want exactly once", lookupCount)
+	}
+}
+
 func TestWebSocketPTYReplacedAttachmentCannotWriteInput(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
 	server, hub := newTestWebSocketPTYServer(t, leasePath)
