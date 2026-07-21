@@ -145,6 +145,14 @@ public actor FileWatcher {
 
     /// Stops the watcher, tears down its sources, and finishes ``events``.
     /// Idempotent.
+    /// Whether a source is attached to the nearest existing ancestor directory.
+    ///
+    /// `false` means `open(O_EVTONLY)` failed, which `makeSource` reports by returning nil while
+    /// the watcher carries on. Under permission loss or fd exhaustion the stream then exists with
+    /// nothing behind it and can never yield, so a caller waiting for a path to be *created*
+    /// would wait forever. Callers that must not hang read this and fall back instead.
+    public var isWatchingAncestorDirectory: Bool { directorySource != nil }
+
     public func stop() {
         isStopped = true
         throttleTask?.cancel()
