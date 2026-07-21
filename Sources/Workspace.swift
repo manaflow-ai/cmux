@@ -9686,6 +9686,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
         if _dockSplit?.needsConfirmClose() == true { return true }
+        if floatingDocks.contains(where: { $0.store.needsConfirmClose() }) { return true }
         return false
     }
 

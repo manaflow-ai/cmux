@@ -141,6 +141,43 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(savedContents, ["flush me"])
     }
 
+    func testTerminationFlushSynchronouslyCommitsLatestNoteEdit() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = WorkspaceFloatingDockNoteWriter(fileURL: url)
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            presentation: .note(title: "Notes"),
+            textSaver: { content, _, encoding, sequence in
+                await writer.save(
+                    content: content,
+                    encoding: encoding,
+                    sequence: sequence ?? writer.reserveSequence()
+                )
+            },
+            textSaverSynchronously: { content, _, encoding, sequence in
+                writer.saveSynchronously(
+                    content: content,
+                    encoding: encoding,
+                    sequence: sequence
+                )
+            },
+            textSaveSequenceProvider: { writer.reserveSequence() },
+            autosaveDelayNanoseconds: 60_000_000_000
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        panel.updateTextContent("latest editor contents")
+
+        XCTAssertTrue(panel.flushPendingAutosaveSynchronously())
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "latest editor contents")
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertFalse(panel.isSaving)
+        XCTAssertFalse(panel.hasAutosaveError)
+    }
+
     func testExtensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

@@ -89,6 +89,42 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
 }
 
 extension AppDelegate {
+    func autosavingNotePanelsForLifecycle() -> [FilePreviewPanel] {
+        var panelsByIdentity: [ObjectIdentifier: FilePreviewPanel] = [:]
+        var visitedManagers = Set<ObjectIdentifier>()
+
+        func collect(_ manager: TabManager?) {
+            guard let manager,
+                  visitedManagers.insert(ObjectIdentifier(manager)).inserted else { return }
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let preview = panel as? FilePreviewPanel,
+                          preview.presentation.autosavesTextChanges else { continue }
+                    panelsByIdentity[ObjectIdentifier(preview)] = preview
+                }
+            }
+        }
+
+        mainWindowContexts.values.forEach { collect($0.tabManager) }
+        collect(tabManager)
+        recoverableMainWindowRoutes().forEach { collect($0.tabManager) }
+        for store in DockSplitStore.liveStores {
+            for panel in store.panels.values {
+                guard let preview = panel as? FilePreviewPanel,
+                      preview.presentation.autosavesTextChanges else { continue }
+                panelsByIdentity[ObjectIdentifier(preview)] = preview
+            }
+        }
+
+        return Array(panelsByIdentity.values)
+    }
+
+    func flushPendingAutosavingNotesSynchronously() -> Bool {
+        autosavingNotePanelsForLifecycle().reduce(true) { result, panel in
+            panel.flushPendingAutosaveSynchronously() && result
+        }
+    }
+
     static func pendingTerminateReply(
         isAwaitingTerminateKills: Bool,
         hasActiveQuitConfirmation: Bool,

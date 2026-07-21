@@ -103,6 +103,36 @@ struct QuitConfirmationAlertPresenterTests {
         #expect(completedResponse == .alertFirstButtonReturn)
         #expect(completedSuppressionState == .off)
     }
+
+    @Test
+    func appLifecycleFlushIncludesFloatingDockNotes() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-lifecycle-flush-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("note.md")
+        try "original".write(to: noteURL, atomically: true, encoding: .utf8)
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Lifecycle note",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            isPresented: false,
+            noteFilePath: noteURL.path,
+            initialContent: .note,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+        let panel = try #require(dock.notePanel)
+        await panel.loadTextContent().value
+        panel.updateTextContent("flush before termination")
+
+        let appDelegate = AppDelegate()
+        #expect(appDelegate.autosavingNotePanelsForLifecycle().contains { $0 === panel })
+        #expect(appDelegate.flushPendingAutosavingNotesSynchronously())
+        #expect(try String(contentsOf: noteURL, encoding: .utf8) == "flush before termination")
+    }
 }
 
 private final class QuitConfirmationAlertSpy: NSAlert {

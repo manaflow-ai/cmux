@@ -301,6 +301,47 @@ struct WindowDockRoutingSocketTests {
         }
     }
 
+    @Test("Floating Dock note set wins over pending asynchronous restore")
+    @MainActor
+    func floatingDockNoteSetWinsOverPendingRestore() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-set-restore-race-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            try "stale persisted text".write(to: noteURL, atomically: true, encoding: .utf8)
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Restoring note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: noteURL.path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+
+            let response = try await v2EnvelopeOnSocketWorker(
+                method: "workspace.float.note.set",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "float": dock.id.uuidString,
+                    "text": "new socket text",
+                ]
+            )
+            #expect(response["ok"] as? Bool == true)
+            try await Task.sleep(nanoseconds: 50_000_000)
+
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "new socket text")
+            #expect(dock.noteTextSnapshot == "new socket text")
+            #expect(dock.notePanel?.textContent == "new socket text")
+        }
+    }
+
     @Test("Floating Dock socket close bypasses interactive dirty-note confirmation")
     @MainActor
     func floatingDockSocketCloseBypassesInteractiveConfirmation() async throws {

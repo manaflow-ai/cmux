@@ -1860,8 +1860,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func prepareForConfirmedAppTermination() {
+    private func prepareForConfirmedAppTermination() -> Bool {
         isTerminatingApp = true
+        guard flushPendingAutosavingNotesSynchronously() else {
+            isTerminatingApp = false
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.noteFlushFailed")
+            NSSound.beep()
+            return false
+        }
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         // Quit is committed and the critical state is now on disk. Bound the
@@ -1870,6 +1876,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the main thread for ~30s. Idempotent and a no-op if the process exits
         // first.
         terminationWatchdog.arm()
+        return true
     }
 
     private func presentQuitConfirmationAlert(
@@ -1898,7 +1905,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let shouldQuit = response == .alertFirstButtonReturn
         if shouldQuit {
-            prepareForConfirmedAppTermination()
+            guard prepareForConfirmedAppTermination() else {
+                replyToTerminateOnce(false)
+                return
+            }
             isQuitWarningConfirmed = true
             closeAllWebInspectorsBeforeAppTeardown()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
@@ -1945,7 +1955,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: buildFlavor == .dev
         ) {
-            prepareForConfirmedAppTermination()
+            guard prepareForConfirmedAppTermination() else {
+                return .terminateCancel
+            }
             closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
             if isQuitWarningConfirmed {
@@ -1989,6 +2001,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
         isTerminatingApp = true
+        _ = flushPendingAutosavingNotesSynchronously()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         terminationWatchdog.arm()
@@ -4291,6 +4304,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+        var retainedFloatingNotePaths = snapshot.map {
+            WorkspaceFloatingDockNoteStorage.retainedPaths(in: $0)
+        } ?? []
+        retainedFloatingNotePaths.formUnion(
+            autosavingNotePanelsForLifecycle().map { $0.fileURL.standardizedFileURL.path }
+        )
 
         let writeBlock = {
             Self.removeLegacyPersistedWindowGeometry()
@@ -4302,7 +4321,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if let snapshot {
                 Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
-                _ = self.sessionSnapshotStore.save(snapshot, fileURL: nil)
+                if self.sessionSnapshotStore.save(snapshot, fileURL: nil) {
+                    WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
+                        retaining: retainedFloatingNotePaths
+                    )
+                }
             } else if removeWhenEmpty {
                 if preserveManualRestoreBackupOnMissingPrimary {
                     Self.markCrashOnlyPrimarySnapshotRemoval()
@@ -4310,6 +4333,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
                 }
                 self.sessionSnapshotStore.removeSnapshot(fileURL: nil)
+                WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
+                    retaining: retainedFloatingNotePaths
+                )
             }
         }
 

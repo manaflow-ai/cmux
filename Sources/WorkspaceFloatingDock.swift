@@ -82,6 +82,7 @@ final class WorkspaceFloatingDock: Identifiable {
     @ObservationIgnored private(set) var notePanelId: UUID?
     @ObservationIgnored private(set) var noteTextSnapshot = ""
     @ObservationIgnored private var noteTextGeneration = 0
+    @ObservationIgnored private var noteSnapshotIsLoaded = false
     @ObservationIgnored let noteWriter: WorkspaceFloatingDockNoteWriter
     @ObservationIgnored private(set) var initialContentWasCreated = true
 
@@ -131,13 +132,20 @@ final class WorkspaceFloatingDock: Identifiable {
                     sequence: sequence
                 )
             },
+            noteTextSaverSynchronously: { content, _, encoding, sequence in
+                noteWriter.saveSynchronously(
+                    content: content,
+                    encoding: encoding,
+                    sequence: sequence
+                )
+            },
             noteTextSaveSequenceProvider: { noteWriter.reserveSequence() }
         )
-        loadPersistedNoteSnapshot()
 
         if let initialContent {
             initialContentWasCreated = seedInitialContentIfNeeded(initialContent, url: initialURL)
         }
+        loadPersistedNoteSnapshot()
     }
 
     var notePanel: FilePreviewPanel? {
@@ -160,7 +168,6 @@ final class WorkspaceFloatingDock: Identifiable {
             noteTitle: String(localized: "floatingDock.note.title", defaultValue: "Notes")
         )
         bindNotePanel()
-        _ = seedInitialContentIfNeeded(.terminal)
     }
 
     @discardableResult
@@ -186,10 +193,29 @@ final class WorkspaceFloatingDock: Identifiable {
 
     func setNoteTextSnapshot(_ text: String) {
         noteTextGeneration += 1
+        noteSnapshotIsLoaded = true
         noteTextSnapshot = text
     }
 
     var noteSnapshotGeneration: Int { noteTextGeneration }
+
+    func reserveNoteMutation() -> (snapshotGeneration: Int, writeSequence: UInt64) {
+        noteTextGeneration += 1
+        noteSnapshotIsLoaded = true
+        return (noteTextGeneration, noteWriter.reserveSequence())
+    }
+
+    func noteTextSnapshotForControl() -> String {
+        guard !noteSnapshotIsLoaded else { return noteTextSnapshot }
+        noteTextGeneration += 1
+        noteSnapshotIsLoaded = true
+        if case .loaded(let text, _) = FilePreviewTextLoader.loadSynchronously(
+            url: URL(fileURLWithPath: noteFilePath)
+        ) {
+            noteTextSnapshot = text
+        }
+        return noteTextSnapshot
+    }
 
     func applyPersistedNoteText(_ text: String, to panel: FilePreviewPanel?) -> Bool {
         do {
@@ -203,7 +229,6 @@ final class WorkspaceFloatingDock: Identifiable {
 
     private func bindNotePanel() {
         guard let panel = notePanel else { return }
-        setNoteTextSnapshot(panel.textContent)
         panel.autosavedTextDidChange = { [weak self] text in
             self?.setNoteTextSnapshot(text)
         }
@@ -213,10 +238,12 @@ final class WorkspaceFloatingDock: Identifiable {
         let path = noteFilePath
         let generation = noteTextGeneration
         Task { [weak self, path, generation] in
-            guard case .loaded(let text, _) = await FilePreviewTextLoader.load(
-                url: URL(fileURLWithPath: path)
-            ), let self, self.noteTextGeneration == generation else { return }
-            self.noteTextSnapshot = text
+            let result = await FilePreviewTextLoader.load(url: URL(fileURLWithPath: path))
+            guard let self, self.noteTextGeneration == generation else { return }
+            if case .loaded(let text, _) = result {
+                self.noteTextSnapshot = text
+            }
+            self.noteSnapshotIsLoaded = true
         }
     }
 

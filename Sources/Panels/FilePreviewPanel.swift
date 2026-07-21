@@ -1027,6 +1027,12 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         String.Encoding,
         UInt64?
     ) async -> FilePreviewTextSaver.Result
+    private let textSaverSynchronously: @Sendable (
+        String,
+        URL,
+        String.Encoding,
+        UInt64?
+    ) -> FilePreviewTextSaver.Result
     private let textSaveSequenceProvider: (@Sendable () -> UInt64)?
     private let autosaveDelayNanoseconds: UInt64
 
@@ -1049,6 +1055,14 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         ) async -> FilePreviewTextSaver.Result = { content, url, encoding, _ in
             await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
         },
+        textSaverSynchronously: @escaping @Sendable (
+            String,
+            URL,
+            String.Encoding,
+            UInt64?
+        ) -> FilePreviewTextSaver.Result = { content, url, encoding, _ in
+            FilePreviewTextSaver.saveSynchronously(content: content, to: url, encoding: encoding)
+        },
         textSaveSequenceProvider: (@Sendable () -> UInt64)? = nil,
         autosaveDelayNanoseconds: UInt64 = 300_000_000
     ) {
@@ -1059,6 +1073,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.displayTitle = presentation.displayTitle ?? URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
+        self.textSaverSynchronously = textSaverSynchronously
         self.textSaveSequenceProvider = textSaveSequenceProvider
         self.autosaveDelayNanoseconds = autosaveDelayNanoseconds
         let fileURL = URL(fileURLWithPath: filePath)
@@ -1235,6 +1250,44 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         requestAutosave(immediate: true)
     }
 
+    /// Commits the editor's latest text before process teardown. Managed note
+    /// writers serialize this with any in-flight async save by sequence, so an
+    /// older completion cannot overwrite the termination flush.
+    func flushPendingAutosaveSynchronously() -> Bool {
+        guard presentation.autosavesTextChanges, previewMode == .text else { return true }
+        autosaveDebounceTask?.cancel()
+        autosaveDebounceTask = nil
+        autosaveRequested = false
+        autosaveFlushRequested = false
+
+        let currentContent = textView?.string ?? textContent
+        guard isDirty || isSaving || hasAutosaveError else { return true }
+        textLoadGeneration += 1
+        saveGeneration += 1
+        activeSaveGeneration = nil
+        isSaving = false
+        let result = textSaverSynchronously(
+            currentContent,
+            fileURL,
+            textEncoding,
+            textSaveSequenceProvider?()
+        )
+        switch result {
+        case .saved:
+            textContent = currentContent
+            originalTextContent = currentContent
+            isDirty = false
+            isFileUnavailable = false
+            hasAutosaveError = false
+            return true
+        case .failed(let fileExists):
+            isDirty = true
+            isFileUnavailable = presentation.autosavesTextChanges ? false : !fileExists
+            hasAutosaveError = true
+            return false
+        }
+    }
+
     private func requestAutosave(immediate: Bool = false) {
         autosaveRequested = true
         if immediate {
@@ -1363,9 +1416,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             isDirty = false
             isFileUnavailable = false
             hasAutosaveError = false
-            if presentation.autosavesTextChanges {
-                autosavedTextDidChange?(content)
-            }
         }
     }
 

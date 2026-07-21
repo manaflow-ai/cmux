@@ -46,6 +46,12 @@ final class DockSplitStore: BonsplitDelegate {
         String.Encoding,
         UInt64?
     ) async -> FilePreviewTextSaver.Result)?
+    let noteTextSaverSynchronously: (@Sendable (
+        String,
+        URL,
+        String.Encoding,
+        UInt64?
+    ) -> FilePreviewTextSaver.Result)?
     let noteTextSaveSequenceProvider: (@Sendable () -> UInt64)?
     private let loadsConfiguration: Bool
     var panels: [UUID: any Panel] = [:]
@@ -100,6 +106,12 @@ final class DockSplitStore: BonsplitDelegate {
             String.Encoding,
             UInt64?
         ) async -> FilePreviewTextSaver.Result)? = nil,
+        noteTextSaverSynchronously: (@Sendable (
+            String,
+            URL,
+            String.Encoding,
+            UInt64?
+        ) -> FilePreviewTextSaver.Result)? = nil,
         noteTextSaveSequenceProvider: (@Sendable () -> UInt64)? = nil
     ) {
         self.workspaceId = workspaceId
@@ -110,6 +122,7 @@ final class DockSplitStore: BonsplitDelegate {
         self.browserAvailabilityProvider = browserAvailabilityProvider
         self.terminalTransferProvider = terminalTransferProvider
         self.noteTextSaver = noteTextSaver
+        self.noteTextSaverSynchronously = noteTextSaverSynchronously
         self.noteTextSaveSequenceProvider = noteTextSaveSequenceProvider
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
@@ -559,6 +572,9 @@ final class DockSplitStore: BonsplitDelegate {
                 ),
                 textSaver: noteTextSaver ?? { content, url, encoding, _ in
                     await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
+                },
+                textSaverSynchronously: noteTextSaverSynchronously ?? { content, url, encoding, _ in
+                    FilePreviewTextSaver.saveSynchronously(content: content, to: url, encoding: encoding)
                 },
                 textSaveSequenceProvider: noteTextSaveSequenceProvider
             )

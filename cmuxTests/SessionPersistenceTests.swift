@@ -332,6 +332,81 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testFloatingDockNoteStorageRetainsLiveSessionReferences() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [SessionWindowSnapshot(
+                tabManager: SessionTabManagerSnapshot(
+                    selectedWorkspaceIndex: 0,
+                    workspaces: [workspaceSnapshot]
+                ),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 220)
+            )]
+        )
+
+        XCTAssertTrue(
+            WorkspaceFloatingDockNoteStorage.retainedPaths(in: snapshot).contains(
+                URL(fileURLWithPath: dock.noteFilePath).standardizedFileURL.path
+            )
+        )
+    }
+
+    func testFloatingDockNoteStorageOnlyRemovesUnreferencedManagedFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-gc-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = root.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let retained = workspaceDirectory.appendingPathComponent("\(UUID().uuidString.lowercased()).md")
+        let orphaned = workspaceDirectory.appendingPathComponent("\(UUID().uuidString.lowercased()).md")
+        let unmanaged = workspaceDirectory.appendingPathComponent("manual.md")
+        try "retained".write(to: retained, atomically: true, encoding: .utf8)
+        try "orphaned".write(to: orphaned, atomically: true, encoding: .utf8)
+        try "unmanaged".write(to: unmanaged, atomically: true, encoding: .utf8)
+
+        WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
+            retaining: [retained.standardizedFileURL.path],
+            rootDirectory: root
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retained.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphaned.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unmanaged.path))
+    }
+
+    func testFloatingDockNoteStorageDoesNotTraverseSymbolicLinks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-gc-root-\(UUID().uuidString)", isDirectory: true)
+        let externalRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-gc-external-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: externalRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: externalRoot)
+        }
+
+        let externalNote = externalRoot.appendingPathComponent("\(UUID().uuidString.lowercased()).md")
+        try "outside managed storage".write(to: externalNote, atomically: true, encoding: .utf8)
+        let linkedWorkspace = root.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: linkedWorkspace, withDestinationURL: externalRoot)
+
+        WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
+            retaining: [],
+            rootDirectory: root
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: externalNote.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: linkedWorkspace.path))
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)

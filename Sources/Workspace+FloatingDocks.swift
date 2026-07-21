@@ -258,6 +258,13 @@ extension Workspace {
         maximumPanels: Int
     ) -> SessionFloatingDockContentSnapshot? {
         guard maximumPanels > 0 else { return nil }
+        if snapshot.surfaces.isEmpty {
+            return SessionFloatingDockContentSnapshot(
+                layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+                surfaces: [],
+                focusedPanelId: nil
+            )
+        }
         var surfacesById: [UUID: SessionFloatingDockSurfaceSnapshot] = [:]
         for surface in snapshot.surfaces where surfacesById[surface.id] == nil {
             surfacesById[surface.id] = surface
@@ -284,16 +291,7 @@ extension Workspace {
     }
 
     private func floatingDockNoteFileURL(dockId: UUID) -> URL {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support", isDirectory: true)
-        let directory = applicationSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("workspace-notes", isDirectory: true)
-            .appendingPathComponent(stableId.uuidString.lowercased(), isDirectory: true)
-        return directory.appendingPathComponent("\(dockId.uuidString.lowercased()).md")
+        WorkspaceFloatingDockNoteStorage.fileURL(workspaceStableID: stableId, dockID: dockId)
     }
 
     var nextFloatingDockFrame: CGRect {
@@ -347,6 +345,96 @@ enum WorkspaceFloatingDockBackgroundColor {
     }
 }
 
+enum WorkspaceFloatingDockNoteStorage {
+    static func rootDirectory(applicationSupportDirectory: URL? = nil) -> URL {
+        let applicationSupport = applicationSupportDirectory
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("workspace-notes", isDirectory: true)
+    }
+
+    static func fileURL(
+        workspaceStableID: UUID,
+        dockID: UUID,
+        applicationSupportDirectory: URL? = nil
+    ) -> URL {
+        rootDirectory(applicationSupportDirectory: applicationSupportDirectory)
+            .appendingPathComponent(workspaceStableID.uuidString.lowercased(), isDirectory: true)
+            .appendingPathComponent("\(dockID.uuidString.lowercased()).md")
+    }
+
+    static func retainedPaths(in snapshot: AppSessionSnapshot) -> Set<String> {
+        var paths = Set<String>()
+        for window in snapshot.windows {
+            for workspace in window.tabManager.workspaces {
+                for panel in workspace.panels {
+                    if let path = panel.filePreview?.filePath {
+                        paths.insert(URL(fileURLWithPath: path).standardizedFileURL.path)
+                    }
+                }
+                for dock in workspace.floatingDocks ?? [] {
+                    if let stableID = workspace.stableId {
+                        paths.insert(
+                            fileURL(workspaceStableID: stableID, dockID: dock.id)
+                                .standardizedFileURL.path
+                        )
+                    }
+                    for surface in dock.content?.surfaces ?? [] {
+                        if let path = surface.filePreview?.filePath {
+                            paths.insert(URL(fileURLWithPath: path).standardizedFileURL.path)
+                        }
+                    }
+                }
+            }
+        }
+        return paths
+    }
+
+    static func removeOrphanedFiles(
+        retaining retainedPaths: Set<String>,
+        rootDirectory: URL = rootDirectory()
+    ) {
+        let fileManager = FileManager.default
+        let root = rootDirectory.standardizedFileURL
+        guard let workspaceDirectories = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for workspaceDirectory in workspaceDirectories {
+            let workspaceValues = try? workspaceDirectory.resourceValues(
+                forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+            )
+            guard UUID(uuidString: workspaceDirectory.lastPathComponent) != nil,
+                  workspaceValues?.isDirectory == true,
+                  workspaceValues?.isSymbolicLink != true,
+                  let files = try? fileManager.contentsOfDirectory(
+                    at: workspaceDirectory,
+                    includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+                    options: [.skipsHiddenFiles]
+                  ) else { continue }
+            for file in files {
+                let fileValues = try? file.resourceValues(
+                    forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+                )
+                guard file.pathExtension.lowercased() == "md",
+                      UUID(uuidString: file.deletingPathExtension().lastPathComponent) != nil,
+                      fileValues?.isRegularFile == true,
+                      fileValues?.isSymbolicLink != true,
+                      !retainedPaths.contains(file.standardizedFileURL.path) else { continue }
+                try? fileManager.removeItem(at: file)
+            }
+            if (try? fileManager.contentsOfDirectory(atPath: workspaceDirectory.path).isEmpty) == true {
+                try? fileManager.removeItem(at: workspaceDirectory)
+            }
+        }
+    }
+}
+
 private enum FloatingDockRestorePlacement {
     case tab(PaneID)
     case split(
@@ -365,6 +453,13 @@ extension DockSplitStore {
         let surfaces = BonsplitSessionLayoutCodec.orderedPanelIds(in: rawLayout)
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { floatingDockSurfaceSnapshot(panelId: $0, notePanelId: notePanelId) }
+        if surfaces.isEmpty {
+            return SessionFloatingDockContentSnapshot(
+                layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+                surfaces: [],
+                focusedPanelId: nil
+            )
+        }
         let persistedPanelIds = Set(surfaces.map(\.id))
         guard !surfaces.isEmpty,
               let layout = BonsplitSessionLayoutCodec.pruning(rawLayout, keeping: persistedPanelIds) else {
@@ -597,11 +692,38 @@ extension DockSplitStore {
         placement: FloatingDockRestorePlacement
     ) -> UUID? {
         let presentation: FilePreviewPresentation = snapshot.noteTitle.map { .note(title: $0) } ?? .file
-        let panel = FilePreviewPanel(
-            workspaceId: workspaceId,
-            filePath: snapshot.filePath,
-            presentation: presentation
-        )
+        let panel: FilePreviewPanel
+        if presentation.autosavesTextChanges {
+            let writer = WorkspaceFloatingDockNoteWriter(
+                fileURL: URL(fileURLWithPath: snapshot.filePath)
+            )
+            panel = FilePreviewPanel(
+                workspaceId: workspaceId,
+                filePath: snapshot.filePath,
+                presentation: presentation,
+                textSaver: { content, _, encoding, sequence in
+                    await writer.save(
+                        content: content,
+                        encoding: encoding,
+                        sequence: sequence ?? writer.reserveSequence()
+                    )
+                },
+                textSaverSynchronously: { content, _, encoding, sequence in
+                    writer.saveSynchronously(
+                        content: content,
+                        encoding: encoding,
+                        sequence: sequence
+                    )
+                },
+                textSaveSequenceProvider: { writer.reserveSequence() }
+            )
+        } else {
+            panel = FilePreviewPanel(
+                workspaceId: workspaceId,
+                filePath: snapshot.filePath,
+                presentation: presentation
+            )
+        }
         switch placement {
         case .tab(let pane):
             guard attachPanelAsTab(

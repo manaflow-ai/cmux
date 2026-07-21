@@ -93,12 +93,13 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 guard let dock = workspace.floatingDock(selector: selector) else {
                     return .resolution(.floatingDockNotFound)
                 }
+                let mutation = dock.reserveNoteMutation()
                 return .ready(FloatingDockNoteWriteTarget(
                     workspaceID: workspace.id,
                     dockID: dock.id,
                     writer: dock.noteWriter,
-                    snapshotGeneration: dock.noteSnapshotGeneration,
-                    writeSequence: dock.noteWriter.reserveSequence()
+                    snapshotGeneration: mutation.snapshotGeneration,
+                    writeSequence: mutation.writeSequence
                 ))
             }
         }
@@ -264,7 +265,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         case .noteGet(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             let notePanel = floatingDockNotePanel(for: dock, tabManager: tabManager)
-            let text = notePanel?.textContent ?? dock.noteTextSnapshot
+            let text = dock.noteTextSnapshotForControl()
             return .resolved(floatingDockNotePayload(
                 dock: dock, workspace: workspace, notePanel: notePanel, text: text
             ))
