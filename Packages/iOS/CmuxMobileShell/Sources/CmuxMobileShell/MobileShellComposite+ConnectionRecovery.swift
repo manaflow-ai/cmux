@@ -233,12 +233,47 @@ extension MobileShellComposite {
                 // Recovery uses authenticated local Iroh state first. A stuck
                 // account-backup fetch must not block a known EndpointID from
                 // dialing; normal launch reconnect still refreshes first.
-                let reconnectOutcome = await self.reconnectActiveMacOutcome(
-                    stackUserID: stackUserID,
-                    refreshBackupBeforeDial: false
-                )
+                //
+                // The redial runs under a hard deadline. An Iroh dial can hang
+                // far past any per-transport connect timeout (observed: relay
+                // DNS churn for 15+ minutes), and while this attempt is
+                // in-flight the recovery owner defers every other trigger, so
+                // one hung dial used to freeze the entire recovery machine
+                // with no failure, no backoff retry, and a permanent
+                // "Disconnected - Tap Reconnect" dead end
+                // (https://github.com/manaflow-ai/cmux/issues/8531). At the
+                // deadline the attempt is abandoned (generation guards make a
+                // late completion harmless: a late success just connects, a
+                // late failure finds the attempt already settled) and the
+                // transient backoff owner schedules the next automatic try.
+                let deadlineNanoseconds = self.runtime?.reconnectAttemptDeadlineNanoseconds
+                    ?? 30_000_000_000
+                let reconnectOutcome = await Self.raceAgainstDeadline(
+                    nanoseconds: deadlineNanoseconds
+                ) { [weak self] in
+                    await self?.reconnectActiveMacOutcome(
+                        stackUserID: stackUserID,
+                        refreshBackupBeforeDial: false
+                    ) ?? .superseded
+                }
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                guard let reconnectOutcome else {
+                    MobileDebugLog.anchormux(
+                        "connection.recovery redial deadline expired; abandoning attempt \(attempt.id.uuidString)"
+                    )
+                    guard self.failConnectionRecovery(attempt, failure: .timedOut) else { return }
+                    if self.connectionState == .connected {
+                        self.connectionState = .disconnected
+                        self.macConnectionStatus = .unavailable
+                        self.clearRemoteConnectionContext()
+                    }
+                    if let accountID = stackUserID ?? self.identityProvider?.currentUserID {
+                        self.recordTransientAutomaticReconnectBackoff(accountID: accountID)
+                    }
+                    self.applyConnectionRecoveryOwnerState()
+                    return
+                }
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
@@ -803,4 +838,25 @@ extension MobileShellComposite {
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
     ///   passing the real id keys the foreground aggregate state under it instead of
     ///   the synthetic id. `nil` for a genuinely manual/unknown host.
+
+    /// Races `operation` against a wall-clock deadline. Returns the
+    /// operation's value, or `nil` when the deadline expires first. The
+    /// losing side is cancelled best-effort; a hung FFI dial may ignore
+    /// cancellation, which is exactly why the caller must abandon the
+    /// attempt instead of awaiting it forever.
+    static func raceAgainstDeadline<Value: Sendable>(
+        nanoseconds: UInt64,
+        _ operation: @escaping @Sendable () async -> Value
+    ) async -> Value? {
+        await withTaskGroup(of: Value?.self) { group in
+            group.addTask { await operation() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: nanoseconds)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
 }
