@@ -1942,7 +1942,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Mutated by the shared lifecycle methods in `Workspace+FloatingDocks`.
     var floatingDocks: [WorkspaceFloatingDock] = []
     var floatingDockRestoreGeneration = 0
+    var floatingDockRestoreTask: Task<Void, Never>?
     var pendingFloatingDockCloseIds: Set<UUID> = []
+    var floatingDockCloseFailures: [UUID: String] = [:]
     var isPendingCloseAllFloatingDocks = false
 
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
@@ -8531,8 +8533,13 @@ final class Workspace: Identifiable, ObservableObject {
         // but only if the Dock was ever opened for this workspace.
         _dockSplit?.closeAllPanels()
         floatingDockRestoreGeneration &+= 1
+        floatingDockRestoreTask?.cancel()
+        floatingDockRestoreTask = nil
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
+        pendingFloatingDockCloseIds.removeAll()
+        floatingDockCloseFailures.removeAll()
+        isPendingCloseAllFloatingDocks = false
     }
 
     /// Close a panel.

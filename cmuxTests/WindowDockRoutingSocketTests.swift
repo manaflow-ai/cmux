@@ -688,6 +688,86 @@ struct WindowDockRoutingSocketTests {
         #expect(try String(contentsOf: noteURL, encoding: .utf8) == "newer local edit")
     }
 
+    @Test("Floating Dock note reads wait for an already reserved socket write")
+    func floatingDockNoteReadsWaitForReservedSocketWrite() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-read-write-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("note.md")
+        try "old".write(to: noteURL, atomically: true, encoding: .utf8)
+        let writer = WorkspaceFloatingDockNoteWriter(fileURL: noteURL)
+        let loader = WorkspaceFloatingDockNoteLoader(fileURL: noteURL)
+        let writeSequence = writer.reserveControlWriteSequence()
+
+        let read = Task.detached {
+            writer.loadSynchronously(using: loader)
+        }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        guard case .saved = writer.saveSynchronously(
+            content: "new",
+            sequence: writeSequence
+        ) else {
+            Issue.record("Expected the reserved socket write to succeed")
+            return
+        }
+
+        guard case .loaded(let text, _) = await read.value else {
+            Issue.record("Expected the serialized note read to load text")
+            return
+        }
+        #expect(text == "new")
+    }
+
+    @Test("Floating Dock list exposes an asynchronous close save failure")
+    @MainActor
+    func floatingDockListExposesCloseSaveFailure() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-close-status-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let blocker = root.appendingPathComponent("not-a-directory")
+            try "block".write(to: blocker, atomically: true, encoding: .utf8)
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Unsaved note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: blocker.appendingPathComponent("note.md").path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let note = try #require(dock.notePanel)
+            await note.loadTextContent().value
+            note.updateTextContent("must remain recoverable")
+
+            let close = try v2Envelope(method: "workspace.float.close", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+            let closeResult = try #require(close["result"] as? [String: Any])
+            #expect(closeResult["status"] as? String == "pending")
+            let deadline = ContinuousClock.now + .seconds(2)
+            while workspace.pendingFloatingDockCloseIds.contains(dock.id),
+                  ContinuousClock.now < deadline {
+                await Task.yield()
+            }
+
+            let list = try v2Result(method: "workspace.float.list", params: [
+                "workspace_id": workspace.id.uuidString,
+            ])
+            let floats = try #require(list["floats"] as? [[String: Any]])
+            let listedDock = try #require(floats.first { $0["id"] as? String == dock.id.uuidString })
+            #expect(listedDock["close_status"] as? String == "failed")
+            #expect(listedDock["close_error"] as? String == "note_save_failed")
+            #expect(workspace.floatingDock(id: dock.id) === dock)
+        }
+    }
+
     @Test("Socket note updates follow a note moved out of its floating Dock")
     @MainActor
     func socketNoteUpdatesFollowMovedNotePanel() async throws {
@@ -823,7 +903,19 @@ struct WindowDockRoutingSocketTests {
             #expect(moved != created)
 
             dock.isPresented = false
-            #expect(manager.sessionAutosaveFingerprint() != moved)
+            let minimized = manager.sessionAutosaveFingerprint()
+            #expect(minimized != moved)
+
+            let pane = try #require(dock.store.bonsplitController.allPaneIds.first)
+            let notePath = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-fingerprint-extra-\(UUID().uuidString).md").path
+            _ = try #require(dock.store.newSurface(
+                kind: .note,
+                inPane: pane,
+                noteFilePath: notePath,
+                focus: false
+            ))
+            #expect(manager.sessionAutosaveFingerprint() != minimized)
         }
     }
 

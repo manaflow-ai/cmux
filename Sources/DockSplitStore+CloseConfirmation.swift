@@ -150,6 +150,7 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        markSessionPersistenceChanged()
         forceCloseDockTabIds.remove(tabId)
         pendingCloseConfirmDockTabIds.remove(tabId)
         pendingAutosaveCloseDockTabIds.remove(tabId)
@@ -158,6 +159,7 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        markSessionPersistenceChanged()
         reconcilePanels()
     }
 

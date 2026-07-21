@@ -5,6 +5,28 @@ import CmuxWorkspaces
 import CoreGraphics
 import Foundation
 
+private actor WorkspaceFloatingDockNoteMigrationCoordinator {
+    static let shared = WorkspaceFloatingDockNoteMigrationCoordinator()
+
+    /// File migration is intentionally synchronous inside this actor. That
+    /// keeps disk I/O off the main actor and bounds restore fanout to one copy
+    /// at a time across all restoring workspaces.
+    func restore(source: URL, destination: URL) -> URL? {
+        guard !Task.isCancelled else { return nil }
+        return WorkspaceFloatingDockNoteStorage.restoredManagedNoteURL(
+            source: source,
+            destination: destination
+        )
+    }
+}
+
+private struct WorkspaceFloatingDockRestoreRequest: Sendable {
+    let snapshot: SessionFloatingDockSnapshot
+    let content: SessionFloatingDockContentSnapshot?
+    let source: URL
+    let destination: URL
+}
+
 extension Workspace {
     var controlReportingSurfaceIds: Set<UUID> {
         var result = Set(panels.keys)
@@ -224,6 +246,8 @@ extension Workspace {
     func finalizeFloatingDockClose(id: UUID) -> Bool {
         guard let index = floatingDocks.firstIndex(where: { $0.id == id }) else { return false }
         let dock = floatingDocks.remove(at: index)
+        pendingFloatingDockCloseIds.remove(id)
+        floatingDockCloseFailures.removeValue(forKey: id)
         dock.close()
         return true
     }
@@ -241,8 +265,12 @@ extension Workspace {
 
     func finalizeAllFloatingDockCloses() -> Int {
         floatingDockRestoreGeneration &+= 1
+        floatingDockRestoreTask?.cancel()
+        floatingDockRestoreTask = nil
         let docks = floatingDocks
         floatingDocks.removeAll(keepingCapacity: true)
+        pendingFloatingDockCloseIds.removeAll()
+        floatingDockCloseFailures.removeAll()
         docks.forEach { $0.close() }
         return docks.count
     }
@@ -296,15 +324,17 @@ extension Workspace {
         return snapshots.isEmpty ? nil : snapshots
     }
 
-    /// Hashes the same bounded projection that session persistence writes so
-    /// floating-window-only mutations cannot be skipped by periodic autosave.
+    /// Hashes monotonic revisions instead of rebuilding the bounded persistence
+    /// graph on every autosave tick. The full graph is created only when a
+    /// session write is actually needed.
     func combineFloatingDocksIntoSessionAutosaveFingerprint(into hasher: inout Hasher) {
-        let snapshots = floatingDockSessionSnapshots() ?? []
-        hasher.combine(snapshots.count)
-        if let encoded = try? JSONEncoder().encode(snapshots) {
-            hasher.combine(encoded)
-        } else {
-            hasher.combine("floating-dock-snapshot-encoding-failed")
+        let docks = floatingDocks.prefix(SessionPersistencePolicy.maxFloatingDocksPerWorkspace)
+        hasher.combine(docks.count)
+        for dock in docks {
+            hasher.combine(ObjectIdentifier(dock))
+            hasher.combine(dock.id)
+            hasher.combine(dock.sessionMetadataRevision)
+            hasher.combine(dock.store.sessionPersistenceRevision)
         }
     }
 
@@ -314,10 +344,13 @@ extension Workspace {
         snapshotWorkspaceStableId: UUID? = nil
     ) {
         floatingDockRestoreGeneration &+= 1
+        floatingDockRestoreTask?.cancel()
+        floatingDockRestoreTask = nil
         let restoreGeneration = floatingDockRestoreGeneration
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
         var remainingPanelBudget = SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
+        var migrationRequests: [WorkspaceFloatingDockRestoreRequest] = []
         for snapshot in (snapshots ?? []).prefix(SessionPersistencePolicy.maxFloatingDocksPerWorkspace) {
             guard remainingPanelBudget > 0 else { break }
             let content = snapshot.content.flatMap {
@@ -333,45 +366,77 @@ extension Workspace {
             } ?? snapshotWorkspaceStableId.map {
                 WorkspaceFloatingDockNoteStorage.fileURL(workspaceStableID: $0, dockID: snapshot.id)
             }
-            let restore: @MainActor (URL) -> Void = { [weak self] noteURL in
-                guard let self,
-                      self.floatingDockRestoreGeneration == restoreGeneration else { return }
-                _ = self.createFloatingDock(
-                    id: snapshot.id,
-                    title: snapshot.title,
-                    frame: CGRect(
-                        x: snapshot.x,
-                        y: snapshot.y,
-                        width: snapshot.width,
-                        height: snapshot.height
-                    ),
-                    isPresented: snapshot.isPresented,
-                    backgroundTintHex: snapshot.backgroundTintHex,
-                    sessionContent: content,
-                    screenFrame: snapshot.screenFrame?.cgRect,
-                    displaySnapshot: snapshot.display,
-                    configFrames: snapshot.configFrames,
-                    resolvedManagedNoteFileURL: noteURL
-                )
-            }
             if let source,
                source.standardizedFileURL != destination.standardizedFileURL {
-                Task { @MainActor in
-                    let noteURL = await Task.detached(priority: .utility) {
-                        WorkspaceFloatingDockNoteStorage.restoredManagedNoteURL(
-                            source: source,
-                            destination: destination
-                        )
-                    }.value
-                    restore(noteURL)
-                    if let manager = self.owningTabManager {
-                        AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: manager)
-                    }
-                }
+                migrationRequests.append(WorkspaceFloatingDockRestoreRequest(
+                    snapshot: snapshot,
+                    content: content,
+                    source: source,
+                    destination: destination
+                ))
             } else {
-                restore(destination)
+                restoreFloatingDock(
+                    snapshot: snapshot,
+                    content: content,
+                    noteURL: destination,
+                    generation: restoreGeneration
+                )
             }
         }
+        guard !migrationRequests.isEmpty else { return }
+        floatingDockRestoreTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.floatingDockRestoreGeneration == restoreGeneration {
+                    self.floatingDockRestoreTask = nil
+                }
+            }
+            for request in migrationRequests {
+                guard !Task.isCancelled,
+                      self.floatingDockRestoreGeneration == restoreGeneration else { return }
+                guard let noteURL = await WorkspaceFloatingDockNoteMigrationCoordinator.shared.restore(
+                    source: request.source,
+                    destination: request.destination
+                ) else { return }
+                guard !Task.isCancelled,
+                      self.restoreFloatingDock(
+                        snapshot: request.snapshot,
+                        content: request.content,
+                        noteURL: noteURL,
+                        generation: restoreGeneration
+                      ) else { return }
+                if let manager = self.owningTabManager {
+                    AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: manager)
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func restoreFloatingDock(
+        snapshot: SessionFloatingDockSnapshot,
+        content: SessionFloatingDockContentSnapshot?,
+        noteURL: URL,
+        generation: Int
+    ) -> Bool {
+        guard floatingDockRestoreGeneration == generation else { return false }
+        return createFloatingDock(
+            id: snapshot.id,
+            title: snapshot.title,
+            frame: CGRect(
+                x: snapshot.x,
+                y: snapshot.y,
+                width: snapshot.width,
+                height: snapshot.height
+            ),
+            isPresented: snapshot.isPresented,
+            backgroundTintHex: snapshot.backgroundTintHex,
+            sessionContent: content,
+            screenFrame: snapshot.screenFrame?.cgRect,
+            displaySnapshot: snapshot.display,
+            configFrames: snapshot.configFrames,
+            resolvedManagedNoteFileURL: noteURL
+        ) != nil
     }
 
     private static func boundedFloatingDockContent(

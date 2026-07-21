@@ -158,10 +158,12 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        markSessionPersistenceChanged()
         applyDockSelection(tabId: tab.id, inPane: pane)
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
+        markSessionPersistenceChanged()
         guard let tab = controller.selectedTab(inPane: pane) else {
             applyVisibilityToAllPanels()
             return
@@ -180,6 +182,7 @@ extension DockSplitStore {
         newPane: PaneID,
         orientation: SplitOrientation
     ) {
+        markSessionPersistenceChanged()
         scheduleDockPortalReconcile(reason: "dock.splitPane")
         // Programmatic splits (config seed, `newSplit`, cross-container transfer)
         // seed their own new-pane tab, so don't auto-create another.
@@ -207,11 +210,27 @@ extension DockSplitStore {
         fromPane source: PaneID,
         toPane destination: PaneID
     ) {
+        markSessionPersistenceChanged()
         applyDockSelection(tabId: tab.id, inPane: destination)
         let movedPanel = panel(for: tab.id)
         (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
         movedPanel?.focus()
         scheduleDockPortalReconcile(reason: "dock.moveTab")
+    }
+
+    func splitTabBar(
+        _ controller: BonsplitController,
+        didReorderTabsInPane pane: PaneID,
+        orderedTabIds: [TabID]
+    ) {
+        markSessionPersistenceChanged()
+    }
+
+    func splitTabBar(
+        _ controller: BonsplitController,
+        didChangeGeometry snapshot: LayoutSnapshot
+    ) {
+        markSessionPersistenceChanged()
     }
 
     /// Replaces an empty or placeholder-only pane with a real Dock terminal,

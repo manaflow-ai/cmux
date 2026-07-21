@@ -63,11 +63,19 @@ final class DockSplitStore: BonsplitDelegate {
     let noteTextSaveSequenceProvider: (@Sendable () -> UInt64)?
     private let loadsConfiguration: Bool
     var panels: [UUID: any Panel] = [:] {
-        didSet { reconcilePanelOwnerIndex() }
+        didSet {
+            reconcilePanelOwnerIndex()
+            markSessionPersistenceChanged()
+        }
     }
-    var surfaceIdToPanelId: [TabID: UUID] = [:]
+    var surfaceIdToPanelId: [TabID: UUID] = [:] {
+        didSet { markSessionPersistenceChanged() }
+    }
     var panelCancellables: [UUID: AnyCancellable] = [:]
-    @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+    @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:] {
+        didSet { markSessionPersistenceChanged() }
+    }
+    @ObservationIgnored private(set) var sessionPersistenceRevision: UInt64 = 0
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
     private var configurationIdentityTask: Task<Void, Never>?
@@ -199,6 +207,10 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     // MARK: - Lookups
+
+    func markSessionPersistenceChanged() {
+        sessionPersistenceRevision &+= 1
+    }
 
     func currentRemoteBrowserSettings() -> DockRemoteBrowserSettings { remoteBrowserSettingsProvider() }
 
@@ -724,7 +736,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
-            let cancellable = Publishers.CombineLatest4(
+            let metadataCancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
                 browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
@@ -755,9 +767,15 @@ final class DockSplitStore: BonsplitDelegate {
                     isAudioMuted: mutedUpdate
                 )
             }
-            panelCancellables[panel.id] = cancellable
+            let persistenceCancellable = browser.objectWillChange
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in self?.markSessionPersistenceChanged() }
+            panelCancellables[panel.id] = AnyCancellable {
+                metadataCancellable.cancel()
+                persistenceCancellable.cancel()
+            }
         } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
-            let cancellable = terminal.$title
+            let titleCancellable = terminal.$title
                 .removeDuplicates()
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak terminal] _ in
@@ -770,7 +788,13 @@ final class DockSplitStore: BonsplitDelegate {
                     guard existing.title != resolvedTitle else { return }
                     self.bonsplitController.updateTab(tabId, title: resolvedTitle)
                 }
-            panelCancellables[panel.id] = cancellable
+            let persistenceCancellable = terminal.objectWillChange
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in self?.markSessionPersistenceChanged() }
+            panelCancellables[panel.id] = AnyCancellable {
+                titleCancellable.cancel()
+                persistenceCancellable.cancel()
+            }
         }
     }
 

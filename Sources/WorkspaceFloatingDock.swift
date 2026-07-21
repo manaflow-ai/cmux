@@ -21,8 +21,10 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
 
     private let sequenceLock = NSLock()
     private let writeLock = NSLock()
+    private let controlWriteCondition = NSCondition()
     private var nextSequence: UInt64 = 0
     private var latestCommittedSequence: UInt64 = 0
+    private var inFlightControlWriteSequences: Set<UInt64> = []
     let fileURL: URL
 
     init(fileURL: URL) {
@@ -56,6 +58,17 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
         }
     }
 
+    /// Reserves a socket mutation before its worker leaves the main actor.
+    /// Reads that were prepared later wait for this mutation, preserving the
+    /// request order even when separate socket workers reach disk out of order.
+    func reserveControlWriteSequence() -> UInt64 {
+        controlWriteCondition.lock()
+        defer { controlWriteCondition.unlock() }
+        let sequence = reserveSequence()
+        inFlightControlWriteSequences.insert(sequence)
+        return sequence
+    }
+
     func saveSynchronously(
         content: String,
         encoding: String.Encoding = .utf8,
@@ -69,6 +82,7 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
                 return nextSequence
             }
         }
+        defer { finishControlWrite(sequence: sequence) }
         return writeLock.withLock {
             let isCurrent = sequenceLock.withLock { sequence >= latestCommittedSequence }
             guard isCurrent else { return .saved }
@@ -86,6 +100,29 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
             }
             return result
         }
+    }
+
+    /// Loads behind every socket write that had already been reserved. Holding
+    /// the condition until the read owns `writeLock` also gives later writes a
+    /// well-defined order after this read.
+    func loadSynchronously(
+        using loader: WorkspaceFloatingDockNoteLoader
+    ) -> FilePreviewTextLoader.Result {
+        controlWriteCondition.lock()
+        while !inFlightControlWriteSequences.isEmpty {
+            controlWriteCondition.wait()
+        }
+        writeLock.lock()
+        controlWriteCondition.unlock()
+        defer { writeLock.unlock() }
+        return loader.loadSynchronously()
+    }
+
+    private func finishControlWrite(sequence: UInt64) {
+        controlWriteCondition.lock()
+        defer { controlWriteCondition.unlock() }
+        guard inFlightControlWriteSequences.remove(sequence) != nil else { return }
+        controlWriteCondition.broadcast()
     }
 
     func save(
@@ -232,15 +269,30 @@ final class WorkspaceFloatingDockNoteLoader: @unchecked Sendable {
 final class WorkspaceFloatingDock: Identifiable {
     let id: UUID
     let workspaceId: UUID
-    var title: String
-    var frame: CGRect
-    var isPresented: Bool
-    var backgroundTintHex: String?
+    var title: String {
+        didSet { if title != oldValue { sessionMetadataRevision &+= 1 } }
+    }
+    var frame: CGRect {
+        didSet { if frame != oldValue { sessionMetadataRevision &+= 1 } }
+    }
+    var isPresented: Bool {
+        didSet { if isPresented != oldValue { sessionMetadataRevision &+= 1 } }
+    }
+    var backgroundTintHex: String? {
+        didSet { if backgroundTintHex != oldValue { sessionMetadataRevision &+= 1 } }
+    }
     var ownsInputFocus = false
 
-    @ObservationIgnored var screenFrame: CGRect?
-    @ObservationIgnored var displaySnapshot: SessionDisplaySnapshot?
-    @ObservationIgnored var configFrames: SessionConfigFrameRing
+    @ObservationIgnored var screenFrame: CGRect? {
+        didSet { if screenFrame != oldValue { sessionMetadataRevision &+= 1 } }
+    }
+    @ObservationIgnored var displaySnapshot: SessionDisplaySnapshot? {
+        didSet { if displaySnapshot != oldValue { sessionMetadataRevision &+= 1 } }
+    }
+    @ObservationIgnored var configFrames: SessionConfigFrameRing {
+        didSet { if configFrames != oldValue { sessionMetadataRevision &+= 1 } }
+    }
+    @ObservationIgnored private(set) var sessionMetadataRevision: UInt64 = 0
     @ObservationIgnored let store: DockSplitStore
     @ObservationIgnored let noteFilePath: String
     @ObservationIgnored private(set) var notePanelId: UUID?
@@ -359,7 +411,7 @@ final class WorkspaceFloatingDock: Identifiable {
 
     func reserveNoteMutation() -> (snapshotGeneration: Int, writeSequence: UInt64) {
         noteTextGeneration += 1
-        return (noteTextGeneration, noteWriter.reserveSequence())
+        return (noteTextGeneration, noteWriter.reserveControlWriteSequence())
     }
 
     var loadedNoteTextSnapshot: String? {

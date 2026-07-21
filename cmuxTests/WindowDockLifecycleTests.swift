@@ -372,6 +372,46 @@ struct WindowDockLifecycleTests {
         #expect(appDelegate.existingWindowDock(forWindowId: windowId) === dock)
     }
 
+    @Test("Moving the last main panel preserves a workspace that owns floating Docks")
+    @MainActor
+    func externalDropPreservesSourceWorkspaceWithFloatingDock() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let sourceWorkspace = try #require(manager.tabs.first)
+        let sourcePanelId = try #require(sourceWorkspace.panels.keys.first)
+        let sourceTabId = try #require(sourceWorkspace.surfaceIdFromPanelId(sourcePanelId))
+        let floatingDock = try #require(sourceWorkspace.createFloatingDock(initialContent: .note))
+        let destinationWorkspace = manager.addWorkspace(
+            initialSurface: .terminal,
+            select: false,
+            eagerLoadTerminal: true
+        )
+        let destinationDock = destinationWorkspace.dockSplit
+        let destinationPane = try #require(destinationDock.bonsplitController.allPaneIds.first)
+
+        let moved = appDelegate.moveSurfaceIntoDock(
+            sourceTabId: sourceTabId.uuid,
+            destinationDock: destinationDock,
+            destination: .insert(targetPane: destinationPane, targetIndex: nil)
+        )
+
+        #expect(moved)
+        #expect(manager.tabs.contains(where: { $0 === sourceWorkspace }))
+        #expect(sourceWorkspace.floatingDock(id: floatingDock.id) === floatingDock)
+        #expect(sourceWorkspace.panels[sourcePanelId] == nil)
+        #expect(sourceWorkspace.panels.count == 1)
+        #expect(destinationDock.containsPanel(sourcePanelId))
+    }
+
     @Test("External drop keeps remote tmux mirror panes out of Dock")
     @MainActor
     func externalDropIntoOwnWindowDockRejectsRemoteTmuxMirrorPanel() throws {

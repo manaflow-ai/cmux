@@ -5925,10 +5925,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func cleanupEmptySourceWorkspaceAfterSurfaceMove(
         sourceWorkspace: Workspace,
         sourceManager: TabManager,
-        sourceWindowId: UUID
+        sourceWindowId: UUID,
+        preserveIfEmpty: Bool = false
     ) {
         guard sourceWorkspace.panels.isEmpty else { return }
         guard sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }) else { return }
+
+        // Floating Docks are workspace-owned content. Keep their workspace alive
+        // when its last main-area surface moves elsewhere, regardless of which
+        // move entrypoint initiated the transfer.
+        if preserveIfEmpty || !sourceWorkspace.floatingDocks.isEmpty {
+            sourceWorkspace.detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
+            _ = sourceWorkspace.createReplacementTerminalPanel()
+            sourceWorkspace.scheduleTerminalGeometryReconcile()
+            return
+        }
 
         if sourceManager.tabs.count > 1 {
             sourceManager.closeWorkspace(sourceWorkspace, recordHistory: false)

@@ -252,6 +252,7 @@ extension AppDelegate {
         policy: WorkspaceFloatingDockClosePolicy = .confirmInteractive
     ) -> Bool {
         guard workspace.floatingDock(id: dock.id) === dock else { return false }
+        workspace.floatingDockCloseFailures.removeValue(forKey: dock.id)
         let needsNoteFlush = dock.store.needsAutosavingNoteFlush
         if !needsNoteFlush,
            policy == .confirmInteractive,
@@ -268,15 +269,20 @@ extension AppDelegate {
             guard let self else { return }
             if needsNoteFlush {
                 guard await dock.store.flushPendingAutosavingNotes() else {
+                    workspace.floatingDockCloseFailures[dock.id] = "note_save_failed"
                     NSSound.beep()
                     return
                 }
                 guard policy == .force || dock.store.confirmCloseAllPanels() else {
+                    workspace.floatingDockCloseFailures[dock.id] = "close_cancelled"
                     return
                 }
             }
             let closed = workspace.finalizeFloatingDockClose(id: dock.id)
-            guard closed else { return }
+            guard closed else {
+                workspace.floatingDockCloseFailures[dock.id] = "dock_not_found"
+                return
+            }
             self.refreshWorkspaceFloatingDocks(for: tabManager)
         }
         return true
@@ -289,6 +295,9 @@ extension AppDelegate {
         policy: WorkspaceFloatingDockClosePolicy = .confirmInteractive
     ) -> Int? {
         let docks = workspace.floatingDocks
+        for dock in docks {
+            workspace.floatingDockCloseFailures.removeValue(forKey: dock.id)
+        }
         let needsNoteFlush = docks.contains { $0.store.needsAutosavingNoteFlush }
         if !needsNoteFlush,
            policy == .confirmInteractive,
@@ -312,6 +321,7 @@ extension AppDelegate {
             if needsNoteFlush {
                 for dock in docks {
                     guard await dock.store.flushPendingAutosavingNotes() else {
+                        workspace.floatingDockCloseFailures[dock.id] = "note_save_failed"
                         NSSound.beep()
                         return
                     }
@@ -320,7 +330,10 @@ extension AppDelegate {
                    !DockSplitStore.confirmCloseAllPanels(
                        in: docks.map(\.store),
                        confirmationManager: tabManager
-                   ) {
+                ) {
+                    for dock in docks {
+                        workspace.floatingDockCloseFailures[dock.id] = "close_cancelled"
+                    }
                     return
                 }
             }

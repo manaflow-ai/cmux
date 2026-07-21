@@ -341,26 +341,16 @@ extension AppDelegate {
     ) {
         switch source {
         case .workspace(let windowId, let workspace, _, let manager):
-            if preserveSourceWorkspace {
-                preserveEmptySourceWorkspaceAfterSurfaceMove(sourceWorkspace: workspace)
-            } else {
-                cleanupEmptySourceWorkspaceAfterSurfaceMove(
-                    sourceWorkspace: workspace,
-                    sourceManager: manager,
-                    sourceWindowId: windowId
-                )
-            }
+            cleanupEmptySourceWorkspaceAfterSurfaceMove(
+                sourceWorkspace: workspace,
+                sourceManager: manager,
+                sourceWindowId: windowId,
+                preserveIfEmpty: preserveSourceWorkspace
+            )
         case .dock:
             // The Dock auto-closes emptied panes (autoCloseEmptyPanes) and keeps
             // an empty root pane, so there is nothing to tear down.
             break
         }
-    }
-
-    private func preserveEmptySourceWorkspaceAfterSurfaceMove(sourceWorkspace: Workspace) {
-        guard sourceWorkspace.panels.isEmpty else { return }
-        sourceWorkspace.detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
-        _ = sourceWorkspace.createReplacementTerminalPanel()
-        sourceWorkspace.scheduleTerminalGeometryReconcile()
     }
 }

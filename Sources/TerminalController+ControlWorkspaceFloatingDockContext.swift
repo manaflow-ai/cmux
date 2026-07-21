@@ -19,6 +19,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
     private struct FloatingDockNoteReadTarget: Sendable {
         let workspaceID: UUID
         let dockID: UUID
+        let writer: WorkspaceFloatingDockNoteWriter
         let loader: WorkspaceFloatingDockNoteLoader
         let snapshotGeneration: Int
     }
@@ -181,6 +182,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 return .ready(FloatingDockNoteReadTarget(
                     workspaceID: workspace.id,
                     dockID: dock.id,
+                    writer: dock.noteWriter,
                     loader: dock.noteLoader,
                     snapshotGeneration: dock.reserveNoteSnapshotRead()
                 ))
@@ -192,7 +194,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         }
 
         let loadedText: String
-        switch target.loader.loadSynchronously() {
+        switch target.writer.loadSynchronously(using: target.loader) {
         case .loaded(let text, _):
             loadedText = text
         case .missing:
@@ -486,6 +488,15 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         tabManager: TabManager
     ) -> JSONValue {
         let controller = dock.store.bonsplitController
+        let closeFailure = workspace.floatingDockCloseFailures[dock.id]
+        let closeStatus: JSONValue = if workspace.pendingFloatingDockCloseIds.contains(dock.id)
+            || workspace.isPendingCloseAllFloatingDocks {
+            .string("pending")
+        } else if closeFailure != nil {
+            .string("failed")
+        } else {
+            .null
+        }
         let focusedPaneID = controller.focusedPaneId?.id
         let panes: [JSONValue] = controller.allPaneIds.map { paneID in
             let selectedTabID = controller.selectedTab(inPane: paneID)?.id
@@ -511,6 +522,8 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             "presented": .bool(dock.isPresented),
             "visible": .bool(dock.isPresented && tabManager.selectedTabId == workspace.id),
             "focused": .bool(dock.ownsInputFocus),
+            "close_status": closeStatus,
+            "close_error": closeFailure.map(JSONValue.string) ?? .null,
             "background_color": dock.backgroundTintHex.map(JSONValue.string) ?? .null,
             "frame": .object([
                 "x": .double(dock.frame.origin.x),
