@@ -1,11 +1,9 @@
 import Foundation
 
 extension CMUXCLI {
-    private static let claudeLifecycleHookTimeoutSeconds = 5
-
     /// Emits the complete cmux-owned Claude settings object without contacting
-    /// the app socket. Non-decision lifecycle hooks use the same bounded
-    /// fire-and-forget admission path as other installed agent integrations.
+    /// the app socket. Non-decision hooks only admit immutable events to the
+    /// app-owned ordered queue; decision hooks remain direct and synchronous.
     func emitClaudeWrapperInjectSettings() throws {
         let hookCLI = #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}""#
         let lifecycleDefinitions: [(
@@ -22,15 +20,15 @@ extension CMUXCLI {
 
         var hooks: [String: [[String: Any]]] = [:]
         for definition in lifecycleDefinitions {
-            hooks[definition.event, default: []].append(Self.claudeDeferredHookGroup(
+            hooks[definition.event, default: []].append(Self.claudeQueuedHookGroup(
                 matcher: definition.matcher,
-                deliveryArguments: ["hooks", "claude", definition.subcommand]
+                subcommand: definition.subcommand
             ))
         }
 
         hooks["Stop", default: []].append(contentsOf: [
-            Self.claudeDeferredHookGroup(
-                deliveryArguments: ["hooks", "feed", "--source", "claude"]
+            Self.claudeQueuedHookGroup(
+                subcommand: "feed"
             ),
             Self.claudeHookGroup(
                 command: "\(hookCLI) hooks claude auto-name",
@@ -39,8 +37,8 @@ extension CMUXCLI {
             ),
         ])
         hooks["SubagentStop"] = [
-            Self.claudeDeferredHookGroup(
-                deliveryArguments: ["hooks", "feed", "--source", "claude"]
+            Self.claudeQueuedHookGroup(
+                subcommand: "feed"
             ),
         ]
         hooks["PreToolUse"] = [
@@ -49,14 +47,14 @@ extension CMUXCLI {
                 command: "\(hookCLI) hooks claude cron-create-guard",
                 timeout: 5
             ),
-            Self.claudeDeferredHookGroup(
-                deliveryArguments: ["hooks", "claude", "pre-tool-use"]
+            Self.claudeQueuedHookGroup(
+                subcommand: "pre-tool-use"
             ),
         ]
         hooks["PostToolUse"] = [
-            Self.claudeDeferredHookGroup(
+            Self.claudeQueuedHookGroup(
                 matcher: "PushNotification",
-                deliveryArguments: ["hooks", "claude", "push-notification"]
+                subcommand: "push-notification"
             ),
         ]
         hooks["PermissionRequest"] = [
@@ -77,23 +75,18 @@ extension CMUXCLI {
         try FileHandle.standardOutput.write(contentsOf: data)
     }
 
-    private static func claudeDeferredHookGroup(
+    private static func claudeQueuedHookGroup(
         matcher: String = "",
-        deliveryArguments: [String]
+        subcommand: String
     ) -> [String: Any] {
-        let deliveryArgumentSetup = [
-            #"set -- "${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}""#,
-            #"if [ -n "${CMUX_SOCKET_PATH:-}" ]; then set -- "$@" --socket "$CMUX_SOCKET_PATH"; fi"#,
-            "set -- \"$@\" \(deliveryArguments.joined(separator: " "))",
-        ].joined(separator: "; ")
         return claudeHookGroup(
             matcher: matcher,
-            command: boundedFireAndForgetHookShellCommand(
-                deliveryArgumentSetup: deliveryArgumentSetup,
-                agentName: "claude",
-                pidEnvironmentVariable: "CMUX_CLAUDE_PID"
+            command: queuedAgentHookShellCommand(
+                agent: "claude",
+                subcommand: subcommand,
+                disableEnvironmentVariable: "CMUX_CLAUDE_HOOKS_DISABLED"
             ),
-            timeout: claudeLifecycleHookTimeoutSeconds
+            timeout: agentHookDeclaredTimeoutSeconds
         )
     }
 

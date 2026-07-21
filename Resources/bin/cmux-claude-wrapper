@@ -882,8 +882,9 @@ install_cmux_node_options
 
 # Build Claude settings JSON. The bundled CLI owns the lifecycle-hook delivery
 # contract so Claude and the installed agent integrations cannot drift. A
-# missing/older CLI or malformed output falls back atomically to the legacy
-# settings object for rolling app upgrades.
+# missing/older CLI or malformed output falls back atomically to decision hooks
+# only. Lifecycle telemetry is omitted in degraded mode so it cannot reintroduce
+# a blocking socket round-trip or disable Claude's native notifications.
 cmux_claude_json_object_is_valid() {
     local value="$1"
     (( ${#value} > 0 && ${#value} <= 1048576 )) || return 1
@@ -936,7 +937,7 @@ cmux_claude_generate_hook_settings() {
 }
 
 # Claude Code merges --settings additively with the user's own settings.json.
-# - preferredNotifChannel: disables Claude Code's OSC/terminal notification
+# Generated settings also set preferredNotifChannel to disable Claude Code's OSC/terminal notification
 #   channel inside cmux so hooks are the only notification source.
 # - SessionStart/Stop/Notification: existing lifecycle hooks
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
@@ -966,13 +967,12 @@ cmux_claude_generate_hook_settings() {
 #   timeout because it may run a summarization subprocess; it gates itself
 #   on the workspaceAutoNaming setting via a socket probe, so it is a
 #   no-op when the feature is disabled.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
-CMUX_GENERATED_HOOKS_JSON="$(cmux_claude_generate_hook_settings)"
-cmux_generate_status=$?
-if [[ $cmux_generate_status -eq 0 ]] && cmux_claude_json_object_is_valid "$CMUX_GENERATED_HOOKS_JSON"; then
+HOOKS_JSON='{"hooks":{"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+if CMUX_GENERATED_HOOKS_JSON="$(cmux_claude_generate_hook_settings)" \
+    && cmux_claude_json_object_is_valid "$CMUX_GENERATED_HOOKS_JSON"; then
     HOOKS_JSON="$CMUX_GENERATED_HOOKS_JSON"
 fi
-unset CMUX_GENERATED_HOOKS_JSON cmux_generate_status
+unset CMUX_GENERATED_HOOKS_JSON
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.
 #

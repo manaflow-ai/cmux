@@ -4,24 +4,18 @@ import Testing
 
 @Suite(.serialized)
 struct CLIClaudeHookTimeoutRegressionTests {
-    @Test("Claude launch falls back when hook settings generation hangs")
-    func settingsGenerationHasAStartupDeadline() throws {
+    @Test("Claude launch fallback omits blocking lifecycle hooks")
+    func settingsGenerationFailureInstallsOnlyDecisionHooks() throws {
         let fileManager = FileManager.default
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let wrapper = repositoryRoot.appendingPathComponent(
-            "Resources/bin/cmux-claude-wrapper",
-            isDirectory: false
-        )
+        let wrapper = repositoryRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper")
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-claude-settings-deadline-\(UUID().uuidString)",
             isDirectory: true
         )
         let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
-        let fakeCLI = binDirectory.appendingPathComponent("cmux", isDirectory: false)
-        let fakeClaude = binDirectory.appendingPathComponent("claude", isDirectory: false)
-        let capturedSettings = root.appendingPathComponent("settings.json", isDirectory: false)
+        let fakeCLI = binDirectory.appendingPathComponent("cmux")
+        let fakeClaude = binDirectory.appendingPathComponent("claude")
+        let capturedSettings = root.appendingPathComponent("settings.json")
         let socketPath = makeCodexHookSocketPath("claude-deadline")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
@@ -37,64 +31,56 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "if [ \"${1:-}\" = \"hooks\" ] && [ \"${2:-}\" = \"claude\" ] && [ \"${3:-}\" = \"inject-settings\" ]; then exec /bin/sleep 30; fi",
             "exit 1",
         ])
-        try makeCodexHookExecutableShellFile(at: fakeClaude, lines: [
-            "#!/bin/sh",
-            "while [ \"$#\" -gt 0 ]; do",
-            "  if [ \"$1\" = \"--settings\" ]; then shift; printf '%s' \"$1\" > \"$CMUX_TEST_SETTINGS\"; fi",
-            "  shift",
-            "done",
-        ])
+        try makeSettingsCapturingClaude(at: fakeClaude)
 
-        let wrapperRun = runCodexHookProcess(
+        let result = runCodexHookProcess(
             executablePath: wrapper.path,
             arguments: [],
-            environment: [
-                "HOME": root.path,
-                "PATH": "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
-                "TMPDIR": root.path,
-                "CMUX_SURFACE_ID": "surface-8535-deadline",
-                "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
-                "CMUX_CUSTOM_CLAUDE_PATH": fakeClaude.path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_TEST_SETTINGS": capturedSettings.path,
-            ],
+            environment: wrapperEnvironment(
+                root: root,
+                binDirectory: binDirectory,
+                cli: fakeCLI,
+                claude: fakeClaude,
+                settings: capturedSettings,
+                socketPath: socketPath
+            ),
             timeout: 3
         )
 
-        #expect(!wrapperRun.timedOut, Comment(rawValue: wrapperRun.stderr))
-        #expect(wrapperRun.status == 0, Comment(rawValue: wrapperRun.stderr))
-        let settings = try String(contentsOf: capturedSettings, encoding: .utf8)
-        #expect(settings.contains(#"hooks claude prompt-submit","timeout":10"#))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let settings = try settingsObject(at: capturedSettings)
+        #expect(settings["preferredNotifChannel"] == nil)
+        let hooks = try #require(settings["hooks"] as? [String: Any])
+        #expect(Set(hooks.keys) == Set(["PreToolUse", "PermissionRequest"]))
+        try expectDirectHook(
+            hooks,
+            event: "PreToolUse",
+            command: #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude cron-create-guard"#,
+            timeout: 5
+        )
+        try expectDirectHook(
+            hooks,
+            event: "PermissionRequest",
+            command: #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude"#,
+            timeout: 125
+        )
     }
 
-    @Test("Claude prompt admission does not wait for cmux delivery")
-    func promptSubmitReturnsBeforeSlowDeliveryFinishes() throws {
+    @Test("Claude non-decision hooks use bounded ordered admission")
+    func generatedSettingsUseQueuedAdmissionAndPreserveDecisionHooks() throws {
         let fileManager = FileManager.default
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let wrapper = repositoryRoot.appendingPathComponent(
-            "Resources/bin/cmux-claude-wrapper",
-            isDirectory: false
-        )
+        let wrapper = repositoryRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper")
         let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-claude-prompt-hook-\(UUID().uuidString)",
+            "cmux-claude-queued-hooks-\(UUID().uuidString)",
             isDirectory: true
         )
         let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
-        let fakeCLI = binDirectory.appendingPathComponent("cmux", isDirectory: false)
-        let fakeClaude = binDirectory.appendingPathComponent("claude", isDirectory: false)
-        let fakeSleep = binDirectory.appendingPathComponent("sleep", isDirectory: false)
-        let settingsFile = root.appendingPathComponent("settings.json", isDirectory: false)
-        let capturedStdin = root.appendingPathComponent("hook-stdin.json", isDirectory: false)
-        let capturedArguments = root.appendingPathComponent("hook-args.txt", isDirectory: false)
-        let capturedPID = root.appendingPathComponent("hook-pid.txt", isDirectory: false)
-        let deliveryRelease = root.appendingPathComponent("hook-release", isDirectory: false)
-        let deliveryDone = root.appendingPathComponent("hook-done.txt", isDirectory: false)
-        let watchdogPIDFile = root.appendingPathComponent("watchdog-pid.txt", isDirectory: false)
-        let socketPath = makeCodexHookSocketPath("claude")
+        let fakeCLI = binDirectory.appendingPathComponent("cmux")
+        let fakeClaude = binDirectory.appendingPathComponent("claude")
+        let capturedSettings = root.appendingPathComponent("settings.json")
+        let socketPath = makeCodexHookSocketPath("claude-queue")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
         defer {
@@ -107,107 +93,45 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "#!/bin/sh",
             "if [ \"${1:-}\" = \"--socket\" ] && [ \"${3:-}\" = \"ping\" ]; then exit 0; fi",
             "if [ \"${1:-}\" = \"hooks\" ] && [ \"${2:-}\" = \"claude\" ] && [ \"${3:-}\" = \"inject-settings\" ]; then exec \"$CMUX_TEST_REAL_CLI\" \"$@\"; fi",
-            "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
-            "printf '%s\\n' \"${CMUX_CLAUDE_PID:-}\" > \"$CMUX_TEST_PID\"",
-            "cat > \"$CMUX_TEST_STDIN\"",
-            "while [ ! -e \"$CMUX_TEST_RELEASE\" ]; do /bin/sleep 0.01; done",
-            "printf done > \"$CMUX_TEST_DONE\"",
+            "exit 1",
         ])
-        try makeCodexHookExecutableShellFile(at: fakeClaude, lines: [
-            "#!/bin/sh",
-            "while [ \"$#\" -gt 0 ]; do",
-            "  if [ \"$1\" = \"--settings\" ]; then shift; printf '%s' \"$1\" > \"$CMUX_TEST_SETTINGS\"; fi",
-            "  shift",
-            "done",
-        ])
-        try makeCodexHookExecutableShellFile(at: fakeSleep, lines: [
-            "#!/bin/sh",
-            "printf '%s\\n' \"$$\" > \"$CMUX_TEST_WATCHDOG_PID\"",
-            "exec /bin/sleep \"$@\"",
-        ])
+        try makeSettingsCapturingClaude(at: fakeClaude)
+        var environment = wrapperEnvironment(
+            root: root,
+            binDirectory: binDirectory,
+            cli: fakeCLI,
+            claude: fakeClaude,
+            settings: capturedSettings,
+            socketPath: socketPath
+        )
+        environment["CMUX_TEST_REAL_CLI"] = cliPath
 
-        let baseEnvironment = [
-            "HOME": root.path,
-            "PATH": "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
-            "TMPDIR": root.path,
-            "CMUX_SURFACE_ID": "surface-8535",
-            "CMUX_SOCKET_PATH": socketPath,
-            "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
-            "CMUX_CUSTOM_CLAUDE_PATH": fakeClaude.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_TEST_REAL_CLI": cliPath,
-            "CMUX_TEST_SETTINGS": settingsFile.path,
-            "CMUX_TEST_STDIN": capturedStdin.path,
-            "CMUX_TEST_ARGS": capturedArguments.path,
-            "CMUX_TEST_PID": capturedPID.path,
-            "CMUX_TEST_RELEASE": deliveryRelease.path,
-            "CMUX_TEST_DONE": deliveryDone.path,
-            "CMUX_TEST_WATCHDOG_PID": watchdogPIDFile.path,
-        ]
-        let wrapperRun = runCodexHookProcess(
+        let result = runCodexHookProcess(
             executablePath: wrapper.path,
             arguments: [],
-            environment: baseEnvironment,
+            environment: environment,
             timeout: 5
         )
-        #expect(!wrapperRun.timedOut, Comment(rawValue: wrapperRun.stderr))
-        #expect(wrapperRun.status == 0, Comment(rawValue: wrapperRun.stderr))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
 
-        let settings = try #require(
-            JSONSerialization.jsonObject(with: Data(contentsOf: settingsFile)) as? [String: Any]
-        )
+        let settings = try settingsObject(at: capturedSettings)
+        #expect(settings["preferredNotifChannel"] as? String == "notifications_disabled")
         let hooks = try #require(settings["hooks"] as? [String: Any])
-        let promptGroups = try #require(hooks["UserPromptSubmit"] as? [[String: Any]])
-        let promptGroup = try #require(promptGroups.first)
-        let promptHooks = try #require(promptGroup["hooks"] as? [[String: Any]])
-        let promptHook = try #require(promptHooks.first)
-        let promptCommand = try #require(promptHook["command"] as? String)
-        #expect(promptHook["timeout"] as? Int == 5)
-        try expectDeferredHook(
-            hooks,
-            event: "SessionStart",
-            commandFragment: "hooks claude session-start"
-        )
-        try expectDeferredHook(
-            hooks,
-            event: "Stop",
-            commandFragment: "hooks claude stop"
-        )
-        try expectDeferredHook(
-            hooks,
-            event: "Stop",
-            commandFragment: "hooks feed --source claude"
-        )
-        try expectDeferredHook(
-            hooks,
-            event: "SubagentStop",
-            commandFragment: "hooks feed --source claude"
-        )
-        try expectDeferredHook(
-            hooks,
-            event: "SessionEnd",
-            commandFragment: "hooks claude session-end"
-        )
-        try expectDeferredHook(
-            hooks,
-            event: "Notification",
-            commandFragment: "hooks claude notification"
-        )
-        try expectDeferredHook(
-            hooks,
-            event: "UserPromptSubmit",
-            commandFragment: "hooks claude prompt-submit"
-        )
-        try expectDeferredHook(
-            hooks,
-            event: "PreToolUse",
-            commandFragment: "hooks claude pre-tool-use"
-        )
-        try expectDeferredHook(
-            hooks,
-            event: "PostToolUse",
-            commandFragment: "hooks claude push-notification"
-        )
+        let queuedHooks = [
+            ("SessionStart", "session-start"),
+            ("Stop", "stop"),
+            ("Stop", "feed"),
+            ("SubagentStop", "feed"),
+            ("SessionEnd", "session-end"),
+            ("Notification", "notification"),
+            ("UserPromptSubmit", "prompt-submit"),
+            ("PreToolUse", "pre-tool-use"),
+            ("PostToolUse", "push-notification"),
+        ]
+        for (event, subcommand) in queuedHooks {
+            try expectQueuedHook(hooks, event: event, subcommand: subcommand)
+        }
         try expectDirectHook(
             hooks,
             event: "PreToolUse",
@@ -228,51 +152,178 @@ struct CLIClaudeHookTimeoutRegressionTests {
             isAsync: true
         )
 
-        let payload = #"{"session_id":"claude-session","turn_id":"turn-8535","hook_event_name":"UserPromptSubmit"}"#
-        var hookEnvironment = baseEnvironment
-        hookEnvironment["CMUX_CLAUDE_PID"] = "8535"
-        let hookRun = runCodexHookProcess(
+        let promptCommand = try hookCommand(
+            hooks,
+            event: "UserPromptSubmit",
+            containing: "hooks enqueue claude prompt-submit"
+        )
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: "surface-8535",
+            connectionLimit: 2
+        )
+        let payload = #"{"session_id":"claude-session","turn_id":"turn-8535"}"#
+        let hookResult = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", promptCommand],
-            environment: hookEnvironment,
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SURFACE_ID": "surface-8535",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_BUNDLED_CLI_PATH": cliPath,
+                "CMUX_CLAUDE_PID": "8535",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
             standardInput: payload,
-            timeout: 5
+            timeout: 2
         )
-
-        #expect(hookRun.status == 0, Comment(rawValue: hookRun.stderr))
-        #expect(hookRun.stdout == "{}\n")
-        #expect(!fileManager.fileExists(atPath: deliveryDone.path))
-        #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
-        #expect(
-            waitForFile(
-                capturedArguments,
-                containing: "--socket \(socketPath) hooks claude prompt-submit",
-                timeout: 1
-            )
-        )
-        #expect(waitForFile(capturedPID, containing: "8535", timeout: 1))
-        #expect(waitForFile(watchdogPIDFile, containing: "\n", timeout: 1))
-        try Data().write(to: deliveryRelease)
-        #expect(waitForFile(deliveryDone, containing: "done", timeout: 3))
-        let watchdogPID = try #require(
-            Int32(String(contentsOf: watchdogPIDFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
-        )
-        #expect(waitForProcessExit(watchdogPID, timeout: 1))
+        #expect(!hookResult.timedOut, Comment(rawValue: hookResult.stderr))
+        #expect(hookResult.status == 0, Comment(rawValue: hookResult.stderr))
+        #expect(hookResult.stdout == "{}\n")
+        let request = try #require(capturedCommands.snapshot().compactMap(codexHookJSONObject).first {
+            $0["method"] as? String == "agent.hook.enqueue"
+        })
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["agent"] as? String == "claude")
+        #expect(params["subcommand"] as? String == "prompt-submit")
+        #expect(params["payload"] as? String == payload)
+        #expect(params["socket_path"] as? String == socketPath)
+        let admittedEnvironment = try #require(params["environment"] as? [String: Any])
+        #expect(admittedEnvironment["CMUX_SURFACE_ID"] as? String == "surface-8535")
+        #expect(admittedEnvironment["CMUX_CLAUDE_PID"] as? String == "8535")
     }
 
-    private func expectDeferredHook(
+    @Test("Claude prompt hook fails open before its declared timeout")
+    func promptAdmissionHasAShortInternalDeadline() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let settingsResult = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "inject-settings"],
+            environment: [
+                "HOME": FileManager.default.temporaryDirectory.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 2
+        )
+        #expect(settingsResult.status == 0, Comment(rawValue: settingsResult.stderr))
+        let settings = try #require(
+            JSONSerialization.jsonObject(with: Data(settingsResult.stdout.utf8)) as? [String: Any]
+        )
+        let hooks = try #require(settings["hooks"] as? [String: Any])
+        let command = try hookCommand(
+            hooks,
+            event: "UserPromptSubmit",
+            containing: "hooks enqueue claude prompt-submit"
+        )
+
+        let socketPath = makeCodexHookSocketPath("claude-stall")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let result = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": FileManager.default.temporaryDirectory.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "surface-8535-stalled",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_BUNDLED_CLI_PATH": cliPath,
+                "CMUX_CLAUDE_PID": "8535",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"session_id":"stalled"}"#,
+            timeout: 2.5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+    }
+
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func makeSettingsCapturingClaude(at url: URL) throws {
+        try makeCodexHookExecutableShellFile(at: url, lines: [
+            "#!/bin/sh",
+            "while [ \"$#\" -gt 0 ]; do",
+            "  if [ \"$1\" = \"--settings\" ]; then shift; printf '%s' \"$1\" > \"$CMUX_TEST_SETTINGS\"; fi",
+            "  shift",
+            "done",
+        ])
+    }
+
+    private func wrapperEnvironment(
+        root: URL,
+        binDirectory: URL,
+        cli: URL,
+        claude: URL,
+        settings: URL,
+        socketPath: String
+    ) -> [String: String] {
+        [
+            "HOME": root.path,
+            "PATH": "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
+            "TMPDIR": root.path,
+            "CMUX_SURFACE_ID": "surface-8535",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_BUNDLED_CLI_PATH": cli.path,
+            "CMUX_CUSTOM_CLAUDE_PATH": claude.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_TEST_SETTINGS": settings.path,
+        ]
+    }
+
+    private func settingsObject(at url: URL) throws -> [String: Any] {
+        try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    }
+
+    private func hookCommand(
         _ hooks: [String: Any],
         event: String,
-        commandFragment: String
-    ) throws {
+        containing fragment: String
+    ) throws -> String {
         let groups = try #require(hooks[event] as? [[String: Any]])
-        let matchingHook = groups.lazy.compactMap { group -> [String: Any]? in
+        return try #require(groups.lazy.compactMap { group -> String? in
             guard let entries = group["hooks"] as? [[String: Any]] else { return nil }
-            return entries.first { ($0["command"] as? String)?.contains(commandFragment) == true }
-        }.first
-        let hook = try #require(matchingHook)
-        #expect(hook["timeout"] as? Int == 5)
+            return entries.compactMap { $0["command"] as? String }.first { $0.contains(fragment) }
+        }.first)
+    }
+
+    private func expectQueuedHook(
+        _ hooks: [String: Any],
+        event: String,
+        subcommand: String
+    ) throws {
+        let command = try hookCommand(
+            hooks,
+            event: event,
+            containing: "hooks enqueue claude \(subcommand)"
+        )
+        let groups = try #require(hooks[event] as? [[String: Any]])
+        let hook = try #require(groups.lazy.compactMap { group -> [String: Any]? in
+            guard let entries = group["hooks"] as? [[String: Any]] else { return nil }
+            return entries.first { $0["command"] as? String == command }
+        }.first)
+        #expect(hook["timeout"] as? Int == 3)
         #expect(hook["async"] == nil)
+        #expect(command.contains(#"--socket "$CMUX_SOCKET_PATH""#))
+        #expect(command.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1"))
+        #expect(!command.contains("nohup"))
+        #expect(!command.contains("sleep "))
+        #expect(!command.contains("watchdog"))
+        #expect(!command.contains(">/dev/null 2>&1 &"))
     }
 
     private func expectDirectHook(
@@ -283,25 +334,12 @@ struct CLIClaudeHookTimeoutRegressionTests {
         isAsync: Bool = false
     ) throws {
         let groups = try #require(hooks[event] as? [[String: Any]])
-        let matchingHook = groups.lazy.compactMap { group -> [String: Any]? in
+        let hook = try #require(groups.lazy.compactMap { group -> [String: Any]? in
             guard let entries = group["hooks"] as? [[String: Any]] else { return nil }
             return entries.first { $0["command"] as? String == command }
-        }.first
-        let hook = try #require(matchingHook)
+        }.first)
         #expect(hook["timeout"] as? Int == timeout)
-        if isAsync {
-            #expect(hook["async"] as? Bool == true)
-        } else {
-            #expect(hook["async"] == nil)
-        }
-    }
-
-    private func waitForProcessExit(_ pid: pid_t, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Darwin.kill(pid, 0) == 0 {
-            guard Date() < deadline else { return false }
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        return errno == ESRCH
+        #expect((hook["async"] as? Bool) == (isAsync ? true : nil))
+        #expect(!(command.contains("hooks enqueue")))
     }
 }

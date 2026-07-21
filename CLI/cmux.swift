@@ -29489,7 +29489,7 @@ export default CMUXSessionRestore;
             insertHashes(
                 eventLabel: eventLabel,
                 command: "cmux codex-hook \(event.cmuxSubcommand)",
-                timeouts: [hookTimeoutMs, 600]
+                timeouts: [hookTimeoutMs, 5, 5_000, 600]
             )
         }
 
@@ -34427,6 +34427,9 @@ export default CMUXSessionRestore;
             )
             return true
 
+        case "enqueue":
+            return false
+
         case "claude":
             let action = commandArgs.dropFirst().first?.lowercased()
             guard action == "inject-settings" else {
@@ -34453,7 +34456,7 @@ export default CMUXSessionRestore;
             case "inject-args" where def.name == "codex":
                 // Hidden: emit the NUL-separated codex arg list the wrapper
                 // (Resources/bin/cmux-codex-wrapper) splices to inject cmux's
-                // fire-and-forget hooks for one invocation. No socket required.
+                // hooks for one invocation. No socket required.
                 try emitCodexWrapperInjectArgs()
                 return true
             case "install":
@@ -34472,7 +34475,7 @@ export default CMUXSessionRestore;
 
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
         guard let first = commandArgs.first?.lowercased() else { return false }
-        if first == "feed" || first == "claude" { return true }
+        if first == "enqueue" || first == "feed" || first == "claude" { return true }
         guard let def = Self.agentDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
         if def.name == "grok" {
@@ -34524,6 +34527,9 @@ export default CMUXSessionRestore;
         switch first {
         case "setup", "install", "uninstall":
             throw CLIError(message: "hooks \(first) must be handled before socket dispatch")
+
+        case "enqueue":
+            try enqueueAgentHook(commandArgs: rest, client: client)
 
         case "feed":
             telemetry.breadcrumb("hooks.feed.dispatch")
@@ -35260,6 +35266,9 @@ private enum CMUXCLIOutput {
 @main
 struct CMUXTermMain {
     static func main() {
+        if ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] == "1" {
+            _ = Darwin.setpgid(0, 0)
+        }
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()

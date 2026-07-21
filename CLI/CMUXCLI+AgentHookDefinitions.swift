@@ -155,8 +155,12 @@ extension CMUXCLI {
     static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
         let inline: String
-        if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
-            inline = fireAndForgetAgentHookShellCommand(command, for: def)
+        if def.name == "codex", codexHookCanRunQueued(event.cmuxSubcommand) {
+            inline = queuedAgentHookShellCommand(
+                agent: def.name,
+                subcommand: event.cmuxSubcommand,
+                disableEnvironmentVariable: def.disableEnvVar
+            )
         } else {
             inline = agentHookShellCommand(command, for: def)
         }
@@ -182,8 +186,8 @@ extension CMUXCLI {
         return path
     }
 
-    private static func codexHookCanRunFireAndForget(_ subcommand: String) -> Bool {
-        subcommand == "session-start" || subcommand == "prompt-submit" || subcommand == "stop"
+    static func codexHookCanRunQueued(_ subcommand: String) -> Bool {
+        ["session-start", "prompt-submit", "stop", "post-tool-use"].contains(subcommand)
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
@@ -229,7 +233,7 @@ extension CMUXCLI {
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
 
-    private static func agentHookShellCommand(
+    static func agentHookShellCommand(
         _ command: String,
         for def: AgentHookDef,
         noOpCommand: String = "echo '{}'"
@@ -451,6 +455,12 @@ extension CMUXCLI {
            tokens[3] == def.name {
             return true
         }
+        if tokens.count >= 5,
+           tokens[1] == "hooks",
+           tokens[2] == "enqueue",
+           tokens[3] == def.name {
+            return true
+        }
         if tokens.count >= 3, tokens[1] == "hooks", tokens[2] == def.name {
             return true
         }
@@ -540,7 +550,7 @@ extension CMUXCLI {
     }
 
     static func hookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = [def.hookMarker]
+        var markers = [def.hookMarker, "cmux hooks enqueue \(def.name)"]
         if def.name == "codex" {
             markers.append("cmux codex-hook")
         }

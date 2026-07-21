@@ -1,63 +1,73 @@
 import Foundation
 
 extension CMUXCLI {
-    private static let deferredHookResponseTimeoutSeconds = 15
-    // Genuine detached-process lifetime cap; admission returns before this
-    // deadline starts and never polls it for synchronization.
-    private static let deferredHookLifetimeSeconds = 30
+    private static let agentHookAdmissionResponseTimeoutSeconds = 1
+    static let agentHookDeclaredTimeoutSeconds = 3
+    static let agentHookDeclaredTimeoutMilliseconds = agentHookDeclaredTimeoutSeconds * 1_000
 
-    /// Builds the shared fail-open admission path for an installed lifecycle
-    /// hook. Decision hooks deliberately do not use this path because the agent
-    /// consumes their stdout or exit status synchronously.
-    static func fireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
-        let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        let deliverySetup = [
-            "set -- \"$cmux_cli\"",
-            "if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then set -- \"$@\" --socket \"$CMUX_SOCKET_PATH\"; fi",
-            "set -- \"$@\" \(routedArguments)",
-        ].joined(separator: "; ")
-        let admission = boundedFireAndForgetHookShellCommand(
-            deliveryArgumentSetup: deliverySetup,
-            agentName: def.name,
-            pidEnvironmentVariable: agentHookPIDEnvironmentVariable(agentName: def.name)
-        )
-        return [
-            "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
-            "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then \(admission); else echo '{}'; fi",
-        ].joined(separator: "; ")
-    }
-
-    /// Stages stdin before returning `{}` and gives the detached delivery a
-    /// bounded lifetime. `deliveryArgumentSetup` must populate the shell's
-    /// positional arguments with the executable followed by its arguments.
-    static func boundedFireAndForgetHookShellCommand(
-        deliveryArgumentSetup: String,
-        agentName: String,
-        pidEnvironmentVariable: String
+    /// Builds a fail-open command that admits a non-decision hook to the app's
+    /// ordered delivery queue. The hook process performs no downstream delivery.
+    static func queuedAgentHookShellCommand(
+        agent: String,
+        subcommand: String,
+        disableEnvironmentVariable: String
     ) -> String {
-        let watchdog = [
-            "timer=\"\"",
-            "trap \"if [ -n \\\"\\$timer\\\" ]; then kill \\\"\\$timer\\\" 2>/dev/null || true; fi\" 0",
-            "trap \"exit 0\" 1 2 15",
-            "sleep \(deferredHookLifetimeSeconds) & timer=\"$!\"",
-            "wait \"$timer\" 2>/dev/null || exit 0",
-            "timer=\"\"",
-            "trap - 0 1 2 15",
-            "kill \"$child\" 2>/dev/null || true",
-        ].joined(separator: "; ")
-        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( \(watchdog) ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
-        let safeAgentName = agentName.replacingOccurrences(
-            of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
-        )
+        let pidEnvironmentVariable = agentHookPIDEnvironmentVariable(agentName: agent)
+        let executableEnvironmentVariable = agent == "claude"
+            ? "CMUX_CLAUDE_HOOK_CMUX_BIN"
+            : "CMUX_CODEX_HOOK_CMUX_BIN"
         return [
+            "cmux_cli=\"${\(executableEnvironmentVariable):-${CMUX_BUNDLED_CLI_PATH:-}}\"",
+            "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "agent_pid=\"${\(pidEnvironmentVariable):-${PPID:-}}\"",
-            "payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-\(safeAgentName)-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-\(safeAgentName)-hook 2>/dev/null)\" || { echo '{}'; exit 0; }",
-            "cat >\"$payload\" || { rm -f \"$payload\"; echo '{}'; exit 0; }",
-            deliveryArgumentSetup,
-            "\(pidEnvironmentVariable)=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(deferredHookResponseTimeoutSeconds) nohup sh -c '\(runner)' cmux-agent-hook \"$payload\" \"$@\" >/dev/null 2>&1 & echo '{}'",
+            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(disableEnvironmentVariable)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \(pidEnvironmentVariable)=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(agentHookAdmissionResponseTimeoutSeconds) \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue \(agent) \(subcommand) 2>/dev/null || echo '{}'; else \(pidEnvironmentVariable)=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(agentHookAdmissionResponseTimeoutSeconds) \"$cmux_cli\" hooks enqueue \(agent) \(subcommand) 2>/dev/null || echo '{}'; fi; else echo '{}'; fi",
         ].joined(separator: "; ")
     }
+
+    /// Sends one immutable hook event to the app-owned queue, then returns the
+    /// agent's neutral response. Downstream CLI/socket work happens in the app.
+    func enqueueAgentHook(commandArgs: [String], client: SocketClient) throws {
+        guard commandArgs.count == 2 else {
+            throw CLIError(message: "Usage: cmux hooks enqueue <agent> <subcommand>")
+        }
+        let agent = commandArgs[0].lowercased()
+        let subcommand = commandArgs[1].lowercased()
+
+        let processEnvironment = ProcessInfo.processInfo.environment
+        var environment: [String: String] = [:]
+        for key in Self.queuedAgentHookEnvironmentKeys {
+            if let value = processEnvironment[key] {
+                environment[key] = value
+            }
+        }
+        let payload = String(
+            data: FileHandle.standardInput.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        _ = try client.sendV2(
+            method: "agent.hook.enqueue",
+            params: [
+                "agent": agent,
+                "subcommand": subcommand,
+                "payload": payload,
+                "socket_path": client.socketPath,
+                "environment": environment,
+            ],
+            responseTimeout: TimeInterval(Self.agentHookAdmissionResponseTimeoutSeconds)
+        )
+        print("{}")
+    }
+
+    private static let queuedAgentHookEnvironmentKeys = [
+        "CLAUDE_CONFIG_DIR", "CODEX_HOME", "HOME", "LANG", "LC_ALL", "LC_CTYPE",
+        "LOGNAME", "PATH", "PWD", "SHELL", "TMPDIR", "USER",
+        "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
+        "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
+        "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
+        "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_BUNDLE_ID", "CMUX_CLAUDE_PID",
+        "CMUX_CODEX_PID", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
+        "CMUX_SURFACE_ID", "CMUX_TAG", "CMUX_WORKSPACE_ID",
+    ]
 
     private static func agentHookPIDEnvironmentVariable(agentName: String) -> String {
         let component = agentName.uppercased().replacingOccurrences(
