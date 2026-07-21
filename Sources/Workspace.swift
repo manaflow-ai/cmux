@@ -1556,7 +1556,7 @@ extension Workspace {
                 : nil
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? (startupHandlesWorkingDirectory ? workingDirectory : nil)
-            let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
+            let restoredAgentWillRunStartupCommand = (
                 restoredAgentResumeLaunch?.initialCommand != nil ||
                 (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true) ||
                 (restoredPersistentSSHResumeCommand != nil && resumeBinding?.isAgentHookBinding == true)
