@@ -2710,13 +2710,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No computers yet. Sign in to cmux on your computer with this account and it appears here automatically."
+            "value": "No computers yet. Sign in to cmux on your computer with this account and it appears here automatically. If it does not, tap Pair Another Computer and scan its QR code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータはまだありません。コンピュータのcmuxにこのアカウントでサインインすると、ここに自動的に表示されます。"
+            "value": "コンピュータはまだありません。コンピュータのcmuxにこのアカウントでサインインすると、ここに自動的に表示されます。表示されない場合は、「別のコンピュータをペアリング」からQRコードをスキャンしてください。"
           }
         }
       }
