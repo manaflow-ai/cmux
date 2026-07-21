@@ -314,6 +314,17 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     guard self.surfaceView === surfaceView else {
                         return .ignored
                     }
+                    let currentSnapshot = await surfaceView.visibleTextForArtifactHitTesting()
+                    guard self.surfaceView === surfaceView,
+                          let currentSnapshot,
+                          TerminalArtifactTapHitTester().path(
+                            in: currentSnapshot.text,
+                            col: col,
+                            row: row,
+                            columns: currentSnapshot.columns
+                          ) == path else {
+                        return .ignored
+                    }
                     onArtifactPathTapped(path)
                     return .openedArtifact
                 }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -34,12 +35,10 @@ public struct ArtifactByteReader: Sendable {
         guard (attributes[.type] as? FileAttributeType) == .typeRegular else {
             throw Error.unsupportedMedia
         }
-        let stat = stat(path: path, attributes: attributes)
-        guard let handle = FileHandle(forReadingAtPath: path) else {
-            throw Error.fileNotFound
-        }
+        let opened = try openVerifiedRegularFile(path: path)
+        let handle = opened.handle
         defer { try? handle.close() }
-        let totalSize = stat.size
+        let totalSize = opened.size
         let clampedOffset = min(max(offset, 0), totalSize)
         try handle.seek(toOffset: UInt64(clampedOffset))
         let data = try handle.read(upToCount: max(0, length)) ?? Data()
@@ -147,14 +146,14 @@ public struct ArtifactByteReader: Sendable {
         )
     }
 
-    /// Infers preview category for a regular file from its extension and a bounded UTF-8 sniff.
+    /// Infers preview category from directory status, extension, and a verified regular-file UTF-8 sniff.
     public func kind(path: String, isDirectory: Bool) -> ChatArtifactKind {
         if isDirectory { return .directory }
-        guard let attributes = try? attributes(path: path) else { return .binary }
+        let attributes = try? attributes(path: path)
         return kind(
             path: path,
             isDirectory: false,
-            isRegularFile: (attributes[.type] as? FileAttributeType) == .typeRegular
+            isRegularFile: (attributes?[.type] as? FileAttributeType) == .typeRegular
         )
     }
 
@@ -164,10 +163,10 @@ public struct ArtifactByteReader: Sendable {
         isRegularFile: Bool
     ) -> ChatArtifactKind {
         if isDirectory { return .directory }
-        guard isRegularFile else { return .binary }
         let fileExtension = URL(fileURLWithPath: path).pathExtension
         let type = fileExtension.isEmpty ? nil : UTType(filenameExtension: fileExtension)
         guard let type, !type.isDynamic else {
+            guard isRegularFile else { return .binary }
             return isUTF8Text(path: path) ? .text : .binary
         }
         if type.conforms(to: .image) { return .image }
@@ -178,9 +177,10 @@ public struct ArtifactByteReader: Sendable {
     }
 
     private func isUTF8Text(path: String) -> Bool {
-        guard let handle = FileHandle(forReadingAtPath: path) else {
+        guard let opened = try? openVerifiedRegularFile(path: path) else {
             return false
         }
+        let handle = opened.handle
         defer { try? handle.close() }
         let bytes: Data
         do {
@@ -215,6 +215,34 @@ public struct ArtifactByteReader: Sendable {
             return String(data: prefix, encoding: .utf8) != nil
         }
         return false
+    }
+
+    /// Opens `path` without blocking and validates the opened descriptor as a regular file.
+    func openVerifiedRegularFile(path: String) throws -> (handle: FileHandle, size: Int64) {
+        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK)
+        guard descriptor >= 0 else { throw Error.fileNotFound }
+
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0 else {
+            Darwin.close(descriptor)
+            throw Error.fileNotFound
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFREG else {
+            Darwin.close(descriptor)
+            throw Error.unsupportedMedia
+        }
+
+        let flags = Darwin.fcntl(descriptor, F_GETFL, 0)
+        guard flags >= 0,
+              Darwin.fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
+            Darwin.close(descriptor)
+            throw Error.fileNotFound
+        }
+
+        return (
+            FileHandle(fileDescriptor: descriptor, closeOnDealloc: true),
+            max(Int64(metadata.st_size), 0)
+        )
     }
 
     private func utf8ScalarLength(leadingByte: UInt8) -> Int? {

@@ -55,7 +55,8 @@ extension TerminalController {
             params: params,
             requiresPath: false,
             includeScrollback: !visibleOnly,
-            includeTerminalText: !countOnly
+            includeTerminalText: !countOnly,
+            visibleOnly: visibleOnly
         )
         guard case .success(let context) = resolution else {
             return resolution.failureResult
@@ -99,7 +100,8 @@ extension TerminalController {
         let resolution = await mobileTerminalArtifactContext(
             params: params,
             requiresPath: true,
-            includeScrollback: !visibleOnly
+            includeScrollback: !visibleOnly,
+            visibleOnly: visibleOnly
         )
         guard case .success(let context) = resolution else {
             return resolution.failureResult
@@ -230,7 +232,8 @@ extension TerminalController {
         params: [String: Any],
         requiresPath: Bool,
         includeScrollback: Bool = true,
-        includeTerminalText: Bool = true
+        includeTerminalText: Bool = true,
+        visibleOnly: Bool = false
     ) async -> TerminalArtifactContextResolution {
         guard let workspaceID = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceID = v2RawString(params, "surface_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -246,7 +249,7 @@ extension TerminalController {
                 data: nil
             ))
         }
-        let scanAuthorizedPaths = requiresPath
+        let scanAuthorizedPaths = requiresPath && !visibleOnly
             ? await terminalArtifactAuthorizationStore.authorizedPaths(
                 workspaceID: workspaceID,
                 surfaceID: surfaceID
