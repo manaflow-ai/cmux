@@ -1,10 +1,21 @@
-import Bonsplit
+public import Bonsplit
 import Foundation
 
 /// Finds the right-side pane that browser and file opens should reuse before
 /// creating another horizontal split.
-struct BrowserRightSidePaneResolver {
-    func preferredPane(
+@MainActor
+public struct BrowserRightSidePaneResolver {
+    /// Creates a resolver for live Bonsplit pane geometry.
+    public init() {}
+
+    /// Returns the nearest reusable pane to the right of a source pane.
+    ///
+    /// - Parameters:
+    ///   - sourcePane: The pane whose nearest right-side sibling should be found.
+    ///   - controller: The live Bonsplit controller that owns `sourcePane`.
+    /// - Returns: The preferred right-side pane, or `nil` when the source pane or
+    ///   its geometry cannot be resolved.
+    public func preferredPane(
         from sourcePane: PaneID,
         in controller: BonsplitController
     ) -> PaneID? {

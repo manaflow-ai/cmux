@@ -1,3 +1,4 @@
+import CmuxPanes
 import Foundation
 
 extension Workspace: TerminalLinkOpenContainer {
