@@ -1002,6 +1002,25 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/TripleQuoteLineCommentBeforeRealSleepTests.swift",
+            "// Syntax example only: \"\"\"\n"
+            "time.sleep(0.3)\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/DarwinSleepTests.swift",
+            "Darwin.sleep(1)\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/GlibcSleepTests.swift",
+            "Glibc.sleep(1)\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/QualifiedRealClockInitializerTests.swift",
             "let clock = Swift.ContinuousClock()\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
