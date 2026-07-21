@@ -325,6 +325,32 @@ struct DockControlDefinitionDecodingTests {
         #expect(workspace.needsConfirmClose())
     }
 
+    @Test("Workspace close confirmation includes floating Dock panels")
+    @MainActor
+    func workspaceCloseConfirmationIncludesFloatingDockPanels() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Floating terminal",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            isPresented: false,
+            noteFilePath: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-close-\(UUID().uuidString).md").path,
+            initialContent: .terminal,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let panel = try #require(dock.store.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        panel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        defer { panel.surface.setNeedsConfirmCloseOverrideForTesting(nil) }
+
+        #expect(workspace.needsConfirmClose())
+    }
+
     @Test("surface.focus accepts Dock surface handles")
     @MainActor
     func surfaceFocusAcceptsDockSurfaceHandles() throws {

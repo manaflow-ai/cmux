@@ -267,6 +267,40 @@ struct WindowDockRoutingSocketTests {
         }
     }
 
+    @Test("Floating Dock note get observes persisted text before asynchronous loading finishes")
+    @MainActor
+    func floatingDockNoteGetObservesPersistedTextImmediately() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-immediate-get-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            try "persisted before restore".write(to: noteURL, atomically: true, encoding: .utf8)
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Persisted note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: noteURL.path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+
+            let result = try v2Result(method: "workspace.float.note.get", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+
+            #expect(result["text"] as? String == "persisted before restore")
+            #expect(dock.noteTextSnapshot == "persisted before restore")
+        }
+    }
+
     @Test("Floating Dock socket close bypasses interactive dirty-note confirmation")
     @MainActor
     func floatingDockSocketCloseBypassesInteractiveConfirmation() async throws {

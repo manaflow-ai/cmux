@@ -101,6 +101,24 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresIntentionallyEmptyFloatingDock() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        dock.store.closeAllPanels()
+        XCTAssertTrue(dock.store.panels.isEmpty)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        XCTAssertTrue(restoredDock.store.panels.isEmpty)
+        XCTAssertTrue(restoredDock.store.bonsplitController.allTabIds.isEmpty)
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotPreservesRegularFilePreviewInFloatingDock() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-floating-preview-\(UUID().uuidString)", isDirectory: true)
