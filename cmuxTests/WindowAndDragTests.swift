@@ -3927,6 +3927,38 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         )
     }
 
+    func testFlashColorFallsBackToSystemBlueWhenUnset() {
+        let defaults = UserDefaults(suiteName: "flash-color-unset")!
+        defaults.removePersistentDomain(forName: "flash-color-unset")
+
+        XCTAssertEqual(
+            WorkspaceAttentionFlashColorSettings.resolvedColor(defaults: defaults).hexString(),
+            NSColor.systemBlue.hexString()
+        )
+    }
+
+    func testFlashColorUsesConfiguredHex() {
+        let defaults = UserDefaults(suiteName: "flash-color-set")!
+        defaults.removePersistentDomain(forName: "flash-color-set")
+        defaults.set("#FF69B4", forKey: WorkspaceAttentionFlashColorSettings.colorHexKey)
+
+        XCTAssertEqual(
+            WorkspaceAttentionFlashColorSettings.resolvedColor(defaults: defaults).hexString(),
+            "#FF69B4"
+        )
+    }
+
+    func testFlashColorFallsBackWhenHexIsInvalid() {
+        let defaults = UserDefaults(suiteName: "flash-color-invalid")!
+        defaults.removePersistentDomain(forName: "flash-color-invalid")
+        defaults.set("not-a-color", forKey: WorkspaceAttentionFlashColorSettings.colorHexKey)
+
+        XCTAssertEqual(
+            WorkspaceAttentionFlashColorSettings.resolvedColor(defaults: defaults).hexString(),
+            NSColor.systemBlue.hexString()
+        )
+    }
+
     func testTmuxWorkspacePaneExactRectReturnsContentRelativeFrameForDescendantView() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
