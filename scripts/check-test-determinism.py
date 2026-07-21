@@ -657,12 +657,16 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     scope_kinds = ["root"]
     pending_function = False
     pending_parameter: Optional[bool] = None
+    pending_function_paren_depth = 0
+    pending_function_saw_parameters = False
     pending_conditional: Optional[dict[str, bool]] = None
 
     for candidate in prefix_lines:
         if _LOCAL_SCOPE_HEADER.search(candidate):
             pending_function = True
             pending_parameter = _annotated_receiver_kind(candidate, receiver)
+            pending_function_paren_depth = 0
+            pending_function_saw_parameters = False
         elif pending_function and pending_parameter is None:
             pending_parameter = _annotated_receiver_kind(candidate, receiver)
         if _CONDITIONAL_SCOPE_HEADER.search(candidate):
@@ -679,22 +683,36 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
             )
         )
         events.extend(
-            (pos, brace, None)
-            for pos, brace in enumerate(candidate)
-            if brace in "{}"
+            (pos, token, None)
+            for pos, token in enumerate(candidate)
+            if token in "{}()"
         )
         events.sort(key=lambda event: event[0])
 
         for pos, event, declaration in events:
-            if event == "{":
+            if event == "(":
+                if pending_function:
+                    pending_function_paren_depth += 1
+                    pending_function_saw_parameters = True
+            elif event == ")":
+                if pending_function and pending_function_paren_depth:
+                    pending_function_paren_depth -= 1
+            elif event == "{":
                 scope = dict(pending_conditional or {})
                 pending_conditional = None
-                scope_kind = "function" if pending_function else "block"
-                if pending_function:
+                is_function_body = bool(
+                    pending_function
+                    and pending_function_saw_parameters
+                    and pending_function_paren_depth == 0
+                )
+                scope_kind = "function" if is_function_body else "block"
+                if is_function_body:
                     if pending_parameter is not None:
                         scope[receiver] = pending_parameter
                     pending_function = False
                     pending_parameter = None
+                    pending_function_paren_depth = 0
+                    pending_function_saw_parameters = False
                 closure_kind = _closure_receiver_kind(candidate[pos + 1 :], receiver)
                 if closure_kind is not None:
                     scope[receiver] = closure_kind
@@ -786,7 +804,11 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(l, suffix) for l in raw_lines]
     needs_sleep_mask = "sleep" in text or "setTimeout" in text
-    masked_lines = _mask_noncode(code_lines) if needs_sleep_mask else code_lines
+    masked_lines = (
+        [_strip_comment(line, suffix) for line in _mask_noncode(raw_lines)]
+        if needs_sleep_mask
+        else code_lines
+    )
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
