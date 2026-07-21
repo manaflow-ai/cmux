@@ -110,7 +110,7 @@ struct WorkspaceListView: View {
     var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
-    @State private var startsPairingScannerAfterSettingsDismiss = false
+    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
@@ -370,11 +370,17 @@ struct WorkspaceListView: View {
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()
         }
-        .sheet(isPresented: $showingSettings, onDismiss: presentDeferredPairingScanner) {
+        .sheet(isPresented: $showingSettings, onDismiss: {
+            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+        }) {
             MobileSettingsView(
                 connectedHostName: host,
                 rescanQR: rescanQR,
-                startPairingScanner: deferPairingScannerUntilSettingsDismiss,
+                startPairingScanner: {
+                    settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                        isSettingsPresented: $showingSettings
+                    )
+                },
                 signOut: signOut,
                 store: store
             )
@@ -426,17 +432,6 @@ struct WorkspaceListView: View {
             )
         }
         #endif
-    }
-
-    private func deferPairingScannerUntilSettingsDismiss() {
-        startsPairingScannerAfterSettingsDismiss = true
-        showingSettings = false
-    }
-
-    private func presentDeferredPairingScanner() {
-        guard startsPairingScannerAfterSettingsDismiss else { return }
-        startsPairingScannerAfterSettingsDismiss = false
-        showPairingScanner?()
     }
 
     #if os(iOS)

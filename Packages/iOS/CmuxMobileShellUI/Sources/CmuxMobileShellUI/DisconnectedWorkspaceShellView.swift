@@ -28,7 +28,7 @@ struct DisconnectedWorkspaceShellView: View {
     var store: CMUXMobileShellStore?
 
     @State private var showingSettings = false
-    @State private var startsPairingScannerAfterSettingsDismiss = false
+    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
 
     #if os(iOS)
     @State private var isShowingSetupHelp = false
@@ -101,7 +101,9 @@ struct DisconnectedWorkspaceShellView: View {
             // this device has paired a Mac before (offline recovery) or not.
             SetupHelpView(highlight: setupHelpHighlight) { isShowingSetupHelp = false }
         }
-        .sheet(isPresented: $showingSettings, onDismiss: presentDeferredPairingScanner) {
+        .sheet(isPresented: $showingSettings, onDismiss: {
+            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+        }) {
             // Reuse the same Settings sheet the workspace list opens from its
             // Settings button so the no-devices screen's chrome matches. There is no
             // connected host or QR to rescan here, but the store is forwarded so
@@ -110,7 +112,11 @@ struct DisconnectedWorkspaceShellView: View {
             MobileSettingsView(
                 connectedHostName: "",
                 rescanQR: nil,
-                startPairingScanner: deferPairingScannerUntilSettingsDismiss,
+                startPairingScanner: {
+                    settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                        isSettingsPresented: $showingSettings
+                    )
+                },
                 signOut: signOut,
                 store: store
             )
@@ -127,17 +133,6 @@ struct DisconnectedWorkspaceShellView: View {
             Text(connectFailedMessage)
         }
         #endif
-    }
-
-    private func deferPairingScannerUntilSettingsDismiss() {
-        startsPairingScannerAfterSettingsDismiss = true
-        showingSettings = false
-    }
-
-    private func presentDeferredPairingScanner() {
-        guard startsPairingScannerAfterSettingsDismiss else { return }
-        startsPairingScannerAfterSettingsDismiss = false
-        showPairingScanner()
     }
 
     #if os(iOS)

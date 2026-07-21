@@ -152,7 +152,7 @@ struct WorkspaceShellView: View {
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var showingRootSettings = false
-    @State private var startsPairingScannerAfterSettingsDismiss = false
+    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
     @State private var rootToolbarMachineSnapshots: WorkspaceMachineSnapshots?
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
@@ -241,11 +241,17 @@ struct WorkspaceShellView: View {
             .onChange(of: presentation.toolbarMachineSnapshots) { _, snapshots in
                 updateRootToolbarMachineSnapshots(snapshots)
             }
-            .sheet(isPresented: $showingRootSettings, onDismiss: presentDeferredPairingScanner) {
+            .sheet(isPresented: $showingRootSettings, onDismiss: {
+                settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+            }) {
                 MobileSettingsView(
                     connectedHostName: store.connectedHostName,
                     rescanQR: { store.disconnectAndForgetActiveMac() },
-                    startPairingScanner: deferPairingScannerUntilSettingsDismiss,
+                    startPairingScanner: {
+                        settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                            isSettingsPresented: $showingRootSettings
+                        )
+                    },
                     signOut: signOut,
                     store: store
                 )
@@ -267,17 +273,6 @@ struct WorkspaceShellView: View {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
         #endif
-    }
-
-    private func deferPairingScannerUntilSettingsDismiss() {
-        startsPairingScannerAfterSettingsDismiss = true
-        showingRootSettings = false
-    }
-
-    private func presentDeferredPairingScanner() {
-        guard startsPairingScannerAfterSettingsDismiss else { return }
-        startsPairingScannerAfterSettingsDismiss = false
-        showPairingScanner?()
     }
 
     private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
