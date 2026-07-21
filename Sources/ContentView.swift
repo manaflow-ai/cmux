@@ -813,11 +813,8 @@ struct ContentView: View {
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.settingsRuntime) private var settingsRuntime
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
-    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
@@ -1702,6 +1699,7 @@ struct ContentView: View {
                 sidebar
             }
         }
+        .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -1894,26 +1892,8 @@ struct ContentView: View {
         SidebarWidthReader(layout: sidebarLayout) { width in
             sidebarPanelContainer(width: width, alignment: .leading, role: .leftSidebar, appearance: appearance) {
                 sidebarView
-                    .frame(width: width)
             }
         }
-    }
-
-    private func appKitSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        ZStack(alignment: .leading) {
-            WindowBackdropLayer(role: .leftSidebar, snapshot: appearance)
-                .ignoresSafeArea()
-                .clipShape(RoundedRectangle(
-                    cornerRadius: appearance.sidebarSettings.materialPolicy.cornerRadius,
-                    style: .continuous
-                ))
-                .clipped()
-                .allowsHitTesting(false)
-            sidebarView
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .environment(\.colorScheme, appearance.sidebarContentColorScheme)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2489,108 +2469,12 @@ struct ContentView: View {
         return tab.presentedCurrentDirectory
     }
 
-    private func appKitHostedRoot<Content: View>(_ content: Content) -> AnyView {
-        let root = content
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(sidebarUnread)
-            .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
-            .environmentObject(fileExplorerState)
-            .environmentObject(cmuxConfigStore)
-            .environment(\.settingsRuntime, settingsRuntime)
-            .environment(\.colorScheme, colorScheme)
-            .environment(\.cmuxGlobalFontMagnificationPercent, globalFontMagnificationPercent)
-#if DEBUG
-        return AnyView(
-            root
-                .environment(\.minimalModeInvalidationProbe, minimalModeInvalidationProbe)
-                .environment(\.sidebarLazyContractProbe, sidebarLazyContractProbe)
-        )
-#else
-        return AnyView(root)
-#endif
-    }
-
-    private func appKitContentAndSidebarLayout(
-        appearance: WindowAppearanceSnapshot,
-        overlaysSidebarOnContent: Bool
-    ) -> AnyView {
-        let mainContent: AnyView
-        if overlaysSidebarOnContent {
-            mainContent = AnyView(
-                HStack(spacing: 0) {
-                    terminalContentWithSidebarDropOverlay(appearance: appearance)
-                        .modifier(SidebarWidthLeadingPaddingModifier(
-                            layout: sidebarLayout,
-                            enabled: sidebarState.isVisible
-                        ))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .layoutPriority(1)
-                    rightSidebarPanelWithBackdrop(appearance: appearance)
-                }
-            )
-        } else {
-            mainContent = AnyView(
-                terminalContentWithRightSidebarPanel(appearance: appearance)
-            )
-        }
-
-        let layout = SidebarContentLayoutHost(
-            sidebarRoot: appKitHostedRoot(
-                appKitSidebarPanelWithBackdrop(appearance: appearance)
-            ),
-            mainContentRoot: appKitHostedRoot(mainContent),
-            layout: sidebarLayout,
-            isSidebarVisible: sidebarState.isVisible,
-            mode: overlaysSidebarOnContent ? .overlay : .sideBySide,
-            onDividerBegan: { availableWidth in
-                let config = resizerConfig(for: .divider, availableWidth: availableWidth)
-                TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
-                    owner: tabManager,
-                    in: observedWindow
-                )
-                isResizerDragging = true
-                config.captureStart()
-                activateSidebarResizerCursor()
-            },
-            onDividerChanged: { translation, availableWidth in
-                let config = resizerConfig(for: .divider, availableWidth: availableWidth)
-                config.updateWidth(translation)
-            },
-            onDividerEnded: { availableWidth in
-                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
-                isResizerDragging = false
-                let config = resizerConfig(for: .divider, availableWidth: availableWidth)
-                config.finishDrag()
-                activateSidebarResizerCursor()
-                scheduleSidebarResizerCursorRelease()
-            }
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-        return AnyView(
-            layout.overlay(alignment: .leading) {
-                if rightSidebarVisible {
-                    rightSidebarResizerOverlay
-                        .zIndex(1000)
-                }
-            }
-        )
-    }
-
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
         let layout: AnyView
         // When matching terminal background, use HStack so both sidebar and terminal
         // sit directly on the window background with no intermediate layers.
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
-        if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
-            return appKitContentAndSidebarLayout(
-                appearance: appearance,
-                overlaysSidebarOnContent: useWithinWindow
-            )
-        }
         if useWithinWindow {
             // Overlay mode keeps the left sidebar on top, but the right
             // sidebar stays in an HStack so terminal rows are clipped before
