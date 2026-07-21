@@ -146,7 +146,10 @@ extension BrowserPanel {
             }
             mobileBrowserStreamViewport = reportedViewport
             forceMobileStreamRepaintAfterReflow()
-            publishMobileBrowserStreamSignal(.dirty(editableFocused: nil))
+            // `.reflowed` (not just `.dirty`) so the session schedules settle
+            // re-captures: the relayout paints asynchronously and an idle page
+            // sends no further dirty, so a single capture can grab a blank frame.
+            publishMobileBrowserStreamSignal(.reflowed)
             return true
         case .failure:
             return false
@@ -168,20 +171,29 @@ extension BrowserPanel {
     /// to its exact prior offset, so it is imperceptible; the `resize` dispatch
     /// covers short pages that have no scroll room to jitter.
     private func forceMobileStreamRepaintAfterReflow() {
+        // Two REAL scrolls in SEPARATE frames, not a same-tick net-zero pair:
+        // the browser coalesces `scrollTo(y+1); scrollTo(y)` in one tick to the
+        // final position and never actually scrolls, so no repaint. Moving by a
+        // real pixel in one frame and back in the next produces two genuine
+        // scroll+repaint cycles (the compositor nudge a user scroll gives). A
+        // page pinned at the top still has room to go down 1px; one pinned at the
+        // bottom still has room to go up 1px, so at least one real move lands.
         let script = """
         (() => {
-          const nudge = () => {
+          const back = () => {
             try {
-              const x = window.scrollX, y = window.scrollY;
-              window.scrollTo(x, y + 1);
-              window.scrollTo(x, y);
+              window.scrollBy(0, -1);
               window.dispatchEvent(new Event('resize'));
             } catch (_) {}
           };
+          const forward = () => {
+            try { window.scrollBy(0, 1); } catch (_) {}
+            try { requestAnimationFrame(back); } catch (_) { back(); }
+          };
           try {
-            requestAnimationFrame(() => requestAnimationFrame(nudge));
+            requestAnimationFrame(() => requestAnimationFrame(forward));
           } catch (_) {
-            nudge();
+            forward();
           }
         })()
         """
