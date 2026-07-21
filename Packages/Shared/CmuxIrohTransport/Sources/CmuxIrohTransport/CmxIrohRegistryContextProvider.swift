@@ -142,7 +142,11 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         guard discovery.routeContractVersion == 1 else {
             throw CmxIrohRegistryContextError.incompatibleContract
         }
-        guard Set(discovery.relayFleet) == managedRelayURLs else {
+        // Without a verified managed fleet there is nothing to cross-check and
+        // allowedRouteRelayURLs is empty, so no relay hint survives filtering;
+        // direct dial plans stay valid while relays remain unusable.
+        guard managedRelayURLs.isEmpty
+            || Set(discovery.relayFleet) == managedRelayURLs else {
             throw CmxIrohRegistryContextError.relayFleetMismatch
         }
         lanAuthorities.removeAll(keepingCapacity: false)

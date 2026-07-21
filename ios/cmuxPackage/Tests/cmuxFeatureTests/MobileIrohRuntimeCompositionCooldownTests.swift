@@ -71,6 +71,35 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
+    func cooldownGateDoesNotExtendItsOwnDeadline() async throws {
+        let fixture = try await MobileIrohCooldownFixture.make(
+            registrationError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: nil,
+                retryAfterSeconds: 600
+            )
+        )
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() >= 1
+        }
+        let flooredRequestCount = await fixture.broker.totalRequestCount()
+
+        // Hammering the gate late in the window throws its synthesized
+        // cooldown error each time; those echoes must not push the deadline
+        // forward or the floor would never expire under retry pressure.
+        fixture.clock.advance(by: 590)
+        for _ in 0 ..< 5 {
+            await fixture.composition.prepareForConnection()
+        }
+        #expect(await fixture.broker.totalRequestCount() == flooredRequestCount)
+
+        fixture.clock.advance(by: 11)
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() > flooredRequestCount
+        }
+        #expect(await fixture.broker.totalRequestCount() == flooredRequestCount + 1)
+    }
+
+    @Test
     func nonRateLimitedFailureKeepsInactiveDialBehavior() async throws {
         let fixture = try await MobileIrohCooldownFixture.make(
             registrationError: MobileIrohCooldownTestError.unavailable

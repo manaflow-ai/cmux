@@ -578,8 +578,12 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private func recordBrokerCooldown(for error: any Error, accountID: String) {
-        guard let retryAfterSeconds = (error as? any CmxRetryAfterProviding)?
-            .retryAfterSeconds else { return }
+        // The gate's own synthesized error echoes the remaining floor; treating
+        // it as a fresh directive would slide the deadline forward on every
+        // sub-second attempt.
+        guard !(error is CmxIrohBrokerCooldownError),
+              let retryAfterSeconds = (error as? any CmxRetryAfterProviding)?
+                  .retryAfterSeconds else { return }
         brokerCooldown.record(
             accountID: accountID,
             retryAfterSeconds: retryAfterSeconds,
@@ -1500,6 +1504,13 @@ public final class MobileIrohRuntimeComposition:
         }
         self.runtime = runtime
         activeAccountID = accountID
+        // Activation succeeded, so future reconnects are ungated, but a
+        // rate-limited relay bootstrap's Retry-After must still reach the
+        // policy refresh scheduler below instead of dying with the gate.
+        let pendingRelayRetryAfterSeconds = brokerCooldown.remainingSeconds(
+            accountID: accountID,
+            now: now()
+        )
         brokerCooldown.clear(accountID: accountID)
         diagnosticLog?.record(DiagnosticEvent(.endpointActive, a: DiagnosticTransportKind.iroh.rawValue))
         relayPolicyService = resolvedPolicyService
@@ -1521,7 +1532,8 @@ public final class MobileIrohRuntimeComposition:
             accountID: accountID,
             endpointID: endpointID,
             trustRoot: relayPolicyTrustRoot,
-            revision: revision
+            revision: revision,
+            initialRetryAfterSeconds: pendingRelayRetryAfterSeconds
         )
         publishIrohSettingsUpdate()
     }
@@ -2121,15 +2133,22 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         accountID: String,
         endpointID: CmxIrohPeerIdentity,
         trustRoot: CmxIrohRelayPolicyTrustRoot?,
-        revision: UInt64
+        revision: UInt64,
+        initialRetryAfterSeconds: Int? = nil
     ) {
         relayPolicyRefreshTask?.cancel()
         guard let service, let trustRoot else {
             relayPolicyRefreshTask = nil
             return
         }
+        // A Retry-After from the activation-time bootstrap failure seeds the
+        // first attempt so the scheduler's default cadence cannot retry the
+        // rate-limited endpoint early.
+        let initialRetryAt = initialRetryAfterSeconds.map {
+            now().addingTimeInterval(TimeInterval($0))
+        }
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
-            var retryAt: Date?
+            var retryAt: Date? = initialRetryAt
             var failureCount = 0
             var relayAuthorityExpired = false
             while !Task.isCancelled {
