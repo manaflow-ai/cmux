@@ -957,10 +957,12 @@ final class SidebarRowChecklistItemLine: NSView {
         guard let item, let actions else { return super.menu(for: event) }
         let menu = NSMenu()
         menu.autoenablesItems = false
+        // Freeze the workspace-bound closure at build time: NSMenu tracking
+        // allows this pooled line to be recycled before the selection fires.
         menu.addItem(SidebarRowClosureMenuItem(
             title: String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")
-        ) { [weak self] in
-            self?.actions?.onBeginChecklistItemEdit(item.id)
+        ) { [beginEdit = actions.onBeginChecklistItemEdit] in
+            beginEdit(item.id)
         })
         if item.state != .inProgress {
             menu.addItem(SidebarRowClosureMenuItem(
@@ -1539,7 +1541,15 @@ final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {
             onCancel()
         } else {
             onCommit(text)
-            onEndEditingCommit?()
+            if let onEndEditingCommit {
+                onEndEditingCommit()
+                // Add-field sessions persist across focus losses (the field
+                // stays armed, legacy parity) — re-open the latch so the
+                // NEXT focus/type/click-away commit is not silently dropped.
+                // Edit-field bridges never set onEndEditingCommit and stay
+                // latched (their session ends with the commit).
+                committed = false
+            }
         }
     }
 
