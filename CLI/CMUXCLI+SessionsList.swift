@@ -639,7 +639,8 @@ extension CMUXCLI {
             guard let node = nodesByID[nodeID], visited.insert(nodeID).inserted else { return }
             let agent = (node["agent"] as? String) ?? "unknown"
             let sessionID = (node["session_id"] as? String) ?? "unknown"
-            lines.append("\(prefix)\(connector)\(relationship) \(agent) \(sessionID)")
+            let relationshipLabel = agentSessionRelationshipLabel(relationship)
+            lines.append("\(prefix)\(connector)\(relationshipLabel) \(agent) \(sessionID)")
             guard depth < maximumDepth else { return }
             let children = (childrenByParent[nodeID] ?? []).compactMap { edge -> (String, String)? in
                 guard let childID = edge["to_node_id"] as? String else { return nil }
@@ -668,6 +669,21 @@ extension CMUXCLI {
             appendNode(nodeID, prefix: "", connector: "", relationship: relationship, depth: 0)
         }
         return lines
+    }
+
+    private func agentSessionRelationshipLabel(_ relationship: String) -> String {
+        switch relationship.lowercased() {
+        case "root":
+            String(localized: "cli.agents.tree.relationship.root", defaultValue: "root")
+        case "spawned":
+            String(localized: "cli.agents.tree.relationship.spawned", defaultValue: "spawned")
+        case "forked":
+            String(localized: "cli.agents.tree.relationship.forked", defaultValue: "forked")
+        case "resumed":
+            String(localized: "cli.agents.tree.relationship.resumed", defaultValue: "resumed")
+        default:
+            relationship
+        }
     }
 
     func sessionsUsage() -> String {
