@@ -104,7 +104,7 @@ struct OnboardingConnectionPreview: View {
             Label(
                 L10n.string(
                     "mobile.onboarding.connect.fallbackStatus",
-                    defaultValue: "No Mac appeared on this account"
+                    defaultValue: "Couldn’t connect to your Mac yet"
                 ),
                 systemImage: "exclamationmark.circle"
             )

@@ -15800,13 +15800,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Mac appeared on this account"
+            "value": "Couldn’t connect to your Mac yet"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアカウントのMacが見つかりませんでした"
+            "value": "まだMacに接続できません"
           }
         }
       }
