@@ -8343,13 +8343,13 @@ struct CMUXCLI {
                   let count = (response["kept_workspace_count"] as? NSNumber)?.intValue {
             let format = count == 1
                 ? String(localized: "cli.workspaceGroup.response.dissolved.one", defaultValue: "OK group dissolved (kept %lld workspace)")
-                : String(localized: "cli.workspaceGroup.response.dissolved.many", defaultValue: "OK group dissolved (kept %lld workspaces)")
+                : String(localized: "cli.workspaceGroup.response.dissolved.other", defaultValue: "OK group dissolved (kept %lld workspaces)")
             print(String.localizedStringWithFormat(format, Int64(count)))
         } else if response["operation"] as? String == "closed_workspaces",
                   let count = (response["closed_workspace_count"] as? NSNumber)?.intValue {
             let format = count == 1
                 ? String(localized: "cli.workspaceGroup.response.closed.one", defaultValue: "OK group deleted (closed %lld workspace)")
-                : String(localized: "cli.workspaceGroup.response.closed.many", defaultValue: "OK group deleted (closed %lld workspaces)")
+                : String(localized: "cli.workspaceGroup.response.closed.other", defaultValue: "OK group deleted (closed %lld workspaces)")
             print(String.localizedStringWithFormat(format, Int64(count)))
         } else {
             print("OK")

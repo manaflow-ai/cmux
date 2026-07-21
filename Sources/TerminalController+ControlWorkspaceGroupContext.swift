@@ -88,12 +88,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
         }
         if !childWorkspaceIDs.isEmpty {
             let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
-            let ineligible: [String] = childWorkspaceIDs.compactMap { id -> String? in
-                guard tabManager.tabs.contains(where: { $0.id == id }) else { return nil }
-                if existingAnchorIds.contains(id) {
-                    return id.uuidString
-                }
-                return nil
+            let ineligible: [String] = childWorkspaceIDs.compactMap { id in
+                existingAnchorIds.contains(id) ? id.uuidString : nil
             }
             if ineligible.count == childWorkspaceIDs.count {
                 return .allChildrenAreAnchors(ineligible)
