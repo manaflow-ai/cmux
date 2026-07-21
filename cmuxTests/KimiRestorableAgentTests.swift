@@ -24,6 +24,25 @@ struct KimiRestorableAgentTests {
         #expect(try JSONDecoder().decode(RestorableAgentKind.self, from: encoded) == kind)
     }
 
+    @Test("Pre-existing custom Kimi Vault registrations remain decodable")
+    func customVaultRegistrationStaysDecodable() throws {
+        let registration = try JSONDecoder().decode(
+            CmuxVaultAgentRegistration.self,
+            from: Data("""
+            {
+              "id": "kimi",
+              "name": "Custom Kimi",
+              "sessionIdSource": "--resume",
+              "resumeCommand": "custom-kimi --resume {{sessionId}}"
+            }
+            """.utf8)
+        )
+
+        #expect(registration.id == "kimi")
+        #expect(registration.name == "Custom Kimi")
+        #expect(registration.resumeCommand == "custom-kimi --resume {{sessionId}}")
+    }
+
     @Test("Kimi hook sessions are discovered and produce a resume command")
     func hookSessionLoadsIntoResumePipeline() throws {
         let fileManager = FileManager.default

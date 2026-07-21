@@ -83,7 +83,7 @@ struct KimiAgentResumeTests {
 
     @Test(
         "Drops stale Kimi auto-approval modes while preserving following options",
-        arguments: ["--yolo", "--yes", "--auto-approve", "-y", "--afk"]
+        arguments: ["--yolo", "--yes", "--auto-approve", "-y", "--afk", "--plan"]
     )
     func dropsStaleAutoApprovalMode(_ option: String) {
         #expect(
