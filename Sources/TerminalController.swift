@@ -127,6 +127,7 @@ class TerminalController {
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
+    let portScanner: PortScanner
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -357,6 +358,7 @@ class TerminalController {
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
+        portScanner: PortScanner = .shared,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -371,6 +373,7 @@ class TerminalController {
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
+        self.portScanner = portScanner
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
@@ -859,13 +862,13 @@ class TerminalController {
         )
 
         // Wire batched port scanner results back to workspace state.
-        PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
+        portScanner.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
             self?.applyPanelPortPublication(workspaceId: workspaceId, panelId: panelId, ports: ports)
         }
-        PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
+        portScanner.onAgentPortsUpdated = { [weak self] workspaceId, ports in
             self?.applyAgentPortPublication(workspaceId: workspaceId, ports: ports) ?? false
         }
-        PortScanner.shared.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
+        portScanner.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
     }
 
     func applyPanelPortPublication(workspaceId: UUID, panelId: UUID, ports: [Int]) {

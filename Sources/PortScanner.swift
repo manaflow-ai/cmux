@@ -110,6 +110,11 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
+    @MainActor
+    func freshReportedTTYName(workspaceId: UUID, panelId: UUID) -> String? {
+        publicationState.currentPanelTTYName(for: PanelKey(workspaceId: workspaceId, panelId: panelId))
+    }
+
     func kick(workspaceId: UUID, panelId: UUID) {
         queue.async { [self] in
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)

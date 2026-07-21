@@ -53,7 +53,7 @@ extension TerminalController {
             preferredWorkspaceId: nil,
             preferredSurfaceId: nil
         )
-        guard let target = Self.liveTargetForTTY(callerTTY, tabManagers: managers),
+        guard let target = liveTargetForTTY(callerTTY, tabManagers: managers),
               let owningManager = managers.first(where: { manager in
                   manager.tabs.contains(where: { $0 === target.workspace })
               }) else {
@@ -208,7 +208,7 @@ extension TerminalController {
     /// Resolve local callers from Ghostty's current runtime PTYs first. Shell-
     /// reported TTYs are a unique-only fallback for nested multiplexers such as
     /// tmux, where the pane TTY necessarily differs from Ghostty's outer PTY.
-    private static func liveTargetForTTY(
+    private func liveTargetForTTY(
         _ ttyName: String,
         tabManagers: [TabManager]
     ) -> TerminalCallerTarget? {
@@ -232,7 +232,11 @@ extension TerminalController {
                     if let liveTTYName = terminalPanel.surface.controllingTTYName() {
                         liveCandidates.append((binding: binding, ttyName: liveTTYName))
                     }
-                    if let reportedTTYName = workspace.surfaceTTYNames[surfaceId] {
+                    if let reportedTTYName = workspace.surfaceTTYNames[surfaceId],
+                       portScanner.freshReportedTTYName(
+                           workspaceId: workspace.id,
+                           panelId: surfaceId
+                       ) == reportedTTYName {
                         reportedCandidates.append((binding: binding, ttyName: reportedTTYName))
                     }
                 }

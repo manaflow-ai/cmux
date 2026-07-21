@@ -23,6 +23,10 @@ final class PortScanPublicationState {
         activePanelLifecycleByKey.removeValue(forKey: key)
     }
 
+    func currentPanelTTYName(for key: PortScanner.PanelKey) -> String? {
+        activePanelLifecycleByKey[key]?.ttyName
+    }
+
     func isCurrentPanelRevision(_ revision: UInt64, key: PortScanner.PanelKey) -> Bool {
         activePanelLifecycleByKey[key]?.revision == revision
     }

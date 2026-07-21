@@ -314,7 +314,7 @@ extension TerminalController {
             tab.syncRemotePortScanTTYs()
             _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
         } else {
-            PortScanner.shared.registerTTY(workspaceId: workspaceID, panelId: surfaceId, ttyName: ttyName)
+            portScanner.registerTTY(workspaceId: workspaceID, panelId: surfaceId, ttyName: ttyName)
         }
         return .recorded(surfaceID: surfaceId)
     }
@@ -435,7 +435,7 @@ extension TerminalController {
         if tab.isRemoteWorkspace {
             tab.kickRemotePortScan(panelId: surfaceId, reason: reason)
         } else {
-            PortScanner.shared.kick(workspaceId: workspaceID, panelId: surfaceId)
+            portScanner.kick(workspaceId: workspaceID, panelId: surfaceId)
         }
         return .kicked(surfaceID: surfaceId)
     }
