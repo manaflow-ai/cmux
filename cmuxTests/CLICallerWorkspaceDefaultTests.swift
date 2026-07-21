@@ -83,6 +83,58 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(params["tab_id"] as? String == Self.otherWorkspaceId)
     }
 
+    /// `identify` must carry an independent terminal signal when the restored
+    /// shell has no injected workspace or surface identity. The app can then
+    /// recover the caller from the live PTY instead of returning `caller: null`.
+    @Test func identifyWithoutCallerIdsSendsCallerTTY() throws {
+        let socketPath = Self.makeSocketPath("identify-tty")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.identify" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "socket_path": socketPath,
+                "focused": NSNull(),
+                "caller": NSNull(),
+            ])
+        }
+
+        var environment = cliEnvironment(socketPath: socketPath, callerWorkspaceId: nil)
+        environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys8362"
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["identify"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let requests = try state.requestObjects()
+        let identify = try #require(requests.first { $0["method"] as? String == "system.identify" })
+        let params = try #require(identify["params"] as? [String: Any])
+        #expect(params["caller"] == nil)
+        #expect(params["caller_tty"] as? String == "ttys8362")
+    }
+
     /// Drives `mark-notification-read --workspace <argument>` against a mock socket and
     /// returns the recorded JSON-RPC requests plus the process result. The mock answers
     /// `workspace.current` with `focusedWorkspaceId` so that, pre-fix, the command would
