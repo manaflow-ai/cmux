@@ -44,6 +44,7 @@ extension AgentSyncEngineTests {
         #expect(await AgentSyncTestSupport.waitUntil {
             await server.requestCount(method: GuiWireMethod.entries) == 2
         })
+        #expect(await AgentSyncTestSupport.waitUntil { conversation.entries.count == 4 })
         #expect(conversation.entries.map(\.seq.rawValue) == [1, 2, 3, 4])
     }
 
@@ -281,5 +282,166 @@ extension AgentSyncEngineTests {
         #expect(params.last?.beforeSeq == EntrySeq(rawValue: 3))
         #expect(conversation.entries.map(\.seq.rawValue) == [1, 2, 3, 4])
         #expect(engine.hasMoreBeforeBySession[AgentSyncTestSupport.session] == false)
+    }
+
+    @Test
+    func cursorLoadOlderCoalescesConcurrentRequestsAndMergesSparseOffsets() async throws {
+        let transport = FixtureSyncTransport()
+        let server = AgentSyncTestServer()
+        await server.setEntriesResult(AgentSyncTestSupport.page(
+            entries: [AgentSyncTestSupport.entry(10_000), AgentSyncTestSupport.entry(20_000)],
+            tail: 20_000,
+            hasMoreBefore: true,
+            startCursor: "start-10000",
+            endCursor: "tail-20000",
+            tailCursor: "tail-20000"
+        ))
+        await server.install(on: transport)
+        let engine = AgentSyncEngine(transport: transport, syncClock: TestSyncClock())
+        let conversation = engine.openConversation(sessionID: AgentSyncTestSupport.session)
+        defer { engine.stop() }
+        engine.start()
+        #expect(await AgentSyncTestSupport.waitUntil { engine.connectivity.phase == .connected })
+
+        await server.setEntriesResult(AgentSyncTestSupport.page(
+            entries: [AgentSyncTestSupport.entry(1_000), AgentSyncTestSupport.entry(5_000)],
+            tail: 20_000,
+            hasMoreBefore: false,
+            hasMoreAfter: true,
+            startCursor: "head-1000",
+            endCursor: "start-10000",
+            tailCursor: "tail-20000"
+        ))
+        await server.gateNextEntriesRequest()
+        async let first: Void = engine.loadOlder(sessionID: AgentSyncTestSupport.session)
+        async let second: Void = engine.loadOlder(sessionID: AgentSyncTestSupport.session)
+        #expect(await AgentSyncTestSupport.waitUntil {
+            await server.requestCount(method: GuiWireMethod.entries) == 2
+        })
+        await server.resumeEntriesRequest()
+        try await first
+        try await second
+
+        let params = await server.entriesParams()
+        #expect(params.last?.anchor == .before)
+        #expect(params.last?.cursor == JournalCursor(rawValue: "start-10000"))
+        #expect(await server.requestCount(method: GuiWireMethod.entries) == 2)
+        #expect(conversation.entries.map(\.seq.rawValue) == [1_000, 5_000, 10_000, 20_000])
+        #expect(conversation.holes.isEmpty)
+        #expect(conversation.unreadCount == 4)
+        #expect(!conversation.needsTailPull)
+    }
+
+    @Test
+    func cursorLoadNewerAdvancesOnePageWithoutSchedulingTailJump() async throws {
+        let transport = FixtureSyncTransport()
+        let server = AgentSyncTestServer()
+        await server.setEntriesResult(AgentSyncTestSupport.page(
+            entries: [AgentSyncTestSupport.entry(151), AgentSyncTestSupport.entry(200)],
+            tail: 200,
+            hasMoreBefore: true,
+            startCursor: "c150",
+            endCursor: "c200",
+            tailCursor: "c200"
+        ))
+        await server.install(on: transport)
+        let clock = TestSyncClock()
+        let engine = AgentSyncEngine(transport: transport, syncClock: clock)
+        let conversation = engine.openConversation(sessionID: AgentSyncTestSupport.session)
+        defer { engine.stop() }
+        engine.start()
+        #expect(await AgentSyncTestSupport.waitUntil { engine.connectivity.phase == .connected })
+
+        await server.setEntriesResult(AgentSyncTestSupport.page(
+            entries: [AgentSyncTestSupport.entry(1), AgentSyncTestSupport.entry(50)],
+            tail: 200,
+            hasMoreAfter: true,
+            startCursor: "c0",
+            endCursor: "c50",
+            tailCursor: "c200"
+        ))
+        try await engine.jumpToHead(sessionID: AgentSyncTestSupport.session)
+
+        await server.setEntriesResult(AgentSyncTestSupport.page(
+            entries: [AgentSyncTestSupport.entry(51), AgentSyncTestSupport.entry(100)],
+            tail: 200,
+            hasMoreBefore: true,
+            hasMoreAfter: true,
+            startCursor: "c50",
+            endCursor: "c100",
+            tailCursor: "c200"
+        ))
+        try await engine.loadNewer(sessionID: AgentSyncTestSupport.session)
+
+        #expect(conversation.entries.map(\.seq.rawValue) == [1, 50, 51, 100])
+        #expect(conversation.endCursor == JournalCursor(rawValue: "c100"))
+        #expect(conversation.hasMoreAfter)
+        #expect(!conversation.needsTailPull)
+        #expect(await clock.pendingSleepCount() == 0)
+        #expect(await server.requestCount(method: GuiWireMethod.entries) == 3)
+
+        await clock.advance(milliseconds: 250)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(await server.requestCount(method: GuiWireMethod.entries) == 3)
+    }
+
+    @Test
+    func jumpToHeadRetriesOnceAfterJournalRotationRestart() async throws {
+        let transport = FixtureSyncTransport()
+        let server = AgentSyncTestServer()
+        await server.setEntriesResult(AgentSyncTestSupport.page(
+            entries: [AgentSyncTestSupport.entry(90), AgentSyncTestSupport.entry(100)],
+            tail: 100,
+            hasMoreBefore: true,
+            startCursor: "old-90",
+            endCursor: "old-100",
+            tailCursor: "old-100"
+        ))
+        await server.install(on: transport)
+        let engine = AgentSyncEngine(transport: transport, syncClock: TestSyncClock())
+        let conversation = engine.openConversation(sessionID: AgentSyncTestSupport.session)
+        defer { engine.stop() }
+        engine.start()
+        #expect(await AgentSyncTestSupport.waitUntil { engine.connectivity.phase == .connected })
+
+        await server.enqueueEntriesResult(AgentSyncTestSupport.page(
+            journalID: AgentSyncTestSupport.journalTwo,
+            entries: [
+                AgentSyncTestSupport.entry(900, journalID: AgentSyncTestSupport.journalTwo),
+                AgentSyncTestSupport.entry(1_000, journalID: AgentSyncTestSupport.journalTwo),
+            ],
+            tail: 1_000,
+            hasMoreBefore: true,
+            startCursor: "new-900",
+            endCursor: "new-1000",
+            tailCursor: "new-1000",
+            requiresPagingRestart: true
+        ))
+        await server.enqueueEntriesResult(AgentSyncTestSupport.page(
+            journalID: AgentSyncTestSupport.journalTwo,
+            entries: [
+                AgentSyncTestSupport.entry(10, journalID: AgentSyncTestSupport.journalTwo),
+                AgentSyncTestSupport.entry(20, journalID: AgentSyncTestSupport.journalTwo),
+            ],
+            tail: 1_000,
+            hasMoreAfter: true,
+            startCursor: "new-0",
+            endCursor: "new-20",
+            tailCursor: "new-1000"
+        ))
+
+        try await engine.jumpToHead(sessionID: AgentSyncTestSupport.session)
+
+        #expect(conversation.journalID == AgentSyncTestSupport.journalTwo)
+        #expect(conversation.entries.map(\.seq.rawValue) == [10, 20])
+        #expect(conversation.startCursor == JournalCursor(rawValue: "new-0"))
+        #expect(conversation.endCursor == JournalCursor(rawValue: "new-20"))
+        let params = await server.entriesParams()
+        #expect(params.suffix(2).map(\.anchor) == [.head, .head])
+        #expect(params.suffix(2).map(\.journalID) == [
+            AgentSyncTestSupport.journalOne,
+            AgentSyncTestSupport.journalTwo,
+        ])
+        #expect(await server.requestCount(method: GuiWireMethod.entries) == 3)
     }
 }

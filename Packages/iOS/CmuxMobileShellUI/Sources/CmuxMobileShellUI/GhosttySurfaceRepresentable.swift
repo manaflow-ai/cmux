@@ -42,9 +42,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
-    var composerSubmitAction: (@MainActor () async -> Void)? = nil
-    var onComposerChromeHeightChange: ((CGFloat) -> Void)? = nil
-    var onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -58,10 +55,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             onArtifactFilesRequested: onArtifactFilesRequested,
             onArtifactPathTapped: onArtifactPathTapped,
             onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
-            onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal,
-            composerSubmitAction: composerSubmitAction,
-            onComposerChromeHeightChange: onComposerChromeHeightChange,
-            onBottomScrollEdgeElementContainersChange: onBottomScrollEdgeElementContainersChange
+            onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
         )
     }
 
@@ -129,11 +123,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
         context.coordinator.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
-        context.coordinator.updateComposerRouting(
-            submitAction: composerSubmitAction,
-            chromeHeightChange: onComposerChromeHeightChange,
-            edgeElementContainersChange: onBottomScrollEdgeElementContainersChange
-        )
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
@@ -179,9 +168,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onArtifactPathTapped: @MainActor (_ path: String) -> Void
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
-        let composerSubmitRouter: TerminalComposerSubmitRouter
-        var onComposerChromeHeightChange: ((CGFloat) -> Void)?
-        var onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
         private var outputTask: Task<Void, Never>?
         var outputStartContinuation: AsyncStream<Void>.Continuation?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
@@ -226,10 +212,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
             onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
             onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void,
-            onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void,
-            composerSubmitAction: (@MainActor () async -> Void)?,
-            onComposerChromeHeightChange: ((CGFloat) -> Void)?,
-            onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
+            onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
@@ -246,30 +229,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.onArtifactPathTapped = onArtifactPathTapped
             self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
             self.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
-            self.composerSubmitRouter = TerminalComposerSubmitRouter(action: composerSubmitAction)
-            self.onComposerChromeHeightChange = onComposerChromeHeightChange
-            self.onBottomScrollEdgeElementContainersChange = onBottomScrollEdgeElementContainersChange
             super.init()
-        }
-
-        func updateComposerRouting(
-            submitAction: (@MainActor () async -> Void)?,
-            chromeHeightChange: ((CGFloat) -> Void)?,
-            edgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
-        ) {
-            composerSubmitRouter.action = submitAction
-            onComposerChromeHeightChange = chromeHeightChange
-            onBottomScrollEdgeElementContainersChange = edgeElementContainersChange
-            if let surfaceView {
-                edgeElementContainersChange?(surfaceView.bottomScrollEdgeElementContainers)
-            }
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
-            onBottomScrollEdgeElementContainersChange?(
-                surfaceView.bottomScrollEdgeElementContainers
-            )
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
             updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
             guard surfaceView.window != nil else { return }
@@ -461,7 +425,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             artifactCountTask = nil
             artifactCountTaskRequest = nil
             artifactCountState.reset()
-            onBottomScrollEdgeElementContainersChange?([])
             surfaceView = nil
         }
 
@@ -617,13 +580,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// band so the surface owns its position and grid reservation. Idempotent.
         @MainActor
         func setComposerMounted(_ mounted: Bool) {
-            guard let store, let surfaceView else { return }
-            guard mounted != composerMounted else {
-                if !mounted {
-                    onComposerChromeHeightChange?(GhosttySurfaceView.persistentBottomToolbarHeight)
-                }
-                return
-            }
+            guard mounted != composerMounted, let store, let surfaceView else { return }
             composerMounted = mounted
             composerMountGeneration &+= 1
             if mounted {
@@ -645,7 +602,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 // close-then-quick-reopen would otherwise unmount the freshly
                 // remounted field and leave `composerMounted` true with no view.
                 let generation = composerMountGeneration
-                onComposerChromeHeightChange?(GhosttySurfaceView.persistentBottomToolbarHeight)
                 surfaceView.setComposerBandHeight(0, animated: true) { [weak self] in
                     guard let self,
                           self.composerMountGeneration == generation,
@@ -661,11 +617,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// sizes the surface band.
         @MainActor
         private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
-            let view = TerminalComposerView(
-                store: store,
-                terminalID: surfaceID,
-                submitRouter: composerSubmitRouter
-            ) { [weak self] in
+            let view = TerminalComposerView(store: store, terminalID: surfaceID) { [weak self] in
                 // Content changed (a line added/removed, or cleared after send): live
                 // grows/shrinks animate. `setComposerBandHeight` is idempotent on
                 // unchanged heights, so a no-op change is harmless.
@@ -714,9 +666,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             let target = CGSize(width: width, height: .greatestFiniteMagnitude)
             let fitting = controller.sizeThatFits(in: target)
             surfaceView.setComposerBandHeight(fitting.height, animated: animated)
-            onComposerChromeHeightChange?(
-                fitting.height + GhosttySurfaceView.persistentBottomToolbarHeight
-            )
         }
 
         /// Re-measure the open composer after a non-text layout change (rotation /
@@ -735,7 +684,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView?.mountComposerView(nil)
             composerController = nil
             composerMounted = false
-            onComposerChromeHeightChange?(0)
         }
 
     }

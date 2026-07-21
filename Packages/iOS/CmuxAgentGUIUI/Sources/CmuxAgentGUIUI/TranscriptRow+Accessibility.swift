@@ -8,6 +8,8 @@ extension TranscriptRow {
             AgentGUIL10n.agentAccessibilityLabel(text)
         case .proseUser(let text, _, _):
             AgentGUIL10n.userAccessibilityLabel(text)
+        case .attachment(let attachment):
+            attachment.displayName ?? attachment.summary
         case .pendingTicket(let ticket):
             AgentGUIL10n.userAccessibilityLabel(ticket.text)
         case .pendingAsk(let ask):

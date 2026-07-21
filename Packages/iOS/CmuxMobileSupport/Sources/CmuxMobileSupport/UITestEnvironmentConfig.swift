@@ -9,6 +9,24 @@ public struct UITestEnvironmentConfig: Equatable, Sendable {
         self.environment = environment
     }
 
+    /// Whether the standalone agent-chat preview is enabled.
+    public var agentChatPreviewEnabled: Bool {
+        #if DEBUG
+        return environment["CMUX_UITEST_AGENT_CHAT_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the workspace-shaped agent-chat preview is enabled.
+    public var agentChatInlinePreviewEnabled: Bool {
+        #if DEBUG
+        return environment["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// The requested transcript density when the launch value is supported.
     public var transcriptDensity: String? {
         let value = environment["CMUX_UITEST_TRANSCRIPT_DENSITY"]?

@@ -39,7 +39,22 @@ final class TranscriptProjectionDriver {
         guard isStarted, let conversation else { return }
         var nextInput: TranscriptProjectionInput?
         withObservationTracking {
-            nextInput = makeInput(conversation: conversation)
+            let state = conversation.state
+            let hasMoreBefore = conversation.hasMoreBefore
+            let hasMoreAfter = conversation.hasMoreAfter
+            let startCursor = conversation.startCursor
+            let endCursor = conversation.endCursor
+            let streamingTail = engine.streamingTails[sessionID].map(TranscriptStreamingTail.init)
+            let sessionPhase = engine.directory.sessions.first { $0.id == sessionID }?.phase ?? .unknown
+            nextInput = TranscriptProjectionInput(
+                state: state,
+                hasMoreBefore: hasMoreBefore,
+                hasMoreAfter: hasMoreAfter,
+                startCursor: startCursor,
+                endCursor: endCursor,
+                streamingTail: streamingTail,
+                sessionPhase: sessionPhase
+            )
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.observe()
@@ -49,13 +64,4 @@ final class TranscriptProjectionDriver {
         sink(nextInput)
     }
 
-    private func makeInput(conversation: ConversationReplica) -> TranscriptProjectionInput {
-        let sessionPhase = engine.directory.sessions.first { $0.id == sessionID }?.phase ?? .unknown
-        return TranscriptProjectionInput(
-            state: conversation.state,
-            hasMoreBefore: engine.hasMoreBeforeBySession[sessionID] ?? false,
-            streamingTail: engine.streamingTails[sessionID].map(TranscriptStreamingTail.init),
-            sessionPhase: sessionPhase
-        )
-    }
 }

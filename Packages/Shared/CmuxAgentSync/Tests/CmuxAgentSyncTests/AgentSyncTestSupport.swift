@@ -65,7 +65,12 @@ enum AgentSyncTestSupport {
         windowStart: Int? = nil,
         windowEnd: Int? = nil,
         tail: Int? = nil,
-        hasMoreBefore: Bool = false
+        hasMoreBefore: Bool = false,
+        hasMoreAfter: Bool = false,
+        startCursor: String? = nil,
+        endCursor: String? = nil,
+        tailCursor: String? = nil,
+        requiresPagingRestart: Bool = false
     ) -> GuiEntriesResult {
         let first = windowStart ?? entries.first?.seq.rawValue ?? 0
         let last = windowEnd ?? entries.last?.seq.rawValue ?? 0
@@ -75,7 +80,12 @@ enum AgentSyncTestSupport {
             windowStart: EntrySeq(rawValue: first),
             windowEnd: EntrySeq(rawValue: last),
             tailSeq: EntrySeq(rawValue: tail ?? last),
-            hasMoreBefore: hasMoreBefore
+            hasMoreBefore: hasMoreBefore,
+            hasMoreAfter: hasMoreAfter,
+            startCursor: startCursor.map { JournalCursor(rawValue: $0) },
+            endCursor: endCursor.map { JournalCursor(rawValue: $0) },
+            tailCursor: tailCursor.map { JournalCursor(rawValue: $0) },
+            requiresPagingRestart: requiresPagingRestart
         )
     }
 

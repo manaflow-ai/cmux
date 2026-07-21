@@ -89,30 +89,31 @@ import Testing
         driver.stop()
     }
 
-    @Test func loadOlderHasMoreBeforeChangeRebuildsInput() async throws {
-        let transport = FixtureSyncTransport()
-        let pageData = try JSONEncoder().encode(GuiEntriesResult(
-            journalID: Self.journalID,
-            entries: [Self.entry(seq: 1)],
-            windowStart: EntrySeq(rawValue: 1),
-            windowEnd: EntrySeq(rawValue: 1),
-            tailSeq: EntrySeq(rawValue: 1),
-            hasMoreBefore: true
-        ))
-        await transport.setHandler(method: GuiWireMethod.entries) { _ in
-            pageData
-        }
-        let engine = AgentSyncEngine(transport: transport)
+    @Test func pagingBoundaryChangeRebuildsInput() async throws {
+        let engine = AgentSyncEngine(transport: FixtureSyncTransport())
         var inputs: [TranscriptProjectionInput] = []
         let driver = TranscriptProjectionDriver(engine: engine, sessionID: Self.sessionID) { input in
             inputs.append(input)
         }
         driver.start()
-
-        try await engine.loadOlder(sessionID: Self.sessionID)
+        let conversation = try #require(engine.conversations[Self.sessionID])
+        conversation.mergePage(
+            journal: Self.journalID,
+            entries: [Self.entry(seq: 1)],
+            windowStart: EntrySeq(rawValue: 1),
+            windowEnd: EntrySeq(rawValue: 1),
+            tailSeq: EntrySeq(rawValue: 2),
+            hasMoreBefore: true,
+            hasMoreAfter: true,
+            startCursor: JournalCursor(rawValue: "before-page"),
+            endCursor: JournalCursor(rawValue: "after-page")
+        )
 
         let observed = await Self.waitUntil {
             inputs.last?.hasMoreBefore == true
+                && inputs.last?.hasMoreAfter == true
+                && inputs.last?.startCursor == JournalCursor(rawValue: "before-page")
+                && inputs.last?.endCursor == JournalCursor(rawValue: "after-page")
         }
         #expect(observed)
         driver.stop()

@@ -6,6 +6,8 @@ public enum TranscriptRowKind: Hashable, Sendable {
     case proseAgent(text: String, grouping: TranscriptProseGrouping)
     /// User-authored prose.
     case proseUser(text: String, ticketState: SendTicketState?, grouping: TranscriptProseGrouping)
+    /// Stable attachment metadata associated with a prompt.
+    case attachment(AttachmentPayload)
     /// A transcript status event.
     case status(code: StatusCode, detail: String?)
     /// A display date separator.

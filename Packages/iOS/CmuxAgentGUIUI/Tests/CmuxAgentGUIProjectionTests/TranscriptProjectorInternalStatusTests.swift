@@ -29,8 +29,12 @@ struct TranscriptProjectorInternalStatusTests {
 
         #expect(Self.row(seq: 2, journalID: journalID, in: rows) == nil)
         #expect(Self.row(seq: 3, journalID: journalID, in: rows) == nil)
-        #expect(Self.row(seq: 4, journalID: journalID, in: rows)?.isActivityItem == true)
-        #expect(Self.row(seq: 5, journalID: journalID, in: rows)?.isActivityItem == true)
+        let activityIDs = rows.compactMap { row -> [TranscriptRowID]? in
+            guard case .activitySummary(let summary) = row.rowKind else { return nil }
+            return summary.items.map(\.id)
+        }.flatMap { $0 }
+        #expect(activityIDs.contains(.entry(journalID: journalID, seq: EntrySeq(rawValue: 4))))
+        #expect(activityIDs.contains(.entry(journalID: journalID, seq: EntrySeq(rawValue: 5))))
         #expect(Self.row(seq: 6, journalID: journalID, in: rows)?.agentText == "answer")
     }
 

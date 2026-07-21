@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxMobileDiagnostics
 import CmuxMobileSupport
 import CmuxMobileTerminalKit
@@ -78,6 +79,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private let zoomPreference = MobileTerminalZoomPreference()
     var bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
+    /// Enables both terminal artifact taps and the coalesced visible-frame count.
+    public var artifactFilesEnabled: Bool {
+        get { inputProxy.artifactFilesEnabled }
+        set {
+            let changed = inputProxy.artifactFilesEnabled != newValue
+            inputProxy.artifactFilesEnabled = newValue
+            guard changed else { return }
+            resetVisibleArtifactCountTracking()
+        }
+    }
     var onFocusInputRequestedForTesting: (() -> Void)?
     private var surfaceTitle: String?
     var displayLink: CADisplayLink?
@@ -502,7 +513,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var diagnosticLog: DiagnosticLog?
     #endif
 
-    lazy var inputProxy: TerminalInputTextView = {
+    private lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
         inputProxy.terminalTheme = terminalTheme
         inputProxy.onText = { [weak self] text in
@@ -588,6 +599,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
         }
+        inputProxy.onOpenArtifactFiles = { [weak self] sourceView in
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didRequestArtifactFilesFrom: sourceView)
+        }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,
                   let window = self.window else {
@@ -648,6 +663,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         installPersistentToolbar()
         installComposerContainer()
+        installArtifactChipContainer()
         initializeSurface()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
@@ -691,7 +707,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
-        observeKeyboardVisibilityReconciliation()
     }
 
     @objc private func handleAppWillResignActive() {
@@ -756,7 +771,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
-    var keyboardVisible = false
+    private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is docked above the keyboard (when up) or the home indicator
     /// (when down) via `keyboardLayoutGuide`, so the grid must shrink by this
@@ -772,7 +787,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the buttons (the "gap below" Lawrence kept seeing). Matching them keeps the
     /// toolbar's live top edge equal to the viewport edge; any whole-cell render
     /// remainder stays inside the terminal viewport instead of becoming toolbar fill.
-    static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
+    private static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
     /// The docked accessory bar. Positioned by ``bottomDockFrames()`` with the
     /// SAME bottom-occupancy math as the grid reservation, so its top is always
     /// flush with the grid bottom (no gap) and its bottom rests on the keyboard
@@ -788,8 +803,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// reparenting the toolbar into a second layout system.
     private var composerActive = false
     /// The composer band: a surface-owned container the host installs the SwiftUI
-    /// compose field into (via a `UIHostingController` in `GhosttySurfaceRepresentable`;
-    /// the terminal package cannot import the UI package). It is pinned
+    /// compose field into (via a `UIHostingController` in
+    /// `GhosttySurfaceRepresentable`, which can see both layers; the terminal package
+    /// cannot import the UI package). The surface positions it itself — pinned
     /// directly above the keyboard (iMessage's field-nearest-keyboard layout), with
     /// the docked toolbar riding its top edge and the terminal grid above that — and
     /// reserves its height in the grid, so the compose field, the toolbar, and the
@@ -805,12 +821,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
-    /// Real bottom-dock containers for native scroll-edge registration by an overlaying transcript.
-    public var bottomScrollEdgeElementContainers: [UIView] { [dockedToolbar, composerContainer].compactMap { $0 } }
+    /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
+    /// toolbar/composer containers makes keyboard and composer movement use one
+    /// coordinate system instead of a competing SwiftUI safe-area offset.
+    private let artifactChipHost = GhosttySurfaceArtifactChipHost()
     /// True once SwiftUI has dismantled the hosting representable for this
     /// surface. A dismantled surface performs no render, output, or
     /// accessibility work so a view SwiftUI has removed cannot keep driving the
     /// renderer or the accessibility tree.
+    /// Internal for `GhosttySurfaceView+RenderRecovery.swift` recovery guards.
     var isDismantled = false
     /// Whether the hidden terminal input should become first responder when the
     /// surface attaches to a window. Set to `false` to suppress autofocus after
@@ -846,7 +865,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
         }
         #endif
-        reconcileKeyboardVisibilityFromSystem(willBeVisible)
+        keyboardVisible = willBeVisible
+        inputProxy.setKeyboardShown(willBeVisible)
         // Round 8 removes the `composerPresented ⇒ keyboardUp` enforcement: the
         // toolbar is ALWAYS visible and the composer band survives a keyboard-down, so
         // the keyboard collapsing no longer dismisses the composer. The composer's
@@ -945,7 +965,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// keyboard. Used only by the terminal-layout preview harness.
     public func debugSetKeyboardHeightForLayoutPreview(_ height: CGFloat) {
         stopKeyboardHeightAnimation()
-        reconcileKeyboardVisibilityFromSystem(height > 0)
+        keyboardVisible = height > 0
+        inputProxy.setKeyboardShown(keyboardVisible)
         keyboardHeight = max(0, height)
         // Mirror the live keyboard-tied visibility so the preview shows the bar
         // only when the synthetic keyboard is "up".
@@ -991,6 +1012,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above the Ghostty renderer's sublayer so a lifted Liquid-Glass button is not
     /// clipped by the terminal render bounds (item 6). Below the zoom HUD (1100).
     private static let bottomChromeZPosition: CGFloat = 1000
+    /// Floats above dock chrome and terminal content while yielding to the zoom HUD.
+    private static let artifactChipZPosition: CGFloat = 1050
 
     /// Whether the always-visible bottom chrome (the docked accessory toolbar and,
     /// when open, the composer band) is currently on screen.
@@ -1122,6 +1145,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         composerContainer.isHidden = !shouldShow || composerContainer.subviews.isEmpty
         reservedToolbarHeight = reserved
         layoutRenderedTerminalForCurrentViewport()
+        updateArtifactChipVisibility(animated: true)
         setNeedsGeometrySync()
         setNeedsLayout()
     }
@@ -1357,6 +1381,40 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock()
     }
 
+    /// Mounts the host-built artifact chip inside the terminal's bottom-dock
+    /// coordinate system, or hides it when `view` is `nil`.
+    ///
+    /// - Parameters:
+    ///   - view: The hosted chip view, or `nil` when no visible paths exist.
+    ///   - animated: Whether visibility changes should fade and slide.
+    public func mountArtifactChipView(_ view: UIView?, animated: Bool) {
+        artifactChipHost.setContent(view)
+        layoutArtifactChip(using: viewportSnapshot())
+        updateArtifactChipVisibility(animated: animated)
+    }
+
+    private func installArtifactChipContainer() {
+        artifactChipHost.install(in: self, zPosition: Self.artifactChipZPosition)
+    }
+
+    private func layoutArtifactChip(using snapshot: TerminalViewportSnapshot) {
+        artifactChipHost.layout(in: bounds, topInset: safeAreaInsets.top)
+    }
+
+    private var artifactChipShouldBeVisible: Bool {
+        artifactChipHost.isRequestedVisible
+            && dockedToolbarShouldBeVisible
+            && dockedToolbar?.isHidden == false
+            && !zoomOverlayShown
+    }
+
+    private func updateArtifactChipVisibility(animated: Bool) {
+        artifactChipHost.updateVisibility(
+            shouldShow: artifactChipShouldBeVisible,
+            animated: animated
+        )
+    }
+
     /// Mount (or unmount, with `nil`) the host-built compose field into the surface's
     /// composer band. The terminal package cannot import the SwiftUI composer (that
     /// would invert the package DAG), so `GhosttySurfaceRepresentable` builds it in a
@@ -1446,6 +1504,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func layoutBottomDock(using snapshot: TerminalViewportSnapshot) {
         composerContainer.frame = snapshot.composerFrame
         dockedToolbar?.frame = snapshot.toolbarFrame
+        layoutArtifactChip(using: snapshot)
     }
 
     /// Animate the whole bottom dock (composer band + toolbar) to its current target
@@ -1467,6 +1526,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ) { [weak self] in
             self?.composerContainer.frame = frames.composer
             self?.dockedToolbar?.frame = frames.toolbar
+            self?.layoutArtifactChip(using: snapshot)
         }
     }
 
@@ -1721,6 +1781,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         zoomOverlayLastInteraction = CACurrentMediaTime()
         if !zoomOverlayShown {
             zoomOverlayShown = true
+            updateArtifactChipVisibility(animated: true)
             overlay.isHidden = false
             bringSubviewToFront(overlay)
             UIView.animate(withDuration: 0.18) { overlay.alpha = 1 }
@@ -1734,8 +1795,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         UIView.animate(
             withDuration: 0.3,
             animations: { overlay.alpha = 0 },
-            completion: { [weak overlay] _ in
+            completion: { [weak self, weak overlay] _ in
                 if overlay?.alpha == 0 { overlay?.isHidden = true }
+                self?.updateArtifactChipVisibility(animated: true)
             }
         )
     }
@@ -1869,6 +1931,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if autoFocusOnWindowAttach {
                 focusInput()
             }
+            resetVisibleArtifactCountTracking()
             startDisplayLink()
             delegate?.ghosttySurfaceView(self, didChangeWindowAttachment: true)
         } else {
@@ -2098,6 +2161,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 self.consecutiveOutputTimeoutRecoveries = 0
                 self.needsDraw = true
+                self.scheduleVisibleArtifactCountUpdate()
                 if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
                     self.hostCursorVisible = cursorVisibilityDelta
                     self.updateCursorOverlay()
@@ -2157,6 +2221,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // new-generation snap has since set.
                 guard let self, self.surfaceGeneration == generation else { return }
                 self.scrollToBottomInFlight = false
+                self.scheduleVisibleArtifactCountUpdate()
             }
         }
     }
@@ -2664,6 +2729,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         // Flush coalesced scroll to the Mac at most once per frame.
         flushPendingScrollIfNeeded()
+
+        // Visible artifact detection shares the viewport report's quiet-frame
+        // cadence. Output/scroll/geometry only re-arm this counter; one visible
+        // snapshot is read after eight quiet frames, never per render frame or
+        // per output chunk.
+        if var settleFrames = visibleArtifactCountSettleFrames {
+            if zoomSettleFrames != nil {
+                visibleArtifactCountSettleFrames = 0
+            } else {
+                settleFrames += 1
+                if settleFrames >= Self.viewportReportSettleThreshold {
+                    visibleArtifactCountSettleFrames = nil
+                    refreshVisibleArtifactCount()
+                } else {
+                    visibleArtifactCountSettleFrames = settleFrames
+                }
+            }
+        }
 
         // Fade the zoom HUD once interaction has been quiet. Uses real elapsed
         // time off the continuous display link (no timer / sleep).
@@ -3267,6 +3350,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // settles; the display link fires it once it stops changing.
         pendingViewportReport = reportGrid
         viewportReportSettleFrames = 0
+        scheduleVisibleArtifactCountUpdate()
     }
 
     private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {
@@ -3632,6 +3716,9 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
         // the surface-level tap recognizer would otherwise also fire; exclude it.
         if !composerContainer.isHidden,
            let touched = touch.view, touched.isDescendant(of: composerContainer) {
+            return false
+        }
+        if let touched = touch.view, artifactChipHost.contains(touched) {
             return false
         }
         return true

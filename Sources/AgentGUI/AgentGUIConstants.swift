@@ -7,6 +7,12 @@ enum AgentGUIConstants {
     static let journalWatchCoalescing: Duration = .milliseconds(200)
     static let initialTailLineCap = 2_000
     static let initialTailByteCap = 4 * 1_024 * 1_024
+    static let journalIncrementalByteCap = initialTailByteCap
+    static let journalPageByteCap = 4 * 1_024 * 1_024
+    static let journalPageRawLineMultiplier = 4
+    static let journalPageContextLineCap = 256
+    static let journalPageContextByteCap = 1 * 1_024 * 1_024
+    static let journalToolCallCacheCap = 512
     static let journalWindowEntryCap = initialTailLineCap
     static let maxEntriesLimit = 200
     static let sendTicketIdempotencyWindowMS = 300 * 1_000

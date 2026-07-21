@@ -1,3 +1,5 @@
+public import CmuxAgentReplica
+
 /// Immutable view-state for one transcript list row.
 public struct TranscriptRow: Hashable, Identifiable, Sendable {
     /// Stable identity used by diffable data sources.
@@ -10,6 +12,10 @@ public struct TranscriptRow: Hashable, Identifiable, Sendable {
     public let turnID: TranscriptTurnID?
     /// Whether this row is the chronological end of its turn.
     public let endsTurn: Bool
+    /// Full typed source entry retained for stable rendering and detail sheets.
+    public let sourceEntry: EntrySnapshot?
+    /// Deterministic display time fallback when the source has no timestamp.
+    public let displayTick: Int?
 
     /// The `Identifiable` identity.
     public var id: TranscriptRowID { rowID }
@@ -26,12 +32,16 @@ public struct TranscriptRow: Hashable, Identifiable, Sendable {
         rowKind: TranscriptRowKind,
         isUnread: Bool = false,
         turnID: TranscriptTurnID? = nil,
-        endsTurn: Bool = false
+        endsTurn: Bool = false,
+        sourceEntry: EntrySnapshot? = nil,
+        displayTick: Int? = nil
     ) {
         self.rowID = rowID
         self.rowKind = rowKind
         self.isUnread = isUnread
         self.turnID = turnID
         self.endsTurn = endsTurn
+        self.sourceEntry = sourceEntry
+        self.displayTick = displayTick
     }
 }

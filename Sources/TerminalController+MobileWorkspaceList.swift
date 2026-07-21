@@ -9,7 +9,7 @@ import Foundation
 // group collapse/expand handler. Lives in its own file so the mobile list
 // payload code stays together without growing TerminalController.swift.
 extension TerminalController {
-    private func mobileNonEmpty(_ raw: String?) -> String? {
+    private func mobileWorkspaceNonEmpty(_ raw: String?) -> String? {
         guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
             return nil
         }
@@ -205,7 +205,7 @@ extension TerminalController {
             }
             let terminalDirectory = workspace.effectivePanelDirectory(
                 panelId: terminal.id,
-                localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+                localFallback: mobileWorkspaceNonEmpty(terminal.directory) ?? mobileWorkspaceNonEmpty(terminal.requestedWorkingDirectory)
             )
             return [
                 "id": terminal.id.uuidString,

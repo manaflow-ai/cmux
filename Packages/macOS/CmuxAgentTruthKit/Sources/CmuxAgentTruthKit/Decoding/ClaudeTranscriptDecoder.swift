@@ -4,9 +4,8 @@ import Foundation
 /// Decodes Claude Code project JSONL transcripts into fail-open entries.
 ///
 /// Claude records can contain multiple content blocks on one JSONL line. This
-/// decoder emits exactly one ``EntrySnapshot`` per source line; summaries are
-/// joined in source order and the dominant kind is chosen by display impact:
-/// question, file change, tool run, thought, prose/message, then unknown.
+/// decoder preserves every user-visible block as an independently pairable
+/// entry in source order.
 /// A `tool_result` without a numeric exit code synthesizes
 /// ``ToolRunPayload/exitCode`` from `is_error`: `false` maps to `0` and `true`
 /// maps to `1`, including for non-shell tools.
@@ -42,17 +41,29 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         journalID: JournalID,
         accumulator: inout TranscriptDecodeAccumulator
     ) {
+        accumulator.beginSourceLine(timestampMilliseconds: nil)
         guard let root = lineDecoder.decode(line)?.object else {
             accumulator.countUnknown("malformed")
             accumulator.emit(payload: unknownPayload(rawKind: "malformed", summary: "Malformed transcript line", raw: line), journalID: journalID, lineIndex: lineIndex)
             return
         }
+        accumulator.beginSourceLine(timestampMilliseconds: TranscriptTimestampParser.milliseconds(root["timestamp"]))
         if root["isApiErrorMessage"]?.bool == true {
             accumulator.recordAPIError()
         }
         guard let recordType = root["type"]?.string else {
             accumulator.countUnknown("missing_type")
             accumulator.emit(payload: unknownPayload(rawKind: "missing_type", summary: "Missing Claude record type", raw: line), journalID: journalID, lineIndex: lineIndex)
+            return
+        }
+        if recordType == "attachment" {
+            accumulator.countBookkeeping(recordType)
+            let attachment = root["attachment"]?.object ?? root
+            accumulator.emit(
+                payload: .attachment(attachmentPayload(in: attachment)),
+                journalID: journalID,
+                lineIndex: lineIndex
+            )
             return
         }
         if decodeBookkeepingRecord(root, recordType: recordType, lineIndex: lineIndex, accumulator: &accumulator) {
@@ -148,7 +159,11 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         guard !decodedBlocks.isEmpty else {
             return
         }
-        accumulator.emit(payload: combinedPayload(from: decodedBlocks), journalID: journalID, lineIndex: lineIndex)
+        accumulator.emit(
+            payloads: decodedBlocks.map(\.payload),
+            journalID: journalID,
+            lineIndex: lineIndex
+        )
     }
 
     private mutating func decodeBlock(
@@ -169,10 +184,19 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
                 : .agentProse(AgentProsePayload(markdown: textBudget.body(text)))
             return ClaudeDecodedBlock(summary: text, payload: payload)
         case "image":
-            let payload: EntryPayload = role == "user"
-                ? .userMessage(UserMessagePayload(text: "Image attachment", attachmentCount: 1, hasImage: true))
-                : .attachment(AttachmentPayload(kind: "image", summary: "Image attachment"))
-            return ClaudeDecodedBlock(summary: "Image attachment", payload: payload)
+            let source = object["source"]?.object
+            let attachment = AttachmentPayload(
+                kind: "image",
+                summary: "Image attachment",
+                attachmentID: object["id"]?.string,
+                displayName: object["file_name"]?.string ?? object["fileName"]?.string,
+                hostPath: source?["path"]?.string ?? object["path"]?.string,
+                mimeType: source?["media_type"]?.string ?? object["media_type"]?.string,
+                byteCount: source?["data"]?.string.map(estimatedDecodedByteCount),
+                width: object["width"]?.int,
+                height: object["height"]?.int
+            )
+            return ClaudeDecodedBlock(summary: "Image attachment", payload: .attachment(attachment))
         case "thinking":
             let text = object["thinking"]?.string ?? object["text"]?.string ?? ""
             let bounded = textBudget.body(text)
@@ -193,8 +217,9 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
     ) -> ClaudeDecodedBlock {
         let toolName = object["name"]?.string ?? "unknown"
         let input = object["input"]
-        let payload = payloadForToolUse(name: toolName, input: input)
-        if let id = object["id"]?.string {
+        let id = object["id"]?.string
+        let payload = payloadForToolUse(name: toolName, input: input, toolCallID: id)
+        if let id {
             pendingTools[id] = PendingToolUse(payload: payload, raw: raw)
         }
         return ClaudeDecodedBlock(summary: summary(for: payload), payload: payload)
@@ -204,78 +229,84 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         _ object: [String: JSONValue],
         accumulator: inout TranscriptDecodeAccumulator
     ) -> ClaudeDecodedBlock {
-        guard let id = object["tool_use_id"]?.string, let pending = pendingTools.removeValue(forKey: id) else {
-            accumulator.countUnknown("tool_result")
-            return ClaudeDecodedBlock(summary: "Unpaired Claude tool result", payload: .unknown(UnknownPayload(rawKind: "tool_result", summary: "Unpaired Claude tool result")))
-        }
+        let id = object["tool_use_id"]?.string
         let fragments = textBudget.body(object["content"]?.textFragments().joined(separator: "\n") ?? "")
-        let payload = payloadByAddingResult(pending.payload, resultSummary: fragments, exitCode: exitCode(in: object))
+        let exitCode = exitCode(in: object)
+        let duration = durationSeconds(in: object)
+        let reportedStatus = object["status"]?.string
+            ?? (exitCode.map { $0 == 0 ? "succeeded" : "failed" } ?? "completed")
+        guard let id, let pending = pendingTools.removeValue(forKey: id) else {
+            accumulator.countUnknown("tool_result")
+            let payload = EntryPayload.toolRun(ToolRunPayload(
+                toolName: "Unknown tool",
+                argumentSummary: "Missing invocation metadata",
+                resultSummary: fragments,
+                isTerminal: false,
+                exitCode: exitCode,
+                isRunning: false,
+                toolCallID: id,
+                output: fragments,
+                durationSeconds: duration,
+                status: "unpaired_result:\(reportedStatus)"
+            ))
+            return ClaudeDecodedBlock(summary: summary(for: payload), payload: payload)
+        }
+        let payload = payloadByAddingResult(
+            pending.payload,
+            resultSummary: fragments,
+            exitCode: exitCode,
+            durationSeconds: duration,
+            status: reportedStatus
+        )
         return ClaudeDecodedBlock(summary: summary(for: payload), payload: payload)
     }
 
-    private func payloadForToolUse(name: String, input: JSONValue?) -> EntryPayload {
-        switch name {
+    private func payloadForToolUse(name: String, input: JSONValue?, toolCallID: String?) -> EntryPayload {
+        let detail = textBudget.inputDetail(rendered(input))
+        return switch name {
         case "Write":
-            .fileChange(FileChangePayload(path: textBudget.inputDetail(filePath(in: input) ?? ""), changeKind: .write))
+            .fileChange(FileChangePayload(
+                path: textBudget.inputDetail(filePath(in: input) ?? ""),
+                changeKind: .write,
+                toolCallID: toolCallID
+            ))
         case "Edit", "MultiEdit":
-            .fileChange(FileChangePayload(path: textBudget.inputDetail(filePath(in: input) ?? ""), changeKind: .edit))
+            .fileChange(FileChangePayload(
+                path: textBudget.inputDetail(filePath(in: input) ?? ""),
+                changeKind: .edit,
+                toolCallID: toolCallID,
+                unifiedDiff: editDetail(in: input)
+            ))
         case "NotebookEdit":
-            .fileChange(FileChangePayload(path: textBudget.inputDetail(filePath(in: input) ?? ""), changeKind: .notebook))
+            .fileChange(FileChangePayload(
+                path: textBudget.inputDetail(filePath(in: input) ?? ""),
+                changeKind: .notebook,
+                toolCallID: toolCallID,
+                unifiedDiff: textBudget.body(detail)
+            ))
         case "AskUserQuestion":
             .question(QuestionPayload(prompt: questionPrompt(in: input), options: questionOptions(in: input)))
         case "Bash":
-            .toolRun(ToolRunPayload(toolName: name, argumentSummary: textBudget.inputDetail(commandSummary(in: input)), isTerminal: true, isRunning: true))
-        default:
-            .toolRun(ToolRunPayload(toolName: name, argumentSummary: textBudget.inputDetail(commandSummary(in: input)), isTerminal: false, isRunning: true))
-        }
-    }
-
-    private func dominantKind(in blocks: [ClaudeDecodedBlock]) -> EntryKind {
-        blocks.min { lhs, rhs in
-            priority(for: lhs.kind) < priority(for: rhs.kind)
-        }?.kind ?? .unknown("empty")
-    }
-
-    private func combinedPayload(from blocks: [ClaudeDecodedBlock]) -> EntryPayload {
-        let kind = dominantKind(in: blocks)
-        switch kind {
-        case .userMessage:
-            let userPayloads = blocks.compactMap { block -> UserMessagePayload? in
-                if case .userMessage(let payload) = block.payload {
-                    return payload
-                }
-                return nil
-            }
-            return .userMessage(UserMessagePayload(
-                text: blocks.map(\.summary).filter { !$0.isEmpty }.joined(separator: "\n"),
-                attachmentCount: userPayloads.map(\.attachmentCount).reduce(0, +),
-                hasImage: userPayloads.contains { $0.hasImage }
+            .toolRun(ToolRunPayload(
+                toolName: name,
+                argumentSummary: textBudget.summaryArgument(commandSummary(in: input)),
+                isTerminal: true,
+                isRunning: true,
+                toolCallID: toolCallID,
+                inputDetail: detail,
+                command: textBudget.inputDetail(commandSummary(in: input)),
+                status: "running"
             ))
-        case .agentProse:
-            return .agentProse(AgentProsePayload(markdown: blocks.map(\.summary).filter { !$0.isEmpty }.joined(separator: "\n")))
         default:
-            return blocks.first { $0.kind == kind }?.payload ?? .unknown(UnknownPayload(rawKind: "empty"))
-        }
-    }
-
-    private func priority(for kind: EntryKind) -> Int {
-        switch kind {
-        case .question:
-            0
-        case .fileChange:
-            1
-        case .toolRun:
-            2
-        case .thought:
-            3
-        case .agentProse, .userMessage:
-            4
-        case .unknown:
-            5
-        case .permission:
-            0
-        case .status, .attachment:
-            6
+            .toolRun(ToolRunPayload(
+                toolName: name,
+                argumentSummary: textBudget.summaryArgument(commandSummary(in: input)),
+                isTerminal: false,
+                isRunning: true,
+                toolCallID: toolCallID,
+                inputDetail: detail,
+                status: "running"
+            ))
         }
     }
 
@@ -291,7 +322,6 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             "queue-operation",
             "bridge-session",
             "file-history-snapshot",
-            "attachment",
         ]
     }
 
@@ -357,22 +387,90 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         return nil
     }
 
-    private func payloadByAddingResult(_ payload: EntryPayload, resultSummary: String, exitCode: Int?) -> EntryPayload {
-        switch payload {
+    private func payloadByAddingResult(
+        _ payload: EntryPayload,
+        resultSummary: String,
+        exitCode: Int?,
+        durationSeconds: Double?,
+        status: String?
+    ) -> EntryPayload {
+        let boundedResult = textBudget.body(resultSummary)
+        return switch payload {
         case .toolRun(let tool):
             .toolRun(ToolRunPayload(
                 toolName: tool.toolName,
                 argumentSummary: tool.argumentSummary,
-                resultSummary: textBudget.body(resultSummary),
+                resultSummary: boundedResult,
                 isTerminal: tool.isTerminal,
                 exitCode: exitCode,
-                isRunning: false
+                isRunning: false,
+                toolCallID: tool.toolCallID,
+                inputDetail: tool.inputDetail,
+                command: tool.command,
+                output: boundedResult,
+                durationSeconds: durationSeconds,
+                status: status
             ))
         case .fileChange(let file):
-            .fileChange(FileChangePayload(path: file.path, changeKind: file.changeKind, resultSummary: textBudget.body(resultSummary)))
+            .fileChange(FileChangePayload(
+                path: file.path,
+                changeKind: file.changeKind,
+                resultSummary: boundedResult,
+                toolCallID: file.toolCallID,
+                oldPath: file.oldPath,
+                newPath: file.newPath,
+                additions: file.additions,
+                deletions: file.deletions,
+                unifiedDiff: file.unifiedDiff
+            ))
         default:
             payload
         }
+    }
+
+    private func durationSeconds(in object: [String: JSONValue]) -> Double? {
+        object["duration_seconds"]?.number
+            ?? object["durationSeconds"]?.number
+            ?? object["duration_ms"]?.number.map { $0 / 1_000 }
+            ?? object["durationMs"]?.number.map { $0 / 1_000 }
+    }
+
+    private func rendered(_ value: JSONValue?) -> String {
+        guard let value, let data = try? JSONEncoder().encode(value) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func editDetail(in input: JSONValue?) -> String? {
+        guard let object = input?.object else { return nil }
+        if let diff = object["patch"]?.string ?? object["diff"]?.string {
+            return textBudget.body(diff)
+        }
+        let old = object["old_string"]?.string
+        let new = object["new_string"]?.string
+        guard old != nil || new != nil else { return nil }
+        return textBudget.body("--- before\n\(old ?? "")\n+++ after\n\(new ?? "")")
+    }
+
+    private func attachmentPayload(in object: [String: JSONValue]) -> AttachmentPayload {
+        let kind = object["type"]?.string ?? object["kind"]?.string ?? "file"
+        let displayName = object["fileName"]?.string ?? object["file_name"]?.string ?? object["name"]?.string
+        let hostPath = object["path"]?.string ?? object["file_path"]?.string
+        return AttachmentPayload(
+            kind: kind,
+            summary: displayName ?? hostPath ?? "\(kind.capitalized) attachment",
+            attachmentID: object["id"]?.string,
+            displayName: displayName,
+            hostPath: hostPath,
+            mimeType: object["mediaType"]?.string ?? object["media_type"]?.string ?? object["mime_type"]?.string,
+            byteCount: object["size"]?.int ?? object["byte_count"]?.int,
+            width: object["width"]?.int,
+            height: object["height"]?.int
+        )
+    }
+
+    private func estimatedDecodedByteCount(_ base64: String) -> Int {
+        let padding = base64.suffix(2).filter { $0 == "=" }.count
+        return max(0, base64.utf8.count * 3 / 4 - padding)
     }
 
     private func summary(for payload: EntryPayload) -> String {

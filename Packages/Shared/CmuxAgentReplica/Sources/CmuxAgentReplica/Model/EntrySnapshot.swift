@@ -8,6 +8,7 @@ public struct EntrySnapshot: Codable, Hashable, Sendable {
         case kind
         case content
         case version
+        case timestampMilliseconds = "timestamp_ms"
     }
 
     /// The journal that owns this entry.
@@ -20,6 +21,8 @@ public struct EntrySnapshot: Codable, Hashable, Sendable {
     public let content: EntryContent
     /// The entity version for this entry in the current epoch.
     public let version: EntityVersion
+    /// Source timestamp in Unix milliseconds, when reported.
+    public let timestampMilliseconds: Int64?
 
     /// Creates an entry snapshot.
     /// - Parameters:
@@ -28,11 +31,19 @@ public struct EntrySnapshot: Codable, Hashable, Sendable {
     ///   - kind: The entry kind.
     ///   - content: The opaque content.
     ///   - version: The entity version in the current epoch.
-    public init(journalID: JournalID, seq: EntrySeq, kind: EntryKind, content: EntryContent, version: EntityVersion) {
+    public init(
+        journalID: JournalID,
+        seq: EntrySeq,
+        kind: EntryKind,
+        content: EntryContent,
+        version: EntityVersion,
+        timestampMilliseconds: Int64? = nil
+    ) {
         self.journalID = journalID
         self.seq = seq
         self.kind = kind
         self.content = content
         self.version = version
+        self.timestampMilliseconds = timestampMilliseconds
     }
 }

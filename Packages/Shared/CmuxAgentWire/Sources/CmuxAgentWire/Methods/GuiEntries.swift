@@ -1,5 +1,17 @@
 public import CmuxAgentReplica
 
+/// Selects a semantic edge or direction for a journal page request.
+public enum GuiEntriesAnchor: String, Codable, Hashable, Sendable {
+    /// The first page in the journal.
+    case head
+    /// The last page in the journal.
+    case tail
+    /// The page immediately preceding ``GuiEntriesParams/cursor``.
+    case before
+    /// The page immediately following ``GuiEntriesParams/cursor``.
+    case after
+}
+
 /// Parameters for requesting a bounded journal page.
 public struct GuiEntriesParams: Codable, Hashable, Sendable {
     /// The session whose journal is requested.
@@ -10,6 +22,11 @@ public struct GuiEntriesParams: Codable, Hashable, Sendable {
     public let beforeSeq: EntrySeq?
     /// The exclusive lower sequence bound for forward paging.
     public let afterSeq: EntrySeq?
+    /// The semantic page edge or direction. When absent, legacy sequence
+    /// bounds retain their original behavior.
+    public let anchor: GuiEntriesAnchor?
+    /// An opaque boundary returned by a previous page.
+    public let cursor: JournalCursor?
     /// The client-requested page size; the server may clamp it.
     public let limit: Int
 
@@ -18,6 +35,8 @@ public struct GuiEntriesParams: Codable, Hashable, Sendable {
         case journalID = "journal_id"
         case beforeSeq = "before_seq"
         case afterSeq = "after_seq"
+        case anchor
+        case cursor
         case limit
     }
 
@@ -33,12 +52,16 @@ public struct GuiEntriesParams: Codable, Hashable, Sendable {
         journalID: JournalID? = nil,
         beforeSeq: EntrySeq? = nil,
         afterSeq: EntrySeq? = nil,
+        anchor: GuiEntriesAnchor? = nil,
+        cursor: JournalCursor? = nil,
         limit: Int
     ) {
         self.sessionID = sessionID
         self.journalID = journalID
         self.beforeSeq = beforeSeq
         self.afterSeq = afterSeq
+        self.anchor = anchor
+        self.cursor = cursor
         self.limit = limit
     }
 }
@@ -57,6 +80,17 @@ public struct GuiEntriesResult: Codable, Hashable, Sendable {
     public let tailSeq: EntrySeq
     /// Whether an earlier page may be requested.
     public let hasMoreBefore: Bool
+    /// Whether a later page may be requested.
+    public let hasMoreAfter: Bool
+    /// Cursor at the leading edge of this page.
+    public let startCursor: JournalCursor?
+    /// Cursor at the trailing edge of this page.
+    public let endCursor: JournalCursor?
+    /// Cursor at the server's current journal tail.
+    public let tailCursor: JournalCursor?
+    /// Whether the request cursor belonged to a replaced journal or was
+    /// otherwise invalid. Clients should discard paging state and restart.
+    public let requiresPagingRestart: Bool
     /// The number of malformed entry elements discarded while decoding.
     public let malformedEntryCount: Int
 
@@ -67,6 +101,11 @@ public struct GuiEntriesResult: Codable, Hashable, Sendable {
         case windowEnd = "window_end"
         case tailSeq = "tail_seq"
         case hasMoreBefore = "has_more_before"
+        case hasMoreAfter = "has_more_after"
+        case startCursor = "start_cursor"
+        case endCursor = "end_cursor"
+        case tailCursor = "tail_cursor"
+        case requiresPagingRestart = "requires_paging_restart"
     }
 
     /// Creates a journal-page result with no decode diagnostics.
@@ -83,7 +122,12 @@ public struct GuiEntriesResult: Codable, Hashable, Sendable {
         windowStart: EntrySeq,
         windowEnd: EntrySeq,
         tailSeq: EntrySeq,
-        hasMoreBefore: Bool
+        hasMoreBefore: Bool,
+        hasMoreAfter: Bool = false,
+        startCursor: JournalCursor? = nil,
+        endCursor: JournalCursor? = nil,
+        tailCursor: JournalCursor? = nil,
+        requiresPagingRestart: Bool = false
     ) {
         self.journalID = journalID
         self.entries = entries
@@ -91,6 +135,11 @@ public struct GuiEntriesResult: Codable, Hashable, Sendable {
         self.windowEnd = windowEnd
         self.tailSeq = tailSeq
         self.hasMoreBefore = hasMoreBefore
+        self.hasMoreAfter = hasMoreAfter
+        self.startCursor = startCursor
+        self.endCursor = endCursor
+        self.tailCursor = tailCursor
+        self.requiresPagingRestart = requiresPagingRestart
         self.malformedEntryCount = 0
     }
 
@@ -105,6 +154,11 @@ public struct GuiEntriesResult: Codable, Hashable, Sendable {
         self.windowEnd = try container.decode(EntrySeq.self, forKey: .windowEnd)
         self.tailSeq = try container.decode(EntrySeq.self, forKey: .tailSeq)
         self.hasMoreBefore = try container.decode(Bool.self, forKey: .hasMoreBefore)
+        self.hasMoreAfter = (try? container.decode(Bool.self, forKey: .hasMoreAfter)) ?? false
+        self.startCursor = try? container.decode(JournalCursor.self, forKey: .startCursor)
+        self.endCursor = try? container.decode(JournalCursor.self, forKey: .endCursor)
+        self.tailCursor = try? container.decode(JournalCursor.self, forKey: .tailCursor)
+        self.requiresPagingRestart = (try? container.decode(Bool.self, forKey: .requiresPagingRestart)) ?? false
         self.malformedEntryCount = decodedEntries.count - entries.count
     }
 
@@ -118,6 +172,15 @@ public struct GuiEntriesResult: Codable, Hashable, Sendable {
         try container.encode(windowEnd, forKey: .windowEnd)
         try container.encode(tailSeq, forKey: .tailSeq)
         try container.encode(hasMoreBefore, forKey: .hasMoreBefore)
+        if hasMoreAfter {
+            try container.encode(true, forKey: .hasMoreAfter)
+        }
+        try container.encodeIfPresent(startCursor, forKey: .startCursor)
+        try container.encodeIfPresent(endCursor, forKey: .endCursor)
+        try container.encodeIfPresent(tailCursor, forKey: .tailCursor)
+        if requiresPagingRestart {
+            try container.encode(true, forKey: .requiresPagingRestart)
+        }
     }
 }
 

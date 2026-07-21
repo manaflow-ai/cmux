@@ -1140,6 +1140,23 @@
         }
       }
     },
+    "chat.composer.read_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read-only conversation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り専用の会話"
+          }
+        }
+      }
+    },
     "chat.composer.remove_attachment.accessibility": {
       "extractionState": "manual",
       "localizations": {

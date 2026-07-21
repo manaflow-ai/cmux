@@ -48,12 +48,23 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// Fired by the trailing "customize" button so the SwiftUI host can present
     /// the toolbar shortcuts editor.
     var onOpenToolbarSettings: (() -> Void)?
+    /// Fired by the Files accessory button when terminal artifacts are supported.
+    /// The source view lets the host anchor an inline popover to the tapped control.
+    var onOpenArtifactFiles: ((UIView) -> Void)?
     /// Invoked when the composer accessory button is tapped. The host toggles
     /// the iMessage-style composer above the terminal.
     var onToggleComposer: (() -> Void)?
     /// Fired by the pinned HIDE button: temporarily hides the toolbar + composer
     /// until the next terminal tap.
     var onHideChrome: (() -> Void)?
+    var artifactFilesEnabled = false {
+        didSet {
+            guard oldValue != artifactFilesEnabled, accessoryStackView != nil else { return }
+            populateAccessoryActions()
+            terminalAccessoryToolbar.setNeedsLayout()
+            terminalAccessoryToolbar.layoutIfNeeded()
+        }
+    }
     var accessoryLayoutInsetsProvider: (() -> UIEdgeInsets)?
     /// The leftmost toolbar button. Toggles its glyph between dismiss-keyboard
     /// (when the keyboard is up) and show-keyboard (when down) via
@@ -560,6 +571,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 // (it stays in the saved order, just unrendered, so flipping the
                 // remote re-shows it in place).
                 if action == .command && !isMacRemote { continue }
+                if action == .files && !artifactFilesEnabled { continue }
                 stack.addArrangedSubview(makeAccessoryButton(for: action))
             case let .custom(custom):
                 stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
@@ -851,7 +863,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         guard let button = sender as? AccessoryActionButton else { return }
         switch button.item {
         case let .builtin(action):
-            handleAccessoryAction(action)
+            handleAccessoryAction(action, sourceView: button)
         case let .custom(custom):
             handleCustomAction(custom)
         }
@@ -1069,7 +1081,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         return config
     }
 
-    private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+    private func handleAccessoryAction(
+        _ action: TerminalInputAccessoryAction,
+        sourceView: UIView? = nil
+    ) {
         if action == .composer {
             // Opening the composer moves first responder off this proxy, so clear
             // any armed modifier first (like Paste/Zoom do); otherwise a
@@ -1087,6 +1102,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             disarmAllModifiers()
             refreshAccessoryButtonStyles()
             handlePasteAction()
+            return
+        }
+
+        if action == .files {
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
+            onOpenArtifactFiles?(sourceView ?? self)
             return
         }
 

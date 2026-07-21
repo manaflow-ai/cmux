@@ -66,7 +66,8 @@ public struct TicketLedgerClient: Codable, Hashable, Sendable {
              (.unconfirmed, .acceptedByMac),
              (.unconfirmed, .injected),
              (.unconfirmed, .echoed),
-             (.unconfirmed, .failed):
+             (.unconfirmed, .failed),
+             (.failed, .queuedLocal):
             true
         default:
             false

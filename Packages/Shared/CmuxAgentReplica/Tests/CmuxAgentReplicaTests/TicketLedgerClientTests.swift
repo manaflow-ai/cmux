@@ -33,6 +33,21 @@ import Testing
         #expect(ledger.illegalTransitionCount == 0)
     }
 
+    @Test func failedTicketCanRequeueWithTheSameIdentity() {
+        let id = UUID()
+        var ledger = TicketLedgerClient()
+        _ = ledger.apply(ReplicaTestSupport.ticket(id: id, state: .failed(code: "offline"), createdAt: 1))
+
+        let requeued = ledger.apply(ReplicaTestSupport.ticket(id: id, state: .queuedLocal, createdAt: 1))
+        let failedAgain = ledger.apply(ReplicaTestSupport.ticket(id: id, state: .failed(code: "offline-again"), createdAt: 1))
+
+        #expect(requeued)
+        #expect(failedAgain)
+        #expect(ledger.tickets.count == 1)
+        #expect(ledger.tickets.first?.id == id)
+        #expect(ledger.tickets.first?.state == .failed(code: "offline-again"))
+    }
+
     @Test func echoedResolvesOldestUnresolvedMatchingTicket() {
         let id = UUID()
         var ledger = TicketLedgerClient(tickets: [

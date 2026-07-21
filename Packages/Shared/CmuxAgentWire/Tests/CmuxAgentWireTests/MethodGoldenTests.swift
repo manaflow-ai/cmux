@@ -64,6 +64,35 @@ import CmuxAgentReplica
         )
     }
 
+    @Test func cursorEntriesAreGoldenAndRoundTrip() throws {
+        try WireTestSupport.assertGolden(
+            GuiEntriesParams(
+                sessionID: WireTestSupport.sessionID,
+                journalID: WireTestSupport.journalID,
+                anchor: .before,
+                cursor: JournalCursor(rawValue: "opaque-start"),
+                limit: 50
+            ),
+            json: #"{"anchor":"before","cursor":"opaque-start","journal_id":"journal-1","limit":50,"session_id":"session-1"}"#
+        )
+        try WireTestSupport.assertGolden(
+            GuiEntriesResult(
+                journalID: WireTestSupport.journalID,
+                entries: [WireTestSupport.entry],
+                windowStart: EntrySeq(rawValue: 10),
+                windowEnd: EntrySeq(rawValue: 10),
+                tailSeq: EntrySeq(rawValue: 12),
+                hasMoreBefore: true,
+                hasMoreAfter: true,
+                startCursor: JournalCursor(rawValue: "start"),
+                endCursor: JournalCursor(rawValue: "end"),
+                tailCursor: JournalCursor(rawValue: "tail"),
+                requiresPagingRestart: true
+            ),
+            json: #"{"end_cursor":"end","entries":[\#(WireTestSupport.entryJSON)],"has_more_after":true,"has_more_before":true,"journal_id":"journal-1","requires_paging_restart":true,"start_cursor":"start","tail_cursor":"tail","tail_seq":12,"window_end":10,"window_start":10}"#
+        )
+    }
+
     @Test func sendParamsAndResultAreGoldenAndRoundTrip() throws {
         try WireTestSupport.assertGolden(
             GuiSendParams(

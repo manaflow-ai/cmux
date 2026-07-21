@@ -53,9 +53,7 @@ struct WorkspaceDetailView: View {
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     @State var guiModeSelected = false
-    @State var transcriptBottomChromeHeight = GhosttySurfaceView.persistentBottomToolbarHeight
-    @State var transcriptBottomEdgeElementContainers: [UIView] = []
-    @State var transcriptActivityDetails: TranscriptActivityDetails?
+    @State var agentGUIDrafts = AgentGUIDraftState()
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -102,20 +100,18 @@ struct WorkspaceDetailView: View {
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
-            .sheet(item: $transcriptActivityDetails) { details in
-                TranscriptActivityTimelineView(details: details, terminalTheme: store.activeTerminalTheme)
-                    .presentationDetents([.medium, .large])
-            }
             .navigationDestination(isPresented: terminalArtifactIsPresented) {
                 if let selectedTerminalArtifact {
-                    ChatArtifactDetailView(
+                    ChatArtifactViewerDestination(
                         path: selectedTerminalArtifact.path,
                         scope: selectedTerminalArtifact.usesSessionAuthorization ? .chat : .terminal
                     ) {
                         self.selectedTerminalArtifact = nil
-                    } loader: {
-                        artifactLoader(for: selectedTerminalArtifact)
                     }
+                    .environment(
+                        \.chatArtifactLoader,
+                        artifactLoader(for: selectedTerminalArtifact)
+                    )
                 }
             }
             .workspaceRenameDialog(
@@ -209,9 +205,11 @@ struct WorkspaceDetailView: View {
             #if os(iOS)
             if let terminalID = selectedTerminal?.id.rawValue {
                 let shouldAutoFocus = activeSurface == .terminal
+                    && !isAgentGUIVisible
                     && store.shouldAutoFocusTerminalSurface(terminalID)
                     && !store.isComposerPresented
                 GhosttySurfaceRepresentable(
+                    workspaceID: workspace.id.rawValue,
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
@@ -226,21 +224,7 @@ struct WorkspaceDetailView: View {
                     // config + recolors the mounted surface in place (background,
                     // letterbox, default cell colors) without a remount, so
                     // scrollback survives a theme change.
-                    configThemeGeneration: store.terminalConfigThemeGeneration,
-                    composerSubmitAction: agentGUIComposerSubmitAction,
-                    onComposerChromeHeightChange: { height in
-                        Task { @MainActor in
-                            guard abs(transcriptBottomChromeHeight - height) > 0.5 else { return }
-                            transcriptBottomChromeHeight = height
-                        }
-                    },
-                    onBottomScrollEdgeElementContainersChange: { containers in
-                        Task { @MainActor in
-                            guard transcriptBottomEdgeElementContainers.map(ObjectIdentifier.init)
-                                != containers.map(ObjectIdentifier.init) else { return }
-                            transcriptBottomEdgeElementContainers = containers
-                        }
-                    }
+                    configThemeGeneration: store.terminalConfigThemeGeneration
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and

@@ -21,9 +21,11 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentReplica"),
+        .package(path: "../../Shared/CmuxAgentChat"),
         .package(path: "../../Shared/CmuxAgentSync"),
         .package(path: "../../Shared/CmuxAgentWire"),
         .package(path: "../CmuxMobileSupport"),
+        .package(path: "../CmuxAgentChatUI"),
     ],
     targets: [
         .target(
@@ -43,8 +45,11 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxAgentGUIProjection",
+                "CmuxAgentChat",
+                "CmuxAgentChatUI",
                 "CmuxAgentReplica",
                 "CmuxAgentSync",
+                "CmuxAgentWire",
                 "CmuxMobileSupport",
             ],
             resources: [

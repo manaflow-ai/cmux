@@ -27,10 +27,10 @@ public struct TranscriptActivityTimelineView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Divider()
                     ForEach(details.summary.items) { item in
-                        TranscriptActivityItemView(
-                            item: item,
-                            theme: theme,
-                            density: .comfortable
+                        AgentActivityDetailItemView(
+                            model: TranscriptActivityDetailModel(item: item),
+                            kind: item.kind,
+                            theme: theme
                         )
                     }
                 }
@@ -43,6 +43,49 @@ public struct TranscriptActivityTimelineView: View {
                 defaultValue: "Activity"
             ))
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private struct AgentActivityDetailItemView: View {
+    let model: TranscriptActivityDetailModel
+    let kind: TranscriptActivityKind
+    let theme: AgentGUITheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(model.title, systemImage: symbol)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(2)
+            ForEach(model.sections) { section in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(AgentGUIL10n.activityDetailLabel(section.label))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color(theme.faintForeground))
+                    Text(section.value)
+                        .font(section.isCode ? .system(.footnote, design: .monospaced) : .footnote)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .foregroundStyle(Color(theme.foreground))
+        .padding(14)
+        .background(Color(theme.raisedBackground), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var symbol: String {
+        switch kind {
+        case .assistant: "text.bubble"
+        case .thought: "brain"
+        case .command: "terminal"
+        case .tool: "wrench.and.screwdriver"
+        case .file: "doc.text"
+        case .question: "questionmark.circle"
+        case .permission: "hand.raised"
+        case .status: "info.circle"
+        case .attachment: "paperclip"
+        case .unknown: "ellipsis.circle"
         }
     }
 }

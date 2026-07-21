@@ -49,6 +49,8 @@ extension AgentSyncEngine {
         journalID: JournalID?,
         beforeSeq: EntrySeq?,
         afterSeq: EntrySeq?,
+        anchor: GuiEntriesAnchor? = nil,
+        cursor: JournalCursor? = nil,
         limit: Int
     ) async throws -> GuiEntriesResult {
         try await request(
@@ -58,8 +60,28 @@ extension AgentSyncEngine {
                 journalID: journalID,
                 beforeSeq: beforeSeq,
                 afterSeq: afterSeq,
+                anchor: anchor,
+                cursor: cursor,
                 limit: limit
             )
+        )
+    }
+
+    func cursorEntries(
+        sessionID: AgentSessionID,
+        journalID: JournalID?,
+        anchor: GuiEntriesAnchor,
+        cursor: JournalCursor?,
+        limit: Int
+    ) async throws -> GuiEntriesResult {
+        try await entries(
+            sessionID: sessionID,
+            journalID: journalID,
+            beforeSeq: nil,
+            afterSeq: nil,
+            anchor: anchor,
+            cursor: cursor,
+            limit: limit
         )
     }
 

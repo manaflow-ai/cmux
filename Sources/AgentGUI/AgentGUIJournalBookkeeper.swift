@@ -12,7 +12,8 @@ struct AgentGUIJournalBookkeeper {
             seq: entry.seq,
             kind: entry.kind,
             content: entry.content,
-            version: EntityVersion(rawValue: nextVersion)
+            version: EntityVersion(rawValue: nextVersion),
+            timestampMilliseconds: entry.timestampMilliseconds
         )
         return AgentGUIStampedEntry(entry: stamped, isReplacement: nextVersion > 1)
     }

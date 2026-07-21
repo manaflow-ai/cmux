@@ -201,4 +201,119 @@ import Testing
         #expect(store.sendTickets.count == 1)
         #expect(store.readPointer == ReplicaTestSupport.seq(1))
     }
+
+    @Test func cursorPagingTreatsSparseByteOffsetsAsObservedEntries() {
+        let store = ConversationReplica(
+            sessionID: ReplicaTestSupport.session,
+            journalID: ReplicaTestSupport.journal,
+            clock: ReplicaTestSupport.clock()
+        )
+        store.mergePage(
+            journal: ReplicaTestSupport.journal,
+            entries: [ReplicaTestSupport.entry(1_024), ReplicaTestSupport.entry(8_192)],
+            windowStart: ReplicaTestSupport.seq(1_024),
+            windowEnd: ReplicaTestSupport.seq(8_192),
+            tailSeq: ReplicaTestSupport.seq(8_192),
+            hasMoreBefore: true,
+            hasMoreAfter: false,
+            startCursor: JournalCursor(rawValue: "start"),
+            endCursor: JournalCursor(rawValue: "end"),
+            tailCursor: JournalCursor(rawValue: "end")
+        )
+
+        #expect(store.holes.isEmpty)
+        #expect(store.unreadCount == 2)
+        #expect(!store.unreadIsExact)
+        #expect(!store.needsTailPull)
+
+        store.markReadThrough(ReplicaTestSupport.seq(1_024))
+        #expect(store.unreadCount == 1)
+        #expect(store.unreadIsExact)
+
+        store.apply(
+            .entriesAppended(
+                journalID: ReplicaTestSupport.journal,
+                entries: [ReplicaTestSupport.entry(65_536)]
+            ),
+            origin: .live
+        )
+        #expect(store.entries.map(\.seq.rawValue) == [1_024, 8_192, 65_536])
+        #expect(store.holes.isEmpty)
+        #expect(store.unreadCount == 2)
+        #expect(!store.needsTailPull)
+    }
+
+    @Test func cursorSegmentsRemainAlignedPastSixHundredRowsWhenPagingBackThenForward() {
+        let store = ConversationReplica(
+            sessionID: ReplicaTestSupport.session,
+            journalID: ReplicaTestSupport.journal,
+            windowCap: 600,
+            clock: ReplicaTestSupport.clock()
+        )
+
+        func mergePage(_ lower: Int, _ upper: Int, retaining edge: ConversationPageRetentionEdge) {
+            store.mergePage(
+                journal: ReplicaTestSupport.journal,
+                entries: (lower...upper).map { ReplicaTestSupport.entry($0) },
+                windowStart: ReplicaTestSupport.seq(lower),
+                windowEnd: ReplicaTestSupport.seq(upper),
+                tailSeq: ReplicaTestSupport.seq(620),
+                hasMoreBefore: lower > 1,
+                hasMoreAfter: upper < 620,
+                startCursor: JournalCursor(rawValue: "c\(lower - 1)"),
+                endCursor: JournalCursor(rawValue: "c\(upper)"),
+                tailCursor: JournalCursor(rawValue: "c620"),
+                retaining: edge
+            )
+        }
+
+        mergePage(601, 620, retaining: .newest)
+        for upper in stride(from: 600, through: 20, by: -20) {
+            mergePage(upper - 19, upper, retaining: .oldest)
+        }
+
+        #expect(store.entries.count == 600)
+        #expect(store.entries.map(\.seq.rawValue) == Array(1...600))
+        #expect(store.startCursor == JournalCursor(rawValue: "c0"))
+        #expect(store.endCursor == JournalCursor(rawValue: "c600"))
+        #expect(!store.hasMoreBefore)
+        #expect(store.hasMoreAfter)
+        #expect(Set(store.entries.map(\.seq)).count == store.entries.count)
+
+        mergePage(601, 620, retaining: .newest)
+
+        #expect(store.entries.count == 600)
+        #expect(store.entries.map(\.seq.rawValue) == Array(21...620))
+        #expect(store.startCursor == JournalCursor(rawValue: "c20"))
+        #expect(store.endCursor == JournalCursor(rawValue: "c620"))
+        #expect(store.hasMoreBefore)
+        #expect(!store.hasMoreAfter)
+        #expect(Set(store.entries.map(\.seq)).count == store.entries.count)
+    }
+
+    @Test func oversizedSingleCursorSegmentCannotExceedWindowCap() {
+        let store = ConversationReplica(
+            sessionID: ReplicaTestSupport.session,
+            journalID: ReplicaTestSupport.journal,
+            windowCap: 600,
+            clock: ReplicaTestSupport.clock()
+        )
+
+        store.mergePage(
+            journal: ReplicaTestSupport.journal,
+            entries: (1...700).map { ReplicaTestSupport.entry($0) },
+            windowStart: ReplicaTestSupport.seq(1),
+            windowEnd: ReplicaTestSupport.seq(700),
+            tailSeq: ReplicaTestSupport.seq(700),
+            hasMoreBefore: false,
+            hasMoreAfter: false,
+            startCursor: JournalCursor(rawValue: "c0"),
+            endCursor: JournalCursor(rawValue: "c700"),
+            tailCursor: JournalCursor(rawValue: "c700"),
+            retaining: .newest
+        )
+
+        #expect(store.entries.count == 600)
+        #expect(store.entries.map(\.seq.rawValue) == Array(101...700))
+    }
 }

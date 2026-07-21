@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxAgentChat
 import GhosttyKit
 import UIKit
 
@@ -49,6 +50,129 @@ extension GhosttySurfaceView {
         return sections.joined(separator: "\n\n")
     }
 
+    /// Visible viewport text and its exact grid width for non-blocking terminal
+    /// artifact tap hit-testing on iOS.
+    @MainActor
+    public func visibleTextForArtifactHitTesting() async -> (text: String, columns: Int)? {
+        guard let surface,
+              !renderPipelineRecoveryPaused else {
+            return nil
+        }
+        let generation = surfaceGeneration
+        return await visibleTextSnapshot(surface: surface, generation: generation)
+    }
+
+    /// Re-arms one visible-frame artifact count after the terminal settles.
+    ///
+    /// This is internal so the local scrollback extension can use the same
+    /// coalesced path as output and geometry changes.
+    func scheduleVisibleArtifactCountUpdate() {
+        guard artifactFilesEnabled, !isDismantled else { return }
+        visibleArtifactSnapshotGeneration &+= 1
+        visibleArtifactCountSettleFrames = 0
+        visibleArtifactCountTask?.cancel()
+    }
+
+    /// Clears cached artifact counts and re-arms settled detection when enabled.
+    ///
+    /// Hosts call this when session-count capability changes so a count from a
+    /// previous attachment or capability generation cannot remain visible.
+    public func resetVisibleArtifactCountTracking() {
+        visibleArtifactSnapshotGeneration &+= 1
+        visibleArtifactCountTask?.cancel()
+        visibleArtifactCountTask = nil
+        visibleArtifactCountSettleFrames = artifactFilesEnabled && !isDismantled ? 0 : nil
+        lastVisibleArtifactSnapshotText = nil
+        lastReportedVisibleArtifactCount = 0
+        delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
+    }
+
+    /// Reports an authoritative or fallback count for one settled snapshot.
+    ///
+    /// - Parameters:
+    ///   - count: Count selected by the host's session/local decision seam.
+    ///   - generation: Visible-snapshot generation that triggered the request.
+    /// - Returns: `true` when the generation was current, including unchanged values.
+    @discardableResult
+    public func reportArtifactCount(_ count: Int, generation: UInt64) -> Bool {
+        guard artifactFilesEnabled,
+              !isDismantled,
+              generation == visibleArtifactSnapshotGeneration else {
+            return false
+        }
+        guard count != lastReportedVisibleArtifactCount else { return true }
+        lastReportedVisibleArtifactCount = count
+        delegate?.ghosttySurfaceView(self, didChangeVisibleArtifactCount: count)
+        return true
+    }
+
+    func refreshVisibleArtifactCount() {
+        guard artifactFilesEnabled, !isDismantled else { return }
+        // Tap hit testing uses the same single visible-snapshot slot. Let that
+        // user-initiated read finish instead of replacing it with a count read.
+        guard pendingVisibleSnapshot == nil else {
+            visibleArtifactCountSettleFrames = 0
+            return
+        }
+        let generation = visibleArtifactSnapshotGeneration
+        visibleArtifactCountTask = Task { @MainActor [weak self] in
+            guard let self,
+                  let snapshot = await self.visibleTextForArtifactHitTesting(),
+                  !Task.isCancelled,
+                  self.artifactFilesEnabled,
+                  self.visibleArtifactSnapshotGeneration == generation,
+                  snapshot.text != self.lastVisibleArtifactSnapshotText else {
+                return
+            }
+            self.lastVisibleArtifactSnapshotText = snapshot.text
+            let count = TerminalArtifactPathDetector().paths(in: snapshot.text).count
+            self.delegate?.ghosttySurfaceView(
+                self,
+                didDetectVisibleArtifactCount: count,
+                generation: generation
+            )
+        }
+    }
+
+    private func visibleTextSnapshot(
+        surface: ghostty_surface_t,
+        generation: UInt64
+    ) async -> (text: String, columns: Int)? {
+        guard self.surface == surface,
+              surfaceGeneration == generation,
+              !renderPipelineRecoveryPaused else {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            let operationID = makeSurfaceOperationID()
+            if let existing = pendingVisibleSnapshot {
+                pendingVisibleSnapshot = nil
+                existing.continuation.resume(returning: nil)
+            }
+            pendingVisibleSnapshot = PendingVisibleSnapshot(
+                id: operationID,
+                startedAt: CACurrentMediaTime(),
+                continuation: continuation
+            )
+            ensureSurfaceOperationDeadlinePump()
+            let queue = outputQueue
+            let read = VisibleTextRead(surface: surface, generation: generation)
+            queue.async {
+                let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+                let columns = Int(ghostty_surface_size(read.surface).columns)
+                Task { @MainActor [weak self] in
+                    guard let view = self else { return }
+                    guard view.surface == read.surface,
+                          view.surfaceGeneration == read.generation else {
+                        view.completePendingVisibleSnapshot(id: operationID, returning: nil)
+                        return
+                    }
+                    let snapshot = text.map { (text: $0, columns: columns) }
+                    view.completePendingVisibleSnapshot(id: operationID, returning: snapshot)
+                }
+            }
+        }
+    }
 
     private func visibleSnapshotSection(
         surface: ghostty_surface_t,
@@ -126,4 +250,9 @@ nonisolated struct VisibleSnapshotRead: @unchecked Sendable {
     let font: Int
 }
 
+/// Raw visible-text read payload captured by the off-main output queue.
+nonisolated struct VisibleTextRead: @unchecked Sendable {
+    let surface: ghostty_surface_t
+    let generation: UInt64
+}
 #endif

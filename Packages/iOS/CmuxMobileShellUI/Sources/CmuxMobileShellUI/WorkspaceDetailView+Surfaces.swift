@@ -28,11 +28,12 @@ extension WorkspaceDetailView {
             shouldAutoFocusTerminal: { store.shouldAutoFocusTerminalSurface($0) },
             isComposerPresented: store.isComposerPresented
         )
-        ZStack {
+        WorkspaceDetailSurfaceStack(
+            activeSurface: surface,
+            isAgentGUIVisible: isAgentGUIVisible
+        ) {
             detailContent()
-                .opacity(surface == .terminal ? 1 : 0)
-                .allowsHitTesting(surface == .terminal)
-                .accessibilityHidden(surface != .terminal)
+        } overlays: {
             if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
@@ -43,15 +44,12 @@ extension WorkspaceDetailView {
                 TranscriptLiveView(
                     engine: engine,
                     sessionID: availability.sessionID,
-                    bottomChromeHeight: transcriptBottomChromeHeight,
-                    bottomEdgeElementContainers: transcriptBottomEdgeElementContainers,
                     terminalTheme: store.activeTerminalTheme,
                     terminalThemeGeneration: store.terminalThemeGeneration,
                     density: displaySettings.transcriptDensity,
-                    onShowTerminal: { guiModeSelected = false },
-                    onShowActivity: { transcriptActivityDetails = $0 }
+                    draft: agentGUIDraftBinding(for: availability.sessionID),
+                    onShowTerminal: { guiModeSelected = false }
                 )
-                .ignoresSafeArea(.keyboard, edges: .bottom)
                 .transition(.opacity)
             }
         }
@@ -83,3 +81,42 @@ extension WorkspaceDetailView {
     }
     #endif
 }
+
+#if os(iOS)
+/// Keeps the terminal surface at a stable structural position while browser or
+/// Agent GUI chrome is presented above it. Hiding changes interaction and
+/// accessibility only; the terminal-owned composer and toolbar stay mounted in
+/// their original `GhosttySurfaceView` hierarchy.
+struct WorkspaceDetailSurfaceStack<TerminalContent: View, OverlayContent: View>: View {
+    let activeSurface: WorkspaceActiveSurface
+    let isAgentGUIVisible: Bool
+    private let terminalContent: TerminalContent
+    private let overlayContent: OverlayContent
+
+    init(
+        activeSurface: WorkspaceActiveSurface,
+        isAgentGUIVisible: Bool,
+        @ViewBuilder terminal: () -> TerminalContent,
+        @ViewBuilder overlays: () -> OverlayContent
+    ) {
+        self.activeSurface = activeSurface
+        self.isAgentGUIVisible = isAgentGUIVisible
+        terminalContent = terminal()
+        overlayContent = overlays()
+    }
+
+    private var terminalIsPresented: Bool {
+        activeSurface == .terminal && !isAgentGUIVisible
+    }
+
+    var body: some View {
+        ZStack {
+            terminalContent
+                .opacity(terminalIsPresented ? 1 : 0)
+                .allowsHitTesting(terminalIsPresented)
+                .accessibilityHidden(!terminalIsPresented)
+            overlayContent
+        }
+    }
+}
+#endif

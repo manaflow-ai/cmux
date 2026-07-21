@@ -5,11 +5,11 @@ public struct TranscriptProjector: Sendable {
     /// Creates a transcript projector.
     public init() {}
 
-    /// Projects input into newest-first rows and computes an identity diff.
+    /// Projects input into chronological rows and computes an identity diff.
     /// - Parameters:
     ///   - input: Value input from a replica snapshot.
     ///   - previousRows: The prior projection, if any.
-    /// - Returns: Rows in collection-view order and a row-identity diff.
+    /// - Returns: Oldest-first rows and a row-identity diff.
     public func project(
         _ input: TranscriptProjectionInput,
         previousRows: [TranscriptRow] = []
@@ -20,7 +20,7 @@ public struct TranscriptProjector: Sendable {
         }
 
         let entryContexts = input.entries.filter { entry in
-            !Self.isKnownInternal(entry.content.payload)
+            !entry.content.payload.isTranscriptInternal
         }.map { entry in
             EntryContext(
                 entry: entry,
@@ -80,7 +80,7 @@ public struct TranscriptProjector: Sendable {
                 isUnread: true
             ))
         }
-        for ticket in input.sendTickets where !Self.isResolved(ticket.state) {
+        for ticket in input.sendTickets where Self.shouldProject(ticket.state) {
             chronological.append(TranscriptRow(
                 rowID: .pendingTicket(ticket.id),
                 rowKind: .pendingTicket(ticket),
@@ -97,8 +97,7 @@ public struct TranscriptProjector: Sendable {
             ))
         }
 
-        let rows = Self.deduplicatedRows(chronological).reversed()
-        let projected = Array(rows)
+        let projected = Self.deduplicatedRows(chronological)
         return TranscriptProjection(rows: projected, diff: Self.diff(previous: previousRows, current: projected))
     }
 
@@ -156,12 +155,6 @@ public struct TranscriptProjector: Sendable {
         }
         turn = nil
         let hasStreaming = current.id == latestTurnID && input.streamingTail?.textTail.isEmpty == false
-        let live = current.id == latestTurnID && (
-            input.sessionPhase == .starting
-                || input.sessionPhase == .working
-                || current.activity.contains(where: isRunningActivity)
-                || hasStreaming
-        )
         var turnRows = [TranscriptRow]()
         if let user = current.user, case .userMessage(let payload) = user.entry.content.payload {
             turnRows.append(entryRow(
@@ -171,42 +164,54 @@ public struct TranscriptProjector: Sendable {
                 unreadPointer: input.unreadPointer
             ))
         }
-        let items = current.activity.map(activityItem)
-        if !items.isEmpty {
-            if live {
-                turnRows.append(contentsOf: zip(current.activity, items).map { context, item in
-                    entryRow(
-                        context,
-                        kind: .activityItem(item),
-                        turnID: current.id,
-                        unreadPointer: input.unreadPointer
-                    )
-                })
-            } else {
-                turnRows.append(TranscriptRow(
-                    rowID: .activitySummary(current.id),
-                    rowKind: .activitySummary(activitySummary(items: items)),
-                    isUnread: current.activity.contains { $0.entry.seq > input.unreadPointer },
-                    turnID: current.id
+        var activityRun = [EntryContext]()
+        var emittedActivitySummary = false
+        func flushActivityRun() {
+            guard let anchor = activityRun.first else { return }
+            let items = activityRun.map(activityItem)
+            turnRows.append(TranscriptRow(
+                rowID: emittedActivitySummary
+                    ? .activitySegment(turnID: current.id, anchorSeq: anchor.entry.seq)
+                    : .activitySummary(current.id),
+                rowKind: .activitySummary(activitySummary(items: items)),
+                isUnread: activityRun.contains { $0.entry.seq > input.unreadPointer },
+                turnID: current.id
+            ))
+            emittedActivitySummary = true
+            activityRun.removeAll(keepingCapacity: true)
+        }
+        for event in current.events {
+            switch event.entry.content.payload {
+            case .agentProse(let payload):
+                flushActivityRun()
+                turnRows.append(entryRow(
+                    event,
+                    kind: .proseAgent(text: payload.markdown, grouping: .single),
+                    turnID: current.id,
+                    unreadPointer: input.unreadPointer
                 ))
+            case .attachment(let payload):
+                flushActivityRun()
+                turnRows.append(entryRow(
+                    event,
+                    kind: .attachment(payload),
+                    turnID: current.id,
+                    unreadPointer: input.unreadPointer
+                ))
+            default:
+                activityRun.append(event)
             }
         }
-        if let assistant = current.assistant,
-           case .agentProse(let payload) = assistant.entry.content.payload {
-            turnRows.append(entryRow(
-                assistant,
-                kind: .proseAgent(text: payload.markdown, grouping: .single),
-                turnID: current.id,
-                unreadPointer: input.unreadPointer
-            ))
-        }
+        flushActivityRun()
         if !hasStreaming, let last = turnRows.popLast() {
             turnRows.append(TranscriptRow(
                 rowID: last.rowID,
                 rowKind: last.rowKind,
                 isUnread: last.isUnread,
                 turnID: last.turnID,
-                endsTurn: true
+                endsTurn: true,
+                sourceEntry: last.sourceEntry,
+                displayTick: last.displayTick
             ))
         }
         rows.append(contentsOf: turnRows)
@@ -273,7 +278,9 @@ public struct TranscriptProjector: Sendable {
             rowID: .entry(journalID: context.entry.journalID, seq: context.entry.seq),
             rowKind: kind,
             isUnread: context.entry.seq > unreadPointer,
-            turnID: turnID
+            turnID: turnID,
+            sourceEntry: context.entry,
+            displayTick: context.tick
         )
     }
 
@@ -282,44 +289,48 @@ public struct TranscriptProjector: Sendable {
         let id = TranscriptRowID.entry(journalID: entry.journalID, seq: entry.seq)
         return switch entry.content.payload {
         case .userMessage(let payload):
-            TranscriptActivityItem(id: id, kind: .unknown("user"), summary: payload.text, isRunning: false)
+            TranscriptActivityItem(id: id, kind: .unknown("user"), summary: payload.text, isRunning: false, sourceEntry: entry)
         case .agentProse(let payload):
-            TranscriptActivityItem(id: id, kind: .assistant, summary: payload.markdown, isRunning: false)
+            TranscriptActivityItem(id: id, kind: .assistant, summary: payload.markdown, isRunning: false, sourceEntry: entry)
         case .thought(let payload):
-            TranscriptActivityItem(id: id, kind: .thought, summary: payload.text, isRunning: false)
+            TranscriptActivityItem(id: id, kind: .thought, summary: payload.text, isRunning: false, sourceEntry: entry)
         case .toolRun(let payload):
             TranscriptActivityItem(
                 id: id,
                 kind: payload.isTerminal ? .command : .tool,
                 summary: joined([payload.toolName, payload.argumentSummary, payload.resultSummary]),
-                isRunning: payload.isRunning
+                isRunning: payload.isRunning,
+                sourceEntry: entry
             )
         case .fileChange(let payload):
             TranscriptActivityItem(
                 id: id,
                 kind: .file,
                 summary: joined([payload.changeKind.rawValue, payload.path, payload.resultSummary]),
-                isRunning: false
+                isRunning: false,
+                sourceEntry: entry
             )
         case .question(let payload):
-            TranscriptActivityItem(id: id, kind: .question, summary: payload.prompt, isRunning: false)
+            TranscriptActivityItem(id: id, kind: .question, summary: payload.prompt, isRunning: false, sourceEntry: entry)
         case .permission(let payload):
             TranscriptActivityItem(
                 id: id,
                 kind: .permission,
                 summary: joined([payload.toolName, payload.detail]),
-                isRunning: false
+                isRunning: false,
+                sourceEntry: entry
             )
         case .status(let payload):
-            TranscriptActivityItem(id: id, kind: .status, summary: joined([payload.code.rawValue, payload.detail]), isRunning: false)
+            TranscriptActivityItem(id: id, kind: .status, summary: joined([payload.code.rawValue, payload.detail]), isRunning: false, sourceEntry: entry)
         case .attachment(let payload):
-            TranscriptActivityItem(id: id, kind: .attachment, summary: joined([payload.kind, payload.summary]), isRunning: false)
+            TranscriptActivityItem(id: id, kind: .attachment, summary: joined([payload.kind, payload.summary]), isRunning: false, sourceEntry: entry)
         case .unknown(let payload):
             TranscriptActivityItem(
                 id: id,
                 kind: .unknown(payload.rawKind),
                 summary: payload.summary ?? payload.rawKind,
-                isRunning: false
+                isRunning: false,
+                sourceEntry: entry
             )
         }
     }
@@ -365,18 +376,6 @@ public struct TranscriptProjector: Sendable {
             return payload.isRunning
         }
         return false
-    }
-
-    private static func isKnownInternal(_ payload: EntryPayload) -> Bool {
-        guard case .status(let status) = payload else { return false }
-        switch status.code {
-        case .sessionMeta:
-            return true
-        case .other(let rawCode):
-            return rawCode == "stop_hook_summary"
-        case .compacted, .turnAborted, .apiError:
-            return false
-        }
     }
 
     private static func diff(previous: [TranscriptRow], current: [TranscriptRow]) -> TranscriptProjectionDiff {
@@ -437,12 +436,12 @@ public struct TranscriptProjector: Sendable {
         }
     }
 
-    private static func isResolved(_ state: SendTicketState) -> Bool {
+    private static func shouldProject(_ state: SendTicketState) -> Bool {
         switch state {
-        case .echoed, .failed:
-            true
-        case .queuedLocal, .acceptedByMac, .injected, .unconfirmed:
+        case .echoed:
             false
+        case .queuedLocal, .acceptedByMac, .injected, .unconfirmed, .failed:
+            true
         }
     }
 
@@ -451,5 +450,12 @@ public struct TranscriptProjector: Sendable {
             let trimmed = part?.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed?.isEmpty == false ? trimmed : nil
         }.joined(separator: " · ")
+    }
+}
+
+private extension EntryPayload {
+    var isAttachment: Bool {
+        if case .attachment = self { return true }
+        return false
     }
 }

@@ -1,6 +1,6 @@
 /// Rows plus the identity diff from a previous projection.
 public struct TranscriptProjection: Hashable, Sendable {
-    /// Rows in collection-view order, with the newest visual row at index zero.
+    /// Rows in chronological order, with the oldest visual row at index zero.
     public let rows: [TranscriptRow]
     /// Identity-level diff from the previous projection.
     public let diff: TranscriptProjectionDiff

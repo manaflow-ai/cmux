@@ -111,6 +111,35 @@ struct AgentSyncEngineTests {
     }
 
     @Test
+    func failedSendRetriesWithTheSameIdempotencyKey() async {
+        let transport = FixtureSyncTransport()
+        let server = AgentSyncTestServer()
+        await server.setSendOutcomes([.rejected, .accepted])
+        await server.install(on: transport)
+        let engine = AgentSyncEngine(
+            transport: transport,
+            ticketIDGenerator: SequentialTicketIDGenerator()
+        )
+        let conversation = engine.openConversation(sessionID: AgentSyncTestSupport.session)
+        defer { engine.stop() }
+        engine.start()
+        #expect(await AgentSyncTestSupport.waitUntil { engine.connectivity.phase == .connected })
+
+        let ticketID = engine.send(sessionID: AgentSyncTestSupport.session, text: "retry me")
+        #expect(await AgentSyncTestSupport.waitUntil {
+            conversation.sendTickets.first(where: { $0.id == ticketID })?.state == .failed(code: "send_rejected")
+        })
+        #expect(engine.retrySend(sessionID: AgentSyncTestSupport.session, ticketID: ticketID))
+        #expect(await AgentSyncTestSupport.waitUntil {
+            conversation.sendTickets.first(where: { $0.id == ticketID })?.state == .acceptedByMac
+        })
+
+        let sends = await server.sendParams()
+        #expect(sends.map(\.ticketID) == [ticketID.uuidString, ticketID.uuidString])
+        #expect(conversation.sendTickets.count == 1)
+    }
+
+    @Test
     func transportFailureMidFlushLeavesRemainingTicketsQueuedForRetry() async {
         let transport = FixtureSyncTransport()
         let server = AgentSyncTestServer()

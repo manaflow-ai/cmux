@@ -36,6 +36,7 @@ struct TranscriptSyncPresentationTests {
         )
 
         #expect(Self.presentation(input: input) == .hidden)
+        #expect(!Self.presentation(input: input).showsPlaceholderRow)
     }
 
     @Test
@@ -95,6 +96,44 @@ struct TranscriptSyncPresentationTests {
 
         #expect(!input.hasVisibleContent)
         #expect(Self.presentation(input: input) == .empty)
+    }
+
+    @Test
+    func emptyFilteredPageShowsLoadingWhileNewerHistoryExists() {
+        let input = TranscriptProjectionInput(
+            hasCompletedInitialSync: true,
+            entries: [],
+            hasMoreAfter: true,
+            endCursor: JournalCursor(rawValue: "next-page")
+        )
+
+        #expect(!input.hasVisibleContent)
+        #expect(Self.presentation(input: input) == .loading)
+        #expect(Self.presentation(input: input).showsPlaceholderRow)
+    }
+
+    @Test
+    func internalOnlyPageKeepsLoadingInsteadOfShowingAnEmptyConversation() {
+        let internalEntry = EntrySnapshot(
+            journalID: Self.journalID,
+            seq: EntrySeq(rawValue: 10),
+            kind: .status,
+            content: EntryContent(
+                contentHash: 10,
+                payload: .status(StatusPayload(code: .sessionMeta))
+            ),
+            version: EntityVersion(rawValue: 1)
+        )
+        let input = TranscriptProjectionInput(
+            hasCompletedInitialSync: true,
+            entries: [internalEntry],
+            hasMoreAfter: true,
+            endCursor: JournalCursor(rawValue: "next-page")
+        )
+
+        #expect(!input.hasVisibleContent)
+        #expect(Self.presentation(input: input) == .loading)
+        #expect(Self.presentation(input: input).showsPlaceholderRow)
     }
 
     private static let sessionID = AgentSessionID(rawValue: "presentation-session")

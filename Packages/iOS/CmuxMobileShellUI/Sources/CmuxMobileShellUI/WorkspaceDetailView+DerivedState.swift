@@ -1,7 +1,10 @@
+import CmuxAgentGUIUI
+import CmuxAgentReplica
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
 import CoreGraphics
+import SwiftUI
 
 extension WorkspaceDetailView {
     var selectedTerminal: MobileTerminalPreview? {
@@ -42,18 +45,22 @@ extension WorkspaceDetailView {
         activeSurface == .terminal && guiModeSelected && agentGUIAvailability != nil
     }
 
-    var agentGUIComposerSubmitAction: (@MainActor () async -> Void)? {
-        guard isAgentGUIVisible,
-              let engine = store.agentSyncEngine,
-              let availability = agentGUIAvailability else {
-            return nil
-        }
-        return { @MainActor in
-            let text = store.terminalInputText
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            engine.send(sessionID: availability.sessionID, text: text)
-            store.terminalInputText = ""
-        }
+    func agentGUIDraftBinding(for sessionID: AgentSessionID) -> Binding<String> {
+        Binding(
+            get: { agentGUIDrafts[sessionID] },
+            set: { agentGUIDrafts[sessionID] = $0 }
+        )
     }
     #endif
 }
+
+#if os(iOS)
+struct AgentGUIDraftState: Equatable {
+    private var drafts: [AgentSessionID: String] = [:]
+
+    subscript(sessionID: AgentSessionID) -> String {
+        get { drafts[sessionID, default: ""] }
+        set { drafts[sessionID] = newValue }
+    }
+}
+#endif

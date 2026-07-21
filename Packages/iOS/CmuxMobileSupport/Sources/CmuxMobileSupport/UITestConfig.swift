@@ -161,6 +161,27 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone streaming-chat preview is enabled.
+    public static var streamingChatPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_STREAMING_CHAT_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the standalone agent-chat preview is enabled.
+    public static var agentChatPreviewEnabled: Bool {
+        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
+            .agentChatPreviewEnabled
+    }
+
+    /// Whether the workspace-shaped agent-chat preview is enabled.
+    public static var agentChatInlinePreviewEnabled: Bool {
+        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
+            .agentChatInlinePreviewEnabled
+    }
+
     /// Whether mock data is enabled for an explicit environment.
     ///
     /// In release builds this is always `false`. In DEBUG builds, an explicit

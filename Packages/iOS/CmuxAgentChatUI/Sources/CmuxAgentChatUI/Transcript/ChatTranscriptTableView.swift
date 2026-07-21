@@ -246,7 +246,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         }
 
         private func restore(_ anchor: ChatTranscriptTableAnchor, in tableView: UITableView) {
-            guard let row = items.firstIndex(where: { $0.id == anchor.id }) else { return }
+            guard let row = items.firstIndex(where: { AnyHashable($0.id) == anchor.id }) else { return }
             let indexPath = IndexPath(row: row, section: 0)
             let rect = tableView.rectForRow(at: indexPath)
             let offset = CGPoint(

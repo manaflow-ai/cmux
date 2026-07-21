@@ -112,7 +112,7 @@ import Observation
     private func updateInput() {
         input = TranscriptProjectionInput(
             state: conversation.state,
-            hasMoreBefore: true,
+            hasMoreBefore: false,
             streamingTail: streamingTail,
             displayTick: { entry in entry.seq.rawValue * 600 },
             dayKey: { tick in

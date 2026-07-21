@@ -6,6 +6,11 @@ import Foundation
 
 @MainActor
 final class AgentGUIService {
+    struct ResolvedPageRequest: Equatable {
+        let direction: AgentGUIJournalPageDirection
+        let requiresPagingRestart: Bool
+    }
+
     // Assigned once during app startup before control-socket requests can arrive.
     nonisolated(unsafe) static private(set) var shared: AgentGUIService?
 
@@ -174,6 +179,46 @@ final class AgentGUIService {
         let initialEvents = await pipeline.ingestInitial()
         handleJournalEvents(initialEvents, sessionID: params.sessionID)
         let limit = max(1, min(params.limit, AgentGUIConstants.maxEntriesLimit))
+        if let anchor = params.anchor {
+            guard let currentJournalID = pipeline.currentJournalID else {
+                throw AgentGUIRPCError.notFound
+            }
+            let request = Self.resolvePageRequest(
+                anchor: anchor,
+                cursor: params.cursor,
+                expectedJournalID: params.journalID,
+                currentJournalID: currentJournalID
+            )
+            var page = await pipeline.diskEntries(direction: request.direction, limit: limit)
+            var requiresPagingRestart = request.requiresPagingRestart
+            if page == nil {
+                switch request.direction {
+                case .before, .after:
+                    page = await pipeline.diskEntries(direction: .tail, limit: limit)
+                    requiresPagingRestart = true
+                case .head, .tail:
+                    break
+                }
+            }
+            guard let page else {
+                throw AgentGUIRPCError.notFound
+            }
+            let windowStart = page.entries.map(\.seq).min() ?? page.tailSeq
+            let windowEnd = page.entries.map(\.seq).max() ?? page.tailSeq
+            return GuiEntriesResult(
+                journalID: page.journalID,
+                entries: page.entries,
+                windowStart: windowStart,
+                windowEnd: windowEnd,
+                tailSeq: page.tailSeq,
+                hasMoreBefore: page.hasMoreBefore,
+                hasMoreAfter: page.hasMoreAfter,
+                startCursor: AgentGUIJournalCursorCodec.encode(journalID: page.journalID, byteOffset: page.startOffset),
+                endCursor: AgentGUIJournalCursorCodec.encode(journalID: page.journalID, byteOffset: page.endOffset),
+                tailCursor: AgentGUIJournalCursorCodec.encode(journalID: page.journalID, byteOffset: page.tailOffset),
+                requiresPagingRestart: requiresPagingRestart
+            )
+        }
         guard let page = pipeline.entries(beforeSeq: params.beforeSeq, afterSeq: params.afterSeq, limit: limit) else {
             throw AgentGUIRPCError.notFound
         }
@@ -188,6 +233,35 @@ final class AgentGUIService {
             tailSeq: page.tailSeq,
             hasMoreBefore: page.hasMoreBefore
         )
+    }
+
+    static func resolvePageRequest(
+        anchor: GuiEntriesAnchor,
+        cursor: JournalCursor?,
+        expectedJournalID: JournalID?,
+        currentJournalID: JournalID
+    ) -> ResolvedPageRequest {
+        if let expectedJournalID, expectedJournalID != currentJournalID {
+            return ResolvedPageRequest(direction: .tail, requiresPagingRestart: true)
+        }
+        switch anchor {
+        case .head:
+            return ResolvedPageRequest(direction: .head, requiresPagingRestart: false)
+        case .tail:
+            return ResolvedPageRequest(direction: .tail, requiresPagingRestart: false)
+        case .before:
+            guard let cursor,
+                  let offset = AgentGUIJournalCursorCodec.decode(cursor, journalID: currentJournalID) else {
+                return ResolvedPageRequest(direction: .tail, requiresPagingRestart: true)
+            }
+            return ResolvedPageRequest(direction: .before(offset), requiresPagingRestart: false)
+        case .after:
+            guard let cursor,
+                  let offset = AgentGUIJournalCursorCodec.decode(cursor, journalID: currentJournalID) else {
+                return ResolvedPageRequest(direction: .tail, requiresPagingRestart: true)
+            }
+            return ResolvedPageRequest(direction: .after(offset), requiresPagingRestart: false)
+        }
     }
 
     func capabilitiesResult(params: GuiCapabilitiesParams) throws -> GuiCapabilitiesResult {

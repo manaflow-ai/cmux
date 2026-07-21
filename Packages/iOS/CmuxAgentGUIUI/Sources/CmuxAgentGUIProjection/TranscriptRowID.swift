@@ -19,6 +19,8 @@ public enum TranscriptRowID: Hashable, Sendable, CustomStringConvertible {
     case streaming(journalID: JournalID, afterSeq: EntrySeq)
     /// The folded activity for a completed turn.
     case activitySummary(TranscriptTurnID)
+    /// A later folded activity run separated by visible prose or attachments.
+    case activitySegment(turnID: TranscriptTurnID, anchorSeq: EntrySeq)
 
     /// A deterministic string form suitable for diff diagnostics and UI reuse identifiers.
     public var description: String {
@@ -39,6 +41,8 @@ public enum TranscriptRowID: Hashable, Sendable, CustomStringConvertible {
             "streaming:\(journalID.rawValue):\(afterSeq.rawValue)"
         case .activitySummary(let turnID):
             "activity:\(turnID.description)"
+        case .activitySegment(let turnID, let anchorSeq):
+            "activity:\(turnID.description):\(anchorSeq.rawValue)"
         }
     }
 }

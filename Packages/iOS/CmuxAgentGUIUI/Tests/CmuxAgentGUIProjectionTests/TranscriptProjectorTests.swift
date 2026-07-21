@@ -14,7 +14,7 @@ struct TranscriptProjectorTests {
         let nextInput = TranscriptProjectionInput(entries: Self.entries(count: 501))
         let next = projector.project(nextInput, previousRows: previous.rows)
 
-        #expect(next.diff.inserted[.entry(journalID: Self.journal, seq: EntrySeq(rawValue: 501))] == 0)
+        #expect(next.diff.inserted[.entry(journalID: Self.journal, seq: EntrySeq(rawValue: 501))] == 500)
         #expect(next.diff.appliedOperationCount <= 3)
     }
 
@@ -36,7 +36,7 @@ struct TranscriptProjectorTests {
     }
 
     @Test
-    func promptStartsStableTurnAndEarlierAssistantDemotesInOrder() throws {
+    func promptPreservesEveryAssistantProseRunInOrder() throws {
         let rows = projector.project(TranscriptProjectionInput(entries: [
             Self.user(seq: 1, text: "prompt"),
             Self.agent(seq: 2, text: "draft"),
@@ -54,11 +54,35 @@ struct TranscriptProjectorTests {
         #expect(summaryRow.turnID == expectedTurn)
         guard case .activitySummary(let summary) = summaryRow.rowKind else { return }
         #expect(summary.items.map(\.id) == [
-            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2)),
             .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 3)),
         ])
+        #expect(rows.compactMap(\.agentText) == ["draft", "final"])
+        #expect(rows.firstIndex { $0.agentText == "draft" }! < rows.firstIndex { if case .activitySummary = $0.rowKind { true } else { false } }!)
+        #expect(rows.firstIndex { if case .activitySummary = $0.rowKind { true } else { false } }! < rows.firstIndex { $0.agentText == "final" }!)
         #expect(rows.row(seq: 4)?.turnID == expectedTurn)
         #expect(rows.row(seq: 4)?.endsTurn == true)
+    }
+
+    @Test
+    func proseToolsProseKeepsNarrationVisibleAndCompactsTools() throws {
+        let rows = projector.project(TranscriptProjectionInput(entries: [
+            Self.user(seq: 1, text: "prompt"),
+            Self.agent(seq: 2, text: "I will inspect this."),
+            Self.tool(seq: 3, name: "rg", detail: "Transcript"),
+            Self.tool(seq: 4, name: "bash", detail: "swift test"),
+            Self.agent(seq: 5, text: "The fix is ready."),
+        ])).rows
+
+        #expect(rows.compactMap(\.agentText) == ["I will inspect this.", "The fix is ready."])
+        let summaries = rows.compactMap { row -> TranscriptActivitySummary? in
+            guard case .activitySummary(let summary) = row.rowKind else { return nil }
+            return summary
+        }
+        let summary = try #require(summaries.single)
+        #expect(summary.items.map(\.id) == [
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 3)),
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 4)),
+        ])
     }
 
     @Test
@@ -117,11 +141,11 @@ struct TranscriptProjectorTests {
             sessionPhase: .working
         )).rows
 
-        #expect(rows.contains { row in
-            row.rowID == .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2))
-                && { if case .activityItem(let item) = row.rowKind { item.isRunning } else { false } }()
-        })
-        #expect(!rows.contains { if case .activitySummary = $0.rowKind { true } else { false } })
+        let summary = rows.activitySummaries.first
+        #expect(summary?.items.map(\.id) == [
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2)),
+        ])
+        #expect(summary?.items.first?.isRunning == true)
     }
 
     @Test
@@ -142,8 +166,12 @@ struct TranscriptProjectorTests {
             segmentAnchorSeq: EntrySeq(rawValue: 5)
         )
 
-        #expect(rows.row(seq: 5)?.turnID == liveTurn)
-        #expect(rows.row(seq: 5)?.isActivityItem == true)
+        #expect(rows.activitySummaries.contains { summary in
+            summary.turnID == liveTurn
+                && summary.items.map(\.id) == [
+                    .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 5)),
+                ]
+        })
         #expect(rows.row(seq: 2) == nil)
         #expect(rows.activitySummaries.flatMap(\.items).map(\.id).contains(
             .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2))
@@ -266,12 +294,12 @@ struct TranscriptProjectorTests {
             )
         )).rows
 
-        #expect(rows[0].rowID == TranscriptRowID.streaming(
+        #expect(rows.last?.rowID == TranscriptRowID.streaming(
             journalID: Self.journal,
             afterSeq: EntrySeq(rawValue: 1)
         ))
-        #expect(rows[1].rowID == TranscriptRowID.pendingTicket(secondTicket.id))
-        #expect(rows[2].rowID == TranscriptRowID.pendingTicket(firstTicket.id))
+        #expect(rows[1].rowID == TranscriptRowID.pendingTicket(firstTicket.id))
+        #expect(rows[2].rowID == TranscriptRowID.pendingTicket(secondTicket.id))
         #expect(rows.filter { row in
             if case .streaming = row.rowKind {
                 return true
@@ -281,6 +309,55 @@ struct TranscriptProjectorTests {
         #expect(rows.contains {
             $0.rowID == TranscriptRowID.entry(journalID: Self.journal, seq: EntrySeq(rawValue: 1))
         })
+    }
+
+    @Test
+    func failedTicketRemainsVisibleUntilEchoed() {
+        let id = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+        func ticket(_ state: SendTicketState) -> SendTicket {
+            SendTicket(
+                id: id,
+                sessionID: AgentSessionID(rawValue: "session"),
+                text: "retry me",
+                attachmentCount: 0,
+                state: state,
+                createdAt: 30
+            )
+        }
+
+        for state in [SendTicketState.queuedLocal, .acceptedByMac, .failed(code: "transport")] {
+            let rows = projector.project(TranscriptProjectionInput(entries: [], sendTickets: [ticket(state)])).rows
+            #expect(rows.contains { $0.rowID == TranscriptRowID.pendingTicket(id) })
+        }
+
+        let echoedRows = projector.project(TranscriptProjectionInput(
+            entries: [],
+            sendTickets: [ticket(.echoed(EntrySeq(rawValue: 42)))]
+        )).rows
+        #expect(!echoedRows.contains { $0.rowID == TranscriptRowID.pendingTicket(id) })
+    }
+
+    @Test
+    func failedRetryLifecycleKeepsOneStableRowUntilEcho() {
+        let id = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+        func projected(_ state: SendTicketState) -> [TranscriptRow] {
+            projector.project(TranscriptProjectionInput(
+                entries: [],
+                sendTickets: [SendTicket(
+                    id: id,
+                    sessionID: AgentSessionID(rawValue: "session"),
+                    text: "retry",
+                    attachmentCount: 0,
+                    state: state,
+                    createdAt: 40
+                )]
+            )).rows
+        }
+
+        #expect(projected(.failed(code: "offline")).map(\.rowID) == [.pendingTicket(id)])
+        #expect(projected(.queuedLocal).map(\.rowID) == [.pendingTicket(id)])
+        #expect(projected(.failed(code: "offline-again")).map(\.rowID) == [.pendingTicket(id)])
+        #expect(projected(.echoed(EntrySeq(rawValue: 50))).isEmpty)
     }
 
     @Test
@@ -330,8 +407,8 @@ struct TranscriptProjectorTests {
             afterSeq: EntrySeq(rawValue: 1)
         )
 
-        #expect(try #require(first.rows.first).rowID == streamingID)
-        #expect(try #require(second.rows.first).rowID == streamingID)
+        #expect(try #require(first.rows.last).rowID == streamingID)
+        #expect(try #require(second.rows.last).rowID == streamingID)
         #expect(second.diff.updated == Set([streamingID]))
         #expect(second.diff.inserted.isEmpty)
         #expect(second.diff.removed.isEmpty)
@@ -350,7 +427,7 @@ struct TranscriptProjectorTests {
         )).rows
 
         #expect(rows.contains { $0.rowID == .hole(hole) })
-        #expect(rows.last?.rowID == .boundary)
+        #expect(rows.first?.rowID == .boundary)
     }
 
     @Test
@@ -397,7 +474,7 @@ struct TranscriptProjectorTests {
             return nil
         }
 
-        #expect(dateHeaders == [.dateHeader("tomorrow"), .dateHeader("today")])
+        #expect(dateHeaders == [.dateHeader("today"), .dateHeader("tomorrow")])
         #expect(Set(first.rows.map(\.rowID)).count == first.rows.count)
 
         let second = projector.project(input, previousRows: first.rows + [first.rows[0]])
@@ -458,6 +535,12 @@ private extension [TranscriptRow] {
             guard case .activitySummary(let summary) = row.rowKind else { return nil }
             return (turnID: row.turnID, items: summary.items)
         }
+    }
+}
+
+private extension Collection {
+    var single: Element? {
+        count == 1 ? first : nil
     }
 }
 

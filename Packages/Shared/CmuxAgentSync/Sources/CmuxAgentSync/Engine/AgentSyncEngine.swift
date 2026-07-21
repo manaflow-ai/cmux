@@ -3,6 +3,12 @@ public import CmuxAgentWire
 public import Foundation
 public import Observation
 
+private struct AgentPagingRequestKey: Hashable {
+    let sessionID: AgentSessionID
+    let anchor: GuiEntriesAnchor
+    let cursor: JournalCursor?
+}
+
 /// Drives agent GUI replica stores over an abstract transport.
 @MainActor
 @Observable
@@ -17,6 +23,8 @@ public final class AgentSyncEngine {
     public private(set) var streamingTails: [AgentSessionID: AgentStreamingTail]
     /// Last `has_more_before` value reported for each open conversation.
     public private(set) var hasMoreBeforeBySession: [AgentSessionID: Bool]
+    /// Last `has_more_after` value reported for each open conversation.
+    public private(set) var hasMoreAfterBySession: [AgentSessionID: Bool]
     /// Last capability report returned per session.
     public private(set) var cachedCapabilities: [AgentSessionID: GuiCapabilitiesResult]
     /// Count of transport frames that could not be decoded as `gui.v1` frames.
@@ -34,6 +42,8 @@ public final class AgentSyncEngine {
     @ObservationIgnored var retryTask: Task<Void, Never>?
     @ObservationIgnored private var resyncTask: Task<Void, Never>?
     @ObservationIgnored private var tailPullTasks: [AgentSessionID: Task<Void, Never>]
+    @ObservationIgnored private var pagingTasks: [AgentPagingRequestKey: Task<GuiEntriesResult, any Error>]
+    @ObservationIgnored private var pagingGenerationBySession: [AgentSessionID: UInt64]
     @ObservationIgnored private var conversationOwnerCounts: [AgentSessionID: Int]
     @ObservationIgnored private var retryAttempt: Int
     @ObservationIgnored private var resyncRequested: Bool
@@ -65,11 +75,14 @@ public final class AgentSyncEngine {
         conversations = [:]
         streamingTails = [:]
         hasMoreBeforeBySession = [:]
+        hasMoreAfterBySession = [:]
         cachedCapabilities = [:]
         malformedFrameCount = 0
         encoder = JSONEncoder()
         decoder = JSONDecoder()
         tailPullTasks = [:]
+        pagingTasks = [:]
+        pagingGenerationBySession = [:]
         conversationOwnerCounts = [:]
         retryAttempt = 0
         resyncRequested = false
@@ -84,6 +97,9 @@ public final class AgentSyncEngine {
         retryTask?.cancel()
         resyncTask?.cancel()
         for (_, task) in tailPullTasks {
+            task.cancel()
+        }
+        for (_, task) in pagingTasks {
             task.cancel()
         }
     }
@@ -123,6 +139,10 @@ public final class AgentSyncEngine {
             task.cancel()
         }
         tailPullTasks.removeAll()
+        for (_, task) in pagingTasks {
+            task.cancel()
+        }
+        pagingTasks.removeAll()
     }
 
     /// Opens or retains the conversation replica for a session.
@@ -147,8 +167,10 @@ public final class AgentSyncEngine {
         guard conversations.removeValue(forKey: sessionID) != nil else { return }
         streamingTails[sessionID] = nil
         hasMoreBeforeBySession[sessionID] = nil
+        hasMoreAfterBySession[sessionID] = nil
         cachedCapabilities[sessionID] = nil
         tailPullTasks.removeValue(forKey: sessionID)?.cancel()
+        cancelPagingRequests(sessionID: sessionID)
         if started {
             triggerResync()
         }
@@ -184,12 +206,48 @@ public final class AgentSyncEngine {
         }
         return ticketID
     }
+
+    /// Requeues a failed send using its original idempotency key.
+    /// - Parameters:
+    ///   - sessionID: The ticket's conversation.
+    ///   - ticketID: The failed ticket identifier.
+    /// - Returns: Whether a matching failed ticket was requeued.
+    @discardableResult
+    public func retrySend(sessionID: AgentSessionID, ticketID: UUID) -> Bool {
+        guard let conversation = conversations[sessionID],
+              let failedTicket = conversation.sendTickets.first(where: { $0.id == ticketID }),
+              case .failed = failedTicket.state
+        else { return false }
+        let queuedTicket = SendTicket(
+            id: failedTicket.id,
+            sessionID: failedTicket.sessionID,
+            text: failedTicket.text,
+            attachmentCount: failedTicket.attachmentCount,
+            state: .queuedLocal,
+            createdAt: failedTicket.createdAt
+        )
+        conversation.apply(.sendTicketChanged(queuedTicket), origin: .live)
+        if connectivity.phase == .connected {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.submitQueuedTicket(queuedTicket, origin: .live)
+                } catch {
+                    self.scheduleRetry(reason: Self.errorDescription(error))
+                }
+            }
+        }
+        return true
+    }
     private func conversationForUse(sessionID: AgentSessionID) -> ConversationReplica {
         if let conversation = conversations[sessionID] {
             return conversation
         }
         conversationOwnerCounts[sessionID] = max(conversationOwnerCounts[sessionID] ?? 0, 1)
-        let conversation = ConversationReplica(sessionID: sessionID, clock: replicaClock)
+        let conversation = ConversationReplica(
+            sessionID: sessionID,
+            clock: replicaClock
+        )
         conversations[sessionID] = conversation
         if started {
             triggerResync()
@@ -229,15 +287,144 @@ public final class AgentSyncEngine {
         guard let conversation = conversations[sessionID] else {
             throw AgentSyncError.conversationNotOpen
         }
-        let beforeSeq = conversation.loadedRanges.map(\.lowerBound).min()
-        let result = try await entries(
+        guard hasMoreBeforeBySession[sessionID] ?? conversation.hasMoreBefore else { return }
+        let generation = pagingGenerationBySession[sessionID, default: 0]
+        let result: GuiEntriesResult
+        if let cursor = conversation.startCursor {
+            result = try await coalescedPage(
+                sessionID: sessionID,
+                journalID: conversation.journalID,
+                anchor: .before,
+                cursor: cursor
+            )
+        } else {
+            result = try await entries(
+                sessionID: sessionID,
+                journalID: conversation.journalID,
+                beforeSeq: conversation.loadedRanges.map(\.lowerBound).min(),
+                afterSeq: nil,
+                limit: 50
+            )
+        }
+        guard pagingGenerationBySession[sessionID, default: 0] == generation else { return }
+        merge(result, into: conversation, retaining: .oldest)
+    }
+
+    /// Loads the next newer page for an open conversation.
+    /// - Parameter sessionID: The session whose newer page should load.
+    public func loadNewer(sessionID: AgentSessionID) async throws {
+        guard let conversation = conversations[sessionID] else {
+            throw AgentSyncError.conversationNotOpen
+        }
+        guard conversation.hasMoreAfter else { return }
+        let generation = pagingGenerationBySession[sessionID, default: 0]
+        let result: GuiEntriesResult
+        if let cursor = conversation.endCursor {
+            result = try await coalescedPage(
+                sessionID: sessionID,
+                journalID: conversation.journalID,
+                anchor: .after,
+                cursor: cursor
+            )
+        } else {
+            result = try await entries(
+                sessionID: sessionID,
+                journalID: conversation.journalID,
+                beforeSeq: nil,
+                afterSeq: conversation.loadedRanges.map(\.upperBound).max(),
+                limit: 50
+            )
+        }
+        guard pagingGenerationBySession[sessionID, default: 0] == generation else { return }
+        merge(result, into: conversation, retaining: .newest)
+    }
+
+    /// Replaces the loaded window with the first journal page.
+    /// - Parameter sessionID: The session to jump to the beginning of.
+    public func jumpToHead(sessionID: AgentSessionID) async throws {
+        guard let conversation = conversations[sessionID] else {
+            throw AgentSyncError.conversationNotOpen
+        }
+        let generation = beginNewPagingGeneration(sessionID: sessionID)
+        let result = try await coalescedPage(
             sessionID: sessionID,
             journalID: conversation.journalID,
-            beforeSeq: beforeSeq,
-            afterSeq: nil,
+            anchor: .head,
+            cursor: nil
+        )
+        guard pagingGenerationBySession[sessionID] == generation else { return }
+        merge(result, into: conversation, retaining: .oldest, replacingWindow: true)
+        guard result.requiresPagingRestart else { return }
+
+        // A stale journal expectation resolves to the authoritative tail so
+        // the client can adopt the replacement journal. Preserve the user's
+        // semantic request by retrying head once with that new journal.
+        let retry = try await coalescedPage(
+            sessionID: sessionID,
+            journalID: conversation.journalID,
+            anchor: .head,
+            cursor: nil
+        )
+        guard pagingGenerationBySession[sessionID] == generation else { return }
+        merge(retry, into: conversation, retaining: .oldest, replacingWindow: true)
+    }
+
+    /// Replaces the loaded window with the current journal tail page.
+    /// - Parameter sessionID: The session to jump to the end of.
+    public func jumpToTail(sessionID: AgentSessionID) async throws {
+        guard let conversation = conversations[sessionID] else {
+            throw AgentSyncError.conversationNotOpen
+        }
+        let generation = beginNewPagingGeneration(sessionID: sessionID)
+        let result = try await cursorEntries(
+            sessionID: sessionID,
+            journalID: conversation.journalID,
+            anchor: .tail,
+            cursor: nil,
             limit: 50
         )
-        merge(result, into: conversation)
+        guard pagingGenerationBySession[sessionID] == generation else { return }
+        merge(result, into: conversation, retaining: .newest, replacingWindow: true)
+    }
+
+    private func coalescedPage(
+        sessionID: AgentSessionID,
+        journalID: JournalID?,
+        anchor: GuiEntriesAnchor,
+        cursor: JournalCursor?
+    ) async throws -> GuiEntriesResult {
+        let key = AgentPagingRequestKey(sessionID: sessionID, anchor: anchor, cursor: cursor)
+        if let task = pagingTasks[key] {
+            return try await task.value
+        }
+        let task = Task<GuiEntriesResult, any Error> { @MainActor [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.cursorEntries(
+                sessionID: sessionID,
+                journalID: journalID,
+                anchor: anchor,
+                cursor: cursor,
+                limit: 50
+            )
+        }
+        pagingTasks[key] = task
+        defer { pagingTasks[key] = nil }
+        return try await task.value
+    }
+
+    @discardableResult
+    private func beginNewPagingGeneration(sessionID: AgentSessionID) -> UInt64 {
+        cancelPagingRequests(sessionID: sessionID)
+        let generation = pagingGenerationBySession[sessionID, default: 0] &+ 1
+        pagingGenerationBySession[sessionID] = generation
+        return generation
+    }
+
+    private func cancelPagingRequests(sessionID: AgentSessionID) {
+        let keys = pagingTasks.keys.filter { $0.sessionID == sessionID }
+        for key in keys {
+            pagingTasks.removeValue(forKey: key)?.cancel()
+        }
     }
 
     /// Fetches and caches a session capability report.
@@ -458,26 +645,39 @@ public final class AgentSyncEngine {
         guard let conversation = conversations[sessionID] else {
             throw AgentSyncError.conversationNotOpen
         }
-        let result = try await entries(
+        let result = try await coalescedPage(
             sessionID: sessionID,
             journalID: conversation.journalID,
-            beforeSeq: nil,
-            afterSeq: nil,
-            limit: 50
+            anchor: .tail,
+            cursor: nil
         )
-        merge(result, into: conversation)
+        merge(result, into: conversation, retaining: .newest)
     }
 
-    private func merge(_ result: GuiEntriesResult, into conversation: ConversationReplica) {
+    private func merge(
+        _ result: GuiEntriesResult,
+        into conversation: ConversationReplica,
+        retaining requestedEdge: ConversationPageRetentionEdge,
+        replacingWindow: Bool = false
+    ) {
+        let edge: ConversationPageRetentionEdge = result.requiresPagingRestart ? .newest : requestedEdge
         conversation.mergePage(
             journal: result.journalID,
             entries: result.entries,
             windowStart: result.windowStart,
             windowEnd: result.windowEnd,
             tailSeq: result.tailSeq,
-            hasMoreBefore: result.hasMoreBefore
+            hasMoreBefore: result.hasMoreBefore,
+            hasMoreAfter: result.hasMoreAfter,
+            startCursor: result.startCursor,
+            endCursor: result.endCursor,
+            tailCursor: result.tailCursor,
+            requiresPagingRestart: result.requiresPagingRestart,
+            replacingWindow: replacingWindow || result.requiresPagingRestart,
+            retaining: edge
         )
         hasMoreBeforeBySession[conversation.sessionID] = result.hasMoreBefore
+        hasMoreAfterBySession[conversation.sessionID] = result.hasMoreAfter
         clearStreamingTailIfCommitted(sessionID: conversation.sessionID, conversation: conversation)
         scheduleTailPullIfNeeded(for: conversation)
     }

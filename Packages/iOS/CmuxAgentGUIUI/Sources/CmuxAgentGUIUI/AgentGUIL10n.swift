@@ -52,6 +52,28 @@ enum AgentGUIL10n {
         [activityKind(item.kind), item.summary].filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
+    static func activityDetailLabel(_ label: TranscriptActivityDetailModel.Label) -> String {
+        switch label {
+        case .summary: string("agent.activity.detail.summary", defaultValue: "Summary")
+        case .thought: string("agent.activity.detail.thought", defaultValue: "Thought")
+        case .tool: string("agent.activity.detail.tool", defaultValue: "Tool")
+        case .arguments: string("agent.activity.detail.arguments", defaultValue: "Arguments")
+        case .command: string("agent.activity.detail.command", defaultValue: "Command")
+        case .result: string("agent.activity.detail.result", defaultValue: "Result")
+        case .output: string("agent.activity.detail.output", defaultValue: "Output")
+        case .status: string("agent.activity.detail.status", defaultValue: "Status")
+        case .duration: string("agent.activity.detail.duration", defaultValue: "Duration")
+        case .path: string("agent.activity.detail.path", defaultValue: "Path")
+        case .changes: string("agent.activity.detail.changes", defaultValue: "Changes")
+        case .diff: string("agent.activity.detail.diff", defaultValue: "Diff")
+        case .prompt: string("agent.activity.detail.prompt", defaultValue: "Prompt")
+        case .options: string("agent.activity.detail.options", defaultValue: "Options")
+        case .attachment: string("agent.activity.detail.attachment", defaultValue: "Attachment")
+        case .metadata: string("agent.activity.detail.metadata", defaultValue: "Metadata")
+        case .diagnostic: string("agent.activity.detail.diagnostic", defaultValue: "Diagnostic")
+        }
+    }
+
     static func activitySummary(_ summary: TranscriptActivitySummary) -> String {
         var parts = [String]()
         if summary.editedFileCount > 0 {

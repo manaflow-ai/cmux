@@ -24752,7 +24752,9 @@
 				A6E170000000000000000068 /* AgentGUIHookFactMapper.swift in Sources */,
 				A6E17000000000000000007E /* AgentGUIIncrementalState.swift in Sources */,
 				A6E170000000000000000069 /* AgentGUIJournalBookkeeper.swift in Sources */,
+				DA7A00000000000000000001 /* AgentGUIJournalPageReader.swift in Sources */,
 				A6E17000000000000000006A /* AgentGUIJournalPipeline.swift in Sources */,
+				DA7A00000000000000000002 /* AgentGUIJournalToolCallLocator.swift in Sources */,
 				A6E17000000000000000006B /* AgentGUIJournalPipelineEvent.swift in Sources */,
 				A6E17000000000000000006C /* AgentGUIJournalWindow.swift in Sources */,
 				A6E17000000000000000006D /* AgentGUIOpenTranscriptPathScanner.swift in Sources */,
@@ -26428,9 +26430,17 @@
 			isa = PBXBuildFile;
 			fileRef = A6E17000000000000000000F /* AgentGUIJournalBookkeeper.swift */;
 		};
+		DA7A00000000000000000001 /* AgentGUIJournalPageReader.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = DA7A00000000000000000011 /* AgentGUIJournalPageReader.swift */;
+		};
 		A6E17000000000000000006A /* AgentGUIJournalPipeline.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = A6E170000000000000000010 /* AgentGUIJournalPipeline.swift */;
+		};
+		DA7A00000000000000000002 /* AgentGUIJournalToolCallLocator.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = DA7A00000000000000000012 /* AgentGUIJournalToolCallLocator.swift */;
 		};
 		A6E17000000000000000006B /* AgentGUIJournalPipelineEvent.swift in Sources */ = {
 			isa = PBXBuildFile;
@@ -26592,10 +26602,22 @@
 			path = AgentGUIJournalBookkeeper.swift;
 			sourceTree = "<group>";
 		};
+		DA7A00000000000000000011 /* AgentGUIJournalPageReader.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = AgentGUIJournalPageReader.swift;
+			sourceTree = "<group>";
+		};
 		A6E170000000000000000010 /* AgentGUIJournalPipeline.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = AgentGUIJournalPipeline.swift;
+			sourceTree = "<group>";
+		};
+		DA7A00000000000000000012 /* AgentGUIJournalToolCallLocator.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = AgentGUIJournalToolCallLocator.swift;
 			sourceTree = "<group>";
 		};
 		A6E170000000000000000011 /* AgentGUIJournalPipelineEvent.swift */ = {
@@ -26759,7 +26781,9 @@
 				A6E170000000000000000024 /* AgentGUIIncrementalState.swift */,
 				A6E17000000000000000001F /* AgentGUIAskRegistry.swift */,
 				A6E17000000000000000000F /* AgentGUIJournalBookkeeper.swift */,
+				DA7A00000000000000000011 /* AgentGUIJournalPageReader.swift */,
 				A6E170000000000000000010 /* AgentGUIJournalPipeline.swift */,
+				DA7A00000000000000000012 /* AgentGUIJournalToolCallLocator.swift */,
 				A6E170000000000000000011 /* AgentGUIJournalPipelineEvent.swift */,
 				A6E170000000000000000012 /* AgentGUIJournalWindow.swift */,
 				A6E170000000000000000013 /* AgentGUIOpenTranscriptPathScanner.swift */,

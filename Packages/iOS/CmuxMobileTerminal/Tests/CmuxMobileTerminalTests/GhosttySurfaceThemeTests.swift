@@ -64,28 +64,6 @@ import UIKit
 }
 
 @MainActor
-@Test func keyboardDidShowAndHideReconcileAccessoryAccessibilityLabel() throws {
-    let runtime = try GhosttyRuntime.shared()
-    let surface = GhosttySurfaceView(runtime: runtime, delegate: ThemeTestSurfaceDelegate())
-    defer { surface.prepareForDismantle() }
-    let button = try #require(surface.bottomScrollEdgeElementContainers.compactMap {
-        $0.descendant(withAccessibilityIdentifier: "terminal.inputAccessory.hideKeyboard") as? UIButton
-    }.first)
-
-    surface.handleKeyboardDidShow(Notification(name: UIResponder.keyboardDidShowNotification))
-    #expect(button.accessibilityLabel == String(
-        localized: "terminal.input_accessory.hideKeyboard",
-        defaultValue: "Hide Keyboard"
-    ))
-
-    surface.handleKeyboardDidHide(Notification(name: UIResponder.keyboardDidHideNotification))
-    #expect(button.accessibilityLabel == String(
-        localized: "terminal.input_accessory.showKeyboard",
-        defaultValue: "Show Keyboard"
-    ))
-}
-
-@MainActor
 @Test func reverseModeOSCResetsUseRawConfigDefaults() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()

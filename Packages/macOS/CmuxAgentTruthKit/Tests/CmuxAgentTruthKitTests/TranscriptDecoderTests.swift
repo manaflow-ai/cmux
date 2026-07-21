@@ -20,10 +20,13 @@ struct TranscriptDecoderTests {
             "5:toolRun",
             "6:fileChange",
             "7:question",
-            "10:toolRun",
+            "10:agentProse",
+            "11:toolRun",
             "11:status",
             "12:status",
             "14:userMessage",
+            "15:attachment",
+            "25:attachment",
             "26:future_block",
             "27:malformed",
             "28:future_record",
@@ -39,12 +42,21 @@ struct TranscriptDecoderTests {
         #expect(batch.diagnostics.bookkeepingKindCounts["attachment"] == 1)
         #expect(batch.diagnostics.sawApiError)
         #expect(batch.diagnostics.sensitiveSessionTitles.map(\.source) == ["ai-title", "custom-title", "agent-name"])
-        #expect(userMessagePayload(in: batch, seq: 14)?.hasImage == true)
-        #expect(userMessagePayload(in: batch, seq: 14)?.attachmentCount == 1)
+        #expect(userMessagePayload(in: batch, seq: 14)?.hasImage == false)
+        #expect(attachmentPayload(in: batch, seq: 15)?.mimeType == "image/png")
         #expect(toolRunPayload(in: batch, seq: 5)?.exitCode == 0)
+        #expect(toolRunPayload(in: batch, seq: 5)?.toolCallID == "toolu_001")
+        #expect(toolRunPayload(in: batch, seq: 5)?.command == "echo example")
+        #expect(toolRunPayload(in: batch, seq: 5)?.output == "example output")
         #expect(fileChangePayload(in: batch, seq: 6)?.path == "/tmp/example/file.txt")
+        #expect(fileChangePayload(in: batch, seq: 6)?.toolCallID == "toolu_002")
+        #expect(fileChangePayload(in: batch, seq: 6)?.unifiedDiff?.contains("--- before") == true)
+        #expect(attachmentPayload(in: batch, seq: 25)?.displayName == "example.png")
         #expect(questionPayload(in: batch, seq: 7)?.options == ["Alpha", "Beta"])
-        #expect(statusPayload(in: batch, seq: 11)?.code == .apiError)
+        #expect(batch.entries.contains { entry in
+            if case .status(let status) = entry.content.payload { return status.code == .apiError }
+            return false
+        })
         #expect(unknownPayload(in: batch, seq: 26)?.rawKind == "future_block")
     }
 
@@ -83,6 +95,10 @@ struct TranscriptDecoderTests {
         #expect(batch.diagnostics.turnContextFacts == [TurnContextFact(line: 12, model: "gpt-5.5", sandboxPolicy: "danger-full-access", approvalPolicy: "never")])
         #expect(batch.diagnostics.cliVersion == "0.140.0")
         #expect(toolRunPayload(in: batch, seq: 5)?.argumentSummary.contains("echo example") == true)
+        #expect(toolRunPayload(in: batch, seq: 5)?.toolCallID == "call_001")
+        #expect(toolRunPayload(in: batch, seq: 5)?.command == "echo example")
+        #expect(toolRunPayload(in: batch, seq: 6)?.output == "example output")
+        #expect(batch.entries.first { $0.seq.rawValue == 2 }?.timestampMilliseconds != nil)
         #expect(fileChangePayload(in: batch, seq: 8)?.resultSummary?.contains("patch applied") == true)
         #expect(statusPayload(in: batch, seq: 15)?.code == .turnAborted)
     }
@@ -116,7 +132,7 @@ struct TranscriptDecoderTests {
     }
 
     @Test
-    func codexUnpairedOutputUnknownKeysKeepPayloadType() {
+    func codexUnpairedOutputsRemainVisibleAsCompletedToolRows() {
         let lines = [
             #"{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"missing_patch","output":"patch complete"}}"#,
             #"{"type":"response_item","payload":{"type":"tool_search_output","call_id":"missing_search","status":"completed","tools":[]}}"#,
@@ -124,10 +140,29 @@ struct TranscriptDecoderTests {
         var decoder = CodexTranscriptDecoder()
         let batch = decoder.feed(lines, startingAt: 0, journalID: JournalID(rawValue: "journal"))
 
-        #expect(kindTable(batch.entries) == ["0:custom_tool_call_output", "1:tool_search_output"])
+        #expect(kindTable(batch.entries) == ["0:toolRun", "1:toolRun"])
+        #expect(toolRunPayload(in: batch, seq: 0)?.toolCallID == "missing_patch")
+        #expect(toolRunPayload(in: batch, seq: 0)?.output == "patch complete")
+        #expect(toolRunPayload(in: batch, seq: 0)?.status == "unpaired_result:completed")
+        #expect(toolRunPayload(in: batch, seq: 1)?.toolCallID == "missing_search")
         #expect(batch.diagnostics.unknownKindCounts["custom_tool_call_output"] == 1)
         #expect(batch.diagnostics.unknownKindCounts["tool_search_output"] == 1)
         #expect(batch.diagnostics.unknownKindCounts["function_call_output"] == nil)
+    }
+
+    @Test
+    func claudeUnpairedToolResultRemainsVisibleAsCompletedToolRow() {
+        let lines = [
+            #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"missing_tool","content":"visible output","is_error":true}]}}"#,
+        ]
+        var decoder = ClaudeTranscriptDecoder()
+        let batch = decoder.feed(lines, startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:toolRun"])
+        #expect(toolRunPayload(in: batch, seq: 0)?.toolCallID == "missing_tool")
+        #expect(toolRunPayload(in: batch, seq: 0)?.output == "visible output")
+        #expect(toolRunPayload(in: batch, seq: 0)?.status == "unpaired_result:failed")
+        #expect(batch.diagnostics.unknownKindCounts["tool_result"] == 1)
     }
 
     @Test
@@ -213,7 +248,7 @@ struct TranscriptDecoderTests {
     }
 
     @Test
-    func claudeImageBlockChangesUserMessageContentHash() throws {
+    func claudeImageBlockPreservesTextAndStructuredAttachment() throws {
         let plain = [
             #"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Same prompt."}]}}"#,
         ]
@@ -228,9 +263,40 @@ struct TranscriptDecoderTests {
 
         #expect(plainEntry.kind == .userMessage)
         #expect(imageEntry.kind == .userMessage)
-        #expect(plainEntry.content != imageEntry.content)
-        #expect(userMessagePayload(in: imageBatch, seq: 0)?.hasImage == true)
-        #expect(userMessagePayload(in: imageBatch, seq: 0)?.attachmentCount == 1)
+        #expect(plainEntry.content == imageEntry.content)
+        #expect(imageBatch.entries.count == 2)
+        #expect(userMessagePayload(in: imageBatch, seq: 0)?.hasImage == false)
+        #expect(attachmentPayload(in: imageBatch, seq: 1)?.mimeType == "image/png")
+    }
+
+    @Test
+    func claudeMixedProseAndTwoToolCallsRemainIndependentThroughResults() throws {
+        let callLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I will inspect both."},{"type":"tool_use","id":"tool_a","name":"Bash","input":{"command":"echo a"}},{"type":"tool_use","id":"tool_b","name":"WebSearch","input":{"query":"b"}}]}}"#
+        let firstResultLine = #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_a","content":"result a","is_error":false}]}}"#
+        let secondResultLine = #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_b","content":"result b","is_error":false}]}}"#
+        let journalID = JournalID(rawValue: "journal")
+        var decoder = ClaudeTranscriptDecoder()
+
+        let calls = decoder.feed([callLine], startingAt: 100, journalID: journalID)
+        #expect(kindTable(calls.entries) == ["100:agentProse", "101:toolRun", "102:toolRun"])
+        #expect(toolRunPayload(in: calls, seq: 101)?.toolCallID == "tool_a")
+        #expect(toolRunPayload(in: calls, seq: 102)?.toolCallID == "tool_b")
+
+        let firstResultOffset = 100 + (callLine + "\n").utf8.count
+        let firstResult = decoder.feed([firstResultLine], startingAt: firstResultOffset, journalID: journalID)
+        let secondResultOffset = firstResultOffset + (firstResultLine + "\n").utf8.count
+        let secondResult = decoder.feed([secondResultLine], startingAt: secondResultOffset, journalID: journalID)
+        let firstTool = try #require(firstResult.entries.first).content.payload
+        let secondTool = try #require(secondResult.entries.first).content.payload
+        guard case .toolRun(let completedA) = firstTool,
+              case .toolRun(let completedB) = secondTool else {
+            Issue.record("both results should retain independent structured tool payloads")
+            return
+        }
+        #expect(completedA.toolCallID == "tool_a")
+        #expect(completedA.output == "result a")
+        #expect(completedB.toolCallID == "tool_b")
+        #expect(completedB.output == "result b")
     }
 
     @Test
@@ -299,6 +365,13 @@ struct TranscriptDecoderTests {
 
     private func questionPayload(in batch: TranscriptDecodeBatch, seq: Int) -> QuestionPayload? {
         if case .question(let payload) = payload(in: batch, seq: seq) {
+            return payload
+        }
+        return nil
+    }
+
+    private func attachmentPayload(in batch: TranscriptDecodeBatch, seq: Int) -> AttachmentPayload? {
+        if case .attachment(let payload) = payload(in: batch, seq: seq) {
             return payload
         }
         return nil

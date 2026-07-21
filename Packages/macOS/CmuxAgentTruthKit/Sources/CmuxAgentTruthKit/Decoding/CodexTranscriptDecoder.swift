@@ -38,11 +38,13 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         journalID: JournalID,
         accumulator: inout TranscriptDecodeAccumulator
     ) {
+        accumulator.beginSourceLine(timestampMilliseconds: nil)
         guard let root = lineDecoder.decode(line)?.object else {
             accumulator.countUnknown("malformed")
             accumulator.emit(payload: unknownPayload(rawKind: "malformed", summary: "Malformed transcript line", raw: line), journalID: journalID, lineIndex: lineIndex)
             return
         }
+        accumulator.beginSourceLine(timestampMilliseconds: TranscriptTimestampParser.milliseconds(root["timestamp"]))
         guard let type = root["type"]?.string else {
             accumulator.countUnknown("missing_type")
             accumulator.emit(payload: unknownPayload(rawKind: "missing_type", summary: "Missing Codex record type", raw: line), journalID: journalID, lineIndex: lineIndex)
@@ -206,6 +208,7 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
     ) {
         let itemType = payload["type"]?.string
         let name = payload["name"]?.string ?? toolName(for: itemType) ?? payload["call_id"]?.string ?? "call"
+        let callID = payload["call_id"]?.string
         let argumentValue = payload["arguments"] ?? payload["input"] ?? payload["action"]
         let argumentSummary = summarizeArguments(argumentValue)
         if name == "request_user_input" {
@@ -223,17 +226,23 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             )
             return
         }
-        let entryPayload: EntryPayload = if name == "apply_patch" {
-            .fileChange(FileChangePayload(path: textBudget.inputDetail(filePath(in: argumentValue) ?? ""), changeKind: .patch))
+        let entryPayload: EntryPayload
+        if name == "apply_patch" {
+            entryPayload = .fileChange(fileChangePayload(arguments: argumentValue, toolCallID: callID))
         } else {
-            .toolRun(ToolRunPayload(
+            let terminal = isTerminalTool(name: name, arguments: argumentValue)
+            entryPayload = .toolRun(ToolRunPayload(
                 toolName: name,
-                argumentSummary: textBudget.inputDetail(argumentSummary),
-                isTerminal: isTerminalTool(name: name, arguments: argumentValue),
-                isRunning: true
+                argumentSummary: textBudget.summaryArgument(argumentSummary),
+                isTerminal: terminal,
+                isRunning: true,
+                toolCallID: callID,
+                inputDetail: textBudget.inputDetail(rendered(argumentValue)),
+                command: terminal ? textBudget.inputDetail(command(in: argumentValue)) : nil,
+                status: payload["status"]?.string ?? "running"
             ))
         }
-        if let callID = payload["call_id"]?.string {
+        if let callID {
             pendingCalls[callID] = PendingToolUse(payload: entryPayload, raw: raw)
         }
         accumulator.emit(payload: entryPayload, journalID: journalID, lineIndex: lineIndex)
@@ -247,17 +256,50 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         accumulator: inout TranscriptDecodeAccumulator
     ) {
         let outputType = payload["type"]?.string ?? "function_call_output"
-        guard let callID = payload["call_id"]?.string, let pending = pendingCalls.removeValue(forKey: callID) else {
+        let callID = payload["call_id"]?.string
+        let output = textBudget.body(
+            payload["output"]?.textFragments().joined(separator: "\n")
+                ?? rendered(payload["tools"])
+        )
+        let exitCode = exitCode(in: payload)
+        let duration = durationSeconds(in: payload)
+        let reportedStatus = payload["status"]?.string
+            ?? (exitCode.map { $0 == 0 ? "succeeded" : "failed" } ?? "completed")
+        guard let callID, let pending = pendingCalls.removeValue(forKey: callID) else {
             accumulator.countUnknown(outputType)
-            accumulator.emit(payload: unknownPayload(rawKind: outputType, summary: "Unpaired Codex \(outputType)", raw: raw), journalID: journalID, lineIndex: lineIndex)
+            accumulator.emit(
+                payload: .toolRun(ToolRunPayload(
+                    toolName: "Unknown tool",
+                    argumentSummary: "Missing invocation metadata",
+                    resultSummary: output,
+                    isTerminal: false,
+                    exitCode: exitCode,
+                    isRunning: false,
+                    toolCallID: callID,
+                    output: output,
+                    durationSeconds: duration,
+                    status: "unpaired_result:\(reportedStatus)"
+                )),
+                journalID: journalID,
+                lineIndex: lineIndex
+            )
             return
         }
         if case .question = pending.payload {
             accumulator.countModeled("request_user_input.output")
             return
         }
-        let output = textBudget.body(payload["output"]?.textFragments().joined(separator: "\n") ?? "")
-        accumulator.emit(payload: payloadByAddingResult(pending.payload, resultSummary: output, exitCode: exitCode(in: payload)), journalID: journalID, lineIndex: lineIndex)
+        accumulator.emit(
+            payload: payloadByAddingResult(
+                pending.payload,
+                resultSummary: output,
+                exitCode: exitCode,
+                durationSeconds: duration,
+                status: reportedStatus
+            ),
+            journalID: journalID,
+            lineIndex: lineIndex
+        )
     }
 
     private func toolName(for itemType: String?) -> String? {
@@ -426,21 +468,126 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             ?? payload["statusCode"]?.int
     }
 
-    private func payloadByAddingResult(_ payload: EntryPayload, resultSummary: String, exitCode: Int?) -> EntryPayload {
-        switch payload {
+    private func payloadByAddingResult(
+        _ payload: EntryPayload,
+        resultSummary: String,
+        exitCode: Int?,
+        durationSeconds: Double?,
+        status: String?
+    ) -> EntryPayload {
+        let boundedResult = textBudget.body(resultSummary)
+        return switch payload {
         case .toolRun(let tool):
             .toolRun(ToolRunPayload(
                 toolName: tool.toolName,
                 argumentSummary: tool.argumentSummary,
-                resultSummary: textBudget.body(resultSummary),
+                resultSummary: boundedResult,
                 isTerminal: tool.isTerminal,
                 exitCode: exitCode,
-                isRunning: false
+                isRunning: false,
+                toolCallID: tool.toolCallID,
+                inputDetail: tool.inputDetail,
+                command: tool.command,
+                output: boundedResult,
+                durationSeconds: durationSeconds,
+                status: status
             ))
         case .fileChange(let file):
-            .fileChange(FileChangePayload(path: file.path, changeKind: file.changeKind, resultSummary: textBudget.body(resultSummary)))
+            .fileChange(FileChangePayload(
+                path: file.path,
+                changeKind: file.changeKind,
+                resultSummary: boundedResult,
+                toolCallID: file.toolCallID,
+                oldPath: file.oldPath,
+                newPath: file.newPath,
+                additions: file.additions,
+                deletions: file.deletions,
+                unifiedDiff: file.unifiedDiff
+            ))
         default:
             payload
         }
+    }
+
+    private func rendered(_ value: JSONValue?) -> String {
+        guard let value else { return "" }
+        if let string = value.string { return string }
+        guard let data = try? JSONEncoder().encode(value) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func command(in value: JSONValue?) -> String {
+        let parsed: JSONValue?
+        if let string = value?.string {
+            parsed = lineDecoder.decode(string) ?? value
+        } else {
+            parsed = value
+        }
+        guard let parsed else { return "" }
+        if let command = parsed.object?["cmd"]?.string {
+            return command
+        }
+        if let command = parsed.object?["command"] {
+            return summarizeCommand(command)
+        }
+        return summarizeCommand(parsed)
+    }
+
+    private func fileChangePayload(arguments: JSONValue?, toolCallID: String?) -> FileChangePayload {
+        let patch = rendered(arguments)
+        let paths = patchPaths(in: patch)
+        let counts = patchLineCounts(in: patch)
+        return FileChangePayload(
+            path: textBudget.inputDetail(filePath(in: arguments) ?? paths.new ?? paths.old ?? ""),
+            changeKind: .patch,
+            toolCallID: toolCallID,
+            oldPath: paths.old,
+            newPath: paths.new,
+            additions: counts.additions,
+            deletions: counts.deletions,
+            unifiedDiff: patch.isEmpty ? nil : textBudget.body(patch)
+        )
+    }
+
+    private func patchPaths(in patch: String) -> (old: String?, new: String?) {
+        var oldPath: String?
+        var newPath: String?
+        for line in patch.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("*** Update File: ") {
+                let path = String(line.dropFirst("*** Update File: ".count))
+                oldPath = path
+                newPath = path
+            } else if line.hasPrefix("*** Add File: ") {
+                newPath = String(line.dropFirst("*** Add File: ".count))
+            } else if line.hasPrefix("*** Delete File: ") {
+                oldPath = String(line.dropFirst("*** Delete File: ".count))
+            } else if line.hasPrefix("--- "), oldPath == nil {
+                oldPath = String(line.dropFirst(4))
+            } else if line.hasPrefix("+++ "), newPath == nil {
+                newPath = String(line.dropFirst(4))
+            }
+        }
+        return (oldPath, newPath)
+    }
+
+    private func patchLineCounts(in patch: String) -> (additions: Int?, deletions: Int?) {
+        guard !patch.isEmpty else { return (nil, nil) }
+        var additions = 0
+        var deletions = 0
+        for line in patch.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("+") && !line.hasPrefix("+++") {
+                additions += 1
+            } else if line.hasPrefix("-") && !line.hasPrefix("---") {
+                deletions += 1
+            }
+        }
+        return (additions, deletions)
+    }
+
+    private func durationSeconds(in payload: [String: JSONValue]) -> Double? {
+        payload["duration_seconds"]?.number
+            ?? payload["durationSeconds"]?.number
+            ?? payload["duration_ms"]?.number.map { $0 / 1_000 }
+            ?? payload["durationMs"]?.number.map { $0 / 1_000 }
     }
 }
