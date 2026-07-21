@@ -11,6 +11,14 @@ import SwiftUI
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate {
+    private final class WeakStoreBox {
+        weak var value: DockSplitStore?
+
+        init(_ value: DockSplitStore) {
+            self.value = value
+        }
+    }
+
     typealias TerminalTransferProvider = (
         _ command: String?,
         _ workingDirectory: String?,
@@ -54,7 +62,9 @@ final class DockSplitStore: BonsplitDelegate {
     ) -> FilePreviewTextSaver.Result)?
     let noteTextSaveSequenceProvider: (@Sendable () -> UInt64)?
     private let loadsConfiguration: Bool
-    var panels: [UUID: any Panel] = [:]
+    var panels: [UUID: any Panel] = [:] {
+        didSet { reconcilePanelOwnerIndex() }
+    }
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
@@ -89,12 +99,33 @@ final class DockSplitStore: BonsplitDelegate {
     /// of walking every window × workspace tab on each resolution. Entries drop
     /// automatically when a store deallocates; accessed on the main actor only.
     @MainActor private static let liveStoresTable = NSHashTable<DockSplitStore>.weakObjects()
+    @MainActor private static var panelOwners: [UUID: WeakStoreBox] = [:]
+    @ObservationIgnored private var indexedPanelIDs: Set<UUID> = []
 
     @MainActor static var liveStores: [DockSplitStore] { liveStoresTable.allObjects }
 
     @MainActor
     static func owner(containingPanel panelID: UUID) -> DockSplitStore? {
-        liveStores.first(where: { $0.containsPanel(panelID) })
+        guard let box = panelOwners[panelID],
+              let owner = box.value,
+              owner.containsPanel(panelID) else {
+            panelOwners.removeValue(forKey: panelID)
+            return nil
+        }
+        return owner
+    }
+
+    private func reconcilePanelOwnerIndex() {
+        let currentPanelIDs = Set(panels.keys)
+        for panelID in indexedPanelIDs.subtracting(currentPanelIDs) {
+            if Self.panelOwners[panelID]?.value === self {
+                Self.panelOwners.removeValue(forKey: panelID)
+            }
+        }
+        for panelID in currentPanelIDs {
+            Self.panelOwners[panelID] = WeakStoreBox(self)
+        }
+        indexedPanelIDs = currentPanelIDs
     }
 
     init(

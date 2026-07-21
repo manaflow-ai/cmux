@@ -60,6 +60,44 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
             saveSynchronously(content: content, encoding: encoding, sequence: sequence)
         }.value
     }
+
+    @MainActor
+    static func makeFilePreviewPanel(
+        workspaceId: UUID,
+        filePath: String,
+        presentation: FilePreviewPresentation
+    ) -> FilePreviewPanel {
+        guard presentation.autosavesTextChanges else {
+            return FilePreviewPanel(
+                workspaceId: workspaceId,
+                filePath: filePath,
+                presentation: presentation
+            )
+        }
+        let writer = WorkspaceFloatingDockNoteWriter(
+            fileURL: URL(fileURLWithPath: filePath)
+        )
+        return FilePreviewPanel(
+            workspaceId: workspaceId,
+            filePath: filePath,
+            presentation: presentation,
+            textSaver: { content, _, encoding, sequence in
+                await writer.save(
+                    content: content,
+                    encoding: encoding,
+                    sequence: sequence ?? writer.reserveSequence()
+                )
+            },
+            textSaverSynchronously: { content, _, encoding, sequence in
+                writer.saveSynchronously(
+                    content: content,
+                    encoding: encoding,
+                    sequence: sequence
+                )
+            },
+            textSaveSequenceProvider: { writer.reserveSequence() }
+        )
+    }
 }
 
 /// Coalesces the initial persisted-note read across the background preload and

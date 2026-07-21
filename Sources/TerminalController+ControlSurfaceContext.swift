@@ -251,7 +251,7 @@ extension TerminalController: ControlSurfaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let windowDock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
+        if let windowDock = DockSplitStore.owner(containingPanel: surfaceID) {
             if !containerDockMatchesExplicitSelectors(
                 windowDock,
                 routing: routing,

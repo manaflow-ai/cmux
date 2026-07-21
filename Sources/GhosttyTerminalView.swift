@@ -10053,7 +10053,7 @@ final class GhosttySurfaceScrollView: NSView {
     func moveFocus(
         from previous: GhosttySurfaceScrollView? = nil,
         delay: TimeInterval? = nil,
-        respectForeignFirstResponder _: Bool = false
+        respectForeignFirstResponder: Bool = false
     ) {
 #if DEBUG
         let surfaceShort = String(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
@@ -10071,6 +10071,19 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             let before = String(describing: window.firstResponder)
 #endif
+            // Selection/layout convergence must preserve an editor or sidebar
+            // responder that accepted focus after the terminal selection began.
+            // Explicit terminal-focus actions keep the default and may take it.
+            if respectForeignFirstResponder,
+               let firstResponder = window.firstResponder,
+               shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
+                   AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+               }) {
+#if DEBUG
+                cmuxDebugLog("find.moveFocus.skip to=\(surfaceShort) reason=foreignFirstResponder")
+#endif
+                return
+            }
             guard self.canRequestSurfaceFirstResponder(in: window, reason: "moveFocus") else { return }
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()

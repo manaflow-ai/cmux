@@ -402,7 +402,7 @@ extension TerminalController {
         tabManager: TabManager
     ) -> ControlSurfaceCloseResolution? {
         let explicitlyTargetedDock = surfaceID.flatMap { requestedID in
-            DockSplitStore.liveStores.first(where: { $0.containsPanel(requestedID) })
+            DockSplitStore.owner(containingPanel: requestedID)
         }
         guard let windowDock = explicitlyTargetedDock
                 ?? containerDockForSurfaceRouting(routing, tabManager: tabManager),
@@ -536,10 +536,9 @@ extension TerminalController {
         // register a live store, so this asks each store's authoritative
         // `containsPanel` instead of walking every window × workspace tab.
         // Falls through to the scan if a store can't be located.
-        for store in DockSplitStore.liveStores where store.containsPanel(surfaceId) {
-            if let location = dockStoreLocation(store, app: app) {
-                return (location.windowId, location.workspaceId, location.tabManager)
-            }
+        if let store = DockSplitStore.owner(containingPanel: surfaceId),
+           let location = dockStoreLocation(store, app: app) {
+            return (location.windowId, location.workspaceId, location.tabManager)
         }
         for summary in app.listMainWindowSummaries() {
             guard let manager = app.tabManagerFor(windowId: summary.windowId),

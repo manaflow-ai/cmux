@@ -715,38 +715,11 @@ extension DockSplitStore {
         placement: FloatingDockRestorePlacement
     ) -> UUID? {
         let presentation: FilePreviewPresentation = snapshot.noteTitle.map { .note(title: $0) } ?? .file
-        let panel: FilePreviewPanel
-        if presentation.autosavesTextChanges {
-            let writer = WorkspaceFloatingDockNoteWriter(
-                fileURL: URL(fileURLWithPath: snapshot.filePath)
-            )
-            panel = FilePreviewPanel(
-                workspaceId: workspaceId,
-                filePath: snapshot.filePath,
-                presentation: presentation,
-                textSaver: { content, _, encoding, sequence in
-                    await writer.save(
-                        content: content,
-                        encoding: encoding,
-                        sequence: sequence ?? writer.reserveSequence()
-                    )
-                },
-                textSaverSynchronously: { content, _, encoding, sequence in
-                    writer.saveSynchronously(
-                        content: content,
-                        encoding: encoding,
-                        sequence: sequence
-                    )
-                },
-                textSaveSequenceProvider: { writer.reserveSequence() }
-            )
-        } else {
-            panel = FilePreviewPanel(
-                workspaceId: workspaceId,
-                filePath: snapshot.filePath,
-                presentation: presentation
-            )
-        }
+        let panel = WorkspaceFloatingDockNoteWriter.makeFilePreviewPanel(
+            workspaceId: workspaceId,
+            filePath: snapshot.filePath,
+            presentation: presentation
+        )
         switch placement {
         case .tab(let pane):
             guard attachPanelAsTab(

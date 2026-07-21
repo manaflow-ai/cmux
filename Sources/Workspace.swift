@@ -8218,7 +8218,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let filePreviewPanel = FilePreviewPanel(
+        let filePreviewPanel = WorkspaceFloatingDockNoteWriter.makeFilePreviewPanel(
             workspaceId: id,
             filePath: filePath,
             presentation: presentation
