@@ -190,9 +190,34 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // Resetting on the disconnect edge is ordering-independent (no output
                 // arrives while not connected).
                 if state != .connected { self?.titleFilters.removeAll() }
+                // Reaching `.connected` is the only thing that proves the login worked, so
+                // it is what ends the host's outstanding login offer. Releasing it on a
+                // resume *attempt* instead meant a reconnect that failed authentication
+                // again opened another login tab, once per retry.
+                if state == .connected, let self {
+                    AppDelegate.shared?.remoteTmuxController.noteMirrorConnected(host: self.host)
+                }
+            },
+            onAuthRequired: { [weak self] sshArgv in
+                self?.handleReconnectNeedsAuthentication(sshArgv: sshArgv) ?? false
             }
         )
         rebuild()
+    }
+
+    /// A reconnect stopped because the host wants interactive authentication that a
+    /// pipe-backed reconnect cannot service (a password, MFA, a security-key touch).
+    ///
+    /// The mirror is frozen but ALIVE — the tmux session and every mirrored workspace
+    /// are intact — so nothing is torn down here. The controller surfaces a login the
+    /// user can complete; finishing it opens the shared ControlMaster and the parked
+    /// connection resumes over it.
+    /// - Returns: whether a login was actually put in front of the user. `false` means the
+    ///   caller must fall back to retrying, or the host is stranded with nothing pending.
+    private func handleReconnectNeedsAuthentication(sshArgv: [String]) -> Bool {
+        AppDelegate.shared?.remoteTmuxController.presentReconnectAuthentication(
+            host: host, sshArgv: sshArgv
+        ) ?? false
     }
 
     /// The remote session ended for good (its last tmux window was killed, it was
