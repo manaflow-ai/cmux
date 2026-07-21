@@ -194,6 +194,7 @@ extension GhosttySurfaceView {
         MobileDebugLog.anchormux(
             "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration) pendingFrees=\(pendingSurfaceFreeCount)"
         )
+        clearVerifiedReplayPresentation()
         let completedFailedOperation = completePendingSurfaceOperations(returning: false)
 
         stopDisplayLink()
