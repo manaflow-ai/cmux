@@ -39,16 +39,19 @@ import Testing
         // server-side cursor reset, transport latency can deliver that stale
         // notification after capture even though capture already painted it.
         let resetOutputCursor = commands.contains(
-            "refresh-client -A \"%7:off\" -A \"%7:on\""
+            "refresh-client -A \"%7:pause\" -A \"%7:continue\""
         )
         let commandLines = commands.split(separator: "\n").map(String.init)
         let resetIndex = try #require(
-            commandLines.firstIndex(of: "refresh-client -A \"%7:off\" -A \"%7:on\"")
+            commandLines.firstIndex(
+                of: "refresh-client -A \"%7:pause\" -A \"%7:continue\""
+            )
         )
         let captureIndex = try #require(
             commandLines.firstIndex { $0.hasPrefix("capture-pane ") }
         )
         #expect(resetIndex < captureIndex)
+        #expect(!commands.contains("refresh-client -A \"%7:off\" -A \"%7:on\""))
         let marker = "AUTORECONNECT_STREAM_29"
         var stream = Data()
         var commandNumber = 20
@@ -343,6 +346,51 @@ import Testing
             seed.state
                 == RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: paneState)
         )
+    }
+
+    @Test func visibleRepaintMatchesAlternateScreenBeforeCapturePaint() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        var seeds: [RemoteTmuxPaneSeed] = []
+        let token = fixture.connection.addObserver(
+            onPaneSeed: { paneID, seed in
+                guard paneID == 7 else { return }
+                seeds.append(seed)
+            }
+        )
+        defer { fixture.connection.removeObserver(token) }
+
+        for (iteration, alternateOn) in ["1", "0"].enumerated() {
+            fixture.connection.repaintPaneVisibleScreen(paneId: 7)
+            var stream = Data()
+            var commandNumber = 60 + iteration * 10
+            for kind in fixture.connection.pendingCommandKindsForTesting {
+                let lines: [String]
+                switch kind {
+                case .paneAltScreen:
+                    lines = [alternateOn]
+                case .capturePane:
+                    lines = [iteration == 0 ? "ALT_SCREEN" : "PRIMARY_SCREEN"]
+                case .paneState:
+                    lines = [Self.paneStateLine(cursorX: 0, cursorY: 0)]
+                default:
+                    lines = []
+                }
+                stream.append(Self.commandResultBlock(number: commandNumber, lines: lines))
+                commandNumber += 1
+            }
+            deliverRechunked(stream, to: fixture.connection)
+        }
+
+        #expect(seeds.count == 2)
+        var expectedAlternate = RemoteTmuxControlConnection.altScreenEnterSequence
+        expectedAlternate.append(Data("\u{1b}[H\u{1b}[2JALT_SCREEN".utf8))
+        #expect(seeds.first?.snapshot == expectedAlternate)
+
+        var expectedPrimary = RemoteTmuxControlConnection.altScreenExitSequence
+        expectedPrimary.append(Data("\u{1b}[H\u{1b}[2JPRIMARY_SCREEN".utf8))
+        #expect(seeds.last?.snapshot == expectedPrimary)
     }
 
     /// A visible-screen repair after a verified pane-height grow must not turn
