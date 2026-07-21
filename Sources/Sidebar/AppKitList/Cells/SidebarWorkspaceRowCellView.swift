@@ -878,7 +878,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// the Auto row, a divider, the five status lanes, a divider, then None —
     /// selection checkmarks included, applying to this row's workspace only.
     private func makeCompactStatusMenu() -> NSMenu? {
-        guard let menuModel = model?.snapshot.todoStatusMenuModel else { return nil }
+        guard let menuModel = model?.snapshot.todoStatusMenuModel,
+              let actions else { return nil }
+        // Freeze the workspace-bound closures at menu-build time: menu
+        // tracking allows model updates, so a row recycled while its menu is
+        // open must not route the selection to the cell's NEW workspace.
+        let applyStatus = actions.applyTodoStatus
+        let hideStatus = actions.hideTodoStatus
         let menu = NSMenu()
         menu.autoenablesItems = false
         let lanes = WorkspaceTodoStatusLane.lanes(
@@ -890,11 +896,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if lane.isNone {
                 menu.addItem(.separator())
             }
-            let item = SidebarRowClosureMenuItem(title: lane.title) { [weak self] in
+            let item = SidebarRowClosureMenuItem(title: lane.title) {
                 if lane.isNone {
-                    self?.actions?.hideTodoStatus()
+                    hideStatus()
                 } else {
-                    self?.actions?.applyTodoStatus(lane.status)
+                    applyStatus(lane.status)
                 }
             }
             item.state = lane.isSelected ? .on : .off

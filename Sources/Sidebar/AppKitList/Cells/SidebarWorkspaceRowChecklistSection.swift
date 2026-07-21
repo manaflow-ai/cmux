@@ -109,7 +109,15 @@ final class SidebarRowChecklistSection: NSView {
                 && (model.checklistAddFieldActivationToken > 0 || model.isChecklistPopoverPresented))
         isHidden = !mounted
         guard mounted else {
-            if popoverPresenter.isShown { popoverPresenter.close() }
+            if popoverPresenter.isShown {
+                popoverPresenter.close()
+                // Legacy-host dismantle parity: an unmount while presented
+                // (e.g. todo controls disabled with an empty checklist) must
+                // write the container's presentation state back to closed,
+                // or re-enabling the feature re-presents without user action.
+                activePopoverDismissContext?()
+            }
+            activePopoverDismissContext = nil
             // Recycled cells must not retain the previous workspace through
             // configured children: field closures and action bundles capture
             // the Workspace strongly.
@@ -1057,11 +1065,13 @@ final class SidebarRowChecklistAddRow: NSView {
     /// a hidden pooled row stops retaining its previous workspace.
     func resetForReuse() {
         guard onCommit != nil || onCancel != nil || addField != nil else { return }
+        // Ordering: disarm FIRST so the teardown-triggered focus-loss commit
+        // cannot re-arm mid-reset.
+        isAdding = false
         teardownField()
         onCommit = nil
         onCancel = nil
         model = nil
-        isAdding = false
         lastArmToken = 0
         lastArmWorkspaceId = nil
     }
@@ -1095,17 +1105,20 @@ final class SidebarRowChecklistAddRow: NSView {
         // of section-state dereferences).
         guard let commit = onCommit, let cancel = onCancel else { return }
         let bridge = SidebarRowChecklistFieldBridge(
-            onCommit: { [weak self] text in
+            onCommit: { text in
                 commit(text)
-                // Legacy `commitInlineAdd`: commit re-arms a fresh, focused,
-                // empty add field — only while this row still shows the
-                // armed state that created the editor.
-                self?.rearmFieldIfStillAdding()
             },
             onCancel: {
                 cancel()
             }
         )
+        // Legacy `commitInlineAdd`: an ENTER commit re-arms a fresh, focused,
+        // empty add field. Focus-loss commits (teardown, replacement) never
+        // re-arm — a synchronous re-arm inside removeFromSuperview would
+        // strand an untracked editor.
+        bridge.onReturnCommit = { [weak self] in
+            self?.rearmFieldIfStillAdding()
+        }
         field.delegate = bridge
         addFieldBridge = bridge
         addField = field
@@ -1475,6 +1488,11 @@ final class SidebarRowChecklistTransparentButton: NSControl {
 final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {
     private let onCommit: (String) -> Void
     private let onCancel: () -> Void
+    /// Invoked ONLY for an explicit Return commit — never for the focus-loss
+    /// commit that fires while a field is being torn down or replaced, where
+    /// a synchronous re-arm would re-enter the teardown and strand an
+    /// untracked editor in the row.
+    var onReturnCommit: (() -> Void)?
     private var committed = false
 
     init(onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
@@ -1492,6 +1510,7 @@ final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {
         if selector == #selector(NSResponder.insertNewline(_:)) {
             committed = true
             onCommit(control.stringValue)
+            onReturnCommit?()
             return true
         }
         if selector == #selector(NSResponder.cancelOperation(_:)) {
