@@ -3103,6 +3103,7 @@ final class Workspace: Identifiable, ObservableObject {
             ) {
                 bindSurface(tabId, toPanelId: terminalPanel.id)
                 initialTabId = tabId
+                rememberTerminalConfigInheritanceSource(terminalPanel)
             }
         }
 
@@ -3621,7 +3622,6 @@ final class Workspace: Identifiable, ObservableObject {
         _ terminalPanel: TerminalPanel,
         allowTextBoxFocusDefault: Bool = true
     ) {
-        rememberTerminalConfigInheritanceSource(terminalPanel)
         // Record the workspace env this freshly-created panel inherited, so a later
         // respawn (which reuses this panel even after a move to another workspace)
         // can drop it and re-apply the current workspace's env instead of leaking
@@ -6417,6 +6417,8 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Panel Operations
 
     func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
+        guard let mountedPanel = panels[terminalPanel.id] as? TerminalPanel,
+              mountedPanel === terminalPanel else { return }
         lastTerminalConfigInheritancePanelId = terminalPanel.id
         lastTerminalConfigInheritanceFontSizeLineage = terminalPanel.surface.fontSizeLineageSnapshot()
     }
@@ -6973,6 +6975,7 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView
             )
         }
+        rememberTerminalConfigInheritanceSource(newPanel)
 #if DEBUG
         dlog(
             "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
@@ -7241,6 +7244,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             clearNonFocusSplitFocusReassert()
         }
+        rememberTerminalConfigInheritanceSource(newPanel)
 
         if autoRefreshMetadata {
             owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
@@ -7322,6 +7326,7 @@ final class Workspace: Identifiable, ObservableObject {
                 return nil
             }
             bindSurface(newTabId, toPanelId: newPanel.id)
+            rememberTerminalConfigInheritanceSource(newPanel)
             return newPanel
         }
         if focus, let newPanel {
@@ -7456,6 +7461,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             replacementPanel.unfocus()
         }
+        rememberTerminalConfigInheritanceSource(replacementPanel)
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
             panelId: pair.key,
@@ -7601,6 +7607,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             replacementPanel.unfocus()
         }
+        rememberTerminalConfigInheritanceSource(replacementPanel)
 
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
@@ -9667,6 +9674,7 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         ) {
             bindSurface(newTabId, toPanelId: newPanel.id)
+            rememberTerminalConfigInheritanceSource(newPanel)
         }
 
         return newPanel
@@ -10798,6 +10806,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         bonsplitController.selectTab(newTab.id)
         newPanel.focus()
+        rememberTerminalConfigInheritanceSource(newPanel)
         return newPanel
     }
 
@@ -12235,6 +12244,7 @@ extension Workspace: BonsplitDelegate {
                         isLoading: false,
                         isPinned: false
                     )
+                    rememberTerminalConfigInheritanceSource(replacementPanel)
                     publishCmuxSurfaceCreated(replacementPanel.id, paneId: originalPane, kind: "terminal", origin: "placeholder_repair", focused: false)
 
                     for extraPlaceholder in placeholderTabs.dropFirst() {
@@ -12304,6 +12314,7 @@ extension Workspace: BonsplitDelegate {
         }
 
         bindSurface(newTabId, toPanelId: newPanel.id)
+        rememberTerminalConfigInheritanceSource(newPanel)
         normalizePinnedTabs(in: newPane)
         publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
 #if DEBUG
