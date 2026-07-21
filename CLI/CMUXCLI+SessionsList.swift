@@ -450,8 +450,8 @@ extension CMUXCLI {
         let surfaceFilter = sessionsListNormalizedIDRef(surfaceRaw)?.lowercased()
         let decoder = JSONDecoder()
         var nodes: [[String: Any]] = []
-        var nodeByRunKey: [String: [String: Any]] = [:]
-        var nodeBySessionKey: [String: [String: Any]] = [:]
+        var nodesByRunKey: [String: [[String: Any]]] = [:]
+        var nodesBySessionKey: [String: [[String: Any]]] = [:]
 
         for spec in selectedSpecs {
             let storeURL = URL(fileURLWithPath: stateDirectory, isDirectory: true)
@@ -482,6 +482,9 @@ extension CMUXCLI {
                     ))
                 }
                 let runID = sessionsListNormalized(record.runId) ?? record.sessionId
+                let parentRunID = sessionsListNormalized(record.parentRunId)
+                let parentSessionID = sessionsListNormalized(record.parentSessionId)
+                let relationship = sessionsListNormalized(record.relationship)
                 let nodeID = agentSessionNodeID(
                     agent: spec.name,
                     sessionID: record.sessionId,
@@ -493,9 +496,9 @@ extension CMUXCLI {
                     "agent_display_name": spec.displayName,
                     "session_id": record.sessionId,
                     "run_id": runID,
-                    "parent_run_id": record.parentRunId ?? NSNull(),
-                    "parent_session_id": record.parentSessionId ?? NSNull(),
-                    "relationship": record.relationship ?? NSNull(),
+                    "parent_run_id": parentRunID ?? NSNull(),
+                    "parent_session_id": parentSessionID ?? NSNull(),
+                    "relationship": relationship ?? NSNull(),
                     "workspace_id": record.workspaceId,
                     "surface_id": record.surfaceId,
                     "restore_authority": restoreAuthority,
@@ -505,8 +508,8 @@ extension CMUXCLI {
                     "updated_at_unix": record.updatedAt,
                 ]
                 nodes.append(node)
-                nodeByRunKey[agentSessionGraphKey(agent: spec.name, identifier: runID)] = node
-                nodeBySessionKey[agentSessionGraphKey(agent: spec.name, identifier: record.sessionId)] = node
+                nodesByRunKey[agentSessionGraphKey(agent: spec.name, identifier: runID), default: []].append(node)
+                nodesBySessionKey[agentSessionGraphKey(agent: spec.name, identifier: record.sessionId), default: []].append(node)
             }
         }
 
@@ -521,11 +524,15 @@ extension CMUXCLI {
                   let childNodeID = node["node_id"] as? String,
                   let childRunID = node["run_id"] as? String,
                   let childSessionID = node["session_id"] as? String else { return nil }
-            let parent = (node["parent_run_id"] as? String).flatMap {
-                nodeByRunKey[agentSessionGraphKey(agent: agent, identifier: $0)]
-            } ?? (node["parent_session_id"] as? String).flatMap {
-                nodeBySessionKey[agentSessionGraphKey(agent: agent, identifier: $0)]
-            }
+            let sessionParents = (node["parent_session_id"] as? String).map {
+                nodesBySessionKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
+            } ?? []
+            let runParents = (node["parent_run_id"] as? String).map {
+                nodesByRunKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
+            } ?? []
+            let parent: [String: Any]? = sessionParents.count == 1
+                ? sessionParents[0]
+                : (runParents.count == 1 ? runParents[0] : nil)
             guard let parent,
                   let parentNodeID = parent["node_id"] as? String,
                   let parentRunID = parent["run_id"] as? String,
