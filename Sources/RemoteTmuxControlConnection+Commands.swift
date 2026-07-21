@@ -159,8 +159,9 @@ extension RemoteTmuxControlConnection {
         let seedID = beginPaneSeed(paneId: paneId, clearScrollback: clearScrollback)
         // Reset this control client's pane-output cursor before reading the
         // authoritative grid. tmux applies both -A transitions synchronously in
-        // one command: `off` advances past any backlog and `on` resumes future
-        // output, without a transport-visible gap where live bytes can be lost.
+        // one command: `pause` discards queued control-output blocks and
+        // `continue` resumes at the pane's current offset, without a
+        // transport-visible gap where live bytes can be lost.
         // Buffering already started above, so output concurrent with the reset is
         // reconciled by the capture boundary regardless of SSH chunking/latency.
         let outputResetCommand = Self.paneOutputCursorResetCommand(paneId: paneId)
@@ -171,7 +172,7 @@ extension RemoteTmuxControlConnection {
         // pane was already on the alt screen before cmux attached, so its 1049h is
         // not in the live %output — query `#{alternate_on}` and enter alt ourselves.
         // Ordered first so the enter lands before the capture paint in the FIFO.
-        let altScreenCommand = "display-message -p -t %\(paneId) -F \"#{alternate_on}\""
+        let altScreenCommand = Self.paneAltScreenQueryCommand(paneId: paneId)
         // `-S -<N>` seeds scrollback history (not just the visible screen) so the
         // mirrored tab is scrollable immediately on attach/reconnect. On an
         // alternate-screen pane there is no history, so tmux clamps to the visible
@@ -231,7 +232,9 @@ extension RemoteTmuxControlConnection {
     /// visible screen is exactly what a clipped grow lost. The reply paints
     /// home+clear+rows (see the `.capturePane` result), so this REPLACES the
     /// visible screen rather than appending, and the `.paneState` seed that follows
-    /// restores the cursor and scroll region on top.
+    /// restores the cursor and scroll region on top. The alternate-screen query
+    /// also precedes the capture so a TUI transition during a slow repaint cannot
+    /// paint the authoritative rows onto the mirror's stale screen.
     @discardableResult
     func repaintPaneVisibleScreen(paneId: Int) -> UUID? {
         guard pendingPaneVisibleRepaintSeedIDs[paneId] == nil else {
@@ -245,11 +248,13 @@ extension RemoteTmuxControlConnection {
         guard sendBatchInternal(
             [
                 Self.paneOutputCursorResetCommand(paneId: paneId),
+                Self.paneAltScreenQueryCommand(paneId: paneId),
                 "capture-pane -p -e -t %\(paneId)",
                 Self.paneStateQueryCommand(paneId: paneId),
             ],
             kinds: [
                 .paneOutputReset(paneId, seedID),
+                .paneAltScreen(paneId, seedID),
                 .capturePane(paneId, seedID),
                 .paneState(paneId, seedID),
             ]
@@ -265,7 +270,14 @@ extension RemoteTmuxControlConnection {
     /// Builds the atomic pane-output cursor reset accepted by tmux's command parser.
     static func paneOutputCursorResetCommand(paneId: Int) -> String {
         // tmux parses an unquoted `%pane:state` token as syntax, before -A sees it.
-        "refresh-client -A \"%\(paneId):off\" -A \"%\(paneId):on\""
+        // `pause` is load-bearing on tmux 3.2–3.6: unlike `off`, it discards
+        // already-queued control-output blocks before `continue` resets offsets.
+        "refresh-client -A \"%\(paneId):pause\" -A \"%\(paneId):continue\""
+    }
+
+    /// The `display-message` line that reads whether a pane uses the alternate screen.
+    static func paneAltScreenQueryCommand(paneId: Int) -> String {
+        "display-message -p -t %\(paneId) -F \"#{alternate_on}\""
     }
 
     /// The `display-message` line that reads a pane's terminal state (cursor,
