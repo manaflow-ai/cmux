@@ -66,6 +66,16 @@ extension CMUXCLI {
             let payload = try client.sendV2(method: "workspace.float.close_all", params: params)
             if jsonOutput {
                 printV2Payload(payload, jsonOutput: true, idFormat: idFormat, fallbackText: "")
+            } else if payload["status"] as? String == "pending" {
+                let requestedCount = (payload["requested_count"] as? NSNumber)?.intValue ?? 0
+                print(String(
+                    format: floatingDockCLIString(
+                        "cli.workspace.float.output.closeAllPending",
+                        defaultValue: "Closing %d floating window(s); note saves are pending."
+                    ),
+                    locale: .current,
+                    requestedCount
+                ))
             } else {
                 let closedCount = (payload["closed_count"] as? NSNumber)?.intValue ?? 0
                 print(String(

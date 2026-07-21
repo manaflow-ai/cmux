@@ -714,6 +714,14 @@ private enum FloatingDockRestorePlacement {
 }
 
 extension DockSplitStore {
+    static func supportsFloatingDockPersistence(_ panel: any Panel) -> Bool {
+        if panel is FilePreviewPanel || panel is TerminalPanel { return true }
+        if let browser = panel as? BrowserPanel {
+            return browser.shouldPersistSessionSnapshot()
+        }
+        return false
+    }
+
     func floatingDockSessionSnapshot(notePanelId: UUID?) -> SessionFloatingDockContentSnapshot? {
         let rawLayout = BonsplitSessionLayoutCodec.capture(
             controller: bonsplitController,
@@ -775,7 +783,7 @@ extension DockSplitStore {
         panelId: UUID,
         notePanelId: UUID?
     ) -> SessionFloatingDockSurfaceSnapshot? {
-        guard let panel = panels[panelId] else { return nil }
+        guard let panel = panels[panelId], Self.supportsFloatingDockPersistence(panel) else { return nil }
         if panelId == notePanelId {
             return SessionFloatingDockSurfaceSnapshot(id: panelId, kind: .note)
         }

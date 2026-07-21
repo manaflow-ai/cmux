@@ -412,6 +412,65 @@ struct WindowDockLifecycleTests {
         #expect(destinationDock.containsPanel(sourcePanelId))
     }
 
+    @Test("Floating Docks reject panels that cannot be restored")
+    @MainActor
+    func externalDropIntoFloatingDockRejectsUnsupportedPanel() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = manager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.tabs.first)
+        let floatingDock = try #require(workspace.createFloatingDock(initialContent: .note))
+        let destinationPane = try #require(floatingDock.store.bonsplitController.allPaneIds.first)
+        let sourceDock = appDelegate.windowDock(forWindowId: windowId)
+        let unsupportedPanel = try sourceDock.seedTestPanel()
+        let sourceTabId = try #require(sourceDock.surfaceId(forPanelId: unsupportedPanel.id))
+
+        #expect(!appDelegate.canMoveSurfaceIntoDock(
+            sourceTabId: sourceTabId.uuid,
+            destinationDock: floatingDock.store
+        ))
+        #expect(!appDelegate.moveSurfaceIntoDock(
+            sourceTabId: sourceTabId.uuid,
+            destinationDock: floatingDock.store,
+            destination: .insert(targetPane: destinationPane, targetIndex: nil)
+        ))
+        #expect(sourceDock.containsPanel(unsupportedPanel.id))
+        #expect(!floatingDock.store.containsPanel(unsupportedPanel.id))
+    }
+
+    @Test("Floating Dock browsers participate in WebView ownership lookup")
+    @MainActor
+    func floatingDockBrowserWebViewOwnership() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = manager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.tabs.first)
+        let floatingDock = try #require(workspace.createFloatingDock(initialContent: .browser))
+        let browser = try #require(floatingDock.store.panels.values.first as? BrowserPanel)
+        let webView = try #require(browser.webView as? CmuxWebView)
+        browser.searchState = BrowserSearchState()
+
+        #expect(appDelegate.browserFindBarIsVisible(for: webView))
+    }
+
     @Test("External drop keeps remote tmux mirror panes out of Dock")
     @MainActor
     func externalDropIntoOwnWindowDockRejectsRemoteTmuxMirrorPanel() throws {

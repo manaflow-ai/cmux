@@ -42,7 +42,21 @@ extension AppDelegate {
     func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock: DockSplitStore) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
         return canMoveSurfaceIntoDock(source) &&
+            floatingDockSupportsPersistenceForMove(source, destinationDock: destinationDock) &&
             floatingDockHasCapacityForMove(source, destinationDock: destinationDock)
+    }
+
+    private func floatingDockSupportsPersistenceForMove(
+        _ source: ContainerSurfaceLocation,
+        destinationDock: DockSplitStore
+    ) -> Bool {
+        guard workspaceFloatingDock(owning: destinationDock) != nil else { return true }
+        let panel: (any Panel)? = switch source {
+        case .workspace(_, let workspace, let panelId, _): workspace.panels[panelId]
+        case .dock(let dock, let panelId): dock.panels[panelId]
+        }
+        guard let panel else { return false }
+        return DockSplitStore.supportsFloatingDockPersistence(panel)
     }
 
     private func floatingDockHasCapacityForMove(
@@ -100,6 +114,7 @@ extension AppDelegate {
     ) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
         guard canMoveSurfaceIntoDock(source),
+              floatingDockSupportsPersistenceForMove(source, destinationDock: destinationDock),
               floatingDockHasCapacityForMove(source, destinationDock: destinationDock) else {
             return false
         }

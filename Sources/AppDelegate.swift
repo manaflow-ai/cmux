@@ -16330,9 +16330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func browserPanelOwning(_ webView: CmuxWebView, in manager: TabManager) -> BrowserPanel? {
         for workspace in manager.tabs {
-            if let panel = workspace.panels.values
-                .compactMap({ $0 as? BrowserPanel })
-                .first(where: { $0.webView === webView }) {
+            if let panel = workspace.browserPanelIncludingDock(owning: webView) {
                 return panel
             }
         }

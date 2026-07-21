@@ -6,6 +6,24 @@ extension Workspace {
         browserPanel(for: panelId) ?? dockBrowserPanel(for: panelId)
     }
 
+    func browserPanelIncludingDock(owning webView: CmuxWebView) -> BrowserPanel? {
+        if let panel = panels.values
+            .compactMap({ $0 as? BrowserPanel })
+            .first(where: { $0.webView === webView }) {
+            return panel
+        }
+        if let panel = _dockSplit?.panels.values
+            .compactMap({ $0 as? BrowserPanel })
+            .first(where: { $0.webView === webView }) {
+            return panel
+        }
+        return floatingDocks.lazy.compactMap { dock in
+            dock.store.panels.values
+                .compactMap({ $0 as? BrowserPanel })
+                .first(where: { $0.webView === webView })
+        }.first
+    }
+
     func dockBrowserPanel(for panelId: UUID) -> BrowserPanel? {
         guard let store = DockSplitStore.owner(containingPanel: panelId),
               ownsDockStore(store) else { return nil }
