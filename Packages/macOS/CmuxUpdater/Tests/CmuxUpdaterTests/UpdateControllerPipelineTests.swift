@@ -371,10 +371,10 @@ import Testing
         #expect(freshPrompt.choice == nil)
     }
 
-    /// A retryable accepted-install failure must also resolve the Sparkle terminal it replaces.
-    /// Otherwise Sparkle still owns an unanswered session and the Retry action can no-op behind
-    /// the visible error.
-    @Test func acceptedInstallFailureAcknowledgesReplacedSparkleTerminal() async {
+    /// A fresh install check can legitimately find nothing when this app already matches the
+    /// latest release. Preserve Sparkle's visible "up to date" terminal instead of replacing it
+    /// with an install failure.
+    @Test func acceptedInstallFindingNothingShowsUpToDate() async {
         let harness = Harness()
         let stalePrompt = ChoiceBox()
         var didAcknowledgeNotFound = false
@@ -389,10 +389,46 @@ import Testing
             didAcknowledgeNotFound = true
         })))
 
-        await waitUntil("accepted-install error") {
-            errorCode(for: harness.model.state) == UpdateStateModel.installDidNotStartCode
+        await waitUntil("accepted install to finish") {
+            !harness.controller.attemptCoordinator.isMonitoring
         }
-        #expect(didAcknowledgeNotFound)
+        guard case .notFound = harness.model.state else {
+            Issue.record("fresh check result was replaced by \(harness.model.state)")
+            return
+        }
+        #expect(!didAcknowledgeNotFound)
+        #expect(!harness.controller.installWatchdog.isArmed)
+    }
+
+    /// Regression: Retry from "Update Didn't Start" must not recreate the same error when the
+    /// installed app already matches the latest version in the feed.
+    @Test func retryWhenAlreadyCurrentShowsUpToDateInsteadOfRepeatingInstallError() async {
+        let harness = Harness()
+        var didAcknowledgeNotFound = false
+
+        harness.controller.setInstallDidNotStartError(diagnostic: "test setup")
+        guard case .error(let failure) = harness.model.state else {
+            Issue.record("failed to create retryable install error")
+            return
+        }
+
+        failure.retry()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        harness.model.setState(.checking(.init(cancel: {})))
+        harness.model.setState(.notFound(.init(acknowledgement: {
+            didAcknowledgeNotFound = true
+        })))
+        harness.finishSparkleCycle()
+
+        await waitUntil("retry to finish") {
+            !harness.controller.attemptCoordinator.isMonitoring
+        }
+        guard case .notFound = harness.model.state else {
+            Issue.record("retry recreated install error: \(harness.model.state)")
+            return
+        }
+        #expect(!didAcknowledgeNotFound)
+        #expect(!harness.controller.installWatchdog.isArmed)
     }
 
     /// If the live prompt is still visible but already answered before the queued confirm
