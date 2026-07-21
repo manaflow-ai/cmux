@@ -204,7 +204,7 @@ _SLEEP_CALL = re.compile(
     """
 )
 
-_NAMED_SLEEP_CALL = re.compile(r"\b([A-Za-z_]\w*)[?!]?\.sleep\s*\(")
+_NAMED_SLEEP_CALL = re.compile(r"(?<![.\w])([A-Za-z_]\w*)[?!]?\.sleep\s*\(")
 _CONTINUED_SLEEP_CALL = re.compile(r"^\s*[?!]?\s*\.sleep\s*\(")
 _LOCAL_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\b")
 _LOCAL_SCOPE_HEADER = re.compile(
@@ -219,9 +219,12 @@ _FOR_SCOPE_BINDING = re.compile(
     r"^\s*for(?:\s+try)?(?:\s+await)?\s+([A-Za-z_]\w*)\s+in\b"
 )
 _REAL_CLOCK_TYPE = re.compile(
-    r":\s*(?:ContinuousClock|SuspendingClock)\??(?=\s|=|[,){]|$)"
+    r":\s*(?:[A-Za-z_]\w*\.)*"
+    r"(?:ContinuousClock|SuspendingClock)\??(?=\s|=|[,){]|$)"
 )
-_REAL_CLOCK_INIT = re.compile(r"=\s*(?:ContinuousClock|SuspendingClock)\s*\(")
+_REAL_CLOCK_INIT = re.compile(
+    r"=\s*(?:[A-Za-z_]\w*\.)*(?:ContinuousClock|SuspendingClock)\s*\("
+)
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
@@ -528,11 +531,14 @@ def _mask_noncode(lines: list[str]) -> list[str]:
 
 def _annotated_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     annotation = re.search(
-        rf"\b{re.escape(receiver)}\s*:\s*([A-Za-z_]\w*)", text
+        rf"\b{re.escape(receiver)}\s*:\s*"
+        r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)",
+        text,
     )
     if not annotation:
         return None
-    return annotation.group(1) in ("ContinuousClock", "SuspendingClock")
+    type_name = annotation.group(1).rsplit(".", 1)[-1]
+    return type_name in ("ContinuousClock", "SuspendingClock")
 
 
 def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
@@ -561,6 +567,8 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     sleep_match = _NAMED_SLEEP_CALL.search(current)
     sleep_start: int
     if sleep_match:
+        if current[: sleep_match.start()].rstrip().endswith("."):
+            return False
         receiver = sleep_match.group(1)
         sleep_start = sleep_match.start()
     else:
@@ -581,6 +589,8 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
             return True
         receiver_match = re.search(r"\b([A-Za-z_]\w*)[?!]?\s*$", previous)
         if not receiver_match:
+            return False
+        if previous[: receiver_match.start()].rstrip().endswith("."):
             return False
         receiver = receiver_match.group(1)
         sleep_start = continuation.start()
