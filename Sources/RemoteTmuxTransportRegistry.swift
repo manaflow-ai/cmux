@@ -239,15 +239,24 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         sessionName: String,
         createIfMissing: Bool
     ) -> [String] {
-        // The resolver is still required: a non-login remote shell has a minimal PATH, and
-        // that is a property of the remote shell rather than of ssh.
-        let remote = RemoteTmuxHost.tmuxRemoteCommand(
-            arguments: [
-                "-CC",
-                createIfMissing ? "new-session" : "attach-session",
-                "-t", sessionName,
-            ]
-        )
+        // Plain `tmux`, not the PATH resolver ssh needs, and the reason is a hard limit rather
+        // than a preference. `et` does not exec the command: it types it into a login shell and
+        // appends `; exit`. That shell reads from a pty in canonical mode, which delivers at
+        // most MAX_CANON (1024 on macOS) bytes per line, and the resolver is ~1113 bytes. The
+        // line never completes, so the shell runs nothing and the stream sits silent until the
+        // attach times out — measured against et 6.2.11.
+        //
+        // Dropping the resolver is safe precisely because it is a login shell: it has the user's
+        // full PATH, so it finds tmux itself. ssh is the opposite case, running a non-login shell
+        // with a minimal PATH, which is why that profile still needs the resolver.
+        let remote = ([
+            "tmux",
+            "-CC",
+            createIfMissing ? "new-session" : "attach-session",
+            "-t", sessionName,
+        ] as [String])
+            .map(RemoteTmuxHost.shellSingleQuoted)
+            .joined(separator: " ")
         // Arguments only: the executable is supplied separately (see ``executablePath()``),
         // exactly as the ssh profile does. Including it here would pass `et` twice.
         var argv = ["-p", String(port)]
