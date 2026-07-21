@@ -160,6 +160,22 @@ import Testing
         ]))
     }
 
+    @Test func surfaceSwitcherPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_SURFACE_SWITCHER_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.surfaceSwitcherPreviewEnabled(from: env))
+        #else
+        #expect(!UITestConfig.surfaceSwitcherPreviewEnabled(from: env))
+        #endif
+    }
+
+    @Test func surfaceSwitcherPreviewFlagRequiresOne() {
+        #expect(!UITestConfig.surfaceSwitcherPreviewEnabled(from: [:]))
+        #expect(!UITestConfig.surfaceSwitcherPreviewEnabled(from: [
+            "CMUX_UITEST_SURFACE_SWITCHER_PREVIEW": "0",
+        ]))
+    }
+
     @Test func agentChatPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
         let config = UITestEnvironmentConfig(environment: env)

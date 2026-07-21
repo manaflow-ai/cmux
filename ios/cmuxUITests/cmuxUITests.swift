@@ -25,6 +25,47 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testSurfaceSwitcherPreviewMounts24By24StreamSelection() throws {
+        let app = launchSurfaceSwitcherPreviewApp()
+        defer { app.terminate() }
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+
+        XCTAssertTrue(app.otherElements["MobileSurfaceSwitcher"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.otherElements["MobileSurfaceSwitcherSearchField"].waitForExistence(timeout: 3))
+        let selectedStream = app.buttons["BrowserStreamMenuItem-browser-stream-24"]
+        XCTAssertTrue(selectedStream.waitForExistence(timeout: 3))
+        XCTAssertEqual(selectedStream.value as? String, "Selected")
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "surface-switcher-preview-24x24-stream-selected"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testSurfaceSwitcherPreviewFailOnceRetryUpdatesOpenSheet() throws {
+        let app = launchSurfaceSwitcherPreviewApp(environment: [
+            "CMUX_UITEST_SURFACE_SWITCHER_BROWSER_STATE": "fail-once",
+            "CMUX_UITEST_SURFACE_SWITCHER_TERMINALS": "1",
+        ])
+        defer { app.terminate() }
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+
+        XCTAssertTrue(app.otherElements["BrowserStreamFailureState"].waitForExistence(timeout: 4))
+        tap(app.buttons["BrowserStreamRetryButton"], in: app)
+        XCTAssertTrue(app.otherElements["BrowserStreamLoadingState"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["BrowserStreamMenuItem-browser-stream-24"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.otherElements["MobileSurfaceSwitcher"].exists)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "surface-switcher-preview-fail-once-retry-open-sheet"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testStackAuthEntryUsesStableIdentifiers() throws {
         let app = launchApp(mockData: false, clearAuth: true)
 
@@ -1563,9 +1604,7 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()
-        let initialTerminalDropdown = app.buttons["MobileTerminalDropdown"]
-        tap(initialTerminalDropdown, in: app)
-        tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
+        tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
@@ -3064,6 +3103,20 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_AGENT_CHAT_PREVIEW": "1",
         ])
         XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchSurfaceSwitcherPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
+            "CMUX_UITEST_SURFACE_SWITCHER_PREVIEW": "1",
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
+        XCTAssertTrue(app.otherElements["SurfaceSwitcherPreviewRoot"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
         return app
     }
 
