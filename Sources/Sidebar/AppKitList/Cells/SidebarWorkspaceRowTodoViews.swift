@@ -32,6 +32,12 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
     private var popover: NSPopover?
     private var presentationCount = 0
     private var closingProgrammatically = false
+    /// Visible refreshes arrive from the table's configure pass (inside a
+    /// representable update turn); defer + coalesce them like
+    /// `SidebarWorkspaceTodoPopoverHost` does instead of forcing synchronous
+    /// hosted-view layout per publisher burst.
+    private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
+    private var pendingRoot: AnyView?
 
     var isShown: Bool { popover?.isShown == true }
 
@@ -47,6 +53,8 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
             update(root)
             return
         }
+        visibleUpdateScheduler.cancel()
+        pendingRoot = nil
         presentationCount += 1
         applyRootView(root)
         popover.show(relativeTo: rect, of: view, preferredEdge: preferredEdge)
@@ -54,13 +62,21 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
 
     /// Live refresh while shown: mutations reach the row through the normal
     /// configure pass, which forwards the fresh content here so open popovers
-    /// repaint instead of showing creation-time state.
+    /// repaint instead of showing creation-time state. Deferred + coalesced
+    /// outside the current update turn.
     func update(_ root: AnyView) {
         guard isShown else { return }
-        applyRootView(root)
+        pendingRoot = root
+        visibleUpdateScheduler.schedule { [weak self] in
+            guard let self, self.isShown, let root = self.pendingRoot else { return }
+            self.pendingRoot = nil
+            self.applyRootView(root)
+        }
     }
 
     func close() {
+        visibleUpdateScheduler.cancel()
+        pendingRoot = nil
         guard let popover, popover.isShown else { return }
         closingProgrammatically = true
         popover.performClose(nil)
@@ -97,6 +113,8 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
+        visibleUpdateScheduler.cancel()
+        pendingRoot = nil
         popover = nil
         // Release the hosted content: the root view's action closures capture
         // the presented workspace strongly, and this presenter lives on a

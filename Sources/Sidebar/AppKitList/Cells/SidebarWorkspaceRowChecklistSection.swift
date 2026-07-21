@@ -1119,6 +1119,11 @@ final class SidebarRowChecklistAddRow: NSView {
         bridge.onReturnCommit = { [weak self] in
             self?.rearmFieldIfStillAdding()
         }
+        // A focus-loss commit keeps the field armed (legacy parity) but must
+        // not keep the submitted draft — a later Return would add it twice.
+        bridge.onEndEditingCommit = { [weak field] in
+            field?.stringValue = ""
+        }
         field.delegate = bridge
         addFieldBridge = bridge
         addField = field
@@ -1493,6 +1498,11 @@ final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {
     /// a synchronous re-arm would re-enter the teardown and strand an
     /// untracked editor in the row.
     var onReturnCommit: (() -> Void)?
+    /// Invoked after a focus-loss (end-editing) commit. The add field uses
+    /// this to clear its committed draft: legacy re-created an empty field
+    /// here, and keeping the submitted text armed would double-add it on a
+    /// later Return.
+    var onEndEditingCommit: (() -> Void)?
     private var committed = false
 
     init(onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
@@ -1529,6 +1539,7 @@ final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {
             onCancel()
         } else {
             onCommit(text)
+            onEndEditingCommit?()
         }
     }
 
