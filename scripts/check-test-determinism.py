@@ -849,6 +849,34 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/RealClockAfterConditionalShadowTests.swift",
+            "func verify(clock: ContinuousClock, candidate: TestRelayClock?) async {\n"
+            "    if let clock = candidate {\n"
+            "        consume(clock)\n"
+            "    }\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/WrappedRealClockSleepTests.swift",
+            "func verify() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    try await clock\n"
+            "        .sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/WrappedConstructedClockSleepTests.swift",
+            "try await ContinuousClock()\n"
+            "    .sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/assert_sleep.py",
             "assert await asyncio.sleep(0.3) is None\n"
             "assert widget.is_rendered()\n",
@@ -1113,6 +1141,39 @@ def _self_test() -> int:
             "        #expect(await clockEvents.next() == expected)\n"
             "    }\n"
             "}\n",
+        ),
+        # A conditional real-clock binding must disappear with its branch and
+        # leave the injected outer fake clock authoritative afterward.
+        (
+            "Packages/CmuxClock/Tests/ExpiredConditionalClockTests.swift",
+            "func verifyVirtual(clock: TestRelayClock, candidate: ContinuousClock?) async {\n"
+            "    if let clock: ContinuousClock = candidate {\n"
+            "        consume(clock)\n"
+            "    }\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        # Sleep-shaped fixture data and comments remain non-executable even when
+        # a real clock with the same receiver name is visible.
+        (
+            "Packages/CmuxClock/Tests/StringSleepFixtureTests.swift",
+            "let clock = ContinuousClock()\n"
+            "let command = \"clock.sleep(for: .seconds(1))\"\n"
+            "#expect(command.contains(\"sleep\"))\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CommentSleepFixtureTests.swift",
+            "let clock = ContinuousClock()\n"
+            "/* clock.sleep(for: .seconds(1)) */\n"
+            "#expect(widget.isRendered)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/WrappedVirtualClockTests.swift",
+            "let clock = TestRelayClock()\n"
+            "try await clock\n"
+            "    .sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
         ),
     ]
 
