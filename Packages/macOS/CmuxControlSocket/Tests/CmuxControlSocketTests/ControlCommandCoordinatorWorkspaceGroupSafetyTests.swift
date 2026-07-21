@@ -11,7 +11,7 @@ struct ControlCommandCoordinatorWorkspaceGroupSafetyTests {
 
         _ = coordinator.handle(request("workspace.group.create"))
 
-        #expect(context.createCall?.childWorkspaceIDs == [])
+        #expect(context.createdChildWorkspaceIDs == [])
     }
 
     @Test func deleteDefaultsToDissolvingTheGroup() {

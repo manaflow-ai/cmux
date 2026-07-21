@@ -4,11 +4,7 @@ import Foundation
 
 @MainActor
 final class FakeWorkspaceGroupSafetyContext: ControlCommandContext {
-    struct CreateCall: Equatable {
-        let childWorkspaceIDs: [UUID]
-    }
-
-    var createCall: CreateCall?
+    var createdChildWorkspaceIDs: [UUID]?
     var createResolution: ControlWorkspaceGroupCreateResolution = .notCreated
     var ungroupedGroupIDs: [UUID] = []
     var deletedGroupIDs: [UUID] = []
@@ -20,9 +16,7 @@ final class FakeWorkspaceGroupSafetyContext: ControlCommandContext {
         cwd: String?,
         childWorkspaceIDs: [UUID]
     ) -> ControlWorkspaceGroupCreateResolution {
-        createCall = CreateCall(
-            childWorkspaceIDs: childWorkspaceIDs
-        )
+        createdChildWorkspaceIDs = childWorkspaceIDs
         return createResolution
     }
 
