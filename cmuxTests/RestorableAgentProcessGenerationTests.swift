@@ -152,7 +152,7 @@ struct RestorableAgentProcessGenerationTests {
         let updatedAt: TimeInterval = 1_777_777_777
         let storeURL = RestorableAgentKind.codex.hookStoreFileURL(
             homeDirectory: root.path,
-            environment: [:]
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
         )
         try fileManager.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let record: [String: Any] = [
