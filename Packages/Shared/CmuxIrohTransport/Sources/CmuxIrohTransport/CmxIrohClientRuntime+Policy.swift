@@ -47,13 +47,18 @@ extension CmxIrohClientRuntime {
             pairingEnabled: false,
             capabilities: configuration.capabilities
         )
-        let offlineExpectation = try offlinePolicyCache.map { _ in
-            try CmxIrohClientOfflinePolicyExpectation(
-                accountID: configuration.accountID,
-                localBindingExpectation: expectation,
-                managedRelayURLs: managedRelayURLs
-            )
-        }
+        // Without a managed relay fleet (policy unavailable or direct-only)
+        // there is no relay bootstrap to cache offline; activation proceeds
+        // with direct paths instead of failing the expectation's fleet check.
+        let offlineExpectation: CmxIrohClientOfflinePolicyExpectation? =
+            try offlinePolicyCache.flatMap { _ in
+                guard !managedRelayURLs.isEmpty else { return nil }
+                return try CmxIrohClientOfflinePolicyExpectation(
+                    accountID: configuration.accountID,
+                    localBindingExpectation: expectation,
+                    managedRelayURLs: managedRelayURLs
+                )
+            }
         let signer = try CmxIrohRegistrationSigner(
             identity: configuration.identity,
             endpointID: expectedEndpointID.endpointID
