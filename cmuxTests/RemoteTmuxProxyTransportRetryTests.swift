@@ -394,24 +394,6 @@ import Testing
         )
     }
 
-    /// `.ssh` with a transport port is the case the discriminator's condition admits but nothing
-    /// else does: for ssh the endpoint's port is `port`, so a transport port is meaningless there.
-    /// It must still be its own endpoint rather than aliasing the plain ssh host or the ssh host
-    /// whose *ssh* port happens to match.
-    @Test func anSSHHostWithATransportPortIsItsOwnEndpoint() {
-        let plain = RemoteTmuxHost(destination: "user@host")
-        let sshWithTransportPort = RemoteTmuxHost(destination: "user@host", transport: .ssh, transportPort: 2039)
-        let sshOnThatPort = RemoteTmuxHost(destination: "user@host", port: 2039)
-
-        #expect(sshWithTransportPort.connectionHash != plain.connectionHash)
-        #expect(sshWithTransportPort.connectionHash != sshOnThatPort.connectionHash)
-        #expect(
-            sshWithTransportPort.connectionHash
-                != RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039).connectionHash,
-            "the transport itself must still separate these"
-        )
-    }
-
     /// And a plain ssh host keeps the hash it has today. It names the shared master's socket path
     /// and persisted mirror state, so moving it would orphan both on upgrade.
     @Test func theConnectionHashIsUnchangedForAnSSHHost() {
@@ -483,6 +465,107 @@ import Testing
         connection.checkLivenessAndRecoverIfStalled { reported = $0 }
         #expect(reported == true, "ssh is out of scope for the stall check")
         #expect(!connection.snapshot().recentEvents.contains("liveness-stalled"))
+    }
+
+    /// The client binary is resolved, not assumed. A literal `/usr/local/bin/et` is a claim about
+    /// someone else's machine, and it is wrong on a standard Apple Silicon Homebrew install.
+    @Test func theETClientIsResolvedRatherThanHardcoded() {
+        let onlyHomebrew = RemoteTmuxETTransportProfile.resolveClientExecutable(
+            fileExists: { $0 == "/opt/homebrew/bin/et" },
+            pathValue: "/usr/bin:/bin"
+        )
+        #expect(onlyHomebrew == "/opt/homebrew/bin/et")
+
+        // PATH wins over the built-in directories, so a user-installed et is preferred.
+        let fromPath = RemoteTmuxETTransportProfile.resolveClientExecutable(
+            fileExists: { $0 == "/my/bin/et" || $0 == "/usr/local/bin/et" },
+            pathValue: "/my/bin"
+        )
+        #expect(fromPath == "/my/bin/et")
+
+        // Nothing found reports the bare name, so the error is "et not found" rather than a wrong
+        // absolute path, and a PATH lookup at spawn time can still succeed.
+        #expect(
+            RemoteTmuxETTransportProfile.resolveClientExecutable(
+                fileExists: { _ in false }, pathValue: ""
+            ) == "et"
+        )
+    }
+
+    /// No remote terminal path is forced. Naming one was a guess about the *server's* layout, and
+    /// et executes exactly what it is given, so a wrong guess is fatal rather than ignored.
+    @Test func noRemoteTerminalPathIsForcedByDefault() {
+        let argv = RemoteTmuxTransportKind.et.profile(port: 2039).controlStreamArgv(
+            host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
+            sessionName: "work", createIfMissing: false
+        )
+        #expect(!argv.contains("--terminal-path"))
+    }
+
+    /// et bootstraps over ssh before its own protocol takes over, and inherits none of the host's
+    /// ssh settings. Without these the ssh preflight succeeds and et's bootstrap fails on defaults.
+    @Test func etCarriesTheHostsSSHPortAndIdentityIntoItsBootstrap() {
+        let host = RemoteTmuxHost(
+            destination: "user@host", port: 2222, identityFile: "/keys/id",
+            transport: .et, transportPort: 2039
+        )
+        let argv = RemoteTmuxTransportKind.et.profile(port: 2039).controlStreamArgv(
+            host: host, sessionName: "work", createIfMissing: false
+        )
+        #expect(consecutive(argv, "--ssh-option", "Port=2222"))
+        #expect(consecutive(argv, "--ssh-option", "IdentityFile=/keys/id"))
+        // etserver's port stays distinct from ssh's.
+        #expect(consecutive(argv, "-p", "2039"))
+    }
+
+    /// A session name long enough to push the command past one canonical line is rejected, because
+    /// et would deliver nothing and the attach would die on a timeout with no explanation. tmux
+    /// accepts names of ~1000 bytes, so this is reachable without abuse.
+    @Test func anOverlongSessionNameIsRejectedForET() {
+        let bound = RemoteTmuxETTransportProfile.maxSessionNameBytes()
+        #expect(bound > 900, "the bound should leave room for a realistic name, saw \(bound)")
+        #expect(bound < RemoteTmuxETTransportProfile.maxCanonicalLineBytes)
+
+        let atBound = String(repeating: "a", count: bound)
+        let overBound = String(repeating: "a", count: bound + 1)
+        #expect(
+            TerminalController.remoteTmuxSessionName(from: ["session": atBound], transport: .et) != nil
+        )
+        #expect(
+            TerminalController.remoteTmuxSessionName(from: ["session": overBound], transport: .et) == nil
+        )
+        // ssh execs its command, so the pty line limit does not apply there.
+        #expect(
+            TerminalController.remoteTmuxSessionName(from: ["session": overBound], transport: .ssh) != nil
+        )
+    }
+
+    /// The command built for a name at the bound really does fit, so the bound is derived from the
+    /// command rather than asserted next to it.
+    @Test func theSessionNameBoundKeepsTheCommandWithinOneLine() {
+        for createIfMissing in [false, true] {
+            let bound = RemoteTmuxETTransportProfile.maxSessionNameBytes(createIfMissing: createIfMissing)
+            let command = RemoteTmuxETTransportProfile.controlStreamRemoteCommand(
+                sessionName: String(repeating: "a", count: bound), createIfMissing: createIfMissing
+            )
+            #expect(
+                command.utf8.count <= RemoteTmuxETTransportProfile.maxCanonicalLineBytes,
+                "createIfMissing=\(createIfMissing) produced \(command.utf8.count) bytes"
+            )
+        }
+    }
+
+    /// Two spellings of one endpoint must be one key, or the controller mirrors a host twice.
+    @Test func theConnectionHashNormalizesEquivalentEndpoints() {
+        let implicit = RemoteTmuxHost(destination: "user@host", transport: .et)
+        let explicit = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2022)
+        #expect(implicit.connectionHash == explicit.connectionHash, "et's default port is 2022")
+
+        // ssh ignores a transport port, so carrying one must not split the endpoint.
+        #expect(
+            RemoteTmuxHost(destination: "user@host").connectionHash
+                == RemoteTmuxHost(destination: "user@host", transport: .ssh, transportPort: 2039).connectionHash
+        )
     }
 
     @Test func etCanTargetAServerWhoseTerminalIsNotOnThePath() {

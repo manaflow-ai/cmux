@@ -17,6 +17,17 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
         return RemoteTmuxTransportKind(rawValue: raw)
     }
 
+    /// The port this transport actually uses, given a host's optional override.
+    ///
+    /// One place resolves the default so identity and argv cannot disagree: hashing an unset port
+    /// separately from the explicit value it resolves to gave one host two controller keys.
+    func resolvedTransportPort(_ configured: Int?) -> Int {
+        switch self {
+        case .ssh: return configured ?? 22
+        case .et: return configured ?? 2022
+        }
+    }
+
     /// The profile that carries this transport.
     func profile(port: Int?) -> RemoteTmuxTransportProfile {
         switch self {
@@ -25,13 +36,11 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
         case .et:
             // etserver listens on 2022 by default, and a host's `port` means "the port of
             // this host's transport" — for et that is etserver's, not sshd's.
-            return RemoteTmuxETTransportProfile(
-                port: port ?? 2022,
-                // macOS servers keep etterminal outside the default remote PATH, which is
-                // why `et` ships `--macserver` at all. Naming the path explicitly works on
-                // every server rather than only that one flag's target.
-                remoteTerminalPath: "/usr/local/bin/etterminal"
-            )
+            // No remote terminal path is forced. `et` finds `etterminal` on the remote PATH by
+            // default, and naming an absolute path here was a guess about the *server's* layout:
+            // right for an Intel-Homebrew macOS server, wrong for Apple Silicon or Linux, and
+            // fatal when it is wrong because et executes exactly what it is given.
+            return RemoteTmuxETTransportProfile(port: resolvedTransportPort(port))
         }
     }
 }
@@ -221,6 +230,49 @@ enum RemoteTmuxPseudoTerminal {
 /// - **`-x` / `--kill-other-sessions` must never be passed**: it kills every session that
 ///   user has on the host, not just stale ones.
 struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
+    /// Where `et` may live, in preference order. Apple Silicon Homebrew installs under
+    /// `/opt/homebrew`, Intel under `/usr/local`, Linux under `/usr` — a single literal path is a
+    /// claim about someone else's machine, and hardcoding `/usr/local/bin` made this transport
+    /// unusable on a standard Apple Silicon install.
+    static let clientSearchDirectories = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+
+    /// The first `et` that exists on PATH or in a known install directory.
+    ///
+    /// Falls back to the bare name so the failure is `et` not being found rather than a wrong
+    /// absolute path, which is the more honest error and lets a PATH lookup at spawn time win.
+    static func resolveClientExecutable(
+        fileExists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        pathValue: String? = ProcessInfo.processInfo.environment["PATH"]
+    ) -> String {
+        let fromPath = (pathValue ?? "").split(separator: ":").map(String.init)
+        for directory in fromPath + clientSearchDirectories {
+            let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let candidate = URL(fileURLWithPath: trimmed).appendingPathComponent("et").path
+            if fileExists(candidate) { return candidate }
+        }
+        return "et"
+    }
+
+    /// Longest line a remote login shell will accept, `MAX_CANON` on macOS.
+    ///
+    /// et types the command into a pty rather than exec'ing it, so this is a hard delivery limit
+    /// and not a style guide: a longer line never completes, the shell runs nothing, and the attach
+    /// dies on a timeout with nothing to explain it. Checked against real et in
+    /// `scripts/remote-tmux-et-conformance.sh`, on both 6.2.11+7 and 7.0.0.
+    static let maxCanonicalLineBytes = 1024
+
+    /// Longest session name whose attach command still fits one canonical line.
+    ///
+    /// Derived from the command this profile actually builds rather than guessed, so it cannot
+    /// drift away from it. tmux itself accepts names far longer than this — roughly 1000 bytes —
+    /// which is why an unbounded name reached et and silently delivered nothing.
+    static func maxSessionNameBytes(createIfMissing: Bool = false) -> Int {
+        let overhead = controlStreamRemoteCommand(sessionName: "", createIfMissing: createIfMissing)
+            .utf8.count
+        return max(0, maxCanonicalLineBytes - overhead - 1)
+    }
+
     /// etserver's default port is 2022, not ssh's 22.
     let port: Int
     /// `et` binary path.
@@ -231,12 +283,25 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
 
     init(
         port: Int = 2022,
-        executable: String = "/usr/local/bin/et",
+        executable: String? = nil,
         remoteTerminalPath: String? = nil
     ) {
         self.port = port
-        self.executable = executable
+        self.executable = executable ?? Self.resolveClientExecutable()
         self.remoteTerminalPath = remoteTerminalPath
+    }
+
+    /// The remote command this profile runs, in one place so the length bound above is derived
+    /// from the same string that is actually sent.
+    static func controlStreamRemoteCommand(sessionName: String, createIfMissing: Bool) -> String {
+        ([
+            "tmux",
+            "-CC",
+            createIfMissing ? "new-session" : "attach-session",
+            "-t", sessionName,
+        ] as [String])
+            .map(RemoteTmuxHost.shellSingleQuoted)
+            .joined(separator: " ")
     }
 
     func executablePath() -> String { executable }
@@ -256,19 +321,26 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         // Dropping the resolver is safe precisely because it is a login shell: it has the user's
         // full PATH, so it finds tmux itself. ssh is the opposite case, running a non-login shell
         // with a minimal PATH, which is why that profile still needs the resolver.
-        let remote = ([
-            "tmux",
-            "-CC",
-            createIfMissing ? "new-session" : "attach-session",
-            "-t", sessionName,
-        ] as [String])
-            .map(RemoteTmuxHost.shellSingleQuoted)
-            .joined(separator: " ")
+        let remote = Self.controlStreamRemoteCommand(
+            sessionName: sessionName, createIfMissing: createIfMissing
+        )
         // Arguments only: the executable is supplied separately (see ``executablePath()``),
         // exactly as the ssh profile does. Including it here would pass `et` twice.
         var argv = ["-p", String(port)]
         if let remoteTerminalPath {
             argv += ["--terminal-path", remoteTerminalPath]
+        }
+        // et bootstraps over ssh before its own protocol takes over, and it does not inherit the
+        // host's ssh settings from anywhere. Passing them through `--ssh-option` is what makes
+        // `--port 2222 --identity /key --transport et` reach the same sshd the ssh preflight just
+        // used; without it the preflight succeeds and et's bootstrap fails against defaults.
+        //
+        // `host.port` is the SSH port here, distinct from `port` above, which is etserver's.
+        if let sshPort = host.port {
+            argv += ["--ssh-option", "Port=\(sshPort)"]
+        }
+        if let identityFile = host.identityFile {
+            argv += ["--ssh-option", "IdentityFile=\(identityFile)"]
         }
         // `exec` so the login shell does not linger as a parent of tmux.
         argv += ["-c", "exec \(remote)", host.destination]
