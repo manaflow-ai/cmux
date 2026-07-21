@@ -10,6 +10,7 @@ enum RestorableAgentProcessLiveness: Equatable, Hashable, Sendable {
     func wasRunning(
         fallingBackTo shellActivityState: PanelShellActivityState?,
         recordedProcessIdentities: [Int: AgentPIDProcessIdentity],
+        confirmedRuntimeProcessIdentities: Set<AgentPIDProcessIdentity>,
         currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         processPresence: (Int) -> PIDPresence
     ) -> Bool? {
@@ -21,7 +22,7 @@ enum RestorableAgentProcessLiveness: Equatable, Hashable, Sendable {
         case .running:
             return true
         case .exited:
-            return false
+            return !confirmedRuntimeProcessIdentities.isEmpty
         case .unknown:
             switch shellActivityState {
             case .some(.commandRunning):

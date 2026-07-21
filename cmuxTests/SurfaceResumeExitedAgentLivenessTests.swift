@@ -154,6 +154,106 @@ struct SurfaceResumeExitedAgentLivenessTests {
         #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
+    @Test("Exact live runtime PID overrides cached exited process")
+    @MainActor
+    func exactLiveRuntimePIDOverridesCachedExitedProcess() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-live-runtime-agent-resume-\(UUID().uuidString)", isDirectory: true)
+        let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
+        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
+        defer {
+            if let previousHookStateDirectory {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+            try? fileManager.removeItem(at: root)
+        }
+
+        let defaultsName = "cmux-live-runtime-agent-resume-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let panelID = try #require(source.focusedPanelId)
+        let sessionID = "codex-live-runtime-agent-session"
+        try writeCodexHookRecord(
+            sessionID: sessionID,
+            workspaceID: source.id,
+            panelID: panelID,
+            root: root,
+            fileManager: fileManager
+        )
+
+        let exitedIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent }
+        )
+        let observation = try #require(exitedIndex.entry(workspaceId: source.id, panelId: panelID))
+        #expect(observation.processLiveness == .exited)
+
+        let livePID = getpid()
+        let liveIdentity = try #require(Workspace.agentPIDProcessIdentity(pid: livePID))
+        let currentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            $0 == Int(livePID) ? liveIdentity : nil
+        }
+        source.recordAgentPID(
+            key: "codex.wrong-session",
+            pid: livePID,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(
+            source.confirmedRuntimeAgentProcessIdentities(
+                for: observation.snapshot,
+                panelId: panelID,
+                currentProcessIdentity: currentProcessIdentity
+            ).isEmpty
+        )
+
+        source.recordAgentPID(
+            key: "codex.\(sessionID)",
+            pid: livePID,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(
+            source.confirmedRuntimeAgentProcessIdentities(
+                for: observation.snapshot,
+                panelId: panelID,
+                currentProcessIdentity: currentProcessIdentity
+            ) == [liveIdentity]
+        )
+
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: exitedIndex,
+            surfaceResumeBindingIndex: codexBindingIndex(
+                sessionID: sessionID,
+                workspaceID: source.id,
+                panelID: panelID
+            ),
+            currentAgentProcessIdentity: currentProcessIdentity
+        )
+        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == true)
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restored.focusedPanelId)
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(restoredPanel.surface.debugInitialCommand() != nil)
+    }
+
     @Test("Cached running process is revalidated before surface resume")
     @MainActor
     func cachedRunningProcessIsRevalidatedBeforeSurfaceResume() throws {

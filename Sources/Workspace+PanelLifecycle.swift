@@ -35,6 +35,26 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
 
+    /// Returns exact-session runtime identities that still match their recorded process generation.
+    func confirmedRuntimeAgentProcessIdentities(
+        for agent: SessionRestorableAgentSnapshot,
+        panelId: UUID,
+        currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
+    ) -> Set<AgentPIDProcessIdentity> {
+        let key = agent.kind == .claude
+            ? "claude_code"
+            : "\(agent.kind.rawValue).\(agent.sessionId)"
+        guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
+              let pid = agentPIDs[key],
+              pid > 0,
+              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+              recordedIdentity.pid == pid,
+              currentProcessIdentity(Int(pid)) == recordedIdentity else {
+            return []
+        }
+        return [recordedIdentity]
+    }
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
