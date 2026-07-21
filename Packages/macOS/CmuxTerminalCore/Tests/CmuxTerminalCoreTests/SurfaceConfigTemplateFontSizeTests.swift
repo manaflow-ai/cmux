@@ -41,4 +41,18 @@ import CmuxTerminalCore
 
         #expect(template.fontSizeLineage == nil)
     }
+
+    @Test func minimumRuntimeFontRoundTripsAtIncreasedMagnification() {
+        let basePoints = CmuxSurfaceConfigTemplate.baseFontSize(
+            fromRuntimePoints: 1,
+            percent: 200
+        )
+        let restoredRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+            fromBasePoints: basePoints,
+            percent: 200
+        )
+
+        #expect(basePoints == 0.5)
+        #expect(restoredRuntimePoints == 1)
+    }
 }

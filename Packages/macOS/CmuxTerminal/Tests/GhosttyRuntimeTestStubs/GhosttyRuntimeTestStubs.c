@@ -94,6 +94,10 @@ void ghostty_surface_binding_action(void) {}
 void ghostty_surface_config_new(void) {}
 void ghostty_surface_free(void) {}
 void ghostty_surface_free_text(void) {}
+float ghostty_surface_font_size(void *surface) {
+    (void)surface;
+    return 0;
+}
 bool ghostty_surface_font_size_adjusted(void *surface) {
     (void)surface;
     return false;

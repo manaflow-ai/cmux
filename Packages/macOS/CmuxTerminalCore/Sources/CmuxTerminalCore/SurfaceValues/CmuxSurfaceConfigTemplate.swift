@@ -118,7 +118,7 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
         guard runtimePoints.isFinite, runtimePoints > 0 else { return runtimePoints }
         let scale = Float32(GlobalFontMagnification.scale(for: percent))
         guard scale > 0 else { return runtimePoints }
-        return max(1, runtimePoints / scale)
+        return runtimePoints / scale
     }
 
     /// Converts an unscaled base font size into the runtime point size Ghostty
