@@ -4061,6 +4061,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: supportedHostCapabilities,
             allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
         )
+        guard workspacesByMac[key] != state else { return }
         workspacesByMac[key] = state
     }
 
@@ -7944,20 +7945,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func remoteWorkspacesPreservingSnapshots(
         from response: MobileSyncWorkspaceListResponse
     ) -> [MobileWorkspacePreview] {
-        response.workspaces.map { remoteWorkspace in
+        let foregroundMacID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
+        let existingWorkspacesByRemoteID = Dictionary(
+            workspaces.lazy
+                .filter { workspace in
+                    guard let foregroundMacID, !foregroundMacID.isEmpty else { return true }
+                    return workspace.macDeviceID == foregroundMacID
+                }
+                .map { ($0.rpcWorkspaceID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return response.workspaces.map { remoteWorkspace in
             var workspace = MobileWorkspacePreview(remote: remoteWorkspace)
             // Tag every workspace with the Mac it came from, so the aggregated
             // multi-Mac list can group and filter by machine (P1 of the multi-Mac
             // work). Today there is one connected Mac, so all rows share its id.
             workspace.macDeviceID = activeTicket?.macDeviceID
-            let foregroundMacID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
-            guard let existingWorkspace = workspaces.first(where: {
-                workspaceMatchesRemoteID($0, remoteID: workspace.id, macDeviceID: foregroundMacID)
-            }) else {
+            guard let existingWorkspace = existingWorkspacesByRemoteID[workspace.id] else {
                 return workspace
             }
+            let existingTerminalsByID = Dictionary(
+                existingWorkspace.terminals.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
             workspace.terminals = workspace.terminals.map { remoteTerminal in
-                guard let existingTerminal = existingWorkspace.terminals.first(where: { $0.id == remoteTerminal.id }) else {
+                guard
+                    let existingTerminal = existingTerminalsByID[remoteTerminal.id]
+                else {
                     return remoteTerminal
                 }
                 var terminal = remoteTerminal
