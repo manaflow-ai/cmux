@@ -62,18 +62,29 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// port and every one-shot fails with `kex_exchange_identification`.
     let transportPort: Int?
 
+    /// Where the transport's remote helper lives, once discovered.
+    ///
+    /// `et` needs `etterminal`'s absolute path because a non-interactive ssh does not have it on
+    /// PATH, and the path differs by platform and package manager. Resolved by probing the host
+    /// rather than assumed — deliberately not part of ``connectionHash``, since it describes how to
+    /// reach the endpoint rather than which endpoint it is, and two spellings of it must not split
+    /// one host into two.
+    let transportTerminalPath: String?
+
     init(
         destination: String,
         port: Int? = nil,
         identityFile: String? = nil,
         transport: RemoteTmuxTransportKind = .ssh,
-        transportPort: Int? = nil
+        transportPort: Int? = nil,
+        transportTerminalPath: String? = nil
     ) {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
         self.transport = transport
         self.transportPort = transportPort
+        self.transportTerminalPath = transportTerminalPath
     }
 
     /// A human-readable (but lossy) slug for the destination, used only for

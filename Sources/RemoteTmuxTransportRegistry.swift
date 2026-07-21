@@ -29,18 +29,24 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
     }
 
     /// The profile that carries this transport.
-    func profile(port: Int?) -> RemoteTmuxTransportProfile {
+    func profile(port: Int?, terminalPath: String? = nil) -> RemoteTmuxTransportProfile {
         switch self {
         case .ssh:
             return RemoteTmuxSSHTransportProfile()
         case .et:
             // etserver listens on 2022 by default, and a host's `port` means "the port of
             // this host's transport" — for et that is etserver's, not sshd's.
-            // No remote terminal path is forced. `et` finds `etterminal` on the remote PATH by
-            // default, and naming an absolute path here was a guess about the *server's* layout:
-            // right for an Intel-Homebrew macOS server, wrong for Apple Silicon or Linux, and
-            // fatal when it is wrong because et executes exactly what it is given.
-            return RemoteTmuxETTransportProfile(port: resolvedTransportPort(port))
+            // A terminal path has to be sent: `etterminal` is not on a non-interactive ssh PATH on
+            // macOS, and without the flag et fails with "Error starting ET process through ssh".
+            // Measured — dropping the flag entirely was worse than the literal it replaced.
+            //
+            // So it is resolved rather than assumed. `RemoteTmuxController` probes the host once
+            // over the ssh one-shot channel and stores the answer; this default is only the
+            // starting point for a host nobody has probed yet.
+            return RemoteTmuxETTransportProfile(
+                port: resolvedTransportPort(port),
+                remoteTerminalPath: terminalPath ?? RemoteTmuxETTransportProfile.defaultRemoteTerminalPath
+            )
         }
     }
 }
@@ -271,6 +277,31 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         let overhead = controlStreamRemoteCommand(sessionName: "", createIfMissing: createIfMissing)
             .utf8.count
         return max(0, maxCanonicalLineBytes - overhead - 1)
+    }
+
+    /// Where `etterminal` is looked for on the remote, in preference order.
+    ///
+    /// Sent explicitly because a non-interactive ssh on macOS does not have it on PATH — which is
+    /// also why `et` ships `--macserver` at all. The list exists so a host can be probed instead
+    /// of assumed: Apple Silicon Homebrew, Intel Homebrew, then Linux packages.
+    static let remoteTerminalCandidates = [
+        "/opt/homebrew/bin/etterminal",
+        "/usr/local/bin/etterminal",
+        "/usr/bin/etterminal",
+    ]
+
+    /// Used until a host has been probed. Matches what `et --macserver` would send, so an
+    /// unprobed host behaves as before rather than worse.
+    static let defaultRemoteTerminalPath = "/usr/local/bin/etterminal"
+
+    /// A shell command that prints the first candidate that exists on the remote.
+    ///
+    /// Short by construction: it is delivered the same way every other et command is, so it is
+    /// subject to the same canonical-line limit.
+    static func remoteTerminalProbeCommand() -> String {
+        "command -v etterminal || " + remoteTerminalCandidates
+            .map { "([ -x \($0) ] && echo \($0))" }
+            .joined(separator: " || ")
     }
 
     /// etserver's default port is 2022, not ssh's 22.
