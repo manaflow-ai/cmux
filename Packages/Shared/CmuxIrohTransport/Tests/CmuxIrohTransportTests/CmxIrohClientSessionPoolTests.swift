@@ -6,6 +6,35 @@ import Testing
 @Suite
 struct CmxIrohClientSessionPoolTests {
     @Test
+    func controlTransportClosureObservationTracksItsExactConnection() async throws {
+        let fixture = try PoolFixture()
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let transport = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+
+        try await transport.connect()
+        let observer = try #require(transport as? any CmxByteTransportClosureObserving)
+        let observation = try #require(await observer.transportClosureObservation())
+        let closeWaiter = Task {
+            await observation.waitUntilClosed()
+            return true
+        }
+
+        await connection.close(errorCode: 0, reason: "test peer close")
+
+        #expect(await closeWaiter.value)
+        await transport.close()
+    }
+
+    @Test
     func controlAndFeatureLanesReuseOneAdmittedConnection() async throws {
         let fixture = try PoolFixture()
         let control = fixture.controlStream()

@@ -1,4 +1,6 @@
 import CmuxAgentChat
+import CmuxMobileSupport
+import CmuxMobileToast
 import SwiftUI
 
 #if os(iOS)
@@ -13,6 +15,7 @@ struct ChatArtifactViewerPager: View {
     let swipeOrder: ChatArtifactGallerySwipeOrder
     let onDone: () -> Void
 
+    @Environment(ToastCenter.self) private var toasts
     @Environment(\.chatArtifactLoader) private var loader
     @State private var model: ChatArtifactViewerPagerModel
     @State private var zoomedPath: String?
@@ -238,6 +241,7 @@ struct ChatArtifactViewerPager: View {
         if snapshot.isTextFile {
             Button {
                 UIPasteboard.general.string = snapshot.renderedText
+                toasts.present(.copied())
             } label: {
                 Label(
                     String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module),
@@ -248,6 +252,7 @@ struct ChatArtifactViewerPager: View {
         }
         Button {
             UIPasteboard.general.string = snapshot.path
+            toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
         } label: {
             Label(
                 String(localized: "chat.artifact.copy_path", defaultValue: "Copy path", bundle: .module),

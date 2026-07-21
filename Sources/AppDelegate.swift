@@ -3456,9 +3456,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "snapshotDisplay={\(debugSessionDisplayDescription(snapshot.display))}"
         )
 #endif
-        context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
-        // Seed the in-memory per-config ring from the restored snapshot so the
-        // window can return to remembered frames on later configuration switches.
+        context.tabManager.restoreSessionSnapshot(snapshot.tabManager, workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache)
+        // Seed restored per-config frames for later configuration switches.
         if let configFrames = snapshot.configFrames {
             windowConfigFrames[context.windowId] = SessionConfigFrameRing(entries: configFrames)
         }
@@ -8585,7 +8584,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot,
-                excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot
+                excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
+                workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
             )
             if let configFrames = sessionWindowSnapshot.configFrames {
                 windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
@@ -12772,12 +12772,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
+        let response = alert.runCmuxModal(
+            presentingWindow: mainWindowContainingWorkspace(tab.id)
+        ) { _ in
             alertWindow.makeFirstResponder(input)
             input.selectText(nil)
         }
-
-        let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return true }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
         return true

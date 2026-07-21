@@ -215,6 +215,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // (cmux-zsh-integration.zsh `_cmux_report_tty_once`) still returns
         // only after the TTY registration is visible to later commands.
         "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
@@ -281,6 +283,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.ping",
         "system.capabilities",
         "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",

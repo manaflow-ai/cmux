@@ -51,6 +51,16 @@ public protocol MobileSyncRuntime: Sendable {
     /// declaring the stream dead; the deadline bounds how long a dead
     /// transport can stall that verdict.
     var livenessProbeTimeoutNanoseconds: UInt64 { get }
+
+    /// Hard ceiling on one automatic reconnect attempt (stored-Mac redial)
+    /// end to end. An Iroh dial can hang far past any per-transport connect
+    /// timeout (relay DNS churn, hole-punch stalls), and an unbounded attempt
+    /// wedges the recovery owner: no failure is ever recorded, no backoff
+    /// retry is ever scheduled, and every other trigger defers to the
+    /// "in-flight" attempt forever. At the deadline the attempt is abandoned
+    /// and settled as timed out so the automatic backoff retry loop keeps
+    /// running.
+    var reconnectAttemptDeadlineNanoseconds: UInt64 { get }
 }
 
 public extension MobileSyncRuntime {
@@ -71,4 +81,9 @@ public extension MobileSyncRuntime {
     /// while keeping dead-stream recovery within a few seconds of the silence
     /// threshold instead of the full ``rpcRequestTimeoutNanoseconds``.
     var livenessProbeTimeoutNanoseconds: UInt64 { 3_000_000_000 }
+
+    /// Default reconnect-attempt ceiling: comfortably above a slow relay dial
+    /// (transport connects bound themselves near 15s) while turning a hung
+    /// dial into a settled, retryable failure within half a minute.
+    var reconnectAttemptDeadlineNanoseconds: UInt64 { 30_000_000_000 }
 }

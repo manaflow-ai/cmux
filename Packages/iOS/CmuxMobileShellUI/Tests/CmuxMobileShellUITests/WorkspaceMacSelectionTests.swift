@@ -677,6 +677,56 @@ import Testing
         #expect(scope.canCreateWorkspace(base: true))
     }
 
+    @Test func selectedComputerScopesNotificationFeedItemsAcrossAliases() {
+        let aliasItem = MobileNotificationFeedItem(
+            macDeviceID: "mac-old",
+            notificationID: "alias",
+            macDisplayName: "Desk Mac",
+            remoteWorkspaceID: "workspace-a",
+            title: "Alias",
+            body: "Alias-owned notification",
+            createdAt: Date(),
+            isRead: false,
+            connectionStatus: .connected
+        )
+        let otherItem = MobileNotificationFeedItem(
+            macDeviceID: "mac-other",
+            notificationID: "other",
+            macDisplayName: "Other Mac",
+            remoteWorkspaceID: "workspace-b",
+            title: "Other",
+            body: "Other notification",
+            createdAt: Date(),
+            isRead: false,
+            connectionStatus: .unavailable
+        )
+        let scope = WorkspaceMacSelectionScope(
+            selection: .machine("mac-fresh"),
+            workspaces: [],
+            displayPairedMacs: [
+                pairedMac(id: "mac-fresh", name: "Desk Mac", lastSeenAt: 20),
+            ],
+            notificationFeedItems: [aliasItem, otherItem],
+            foregroundMacDeviceID: "mac-old",
+            aliasesFor: { id in
+                id == "mac-fresh" ? ["mac-fresh", "mac-old"] : [id]
+            }
+        )
+
+        #expect(scope.machineIDs == ["mac-fresh", "mac-other"])
+        #expect(scope.notificationFeedItems(from: [aliasItem, otherItem]).map(\.notificationID) == ["alias"])
+
+        let allScope = WorkspaceMacSelectionScope(
+            selection: .all,
+            workspaces: [],
+            displayPairedMacs: [],
+            notificationFeedItems: [aliasItem, otherItem],
+            foregroundMacDeviceID: nil,
+            aliasesFor: { [$0] }
+        )
+        #expect(allScope.notificationFeedItems(from: [aliasItem, otherItem]).map(\.notificationID) == ["alias", "other"])
+    }
+
     @Test func sharedSelectionScopeDisablesCreateWhileMacSwitchPending() {
         let scope = WorkspaceMacSelectionScope(
             selection: .all,
@@ -850,8 +900,55 @@ import Testing
         #expect(filter.machines == ["mac-a"])
     }
 
+    @Test func workspaceSearchMatchesVisibleComputerAndGroupContext() async {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-studio", name: "Design Studio", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-laptop", name: "Travel Laptop", lastSeenAt: 10),
+        ])
+        let studioWorkspace = MobileWorkspacePreview(
+            id: "ws-studio",
+            macDeviceID: "mac-studio",
+            macDisplayName: "Design Studio",
+            name: "Canvas",
+            groupID: "group-release",
+            terminals: [MobileTerminalPreview(id: "terminal-canvas", name: "Agent")]
+        )
+        let laptopWorkspace = MobileWorkspacePreview(
+            id: "ws-laptop",
+            macDeviceID: "mac-laptop",
+            macDisplayName: "Travel Laptop",
+            name: "Notes",
+            terminals: [MobileTerminalPreview(id: "terminal-notes", name: "Editor")]
+        )
+        let groups = [
+            MobileWorkspaceGroupPreview(
+                id: "group-release",
+                name: "Release Train",
+                anchorWorkspaceID: studioWorkspace.id
+            ),
+        ]
+
+        let computerSearch = workspaceListView(
+            workspaces: [studioWorkspace, laptopWorkspace],
+            groups: groups,
+            searchText: "design studio",
+            store: store
+        )
+        #expect(computerSearch.filteredWorkspaces.map(\.id) == [studioWorkspace.id])
+
+        let groupSearch = workspaceListView(
+            workspaces: [studioWorkspace, laptopWorkspace],
+            groups: groups,
+            searchText: "release train",
+            store: store
+        )
+        #expect(groupSearch.filteredWorkspaces.map(\.id) == [studioWorkspace.id])
+    }
+
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview] = [],
+        searchText: String = "",
         store: CMUXMobileShellStore,
         selectWorkspace: @escaping (MobileWorkspacePreview.ID) -> Void = { _ in },
         macSelection: Binding<WorkspaceMacSelection>? = nil,
@@ -860,6 +957,7 @@ import Testing
     ) -> WorkspaceListView {
         WorkspaceListView(
             workspaces: workspaces,
+            groups: groups,
             selectedWorkspaceID: nil,
             host: "Test Mac",
             connectionStatus: .unavailable,
@@ -870,7 +968,8 @@ import Testing
             macSelection: macSelection ?? binding(initialValue: .all),
             switchMac: switchMac,
             cancelMacSwitch: cancelMacSwitch,
-            store: store
+            store: store,
+            searchText: searchText
         )
     }
 

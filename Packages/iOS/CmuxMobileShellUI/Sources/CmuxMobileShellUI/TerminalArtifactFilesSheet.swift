@@ -2,6 +2,8 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileShell
+import CmuxMobileSupport
+import CmuxMobileToast
 import Foundation
 import SwiftUI
 
@@ -77,7 +79,14 @@ struct TerminalArtifactFilesSheet: View {
     @State var sessionViewportIsAtTopOrFits = true
     @State var lastHandledRefreshSignal: TerminalArtifactGalleryRefreshSignal
     @Environment(MobileDisplaySettings.self) var displaySettings
+    @Environment(ToastCenter.self) private var toasts
     @Environment(\.dismiss) private var dismiss
+
+    /// Confirms a gallery row's "Copy path"; rows report through a closure so
+    /// they never hold the toast center themselves.
+    func notifyPathCopied() {
+        toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
+    }
 
     init(
         workspaceID: String,
