@@ -256,6 +256,12 @@ extension MobileShellComposite {
                         refreshBackupBeforeDial: false
                     ) ?? .superseded
                 }
+                // Account for a wedged dial BEFORE any currency guard: a
+                // cancelled or superseded attempt whose race still hit the
+                // deadline would otherwise drop the only handle to a task
+                // that keeps retaining the client and transport, bypassing
+                // the abandoned-dial ceiling.
+                self.registerAbandonedReconnectDial(race.abandoned)
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
                 guard let reconnectOutcome = race.value else {
@@ -268,7 +274,6 @@ extension MobileShellComposite {
                         self.macConnectionStatus = .unavailable
                         self.clearRemoteConnectionContext()
                     }
-                    self.registerAbandonedReconnectDial(race.abandoned)
                     // Schedule the next automatic try only while the number of
                     // still-wedged abandoned dials is bounded; each dial that
                     // eventually resolves re-arms the retry itself. Manual,

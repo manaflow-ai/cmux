@@ -86,10 +86,22 @@ extension MobileShellComposite {
     }
 
     /// Awaitable variant for user-visible refresh gestures: the spinner must
-    /// not end before the authoritative fetch applied (or failed). Returns
-    /// whether the fetch applied cleanly.
+    /// not end before the authoritative fetch applied (or failed). The
+    /// single-flight slot is cancel-and-replace, so a delta-driven repair can
+    /// supersede this gesture's task mid-flight; in that case the replacement
+    /// is the authoritative fetch and the gesture follows it (bounded) rather
+    /// than reporting a superseded cancel as failure.
     func performStateSyncFetch(client: MobileCoreRPCClient) async -> Bool {
-        await scheduleStateSyncFetch(client: client).value
+        var task = scheduleStateSyncFetch(client: client)
+        for _ in 0..<5 {
+            let applied = await task.value
+            if applied { return true }
+            guard let replacement = stateSyncFetchTask, replacement != task else {
+                return applied
+            }
+            task = replacement
+        }
+        return false
     }
 
     /// Repairs the mirror with a cursor fetch when the current client is v2.
