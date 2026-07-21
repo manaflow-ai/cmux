@@ -259,6 +259,16 @@ final class RemoteTmuxController {
     /// (see ``connectionKey(host:sessionName:)``).
     var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:]
 
+    /// Outstanding login offers, keyed by ``RemoteTmuxHost/connectionHash``.
+    ///
+    /// See ``RemoteTmuxLoginOffers`` for why the slot is reserved before the workspace is
+    /// created and released only on a successful connect.
+    var loginOffers = RemoteTmuxLoginOffers()
+
+    /// Hosts with an authentication wait already running, so folding a repeat
+    /// auth-required into an existing offer does not start a second poll loop.
+    var hostsWaitingForAuth: Set<String> = []
+
     /// In-flight attach guards and kill-on-close markers for remote tmux mirrors.
     let windowRegistry = RemoteTmuxWindowRegistry()
 

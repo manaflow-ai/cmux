@@ -155595,6 +155595,57 @@
         }
       }
     },
+    "remoteTmux.reconnectAuth.failure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in failed. Run the command above again to retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインに失敗しました。上のコマンドをもう一度実行してください。"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in. Reconnecting the mirror…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしました。ミラーを再接続しています…"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.workspaceTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にサインイン"
+          }
+        }
+      }
+    },
     "remoteTmux.tab.pane": {
       "extractionState": "manual",
       "localizations": {
