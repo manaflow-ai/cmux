@@ -138,6 +138,60 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES": "1",
+        ])
+        defer { app.terminate() }
+
+        let table = app.tables["MobileWorkspaceList"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let firstRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-0"
+        ]
+        let lastRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-59"
+        ]
+        XCTAssertTrue(firstRow.isHittable)
+
+        // Exercise rapid opposite-direction flicks while live 80 ms row
+        // updates continue. XCUITest waits for UI quiescence between public
+        // swipe calls; WorkspaceListScrollUpdateTests separately asserts that
+        // the coordinator leaves the pan lifecycle entirely to UIKit.
+        table.swipeUp(velocity: .fast)
+        table.swipeDown(velocity: .fast)
+        for _ in 0..<4 where !firstRow.isHittable {
+            table.swipeDown(velocity: .fast)
+        }
+        XCTAssertTrue(firstRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        // Exercise the real top boundary before traversing to the bottom.
+        table.swipeDown(velocity: .fast)
+        table.swipeUp(velocity: .fast)
+        XCTAssertFalse(firstRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        // Drive through the real bottom boundary, overscroll it, and prove
+        // that the table accepts the next opposite-direction gesture.
+        for _ in 0..<20 where !lastRow.isHittable {
+            table.swipeUp(velocity: .fast)
+        }
+        XCTAssertTrue(lastRow.isHittable)
+        table.swipeUp(velocity: .fast)
+        table.swipeDown(velocity: .fast)
+        XCTAssertFalse(lastRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-rapid-direction-changes-and-boundaries"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testWorkspaceSearchPreservesQueryAndPlacementAcrossRefresh() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
