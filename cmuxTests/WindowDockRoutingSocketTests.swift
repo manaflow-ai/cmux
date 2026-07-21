@@ -1,4 +1,6 @@
 import AppKit
+import CmuxControlSocket
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -42,6 +44,116 @@ struct WindowDockRoutingSocketTests {
         #expect(DockSplitStore.owner(containingPanel: panelID) === store)
         #expect(store.closePanel(panelID, force: true))
         #expect(DockSplitStore.owner(containingPanel: panelID) == nil)
+    }
+
+    @Test("Floating Dock routing rejects surface and pane selectors from different Docks")
+    @MainActor
+    func floatingDockRoutingRejectsConflictingSurfaceAndPaneSelectors() throws {
+        try withSocketAppContext { manager, workspace, _ in
+            let firstDock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+            let secondDock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+            let firstSurfaceID = try #require(firstDock.store.panels.keys.first)
+            let secondPaneID = try #require(secondDock.store.bonsplitController.allPaneIds.first)
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: workspace.id,
+                surfaceID: firstSurfaceID,
+                paneID: secondPaneID.id
+            )
+
+            #expect(TerminalController.shared.containerDockForSurfaceRouting(
+                routing,
+                tabManager: manager
+            ) == nil)
+        }
+    }
+
+    @Test("Closing all floating Docks uses one aggregate confirmation")
+    @MainActor
+    func closingAllFloatingDocksUsesOneAggregateConfirmation() async throws {
+        try await withSocketAppContext { manager, workspace, _ in
+            let warningStore = CloseTabWarningStore(defaults: .standard)
+            let previousWarning = warningStore.warnsBeforeClosingTab
+            warningStore.setWarnsBeforeClosingTab(true)
+            defer { warningStore.setWarnsBeforeClosingTab(previousWarning) }
+
+            let firstDock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+            let secondDock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+            let terminals = [firstDock, secondDock].compactMap {
+                $0.store.panels.values.compactMap { $0 as? TerminalPanel }.first
+            }
+            #expect(terminals.count == 2)
+            terminals.forEach { $0.surface.setNeedsConfirmCloseOverrideForTesting(true) }
+            defer { terminals.forEach { $0.surface.setNeedsConfirmCloseOverrideForTesting(nil) } }
+
+            var confirmationCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                confirmationCount += 1
+                return true
+            }
+
+            let closedCount = AppDelegate.shared?.closeAllWorkspaceFloatingDocks(
+                in: workspace,
+                tabManager: manager,
+                policy: .confirmInteractive
+            )
+            await Task.yield()
+
+            #expect(closedCount == 2)
+            #expect(confirmationCount == 1)
+            #expect(workspace.floatingDocks.isEmpty)
+        }
+    }
+
+    @Test("Closing a floating Dock flushes its note before confirmation")
+    @MainActor
+    func closingFloatingDockFlushesNoteBeforeConfirmation() async throws {
+        try await withSocketAppContext { manager, workspace, _ in
+            let warningStore = CloseTabWarningStore(defaults: .standard)
+            let previousWarning = warningStore.warnsBeforeClosingTab
+            warningStore.setWarnsBeforeClosingTab(true)
+            defer { warningStore.setWarnsBeforeClosingTab(previousWarning) }
+
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-close-flush-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let noteURL = root.appendingPathComponent("note.md")
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Autosaving note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: noteURL.path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let note = try #require(dock.notePanel)
+            await note.loadTextContent().value
+            note.updateTextContent("persist before close")
+            #expect(note.isDirty)
+
+            var confirmationCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                confirmationCount += 1
+                return true
+            }
+            let closed = AppDelegate.shared?.closeWorkspaceFloatingDock(
+                dock,
+                in: workspace,
+                tabManager: manager,
+                policy: .confirmInteractive
+            )
+
+            #expect(closed == true)
+            #expect(confirmationCount == 0)
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "persist before close")
+        }
     }
 
     @MainActor
