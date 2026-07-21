@@ -75,14 +75,18 @@ extension WorkspaceDetailView {
                 reload: { await store.reloadMobileBrowser(panelID: $0) },
                 respondToDialog: { await store.respondToMobileBrowserDialog($0) }
             ),
-            close: {
-                browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
-                Task { await store.stopMobileBrowserStream(panelID: browser.id) }
-            },
             reconnect: { Task { await store.reconnectOrRefresh() } }
         )
         .id(browser.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The browser-stream surface is conditionally mounted (not opacity
+        // swapped like the terminal), so leaving it — via the surface picker
+        // or nav back — removes this view and stops the stream here, replacing
+        // the old in-bar close button.
+        .onDisappear {
+            browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
+            Task { await store.stopMobileBrowserStream(panelID: browser.id) }
+        }
     }
     #endif
 }
