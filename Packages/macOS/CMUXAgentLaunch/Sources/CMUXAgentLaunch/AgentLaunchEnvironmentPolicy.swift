@@ -111,6 +111,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "PI_PACKAGE_DIR",
         "PI_SKIP_VERSION_CHECK",
         "QODER_CONFIG_DIR",
+        // Subrouter's Codex provider config references this fixed, non-secret placeholder.
+        "SUBROUTER_CODEX_DUMMY_API_KEY",
         "USE_BUILTIN_RIPGREP"
     ]
 
