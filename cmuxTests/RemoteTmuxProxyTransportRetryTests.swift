@@ -483,13 +483,15 @@ import Testing
         )
         #expect(fromPath == "/my/bin/et")
 
-        // Nothing found reports the bare name, so the error is "et not found" rather than a wrong
-        // absolute path, and a PATH lookup at spawn time can still succeed.
-        #expect(
-            RemoteTmuxETTransportProfile.resolveClientExecutable(
-                fileExists: { _ in false }, pathValue: ""
-            ) == "et"
+        // Never a bare name. The stream is spawned through `/usr/bin/script`, which resolves its
+        // argument against the app's own PATH — and a GUI app's PATH cannot be relied on, so a bare
+        // name becomes "script: et: No such file or directory", an immediately-ending stream, and
+        // (since end-of-stream now reconnects) a 60-second attach timeout carrying no error at all.
+        let notFound = RemoteTmuxETTransportProfile.resolveClientExecutable(
+            fileExists: { _ in false }, pathValue: ""
         )
+        #expect(notFound == RemoteTmuxETTransportProfile.defaultClientPath)
+        #expect(notFound.hasPrefix("/"), "must be absolute so `script` cannot mis-resolve it")
     }
 
     /// A terminal path is always sent, and comes from the host once probed.
@@ -600,6 +602,34 @@ import Testing
             RemoteTmuxHost(destination: "user@host").connectionHash
                 == RemoteTmuxHost(destination: "user@host", transport: .ssh, transportPort: 2039).connectionHash
         )
+    }
+
+    /// Retrying is only honest when the next attempt could differ. These cannot, so they end the
+    /// connection with their reason instead of looping — which is what turned a missing binary into
+    /// a 60-second attach timeout carrying no message once end-of-stream started meaning reconnect.
+    @Test(arguments: [
+        "script: et: No such file or directory",
+        "/usr/local/bin/et: No such file or directory",
+        "etterminal: No such file or directory",
+        "Error starting ET process through ssh, please make sure your ssh works first",
+        "et: unrecognized option '--terminal-path'",
+    ])
+    func unrecoverableTransportFailuresAreNotRetried(_ stderr: String) {
+        #expect(RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderr))
+    }
+
+    /// And the classifier stays narrow: wrongly retrying costs a delay, wrongly giving up costs a
+    /// mirror that never comes back, so anything that might succeed next time keeps retrying.
+    @Test(arguments: [
+        "ssh: connect to host example.com port 22: Connection refused",
+        "kex_exchange_identification: Connection reset by peer",
+        "Connection closed by 10.0.0.5 port 22",
+        "no server running on /tmp/tmux-501/default",
+        "user@host: Permission denied (publickey).",
+        "",
+    ])
+    func recoverableFailuresKeepRetrying(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderr))
     }
 
     @Test func etCanTargetAServerWhoseTerminalIsNotOnThePath() {
