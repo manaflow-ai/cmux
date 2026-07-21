@@ -152,6 +152,14 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         captureModelFrame()
     }
 
+    func updateTintInPlace() {
+        guard let panel = window else { return }
+        let appearance = resolvedBackdropAppearance()
+        glassEffect.backgroundOpacity = appearance.opacity
+        glassEffect.updateTint(to: panel, color: appearance.tintColor)
+        compatibilityBlurView?.alphaValue = appearance.opacity
+    }
+
     func hide() {
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
@@ -365,7 +373,11 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         guard let panel = window else { return }
         glassEffect.remove(from: panel)
         compatibilityBlurView?.removeFromSuperview()
+        let appearance = resolvedBackdropAppearance()
+        applyBackdropAppearance(appearance, to: panel)
+    }
 
+    private func resolvedBackdropAppearance() -> WorkspaceFloatingDockBackdropAppearance {
 #if DEBUG
         var appearance = WorkspaceFloatingDockTextureDebugSettings.currentAppearance()
 #else
@@ -380,7 +392,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 opacity: appearance.opacity
             )
         }
-        applyBackdropAppearance(appearance, to: panel)
+        return appearance
     }
 
     private func applyBackdropAppearance(

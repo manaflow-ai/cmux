@@ -94,7 +94,8 @@ extension Workspace {
         configFrames: [SessionConfigFrameEntry]? = nil,
         snapshotWorkspaceId: UUID? = nil,
         snapshotWorkspaceStableId: UUID? = nil,
-        snapshotManagedNoteFilePath: String? = nil
+        snapshotManagedNoteFilePath: String? = nil,
+        resolvedManagedNoteFileURL: URL? = nil
     ) -> WorkspaceFloatingDock? {
         guard floatingDocks.count < SessionPersistencePolicy.maxFloatingDocksPerWorkspace,
               canCreateFloatingDockPanel else {
@@ -110,10 +111,11 @@ extension Workspace {
         } ?? snapshotWorkspaceStableId.map {
             WorkspaceFloatingDockNoteStorage.fileURL(workspaceStableID: $0, dockID: id)
         }
-        let noteFileURL = WorkspaceFloatingDockNoteStorage.restoredManagedNoteURL(
-            source: snapshotNoteFileURL,
-            destination: destinationNoteFileURL
-        )
+        let noteFileURL = resolvedManagedNoteFileURL
+            ?? WorkspaceFloatingDockNoteStorage.restoredManagedNoteURL(
+                source: snapshotNoteFileURL,
+                destination: destinationNoteFileURL
+            )
         let dock = WorkspaceFloatingDock(
             id: id,
             workspaceId: self.id,
@@ -238,6 +240,7 @@ extension Workspace {
     }
 
     func finalizeAllFloatingDockCloses() -> Int {
+        floatingDockRestoreGeneration &+= 1
         let docks = floatingDocks
         floatingDocks.removeAll(keepingCapacity: true)
         docks.forEach { $0.close() }
@@ -310,6 +313,8 @@ extension Workspace {
         snapshotWorkspaceId: UUID? = nil,
         snapshotWorkspaceStableId: UUID? = nil
     ) {
+        floatingDockRestoreGeneration &+= 1
+        let restoreGeneration = floatingDockRestoreGeneration
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
         var remainingPanelBudget = SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
@@ -320,26 +325,49 @@ extension Workspace {
             }
             let restoredPanelCost = max(1, content?.surfaces.count ?? 0)
             guard restoredPanelCost <= remainingPanelBudget else { break }
-            guard createFloatingDock(
-                id: snapshot.id,
-                title: snapshot.title,
-                frame: CGRect(
-                    x: snapshot.x,
-                    y: snapshot.y,
-                    width: snapshot.width,
-                    height: snapshot.height
-                ),
-                isPresented: snapshot.isPresented,
-                backgroundTintHex: snapshot.backgroundTintHex,
-                sessionContent: content,
-                screenFrame: snapshot.screenFrame?.cgRect,
-                displaySnapshot: snapshot.display,
-                configFrames: snapshot.configFrames,
-                snapshotWorkspaceId: snapshotWorkspaceId,
-                snapshotWorkspaceStableId: snapshotWorkspaceStableId,
-                snapshotManagedNoteFilePath: snapshot.managedNoteFilePath
-            ) != nil else { continue }
             remainingPanelBudget -= restoredPanelCost
+
+            let destination = floatingDockNoteFileURL(dockId: snapshot.id)
+            let source = snapshot.managedNoteFilePath.flatMap {
+                WorkspaceFloatingDockNoteStorage.validatedManagedNoteFileURL(path: $0)
+            } ?? snapshotWorkspaceStableId.map {
+                WorkspaceFloatingDockNoteStorage.fileURL(workspaceStableID: $0, dockID: snapshot.id)
+            }
+            let restore: @MainActor (URL) -> Void = { [weak self] noteURL in
+                guard let self,
+                      self.floatingDockRestoreGeneration == restoreGeneration else { return }
+                _ = self.createFloatingDock(
+                    id: snapshot.id,
+                    title: snapshot.title,
+                    frame: CGRect(
+                        x: snapshot.x,
+                        y: snapshot.y,
+                        width: snapshot.width,
+                        height: snapshot.height
+                    ),
+                    isPresented: snapshot.isPresented,
+                    backgroundTintHex: snapshot.backgroundTintHex,
+                    sessionContent: content,
+                    screenFrame: snapshot.screenFrame?.cgRect,
+                    displaySnapshot: snapshot.display,
+                    configFrames: snapshot.configFrames,
+                    resolvedManagedNoteFileURL: noteURL
+                )
+            }
+            if let source,
+               source.standardizedFileURL != destination.standardizedFileURL {
+                Task { @MainActor in
+                    let noteURL = await Task.detached(priority: .utility) {
+                        WorkspaceFloatingDockNoteStorage.restoredManagedNoteURL(
+                            source: source,
+                            destination: destination
+                        )
+                    }.value
+                    restore(noteURL)
+                }
+            } else {
+                restore(destination)
+            }
         }
     }
 

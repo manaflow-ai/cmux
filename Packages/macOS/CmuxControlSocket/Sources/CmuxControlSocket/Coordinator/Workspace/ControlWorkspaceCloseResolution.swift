@@ -18,6 +18,8 @@ public enum ControlWorkspaceCloseResolution: Sendable, Equatable {
     /// The workspace resolved and was eligible to close, but local teardown did
     /// not complete. Carries the owning window id (may be absent).
     case closeFailed(windowID: UUID?)
+    /// The close was accepted and is waiting for note persistence.
+    case pending(windowID: UUID?)
     /// The workspace was closed. Carries the owning window id (may be absent).
     case resolved(windowID: UUID?)
 }

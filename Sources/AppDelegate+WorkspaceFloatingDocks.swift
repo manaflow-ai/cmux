@@ -229,7 +229,10 @@ extension AppDelegate {
         guard let dock = preferredWorkspaceFloatingDock(in: tabManager) else { return false }
         WorkspaceFloatingDockColorPanelController.shared.show(dock: dock) { [weak self, weak tabManager] in
             guard let self, let tabManager else { return }
-            self.refreshWorkspaceFloatingDocks(for: tabManager)
+            guard let context = self.mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) else {
+                return
+            }
+            context.workspaceFloatingDockPresenter?.updateTint(for: dock)
         }
         return true
     }

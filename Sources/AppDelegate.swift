@@ -1098,6 +1098,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
     private var isAwaitingTerminatePreparation = false
+    private var terminatePreparationGeneration = 0
+    private var terminatePreparationTimeoutTask: Task<Void, Never>?
     private var terminateKillWatchdogTask: Task<Void, Never>?
     /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
     private let terminationWatchdog = TerminationWatchdog()
@@ -1873,25 +1875,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
-        // Quit is committed and the critical state is now on disk. Bound the
-        // remainder of the terminate sequence so a blocked Apple will-terminate
-        // observer (e.g. CFPasteboardResolveAllPromisedData, #6758) can't hang
-        // the main thread for ~30s. Idempotent and a no-op if the process exits
-        // first.
-        terminationWatchdog.arm()
+        // The caller validates that this preparation generation did not time
+        // out before arming the hard watchdog for AppKit teardown.
         return true
     }
 
     private func beginConfirmedAppTermination(reason: String) {
         guard !isAwaitingTerminatePreparation else { return }
         isAwaitingTerminatePreparation = true
+        terminatePreparationGeneration &+= 1
+        let generation = terminatePreparationGeneration
+        terminatePreparationTimeoutTask?.cancel()
+        terminatePreparationTimeoutTask = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: .seconds(TerminationWatchdog.defaultDeadline))
+            guard !Task.isCancelled,
+                  let self,
+                  self.isAwaitingTerminatePreparation,
+                  self.terminatePreparationGeneration == generation else { return }
+            self.terminatePreparationGeneration &+= 1
+            self.isAwaitingTerminatePreparation = false
+            self.isTerminatingApp = false
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.preparationTimedOut")
+            NSSound.beep()
+            self.replyToTerminateOnce(false)
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard await self.prepareForConfirmedAppTermination() else {
+            let prepared = await self.prepareForConfirmedAppTermination()
+            guard self.terminatePreparationGeneration == generation else { return }
+            self.terminatePreparationTimeoutTask?.cancel()
+            self.terminatePreparationTimeoutTask = nil
+            guard prepared else {
                 self.isAwaitingTerminatePreparation = false
                 self.replyToTerminateOnce(false)
                 return
             }
+            self.terminationWatchdog.arm()
             self.closeAllWebInspectorsBeforeAppTeardown()
             self.isAwaitingTerminatePreparation = false
             if self.deferTerminateForMarkedRemoteTmuxKills(reason: reason) {

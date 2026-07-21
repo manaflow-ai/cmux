@@ -41,6 +41,14 @@ extension ControlCommandCoordinator {
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
             ]))
+        case .pending(let windowID):
+            return .ok(.object([
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "status": .string("pending"),
+            ]))
         case .resolved(let windowID):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

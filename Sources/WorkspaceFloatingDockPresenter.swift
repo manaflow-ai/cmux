@@ -129,6 +129,10 @@ final class WorkspaceFloatingDockPresenter {
         controllers[dock.id]?.show(focus: true)
     }
 
+    func updateTint(for dock: WorkspaceFloatingDock) {
+        controllers[dock.id]?.updateTintInPlace()
+    }
+
     func preferredDock(in workspace: Workspace) -> WorkspaceFloatingDock? {
         if let keyWindow = NSApp.keyWindow,
            let dockId = dockId(owning: keyWindow),

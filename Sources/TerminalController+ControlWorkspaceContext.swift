@@ -132,8 +132,12 @@ extension TerminalController: ControlWorkspaceContext {
         guard tabManager.canCloseWorkspace(ws) else {
             return .protected(windowID: windowId)
         }
+        let needsNoteFlush = ws.needsAutosavingNoteFlush
         guard tabManager.closeWorkspaceNonInteractively(ws) else {
             return .closeFailed(windowID: windowId)
+        }
+        if needsNoteFlush {
+            return .pending(windowID: windowId)
         }
         return .resolved(windowID: windowId)
     }

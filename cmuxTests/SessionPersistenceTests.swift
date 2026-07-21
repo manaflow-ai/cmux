@@ -721,7 +721,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
-    func testRestoredFloatingDockCopiesManagedNoteWhenStableIdentityIsRemapped() throws {
+    func testRestoredFloatingDockCopiesManagedNoteWhenStableIdentityIsRemapped() async throws {
         let source = Workspace()
         let sourceDock = try XCTUnwrap(source.createFloatingDock(initialContent: .note))
         let sourceWorkspaceDirectory = URL(fileURLWithPath: sourceDock.noteFilePath)
@@ -750,6 +750,10 @@ final class SessionPersistenceTests: XCTestCase {
         restored.restoreSessionSnapshot(snapshot, excludingStableIdentities: [source.stableId])
 
         XCTAssertNotEqual(restored.stableId, source.stableId)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while restored.floatingDocks.isEmpty, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
         let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
         restoredWorkspaceDirectory = URL(fileURLWithPath: restoredDock.noteFilePath)
             .deletingLastPathComponent()

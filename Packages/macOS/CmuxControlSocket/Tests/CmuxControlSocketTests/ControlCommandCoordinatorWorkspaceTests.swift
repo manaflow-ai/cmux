@@ -95,6 +95,25 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(data["workspace_id"] == .string(workspaceID.uuidString))
     }
 
+    @Test func workspaceCloseReportsPendingNotePersistence() {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let windowID = UUID()
+        context.closeResolution = .pending(windowID: windowID)
+
+        guard case .ok(.object(let data)) = coordinator.handle(request(
+            "workspace.close",
+            ["workspace_id": .string(workspaceID.uuidString)]
+        )) else {
+            Issue.record("unexpected workspace.close result")
+            return
+        }
+
+        #expect(data["status"] == .string("pending"))
+        #expect(data["window_id"] == .string(windowID.uuidString))
+        #expect(data["workspace_id"] == .string(workspaceID.uuidString))
+    }
+
     @Test func workspaceGroupAddForwardsPlacementAndReference() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()

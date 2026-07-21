@@ -1941,6 +1941,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Window-like Bonsplit containers scoped to this workspace.
     /// Mutated by the shared lifecycle methods in `Workspace+FloatingDocks`.
     var floatingDocks: [WorkspaceFloatingDock] = []
+    var floatingDockRestoreGeneration = 0
     var pendingFloatingDockCloseIds: Set<UUID> = []
     var isPendingCloseAllFloatingDocks = false
 
@@ -8529,6 +8530,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
         // but only if the Dock was ever opened for this workspace.
         _dockSplit?.closeAllPanels()
+        floatingDockRestoreGeneration &+= 1
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
     }
