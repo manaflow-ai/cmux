@@ -160,18 +160,36 @@ extension DockSplitStore {
     }
 
     func confirmCloseAllPanels() -> Bool {
-        let panelsToClose = bonsplitController.allTabIds.compactMap { panel(for: $0) }
-        let shouldConfirm = panelsToClose.contains { panel in
-            CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
-                requiresConfirmation: dockPanelNeedsConfirmClose(panel),
-                source: .shortcut
-            )
+        Self.confirmCloseAllPanels(
+            in: [self],
+            confirmationManager: dockCloseConfirmationManager()
+        )
+    }
+
+    static func confirmCloseAllPanels(
+        in stores: [DockSplitStore],
+        confirmationManager: TabManager?
+    ) -> Bool {
+        var panelsToClose: [any Panel] = []
+        var shouldConfirm = false
+        for store in stores {
+            let storePanels = store.bonsplitController.allTabIds.compactMap { store.panel(for: $0) }
+            panelsToClose.append(contentsOf: storePanels)
+            if !shouldConfirm {
+                shouldConfirm = storePanels.contains { panel in
+                    CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                        requiresConfirmation: store.dockPanelNeedsConfirmClose(panel),
+                        source: .shortcut
+                    )
+                }
+            }
         }
         guard shouldConfirm else { return true }
         let prompt = DockPaneCloseConfirmationPrompt(
             titles: panelsToClose.map { CloseOtherTabsConfirmationPrompt.displayTitle($0.displayTitle) }
         )
-        return confirmCloseDockPane(prompt, confirmationManager: dockCloseConfirmationManager())
+        guard let presenter = stores.first else { return true }
+        return presenter.confirmCloseDockPane(prompt, confirmationManager: confirmationManager)
     }
 
     private func confirmCloseDockPanel(_ panel: any Panel, confirmationManager: TabManager?) -> Bool {

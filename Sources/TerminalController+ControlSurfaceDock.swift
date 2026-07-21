@@ -217,6 +217,14 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         aliasTabManager: TabManager? = nil
     ) -> Bool {
+        if let surfaceID = routing.surfaceID,
+           !dock.containsPanel(surfaceID) {
+            return false
+        }
+        if let paneID = routing.paneID,
+           !dock.containsPane(paneID) {
+            return false
+        }
         guard let app = AppDelegate.shared,
               let location = dockStoreLocation(dock, app: app) else { return false }
         if routing.hasWindowIDParam {

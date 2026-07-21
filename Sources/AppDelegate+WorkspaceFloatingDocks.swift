@@ -248,9 +248,13 @@ extension AppDelegate {
         tabManager: TabManager,
         policy: WorkspaceFloatingDockClosePolicy = .confirmInteractive
     ) -> Bool {
-        guard workspace.floatingDock(id: dock.id) === dock,
-              (policy == .force || dock.store.confirmCloseAllPanels()),
-              workspace.closeFloatingDock(id: dock.id) else { return false }
+        guard workspace.floatingDock(id: dock.id) === dock else { return false }
+        guard dock.store.flushPendingAutosavingNotesSynchronously() else {
+            NSSound.beep()
+            return false
+        }
+        guard policy == .force || dock.store.confirmCloseAllPanels() else { return false }
+        guard workspace.closeFloatingDock(id: dock.id) else { return false }
         refreshWorkspaceFloatingDocks(for: tabManager)
         return true
     }
@@ -261,10 +265,17 @@ extension AppDelegate {
         tabManager: TabManager,
         policy: WorkspaceFloatingDockClosePolicy = .confirmInteractive
     ) -> Int? {
-        if policy == .confirmInteractive {
-            for dock in workspace.floatingDocks where !dock.store.confirmCloseAllPanels() {
-                return nil
-            }
+        let docks = workspace.floatingDocks
+        guard docks.allSatisfy({ $0.store.flushPendingAutosavingNotesSynchronously() }) else {
+            NSSound.beep()
+            return nil
+        }
+        if policy == .confirmInteractive,
+           !DockSplitStore.confirmCloseAllPanels(
+               in: docks.map(\.store),
+               confirmationManager: tabManager
+           ) {
+            return nil
         }
         guard let closedCount = workspace.closeAllFloatingDocks() else { return nil }
         refreshWorkspaceFloatingDocks(for: tabManager)
