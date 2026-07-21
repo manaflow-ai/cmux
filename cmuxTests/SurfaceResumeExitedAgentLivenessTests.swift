@@ -84,9 +84,9 @@ struct SurfaceResumeExitedAgentLivenessTests {
         )
     }
 
-    @Test("Newer compatible agent binding supersedes cached exited generation")
+    @Test("Newer agent binding and shell activity do not override cached exited process")
     @MainActor
-    func newerCompatibleAgentBindingSupersedesCachedExitedGeneration() throws {
+    func newerAgentBindingAndShellActivityDoNotOverrideCachedExitedProcess() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-newer-agent-binding-resume-\(UUID().uuidString)", isDirectory: true)
@@ -142,7 +142,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
             restorableAgentIndex: exitedIndex,
             surfaceResumeBindingIndex: newerBindingIndex
         )
-        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == true)
+        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
 
         let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
         defer { restored.teardownAllPanels() }
@@ -150,7 +150,8 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let restoredPanelID = try #require(restored.focusedPanelId)
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
 
-        #expect(restoredPanel.surface.debugInitialCommand() != nil)
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
     @Test("Cached running process is revalidated before surface resume")
