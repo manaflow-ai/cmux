@@ -8,6 +8,16 @@ final class WorkspaceListUITableView: UITableView {
 
     private var measuredWidth: CGFloat = 0
 
+    override init(frame: CGRect, style: UITableView.Style) {
+        super.init(frame: frame, style: style)
+        configureTopScrollEdgeEffect()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureTopScrollEdgeEffect()
+    }
+
     override func layoutSubviews() {
         let previousWidth = measuredWidth
         super.layoutSubviews()
@@ -22,6 +32,12 @@ final class WorkspaceListUITableView: UITableView {
         if previousTraitCollection?.preferredContentSizeCategory
             != traitCollection.preferredContentSizeCategory {
             layoutMetricsDidChange?()
+        }
+    }
+
+    private func configureTopScrollEdgeEffect() {
+        if #available(iOS 26.0, *) {
+            topEdgeEffect.style = .soft
         }
     }
 }
