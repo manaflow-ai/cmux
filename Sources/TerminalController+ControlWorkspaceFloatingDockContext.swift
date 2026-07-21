@@ -99,13 +99,33 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .setPresented(let selector, let presented, let focus):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
-            dock.isPresented = presented
-            refreshFloatingDockUI(dock: dock, workspace: workspace, tabManager: tabManager, focus: focus && presented)
+            guard AppDelegate.shared?.setWorkspaceFloatingDockPresented(
+                dock,
+                in: workspace,
+                tabManager: tabManager,
+                presented: presented,
+                focus: focus
+            ) == true else {
+                return .operationFailed(String(
+                    localized: "floatingDock.error.presentation",
+                    defaultValue: "Failed to update floating window visibility"
+                ))
+            }
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .focus(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
-            dock.isPresented = true
-            refreshFloatingDockUI(dock: dock, workspace: workspace, tabManager: tabManager, focus: true)
+            guard AppDelegate.shared?.setWorkspaceFloatingDockPresented(
+                dock,
+                in: workspace,
+                tabManager: tabManager,
+                presented: true,
+                focus: true
+            ) == true else {
+                return .operationFailed(String(
+                    localized: "floatingDock.error.presentation",
+                    defaultValue: "Failed to update floating window visibility"
+                ))
+            }
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .close(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }

@@ -4,7 +4,7 @@ A Floating Dock is a movable, resizable Bonsplit container owned by one workspac
 
 New Floating Docks start with a terminal. Their tabs and panes use the same Bonsplit drag behavior as the existing right Dock, so notes, terminals, and browsers can move between the main workspace, right Dock, and Floating Docks without recreating the surface. The default glass tint follows the active Ghostty background while keeping the translucent Raycast-style material; a per-window color overrides that derived tint.
 
-Create one from the command palette with `New Terminal Floating Window`, `New Notes Floating Window`, or `New Browser Floating Window`. `Customize Floating Window Color…` changes the most recently active floating window. `Close All Floating Windows in Workspace` closes only the selected workspace's floating windows. The CLI exposes the same choices:
+Create one from the command palette with `New Terminal Floating Window`, `New Notes Floating Window`, or `New Browser Floating Window`. The yellow titlebar control hides a floating window without adding it to the macOS Dock. `Minimize Floating Window` hides the most recently active floating window, and `Restore Minimized Floating Windows` brings hidden windows back in the selected workspace. Double-clicking the titlebar has no action. `Customize Floating Window Color…` changes the most recently active floating window. `Close All Floating Windows in Workspace` closes only the selected workspace's floating windows. The CLI exposes the same choices:
 
 ```sh
 cmux workspace float create --type terminal --title Scratch --focus
@@ -15,7 +15,8 @@ cmux workspace float color set float:1 --color '#272822'
 cmux workspace float color reset float:1
 cmux workspace float note set float:1 "release checklist"
 cmux workspace float pane create float:1 --type browser --direction right --url https://cmux.com
-cmux workspace float hide float:1
+cmux workspace float minimize float:1
+cmux workspace float restore float:1 --focus
 cmux workspace float close-all
 ```
 

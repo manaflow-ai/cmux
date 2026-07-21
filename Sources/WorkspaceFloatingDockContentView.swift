@@ -95,18 +95,9 @@ final class WorkspaceFloatingDockTitlebarDragNSView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
         window.makeKey()
-        if event.clickCount >= 2 {
-            let action = UserDefaults.standard
-                .persistentDomain(forName: UserDefaults.globalDomain)?["AppleActionOnDoubleClick"] as? String
-            if action == "Minimize" {
-                window.miniaturize(nil)
-            } else {
-                window.zoom(nil)
-            }
-        } else {
-            withTemporaryWindowMovableEnabled(window: window) {
-                window.performDrag(with: event)
-            }
+        guard event.clickCount == 1 else { return }
+        withTemporaryWindowMovableEnabled(window: window) {
+            window.performDrag(with: event)
         }
     }
 }

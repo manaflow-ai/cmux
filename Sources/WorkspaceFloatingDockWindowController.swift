@@ -50,6 +50,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     let dock: WorkspaceFloatingDock
     private weak var parentWindow: NSWindow?
     private let onCloseRequest: (UUID) -> Void
+    private let onMinimizeRequest: (UUID) -> Void
     private let onBecomeKey: (UUID) -> Void
     private let glassEffect = WindowGlassEffect()
     private weak var compatibilityBlurView: NSVisualEffectView?
@@ -61,12 +62,14 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         dock: WorkspaceFloatingDock,
         parentWindow: NSWindow,
         onCloseRequest: @escaping (UUID) -> Void,
+        onMinimizeRequest: @escaping (UUID) -> Void,
         onCreateRequest: @escaping () -> Void,
         onBecomeKey: @escaping (UUID) -> Void = { _ in }
     ) {
         self.dock = dock
         self.parentWindow = parentWindow
         self.onCloseRequest = onCloseRequest
+        self.onMinimizeRequest = onMinimizeRequest
         self.onBecomeKey = onBecomeKey
 
         let panel = WorkspaceFloatingDockPanel(
@@ -104,6 +107,11 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         )
 
         super.init(window: panel)
+        panel.onCustomMinimize = { [weak self] in
+            guard let self else { return }
+            self.onMinimizeRequest(self.dock.id)
+            self.parentWindow?.makeKeyAndOrderFront(nil)
+        }
         panel.delegate = self
         panel.lockContentDrivenSizeChanges()
         glassEffect.changesTintWithWindowKeyState = false
@@ -213,6 +221,10 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         onCloseRequest(dock.id)
         return false
+    }
+
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        false
     }
 
     func windowDidMove(_ notification: Notification) {
@@ -419,7 +431,16 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             guard let button = panel.standardWindowButton(buttonType) else { continue }
             button.isHidden = false
             button.alphaValue = 1
-            button.isEnabled = buttonType == .closeButton
+            button.isEnabled = buttonType != .zoomButton
+            if buttonType == .miniaturizeButton,
+               let floatingPanel = panel as? WorkspaceFloatingDockPanel {
+                button.target = floatingPanel
+                button.action = #selector(WorkspaceFloatingDockPanel.performCustomMinimize(_:))
+                button.toolTip = String(
+                    localized: "floatingDock.window.minimize",
+                    defaultValue: "Minimize Floating Window"
+                )
+            }
         }
     }
 }
@@ -436,6 +457,17 @@ private final class WorkspaceFloatingDockPanel: NSPanel {
     }
 
     private var sizeAuthority = SizeAuthority.initializing
+    var onCustomMinimize: (() -> Void)?
+
+    @objc func performCustomMinimize(_ sender: Any?) {
+        onCustomMinimize?()
+    }
+
+    override func miniaturize(_ sender: Any?) {
+        performCustomMinimize(sender)
+    }
+
+    override func zoom(_ sender: Any?) {}
 
     func lockContentDrivenSizeChanges() {
         sizeAuthority = .contentLocked

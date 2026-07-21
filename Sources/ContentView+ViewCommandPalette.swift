@@ -55,6 +55,24 @@ extension ContentView {
                 keywords: ["browser", "web", "floating", "dock", "workspace", "window"]
             ),
             CommandPaletteCommandContribution(
+                commandId: "palette.minimizeFloatingWindow",
+                title: constant(String(
+                    localized: "command.minimizeFloatingWindow.title",
+                    defaultValue: "Minimize Floating Window"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["minimize", "hide", "floating", "dock", "workspace", "window"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.restoreWorkspaceFloatingWindows",
+                title: constant(String(
+                    localized: "command.restoreWorkspaceFloatingWindows.title",
+                    defaultValue: "Restore Minimized Floating Windows"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["restore", "show", "minimized", "floating", "dock", "workspace", "windows"]
+            ),
+            CommandPaletteCommandContribution(
                 commandId: "palette.customizeFloatingWindowColor",
                 title: constant(String(
                     localized: "command.customizeFloatingWindowColor.title",
@@ -144,6 +162,18 @@ extension ContentView {
         }
         registry.register(commandId: "palette.newBrowserFloatingWindow") {
             createWorkspaceFloatingDockFromCommandPalette(initialContent: .browser)
+        }
+        registry.register(commandId: "palette.minimizeFloatingWindow") {
+            if AppDelegate.shared?.minimizePreferredWorkspaceFloatingDock(in: tabManager) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.restoreWorkspaceFloatingWindows") {
+            guard let restored = AppDelegate.shared?.restoreWorkspaceFloatingDocks(in: tabManager),
+                  restored > 0 else {
+                NSSound.beep()
+                return
+            }
         }
         registry.register(commandId: "palette.customizeFloatingWindowColor") {
             if AppDelegate.shared?.customizeWorkspaceFloatingDockColor(in: tabManager) != true {

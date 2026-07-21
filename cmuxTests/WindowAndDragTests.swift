@@ -3066,10 +3066,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
         defer { dock.close() }
 
+        var minimizedDockId: UUID?
         let controller = WorkspaceFloatingDockWindowController(
             dock: dock,
             parentWindow: parent,
             onCloseRequest: { _ in },
+            onMinimizeRequest: { minimizedDockId = $0 },
             onCreateRequest: {}
         )
         defer { controller.teardown() }
@@ -3087,6 +3089,9 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isEnabled == true)
         XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == true)
         XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
+        panel.standardWindowButton(.miniaturizeButton)?.performClick(nil)
+        XCTAssertEqual(minimizedDockId, dock.id)
+        XCTAssertFalse(panel.isMiniaturized)
         XCTAssertFalse(panel.isOpaque)
         XCTAssertTrue(panel.hasShadow)
         XCTAssertTrue(panel.usesWorkspaceFloatingDockGlassBackdrop)
