@@ -3,7 +3,30 @@ import Testing
 @testable import CmuxMobileShellUI
 
 @Suite struct SurfaceDeckValueTests {
-    @Test func olderMacUsesOneTerminalGroupAndOnlyShowsForMultipleSurfaces() {
+    @Test func deckRemainsVisibleForCreationActionsWithZeroOrOneTerminal() {
+        let noTerminals = MobileWorkspacePreview(
+            id: "empty-workspace",
+            name: "Empty Workspace",
+            terminals: []
+        )
+        let emptyValue = value(workspace: noTerminals, selectedSurfaceID: nil)
+
+        let oneTerminal = MobileWorkspacePreview(
+            id: "workspace",
+            name: "Workspace",
+            terminals: [MobileTerminalPreview(id: "terminal-1", name: "Build")]
+        )
+        let oneValue = value(workspace: oneTerminal, selectedSurfaceID: "terminal-1")
+
+        #expect(emptyValue.groups.count == 1)
+        #expect(emptyValue.groups[0].chips.isEmpty)
+        #expect(emptyValue.shouldShow)
+        #expect(oneValue.groups.count == 1)
+        #expect(oneValue.groups[0].chips.map(\.id) == ["terminal-1"])
+        #expect(oneValue.shouldShow)
+    }
+
+    @Test func olderMacUsesOneTerminalGroupAndPreservesSurfaceOrder() {
         let oneTerminal = MobileWorkspacePreview(
             id: "workspace",
             name: "Workspace",
@@ -23,7 +46,6 @@ import Testing
 
         #expect(oneValue.groups.count == 1)
         #expect(oneValue.groups[0].chips.map(\.id) == ["terminal-1"])
-        #expect(oneValue.shouldShow == false)
         #expect(oneValue.showsPaneMap == false)
         #expect(twoValue.groups[0].chips.map(\.id) == ["terminal-1", "terminal-2"])
         #expect(twoValue.shouldShow)
