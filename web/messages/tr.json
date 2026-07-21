@@ -745,6 +745,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Ağlar arasında dolaşım için cmux mosh-tmux kullanın. Adlandırılmış bir tmux oturumuna bağlı, tam entegre bir Mosh terminali açar; SSH tmux denetim modunun sunduğu yerel çalışma alanı, sekme ve bölme yansıtmasını değiştirmez."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Başlarken",
@@ -1493,10 +1496,16 @@
       "flagName": "Bayrak",
       "flagDesc": "Açıklama",
       "flagNameVal": "Çalışma alanı başlığını ayarlayın",
+      "flagCommand": "Komut metnini kabuk başladıktan sonra ilk uzak terminalde bir kez çalıştırın",
       "flagPort": "SSH bağlantı noktası (varsayılan 22)",
       "flagIdentity": "Kimlik dosyasının yolu",
       "flagSshOption": "İsteğe bağlı SSH seçeneklerini iletin (ör. -o StrictHostKeyChecking=no)",
+      "flagTransport": "Etkileşimli terminal aktarımı: ssh (varsayılan) veya mosh",
       "flagNoFocus": "Geçiş yapmadan çalışma alanını oluşturun",
+      "moshTitle": "Mosh terminal aktarımı",
+      "moshDesc": "Etkileşimli terminalin Wi-Fi, VPN veya erişim noktası değişikliklerinde ve uyku ya da uyanma sonrasında korunması gerektiğinde cmux ssh user@remote --transport mosh kullanın. Mosh yalnızca terminal PTY’sini taşır; uzak meta verileri, cmux hizmetinin kurulumu ve denetimi, tarayıcı proxy’si, yüklemeler ve yeniden bağlantılar SSH tarafından yönetilmeye devam eder.",
+      "moshFallback": "cmux yerelde Mosh 1.4 veya daha yenisini gerektirir ve başlatmadan önce uzak mosh-server’ı denetler. İstemci eksik veya uyumsuzsa, sunucu eksikse ya da uzak denetim başarısız olursa cmux nedeni açıklar ve SSH üzerinden devam eder.",
+      "moshTmux": "Adlandırılmış bir tmux oturumu oluşturan veya ona bağlanan Mosh çalışma alanı oluşturur (varsayılan: main). tmux profili yeniden bağlanma ve uygulama oturumu geri yüklemesinde korunur. Bu, dolaşabilen bir tmux terminalidir; cmux ssh-tmux yerel aynası değildir. --session <name> oturumu seçer; diğer bayraklar cmux mosh ile aynıdır. Mosh yoksa aynı profil SSH üzerinden çalışır.",
       "deepLinksTitle": "SSH derin bağlantıları",
       "deepLinksDesc": "Bir web sitesi veya araç cmux'da aç düğmesi sunmak istediğinde cmux SSH derin bağlantılarını kullanın. Bağlantı cmux'u açar, bir onay istemi gösterir ve kullanıcı onayladıktan sonra eşdeğer cmux ssh komutunu çalıştırır.",
       "deepLinksWebFallbackDesc": "Web sitesi düğmeleri için cmux.com yedek URL'sini kullanın. Yerel bağlantıyı açar ve cmux yüklü değilse indirme işlemini gösterir.",

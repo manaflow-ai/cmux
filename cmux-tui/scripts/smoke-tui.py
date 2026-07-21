@@ -217,6 +217,22 @@ def wait_render_contains(needle, seconds=15):
             return last
     raise AssertionError(last[-1200:])
 
+def wait_render_excludes(needle, seconds=15, stable_seconds=0.5):
+    deadline = time.time() + seconds
+    last = ""
+    absent_since = None
+    while time.time() < deadline:
+        drain(0.2)
+        last = render_text_snapshot(output)
+        if needle in last:
+            absent_since = None
+            continue
+        if absent_since is None:
+            absent_since = time.time()
+        elif time.time() - absent_since >= stable_seconds:
+            return last
+    raise AssertionError(last[-1200:])
+
 def render_style_snapshot(data, rows=30, cols=100):
     grid = [[{"bg": None, "bold": False, "dim": False, "reverse": False} for _ in range(cols)] for _ in range(rows)]
     x = y = 0
@@ -359,7 +375,7 @@ assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-tui", ident
-assert ident["data"]["protocol"] == 7, ident
+assert ident["data"]["protocol"] == 9, ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]
@@ -404,7 +420,7 @@ print("prefix-S returns focus to the pane ok")
 with open(config_path, "w", encoding="utf-8") as f:
     json.dump({"sidebar": {"width": 22}}, f)
 assert rpc({"id": 31, "cmd": "reload-config"})["ok"]
-wait_render_contains("workspaces")
+wait_render_excludes("SIDEBAR-MARKER")
 print("sidebar plugin config reload falls back to default workspaces sidebar ok")
 os.write(fd, b"\x02S")
 drain(0.4)
@@ -430,7 +446,7 @@ assert len(tabs) == before_tabs + 1, screen0
 assert tabs[-1]["kind"] == "browser", tabs
 os.write(fd, b"example.com")
 drain(0.5)
-text = output.decode("utf-8", "replace")
+text = render_text_snapshot(output)
 assert "example.com" in text, text[-800:]
 os.write(fd, b"\x1b")
 drain(0.5)

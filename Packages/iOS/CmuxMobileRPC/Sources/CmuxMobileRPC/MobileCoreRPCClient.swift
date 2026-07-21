@@ -22,6 +22,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
+    private let lifecycleGate: MobileRPCClientLifecycleGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -30,28 +31,56 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
+    ///   - legacyTailscaleAuthorizationEvidence: Exact local capability retained
+    ///     only for a pairing that predates Iroh. Mismatched evidence is ignored,
+    ///     leaving the raw Tailscale route fail-closed.
+    ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
+    ///     transport dial lifecycle events. The observer must return immediately.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool = false,
+        legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
-        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000
+        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
+        transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) -> Void)? = nil,
+        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl
     ) {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
+        let authorizationMode: CmxTransportAuthorizationMode
+        if route.kind == .iroh {
+            authorizationMode = .transportAdmission
+        } else if route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint,
+                  let legacyTailscaleAuthorizationEvidence,
+                  legacyTailscaleAuthorizationEvidence.authorizes(
+                      macDeviceID: ticket.macDeviceID,
+                      host: host,
+                      port: port
+                  ) {
+            authorizationMode = .legacyTailscaleBearer(
+                legacyTailscaleAuthorizationEvidence
+            )
+        } else {
+            authorizationMode = .stackBearer
+        }
         let transportRequest = CmxByteTransportRequest(
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
-            authorizationMode: route.kind == .iroh ? .transportAdmission : .stackBearer
+            authorizationMode: authorizationMode,
+            sessionPurpose: sessionPurpose
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        let lifecycleGate = MobileRPCClientLifecycleGate()
+        self.lifecycleGate = lifecycleGate
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -60,7 +89,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if route.kind == .iroh,
            let provider = runtime.independentEventByteStreamProvider {
             independentEventFactory = {
-                try await provider(transportRequest)
+                let admission = try lifecycleGate.beginIndependentEventAdmission()
+                let stream = try await provider(transportRequest)
+                return try await lifecycleGate.finishIndependentEventAdmission(
+                    admission,
+                    stream: stream
+                )
             }
         } else {
             independentEventFactory = nil
@@ -70,17 +104,30 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
-            makeTransport: { [runtime, transportRequest] in
-                try runtime.transportFactory.makeTransport(for: transportRequest)
+            makeTransport: { [runtime, transportRequest, lifecycleGate] in
+                try lifecycleGate.makeTransport {
+                    try runtime.transportFactory.makeTransport(for: transportRequest)
+                }
             },
-            makeIndependentEventByteStream: independentEventFactory
+            makeIndependentEventByteStream: independentEventFactory,
+            diagnosticTransport: route.kind.diagnosticTransportKind,
+            transportConnectObserver: transportConnectObserver
         )
     }
 
     /// Tear down the persistent transport (called when the client is
     /// replaced or the user signs out).
     public func disconnect() async {
+        retire()
         await session.tearDown(error: .connectionClosed)
+    }
+
+    /// Synchronously prevent this client from allocating another transport.
+    /// Shell ownership changes call this before scheduling actor-isolated
+    /// teardown, closing the window where an already-queued RPC could reopen a
+    /// client that is no longer authoritative.
+    public func retire() {
+        lifecycleGate.retire()
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
@@ -94,6 +141,27 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// caller can retain control-stream event delivery.
     public func prepareIndependentServerEvents() async -> Bool {
         await session.prepareIndependentServerEvents()
+    }
+
+    /// Opens an artifact lane bound to this client's immutable admitted route.
+    public func openArtifactLane(
+        resourceID: String,
+        offset: UInt64
+    ) async throws -> any MobileArtifactLaneConnection {
+        guard route.kind == .iroh,
+              let provider = runtime.artifactLaneProvider else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        let admission = try lifecycleGate.beginArtifactLaneAdmission()
+        let connection = try await provider(
+            transportRequest,
+            resourceID,
+            offset
+        )
+        return try await lifecycleGate.finishArtifactLaneAdmission(
+            admission,
+            connection: connection
+        )
     }
 
     /// Build a JSON-RPC request frame with the given method and params.
@@ -188,7 +256,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // account, so retrying with a fresh token of THIS account cannot
             // help and would only weaken the same-account gate; it surfaces as
             // `.rpcError("account_mismatch", _)`, not `.authorizationFailed`.
-            guard transportRequest.authorizationMode == .stackBearer,
+            guard transportUsesStackBearer,
                   case .authorizationFailed = error else { throw error }
             try await forceRefreshStackTokenForRetry(deadline: deadline)
             // Re-run with retry disabled so a fresh token that is still rejected
@@ -212,6 +280,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
               request["method"] as? String == "mobile.events.subscribe",
               var params = request["params"] as? [String: Any],
               params["event_transport"] == nil,
+              let streamID = params["stream_id"] as? String,
               let remaining = try? deadline.remainingNanoseconds() else {
             return requestData
         }
@@ -220,6 +289,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             Self.independentEventPreparationTimeoutNanoseconds
         )
         guard await session.prepareIndependentServerEvents(
+            forSubscriptionStreamID: streamID,
             timeoutNanoseconds: preparationTimeout
         ) else {
             return requestData
@@ -336,7 +406,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // expiry), so they never reach this branch.
             if !ticket.isExpired(at: runtime.now()) {
                 auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+            } else if !canSendStackBearer {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
@@ -350,8 +420,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // supplementary route/workspace context.
         let shouldSendStackAuth = requestNeedsAuth
         if shouldSendStackAuth {
-            guard allowsStackAuthFallback,
-                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            guard canSendStackBearer else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
@@ -381,8 +450,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         if !requestNeedsAuth,
            isHostStatusRequest(request),
-           allowsStackAuthFallback,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+           canSendStackBearer {
             let stackAccessToken: String?
             if let hostStatusStackToken {
                 stackAccessToken = hostStatusStackToken
@@ -423,6 +491,38 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
+    private var transportUsesStackBearer: Bool {
+        switch transportRequest.authorizationMode {
+        case .stackBearer, .legacyTailscaleBearer:
+            true
+        case .transportAdmission:
+            false
+        }
+    }
+
+    /// One authorization decision shared by every token-send site. Generic
+    /// plaintext routes remain restricted to loopback; the legacy mode is valid
+    /// only while its immutable device/IP/port evidence still matches.
+    private var canSendStackBearer: Bool {
+        switch transportRequest.authorizationMode {
+        case .stackBearer:
+            return allowsStackAuthFallback
+                && MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+        case let .legacyTailscaleBearer(evidence):
+            guard route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return false
+            }
+            return evidence.authorizes(
+                macDeviceID: ticket.macDeviceID,
+                host: host,
+                port: port
+            )
+        case .transportAdmission:
+            return false
+        }
+    }
+
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
         guard requestRequiresAuth(request) else {
             return false
@@ -439,7 +539,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
 
         switch method {
-        case "mobile.workspace.list", "workspace.list":
+        case "mobile.workspace.list", "workspace.list",
+             "mobile.directory.list", "mobile.directory.search":
             return false
         case "workspace.create":
             return false
@@ -471,6 +572,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false
+        case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
+             "notification.feed.mark_all_read":
+            // Feed authority is the authenticated account/peer connection, not
+            // a workspace-selection ticket. Omit an irrelevant scoped attach
+            // token so legacy pairings cannot accidentally narrow the global
+            // feed; Stack auth is still attached to every TCP request.
+            return true
         default:
             return true
         }

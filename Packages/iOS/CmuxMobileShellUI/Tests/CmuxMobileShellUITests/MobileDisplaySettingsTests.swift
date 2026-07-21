@@ -42,6 +42,74 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).showAltScreenNotice)
     }
 
+    @Test func showMissingFilesDefaultsToFalseWithoutAWrite() throws {
+        let defaults = try makeDefaults("showMissingFilesDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.showMissingFiles)
+        #expect(defaults.object(forKey: "cmux.mobile.showMissingFiles") == nil)
+    }
+
+    @Test func showMissingFilesPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("showMissingFilesPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.showMissingFiles = true
+        #expect(MobileDisplaySettings(defaults: defaults).showMissingFiles)
+        settings.showMissingFiles = false
+        #expect(!MobileDisplaySettings(defaults: defaults).showMissingFiles)
+    }
+
+    @Test func terminalFilesChipDefaultsToFalseWithoutAWrite() throws {
+        let defaults = try makeDefaults("terminalFilesChipDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.terminalFilesChipEnabled)
+        #expect(defaults.object(forKey: "cmux.mobile.terminalFilesChipEnabled") == nil)
+    }
+
+    @Test func terminalFolderTapDefaultsToTrueWithoutAWrite() throws {
+        let defaults = try makeDefaults("terminalFolderTapDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(settings.terminalFolderTapEnabled)
+        #expect(defaults.object(forKey: "cmux.mobile.terminalFolderTapEnabled") == nil)
+    }
+
+    @Test func terminalFolderTapDidSetPersists() throws {
+        let defaults = try makeDefaults("terminalFolderTapDidSetPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.terminalFolderTapEnabled = false
+        #expect(defaults.object(forKey: "cmux.mobile.terminalFolderTapEnabled") as? Bool == false)
+    }
+
+    @Test func terminalFolderTapReadsStoredFalse() throws {
+        let defaults = try makeDefaults("terminalFolderTapReadsStoredFalse")
+        defaults.set(false, forKey: "cmux.mobile.terminalFolderTapEnabled")
+        #expect(!MobileDisplaySettings(defaults: defaults).terminalFolderTapEnabled)
+    }
+
+    @Test func terminalFilesChipPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("terminalFilesChipPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.terminalFilesChipEnabled = true
+        #expect(MobileDisplaySettings(defaults: defaults).terminalFilesChipEnabled)
+        settings.terminalFilesChipEnabled = false
+        #expect(!MobileDisplaySettings(defaults: defaults).terminalFilesChipEnabled)
+    }
+
+    @Test func taskComposerDefaultsToFalseWithoutAWrite() throws {
+        let defaults = try makeDefaults("taskComposerDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.taskComposerEnabled)
+        #expect(defaults.object(forKey: "cmux.mobile.taskComposerEnabled") == nil)
+    }
+
+    @Test func taskComposerPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("taskComposerPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.taskComposerEnabled = true
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
+        settings.taskComposerEnabled = false
+        #expect(!MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
+    }
+
     @Test func previewLineCountPersistsAcrossInstances() throws {
         let defaults = try makeDefaults("persists")
         let settings = MobileDisplaySettings(defaults: defaults)
@@ -71,7 +139,45 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureLeftShift") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureSize") == nil)
+        #expect(settings.taskComposerShellIconVariant == .current)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1") == nil)
     }
+
+    @Test func shellIconExperimentsAreScopedToDebugBuilds() throws {
+        let defaults = try makeDefaults("shellIconBuildScope")
+        defaults.set(
+            TaskComposerShellIconVariant.medium86.rawValue,
+            forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+        )
+
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #if DEBUG
+        #expect(settings.taskComposerShellIconVariant == .medium86)
+        #expect(TaskComposerShellIconVariant.medium86.glyphScale == 0.86)
+        #else
+        #expect(settings.taskComposerShellIconVariant == .current)
+        let current = TaskComposerShellIconVariant.current
+        for variant in TaskComposerShellIconVariant.allCases {
+            #expect(variant.glyphScale == current.glyphScale)
+            #expect(variant.glyphWeight == current.glyphWeight)
+            #expect(variant.glyphOpacity == current.glyphOpacity)
+            #expect(variant.circleScale == current.circleScale)
+            #expect(variant.circleOpacityScale == current.circleOpacityScale)
+        }
+        #endif
+    }
+
+    #if DEBUG
+    @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
+        let defaults = try makeDefaults("shellIconVariant")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.taskComposerShellIconVariant = .medium86
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerShellIconVariant == .medium86)
+
+        defaults.set("removed-variant", forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1")
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerShellIconVariant == .current)
+    }
+    #endif
 
     @Test func debugLayoutSettingsPersistAcrossInstances() throws {
         let defaults = try makeDefaults("debugLayoutPersists")

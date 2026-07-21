@@ -85,6 +85,9 @@ public actor CmxIrohHostRuntime {
     var onlineAdmissionRegistry: CmxIrohOnlineAdmissionRegistry?
     var offlineSessions: CmxIrohOfflinePairingSessions?
     var supervisorEventTask: Task<Void, Never>?
+    var relayActivationTask: Task<Void, Never>?
+    var lanPublicationTask: Task<Void, Never>?
+    var lanPublicationGeneration: UInt64 = 0
     var registrationRefreshTask: Task<Void, Never>?
     var registrationRenewalTask: Task<Void, Never>?
     var registrationRefreshPending = false
@@ -250,19 +253,7 @@ public actor CmxIrohHostRuntime {
             }
             endpointServer = server
             await server.start()
-
-            if let relayCoordinator {
-                do {
-                    try await relayCoordinator.activate(
-                        bindingID: policy.binding.bindingID,
-                        endpointIdentity: endpointID,
-                        bootstrap: policy.relayBootstrap
-                    )
-                } catch {
-                    // The coordinator schedules a bounded broker retry. Direct paths
-                    // remain available and the binding stays authoritative.
-                }
-            }
+            try requireCurrent(revision)
 
             lifecyclePhase = .active
             currentSnapshot = CmxIrohHostRuntimeSnapshot(
@@ -270,15 +261,50 @@ public actor CmxIrohHostRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            await publishLANPolicy(
-                binding: policy.binding,
-                rendezvous: policy.lanRendezvous,
-                supervisor: supervisor
-            )
-            try requireCurrent(revision)
-            if let registration = policy.registration,
-               let discovery = policy.discovery {
-                await handleBinding(registration, discovery, policy.attestation)
+            var publishedPolicy = policy
+            let requiresRelayReadiness = !protocolConfiguration
+                .allowsNATTraversalAfterAdmission
+            if requiresRelayReadiness {
+                if let relayCoordinator {
+                    try await relayCoordinator.activate(
+                        bindingID: policy.binding.bindingID,
+                        endpointIdentity: endpointID,
+                        bootstrap: policy.relayBootstrap,
+                        waitForInitialCredential: true
+                    )
+                }
+                try requireCurrent(revision)
+                guard await supervisor.hasConfiguredRelay() else {
+                    throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
+                }
+                try await supervisor.waitForUsableHomeRelay()
+                try requireCurrent(revision)
+                let readyPolicy = try await resolvePolicy(
+                    supervisor: supervisor,
+                    expectedEndpointID: endpointID,
+                    revision: revision,
+                    allowCachedFallback: false
+                )
+                guard readyPolicy.binding.bindingID == policy.binding.bindingID else {
+                    throw CmxIrohHostRuntimeError.invalidLocalBinding
+                }
+                await admissionController.update(
+                    keys: readyPolicy.grantVerificationKeys,
+                    acceptor: grantPeer(for: readyPolicy.binding),
+                    pairingEnabled: readyPolicy.pairingEnabled
+                )
+                try requireCurrent(revision)
+                localBinding = readyPolicy.binding
+                endpointAttestation = readyPolicy.attestation ?? endpointAttestation
+                lanRendezvous = readyPolicy.lanRendezvous
+                publishedPolicy = readyPolicy
+                // The online event that released the barrier is already folded
+                // into `readyPolicy`; do not immediately publish a third copy.
+                registrationRefreshPending = false
+            }
+            if let registration = publishedPolicy.registration,
+               let discovery = publishedPolicy.discovery {
+                await handleBinding(registration, discovery, publishedPolicy.attestation)
                 scheduleRegistrationRenewal(
                     binding: registration.binding,
                     revision: revision
@@ -289,8 +315,23 @@ public actor CmxIrohHostRuntime {
                 registrationRefreshPending = false
                 scheduleRegistrationRefresh(revision: revision)
             }
+            if let relayCoordinator, !requiresRelayReadiness {
+                scheduleRelayActivation(
+                    relayCoordinator,
+                    binding: policy.binding,
+                    endpointID: endpointID,
+                    bootstrap: policy.relayBootstrap,
+                    revision: revision
+                )
+            }
+            scheduleLANPublication(
+                binding: publishedPolicy.binding,
+                rendezvous: publishedPolicy.lanRendezvous,
+                supervisor: supervisor,
+                revision: revision
+            )
         } catch {
-            guard lifecyclePhase == .starting,
+            guard lifecyclePhase.ownsNetworkOperation,
                   lifecycleRevision == revision else {
                 throw error
             }
@@ -458,6 +499,89 @@ public actor CmxIrohHostRuntime {
             return await endpoint.localDirectAddresses()
         }
         await handleLANPolicy(context, directAddresses)
+    }
+
+    func scheduleRelayActivation(
+        _ coordinator: CmxIrohRelayCredentialCoordinator,
+        binding: CmxIrohBrokerBindingMetadata,
+        endpointID: CmxIrohPeerIdentity,
+        bootstrap: CmxIrohRelayTokenResponse?,
+        revision: UInt64
+    ) {
+        relayActivationTask?.cancel()
+        relayActivationTask = Task { [weak self] in
+            await self?.activateRelaySidecar(
+                coordinator,
+                binding: binding,
+                endpointID: endpointID,
+                bootstrap: bootstrap,
+                revision: revision
+            )
+        }
+    }
+
+    private func activateRelaySidecar(
+        _ coordinator: CmxIrohRelayCredentialCoordinator,
+        binding: CmxIrohBrokerBindingMetadata,
+        endpointID: CmxIrohPeerIdentity,
+        bootstrap: CmxIrohRelayTokenResponse?,
+        revision: UInt64
+    ) async {
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              relayCoordinator === coordinator,
+              !Task.isCancelled else { return }
+        do {
+            try await coordinator.activate(
+                bindingID: binding.bindingID,
+                endpointIdentity: endpointID,
+                bootstrap: bootstrap
+            )
+        } catch {
+            // The coordinator owns bounded retry. A verified direct route stays
+            // authoritative when relay credential installation is unavailable.
+        }
+        if relayCoordinator === coordinator {
+            relayActivationTask = nil
+        }
+    }
+
+    func scheduleLANPublication(
+        binding: CmxIrohBrokerBindingMetadata,
+        rendezvous: CmxIrohLANRendezvous,
+        supervisor: CmxIrohEndpointSupervisor,
+        revision: UInt64
+    ) {
+        lanPublicationGeneration &+= 1
+        let generation = lanPublicationGeneration
+        lanPublicationTask?.cancel()
+        lanPublicationTask = Task { [weak self] in
+            await self?.publishLANSidecar(
+                binding: binding,
+                rendezvous: rendezvous,
+                supervisor: supervisor,
+                revision: revision,
+                generation: generation
+            )
+        }
+    }
+
+    private func publishLANSidecar(
+        binding: CmxIrohBrokerBindingMetadata,
+        rendezvous: CmxIrohLANRendezvous,
+        supervisor: CmxIrohEndpointSupervisor,
+        revision: UInt64,
+        generation: UInt64
+    ) async {
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              lanPublicationGeneration == generation,
+              !Task.isCancelled else { return }
+        await publishLANPolicy(
+            binding: binding,
+            rendezvous: rendezvous,
+            supervisor: supervisor
+        )
     }
 
     func endpointExpectation(

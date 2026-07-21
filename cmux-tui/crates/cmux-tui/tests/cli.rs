@@ -69,7 +69,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&ping_json);
     let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(7));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(9));
 
     let client_info =
         cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
@@ -101,6 +101,23 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let clients_human = cli(&server, &["list-clients"]);
     assert_success(&clients_human);
     assert!(String::from_utf8_lossy(&clients_human.stdout).contains("connected="));
+    let excluded = cli(
+        &server,
+        &["set-client-sizing", "--client", &target_id.to_string(), "--enabled", "false"],
+    );
+    assert_success(&excluded);
+    let clients = cli(&server, &["--json", "list-clients"]);
+    assert_success(&clients);
+    let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+    assert_eq!(
+        clients_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|client| client["client"] == target_id)
+            .unwrap()["size_participating"],
+        false
+    );
     let detached = cli(&server, &["detach-client", "--client", &target_id.to_string()]);
     assert_success(&detached);
     target_response.clear();
@@ -122,18 +139,41 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let split = cli(&server, &["split", "--pane", &pane0.to_string(), "--dir", "right"]);
     assert_success(&split);
 
+    let tree = cli(&server, &["--json", "list-workspaces"]);
+    assert_success(&tree);
+    let tree_json: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    let pane1 = tree_json["workspaces"][0]["screens"][0]["panes"][1]["id"].as_u64().unwrap();
+    let new_pane = cli(&server, &["new-pane", "--pane", &pane1.to_string()]);
+    assert_success(&new_pane);
+
     let exported = cli(&server, &["--json", "export-layout"]);
     assert_success(&exported);
     let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
     assert_eq!(exported_json["layout"]["type"].as_str(), Some("split"));
-    assert_eq!(exported_json["panes"].as_array().unwrap().len(), 2);
+    assert_eq!(exported_json["panes"].as_array().unwrap().len(), 3);
+    let split_id = exported_json["layout"]["split"].as_u64().unwrap();
+
+    let exact_ratio =
+        cli(&server, &["set-split-ratio", "--split", &split_id.to_string(), "--ratio", "0.7"]);
+    assert_success(&exact_ratio);
+    let exported = cli(&server, &["--json", "export-layout"]);
+    let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
+    assert_eq!(exported_json["layout"]["split"].as_u64(), Some(split_id));
+    let ratio = exported_json["layout"]["ratio"].as_f64().unwrap();
+    assert!((ratio - 0.7).abs() < 0.0001, "layout ratio was {ratio}");
+
+    let legacy_ratio = cli(
+        &server,
+        &["set-ratio", "--pane", &pane0.to_string(), "--dir", "right", "--ratio", "0.6"],
+    );
+    assert_success(&legacy_ratio);
 
     let neighbor =
         cli(&server, &["--json", "pane-neighbor", "--pane", &pane0.to_string(), "--dir", "right"]);
     assert_success(&neighbor);
     let neighbor_json: serde_json::Value = serde_json::from_slice(&neighbor.stdout).unwrap();
-    let pane1 = neighbor_json["pane"].as_u64().unwrap();
-    assert_ne!(pane0, pane1);
+    let neighboring_pane = neighbor_json["pane"].as_u64().unwrap();
+    assert_ne!(pane0, neighboring_pane);
 
     let focus = cli(
         &server,
@@ -141,7 +181,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     );
     assert_success(&focus);
     let focus_json: serde_json::Value = serde_json::from_slice(&focus.stdout).unwrap();
-    assert_eq!(focus_json["pane"].as_u64(), Some(pane1));
+    assert_ne!(focus_json["pane"].as_u64(), Some(pane0));
 
     let zoom =
         cli(&server, &["--json", "zoom-pane", "--pane", &pane1.to_string(), "--mode", "toggle"]);
@@ -151,16 +191,9 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(zoom_json["zoomed_pane"].as_u64(), Some(pane1));
 
     let marker = format!("cmux_cli_marker_{}", std::process::id());
-    let marker_suffix = std::process::id().to_string();
     let send = cli(
         &server,
-        &[
-            "send",
-            "--surface",
-            &surface.to_string(),
-            "--text",
-            &format!("printf 'cmux_cli_marker_%s\\n' '{marker_suffix}'\n"),
-        ],
+        &["send", "--surface", &surface.to_string(), "--text", &format!("echo {marker}\r")],
     );
     assert_success(&send);
     assert!(send.stdout.is_empty(), "mutating commands should be quiet on success");

@@ -7,7 +7,7 @@ public actor CmxIrohClientRuntime {
     public typealias BindingHandler = @Sendable (
         _ registration: CmxIrohRegistrationResponse,
         _ discovery: CmxIrohDiscoveryResponse
-    ) async -> Void
+    ) async -> Bool
 
     /// Runs when connectivity-only startup restores signed, already-known Mac tuples.
     public typealias CachedBindingsHandler = @Sendable (
@@ -17,6 +17,8 @@ public actor CmxIrohClientRuntime {
 
     /// Supplies local-link reachability only for one authenticated Mac tuple.
     public typealias LANFallbackProvider = CmxIrohRegistryContextProvider.LANFallbackProvider
+    public typealias CustomPrivateFallbackProvider =
+        CmxIrohRegistryContextProvider.CustomPrivateFallbackProvider
 
     /// Runs after a relay credential is installed on the exact active binding.
     public typealias RelayCredentialHandler = @Sendable (
@@ -73,7 +75,9 @@ public actor CmxIrohClientRuntime {
     let offlinePolicyCache: CmxIrohClientOfflinePolicyCache?
     let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     let lanFallback: LANFallbackProvider?
+    let customPrivateFallback: CustomPrivateFallbackProvider?
     let now: @Sendable () -> Date
+    let automaticRelayCredentialRefreshEnabled: Bool
     let handleBinding: BindingHandler
     let handleCachedBindings: CachedBindingsHandler
     let handleRelayCredential: RelayCredentialHandler
@@ -85,10 +89,13 @@ public actor CmxIrohClientRuntime {
     var signOutOperation: Task<CmxIrohClientSignOutPreparation, Never>?
     var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var supervisorEventTask: Task<Void, Never>?
-    var registrationRefreshTask: Task<Void, Never>?
+    var registrationRefreshTask: Task<CmxIrohLiveDiscoveryRefreshOutcome, any Error>?
+    var registrationRefreshTaskID: UUID?
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
+    var liveDiscoveryGeneration: UInt64 = 0
     var localBinding: CmxIrohBrokerBinding?
+    var registryContextProvider: CmxIrohRegistryContextProvider?
     var currentSnapshot = CmxIrohClientRuntimeSnapshot(
         state: .inactive,
         endpointID: nil,
@@ -107,6 +114,7 @@ public actor CmxIrohClientRuntime {
     ///   - configuration: Stable account-and-build-scoped endpoint inputs.
     ///   - pendingRevocations: Device-only bindings that must be revoked before registration.
     ///   - protocolConfiguration: The cmux ALPN and stream framing configuration.
+    ///   - diagnosticLog: Optional privacy-safe lifecycle sink for pooled sessions.
     ///   - networkPathSnapshot: A generation-aware view of positively identified
     ///     private-network profiles. An empty profile set disables explicit hints.
     ///   - now: Wall-clock injection for route and relay validation.
@@ -121,13 +129,16 @@ public actor CmxIrohClientRuntime {
         configuration: CmxIrohClientRuntimeConfiguration,
         pendingRevocations: CmxIrohPendingRevocationOutbox,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
+        diagnosticLog: DiagnosticLog? = nil,
         offlinePolicyCache: CmxIrohClientOfflinePolicyCache? = nil,
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
         },
         lanFallback: LANFallbackProvider? = nil,
+        customPrivateFallback: CustomPrivateFallbackProvider? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
-        handleBinding: @escaping BindingHandler = { _, _ in },
+        automaticRelayCredentialRefreshEnabled: Bool = true,
+        handleBinding: @escaping BindingHandler = { _, _ in true },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLocalDeactivation: @escaping LocalDeactivationHandler = {},
@@ -149,7 +160,8 @@ public actor CmxIrohClientRuntime {
         let sessionPool = CmxIrohClientSessionPool(
             supervisor: supervisor,
             contextProvider: contextRouter,
-            protocolConfiguration: protocolConfiguration
+            protocolConfiguration: protocolConfiguration,
+            diagnosticLog: diagnosticLog
         )
         self.supervisor = supervisor
         self.contextRouter = contextRouter
@@ -163,7 +175,9 @@ public actor CmxIrohClientRuntime {
         self.offlinePolicyCache = offlinePolicyCache
         self.networkPathSnapshot = networkPathSnapshot
         self.lanFallback = lanFallback
+        self.customPrivateFallback = customPrivateFallback
         self.now = now
+        self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.handleBinding = handleBinding
         self.handleCachedBindings = handleCachedBindings
         self.handleRelayCredential = handleRelayCredential
@@ -175,6 +189,84 @@ public actor CmxIrohClientRuntime {
     /// Returns the current non-secret lifecycle snapshot.
     public func snapshot() -> CmxIrohClientRuntimeSnapshot {
         currentSnapshot
+    }
+
+    /// Returns the non-secret hard expiry of the relay credential currently
+    /// installed on the live endpoint.
+    public func relayCredentialExpiresAt() async -> Date? {
+        await relayCoordinator?.credentialExpiresAt()
+    }
+
+    /// Monotonic count of online broker snapshots verified by this runtime.
+    public func liveDiscoverySnapshotGeneration() -> UInt64 {
+        liveDiscoveryGeneration
+    }
+
+    /// Refreshes registration and discovery, returning true only when a new
+    /// online broker snapshot was verified and installed.
+    ///
+    /// Connectivity fallback may preserve an existing verified runtime for
+    /// already-paired Macs, but returns false here so a cached or stale snapshot
+    /// can never authorize a first pairing.
+    public func refreshLiveDiscovery() async -> Bool {
+        await refreshLiveDiscoveryOutcome() == .refreshed
+    }
+
+    /// Refreshes registration and discovery with a privacy-safe failure reason.
+    ///
+    /// Connectivity fallback may preserve the existing verified runtime, but
+    /// returns a categorical failure so diagnostics can distinguish an offline
+    /// broker, unavailable policy, inactive endpoint, and superseded lifecycle.
+    /// Raw errors and their potentially sensitive associated data are discarded.
+    ///
+    /// - Returns: Whether a new verified snapshot was installed, or the bounded
+    ///   reason it was not.
+    public func refreshLiveDiscoveryOutcome() async -> CmxIrohLiveDiscoveryRefreshOutcome {
+        do {
+            return try await refreshLiveDiscoveryOutcomeThrowing()
+        } catch {
+            return .failed(DiagnosticFailureKind.classify(error))
+        }
+    }
+
+    func refreshLiveDiscoveryThrowing() async throws -> Bool {
+        try await refreshLiveDiscoveryOutcomeThrowing() == .refreshed
+    }
+
+    private func refreshLiveDiscoveryOutcomeThrowing() async throws
+        -> CmxIrohLiveDiscoveryRefreshOutcome
+    {
+        guard lifecyclePhase == .active else {
+            return .failed(.endpointUnavailable)
+        }
+        let priorGeneration = liveDiscoveryGeneration
+        var mayScheduleFreshRequest = registrationRefreshTask != nil
+        var latestOutcome: CmxIrohLiveDiscoveryRefreshOutcome = .failed(.superseded)
+        if registrationRefreshTask == nil {
+            scheduleRegistrationRefresh(revision: lifecycleRevision)
+        }
+        var lastAwaitedTaskID: UUID?
+        while lifecyclePhase == .active,
+              let refresh = registrationRefreshTask,
+              let refreshID = registrationRefreshTaskID,
+              refreshID != lastAwaitedTaskID {
+            lastAwaitedTaskID = refreshID
+            latestOutcome = try await refresh.value
+            guard lifecyclePhase == .active else {
+                return .failed(.endpointUnavailable)
+            }
+            if liveDiscoveryGeneration > priorGeneration { return .refreshed }
+            if registrationRefreshTaskID != nil {
+                mayScheduleFreshRequest = false
+                continue
+            }
+            guard mayScheduleFreshRequest else { return latestOutcome }
+            mayScheduleFreshRequest = false
+            scheduleRegistrationRefresh(revision: lifecycleRevision)
+        }
+        return lifecyclePhase == .active
+            ? latestOutcome
+            : .failed(.endpointUnavailable)
     }
 
     /// Returns the selected live path after removing raw transport coordinates.
@@ -240,6 +332,13 @@ public actor CmxIrohClientRuntime {
                 runtimeGeneration: endpointSnapshot.runtimeGeneration
             )
             try await install(policy: policy, revision: revision, startRelays: true)
+            if !protocolConfiguration.allowsNATTraversalAfterAdmission {
+                guard await supervisor.hasConfiguredRelay() else {
+                    throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
+                }
+                try await supervisor.waitForUsableHomeRelay()
+                try requireCurrent(revision)
+            }
             lifecyclePhase = .active
             currentSnapshot = CmxIrohClientRuntimeSnapshot(
                 state: .active,
@@ -248,7 +347,9 @@ public actor CmxIrohClientRuntime {
             )
             if let registration = policy.registration,
                let discovery = policy.discovery {
-                await handleBinding(registration, discovery)
+                let published = await handleBinding(registration, discovery)
+                try requireCurrent(revision)
+                if published { liveDiscoveryGeneration &+= 1 }
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
@@ -295,27 +396,33 @@ public actor CmxIrohClientRuntime {
     public func didBecomeActive() async throws {
         guard lifecyclePhase == .active else { return }
         let revision = lifecycleRevision
-        let checked = try await supervisor.ensureHealthy()
-        try requireCurrent(revision)
-        await sessionPool.activate(runtimeGeneration: checked.runtimeGeneration)
-        if let registrationRefreshTask {
-            registrationRefreshPending = true
-            await registrationRefreshTask.value
-            try requireCurrent(revision)
-            return
-        }
+        // A registration refresh reads the active endpoint. Keep the preserved
+        // generation installed until any existing refresh finishes, then pause
+        // new refreshes across the brief unbound window used for stale-driver
+        // replacement. Supervisor events become one pending refresh that the
+        // explicit foreground refresh below consumes.
         registrationRefreshEnabled = false
-        defer {
-            if lifecyclePhase == .active,
-               lifecycleRevision == revision {
-                registrationRefreshEnabled = true
-                if registrationRefreshPending {
-                    registrationRefreshPending = false
-                    scheduleRegistrationRefresh(revision: revision)
-                }
+        do {
+            if let refresh = registrationRefreshTask {
+                _ = try await refresh.value
+                try requireCurrent(revision)
             }
+            let checked = try await supervisor.ensureHealthy()
+            try requireCurrent(revision)
+            await sessionPool.activate(runtimeGeneration: checked.runtimeGeneration)
+            try requireCurrent(revision)
+            registrationRefreshPending = false
+            registrationRefreshEnabled = true
+            _ = try await refreshLiveDiscoveryThrowing()
+            try requireCurrent(revision)
+            try await relayCoordinator?.refreshIfNeeded()
+            try requireCurrent(revision)
+        } catch {
+            if lifecyclePhase == .active, lifecycleRevision == revision {
+                registrationRefreshEnabled = true
+            }
+            throw error
         }
-        try await refreshRegistration(revision: revision)
     }
 
     /// Opens a terminal or artifact lane on the admitted pooled peer connection.

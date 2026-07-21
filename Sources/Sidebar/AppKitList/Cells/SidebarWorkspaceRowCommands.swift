@@ -36,12 +36,11 @@ struct SidebarWorkspaceRowCommands {
 
     // MARK: Selection (parity with TabItemView.updateSelection)
 
-    func updateSelection() {
+    func updateSelection(modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
 #if DEBUG
         cmuxDebugLog("sidebar.select.enter workspace=\(tab.id.uuidString.prefix(5)) hasTabManager=\(tabManager != nil)")
 #endif
         guard let tabManager else { return }
-        let modifiers = NSEvent.modifierFlags
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
         let wasSelected = tabManager.selectedTabId == tab.id
@@ -161,8 +160,14 @@ struct SidebarWorkspaceRowCommands {
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
-        alert.window.initialFirstResponder = input
-        let response = alert.runModal()
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
+        ) { _ in
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
     }
@@ -194,8 +199,14 @@ struct SidebarWorkspaceRowCommands {
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
         alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
-        alert.window.initialFirstResponder = input
-        let response = alert.runModal()
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
+        ) { _ in
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
         guard response == .alertFirstButtonReturn else { return }
         guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
             showInvalidColorAlert(input.stringValue)
@@ -215,7 +226,9 @@ struct SidebarWorkspaceRowCommands {
             alert.informativeText = String(localized: "alert.invalidColor.invalidMessage", defaultValue: "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB.")
         }
         alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
-        _ = alert.runModal()
+        _ = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
+        )
     }
 
     /// Parity with TabItemView.moveWorkspaces(_:toWindow:).
