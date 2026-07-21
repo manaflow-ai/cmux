@@ -247,6 +247,23 @@ struct GhostMainWindowContextLifecycleTests {
         return window
     }
 
+    @Test("Finalized manager rejects startup workspace recovery")
+    func finalizedManagerRejectsStartupWorkspaceRecovery() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+
+        #expect(!manager.recoverEmptyWorkspaceAfterStartupIfNeeded())
+        #expect(manager.tabs.isEmpty)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+    }
+
     @Test("Retained closed window cannot respawn its context or terminal")
     func retainedClosedWindowCannotRespawnItsContextOrTerminal() throws {
         _ = NSApplication.shared
