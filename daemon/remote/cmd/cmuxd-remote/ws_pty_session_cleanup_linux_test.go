@@ -93,6 +93,52 @@ func TestWebSocketPTYCleanupTerminatesEverySessionProcessGroup(t *testing.T) {
 	}
 }
 
+func TestWebSocketPTYLeaderExitTerminatesEverySessionProcessGroup(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:          "/bin/sh",
+		SessionIdleTTL: time.Hour,
+	}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const sessionID = "leader-exit-cleanup"
+	_, _, _, err := hub.prepareAttachment(
+		context.Background(),
+		nil,
+		sessionID,
+		"attachment",
+		80,
+		24,
+		true,
+		`set -m; sleep 300 & exit 0`,
+		"token",
+		false,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("prepare PTY session: %v", err)
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey(sessionID)]
+	if session == nil || session.cmd == nil || session.cmd.Process == nil {
+		hub.mu.Unlock()
+		t.Fatal("persistent PTY session has no leader process")
+	}
+	leaderPID := session.cmd.Process.Pid
+	hub.mu.Unlock()
+
+	backgroundPIDs := waitForLinuxSessionBackgroundGroup(t, leaderPID, 5*time.Second)
+	t.Cleanup(func() {
+		for _, pid := range backgroundPIDs {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+		_ = syscall.Kill(-leaderPID, syscall.SIGKILL)
+	})
+
+	waitForHubSessionCount(t, hub, 0, time.Second)
+	waitForLinuxProcessesStopped(t, backgroundPIDs, 5*time.Second)
+}
+
 type linuxSessionProcess struct {
 	pid     int
 	groupID int
