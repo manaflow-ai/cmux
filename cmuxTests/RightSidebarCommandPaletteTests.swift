@@ -96,6 +96,27 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         )
     }
 
+    func testCommandPaletteIncludesMinimizeAndRestoreFloatingWindowActions() {
+        let contributions = ContentView.commandPaletteViewCommandContributions()
+        let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
+        let context = CommandPaletteContextSnapshot()
+
+        XCTAssertEqual(
+            contributionsByID["palette.minimizeFloatingWindow"]?.title(context),
+            String(
+                localized: "command.minimizeFloatingWindow.title",
+                defaultValue: "Minimize Floating Window"
+            )
+        )
+        XCTAssertEqual(
+            contributionsByID["palette.restoreWorkspaceFloatingWindows"]?.title(context),
+            String(
+                localized: "command.restoreWorkspaceFloatingWindows.title",
+                defaultValue: "Restore Minimized Floating Windows"
+            )
+        )
+    }
+
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)

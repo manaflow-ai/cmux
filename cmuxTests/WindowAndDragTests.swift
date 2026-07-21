@@ -2997,6 +2997,19 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
     }
 }
 
+private final class WorkspaceFloatingDockTitlebarActionRecordingWindow: NSWindow {
+    private(set) var zoomInvocationCount = 0
+    private(set) var miniaturizeInvocationCount = 0
+
+    override func zoom(_ sender: Any?) {
+        zoomInvocationCount += 1
+    }
+
+    override func miniaturize(_ sender: Any?) {
+        miniaturizeInvocationCount += 1
+    }
+}
+
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
@@ -3072,7 +3085,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(panel.standardWindowButton(.miniaturizeButton)?.alphaValue, 1)
         XCTAssertEqual(panel.standardWindowButton(.zoomButton)?.alphaValue, 1)
         XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isEnabled == true)
-        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == false)
+        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == true)
         XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
         XCTAssertFalse(panel.isOpaque)
         XCTAssertTrue(panel.hasShadow)
@@ -3221,6 +3234,35 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertTrue(dragRegion.acceptsFirstMouse(for: nil))
         XCTAssertFalse(dragRegion.mouseDownCanMoveWindow)
         XCTAssertEqual(WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset, 140)
+    }
+
+    func testWorkspaceFloatingDockTitlebarDoubleClickDoesNotInvokeNativeWindowActions() throws {
+        let window = WorkspaceFloatingDockTitlebarActionRecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 380),
+            styleMask: [.titled, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        let dragRegion = WorkspaceFloatingDockTitlebarDragNSView(
+            frame: NSRect(x: 0, y: 0, width: WorkspaceFloatingDockChromeMetrics.dragRegionWidth, height: 38)
+        )
+        window.contentView = dragRegion
+        let event = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 10, y: 10),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 2,
+            pressure: 1
+        ))
+
+        dragRegion.mouseDown(with: event)
+
+        XCTAssertEqual(window.zoomInvocationCount, 0)
+        XCTAssertEqual(window.miniaturizeInvocationCount, 0)
     }
 
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
