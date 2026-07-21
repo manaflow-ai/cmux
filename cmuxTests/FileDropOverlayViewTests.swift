@@ -4,6 +4,7 @@ import SwiftUI
 import WebKit
 import XCTest
 import CmuxUpdater
+import CmuxArtifacts
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -16,7 +17,13 @@ final class FileDropOverlayViewTests: XCTestCase {
     private func makeContentViewWindow(windowId: UUID = UUID()) -> NSWindow {
         _ = NSApplication.shared
 
-        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: windowId)
+        let artifactRepository = LocalArtifactRepository()
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            windowId: windowId,
+            artifactStore: artifactRepository,
+            artifactCaptureService: ArtifactCaptureService(store: artifactRepository)
+        )
             .environmentObject(TabManager())
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())

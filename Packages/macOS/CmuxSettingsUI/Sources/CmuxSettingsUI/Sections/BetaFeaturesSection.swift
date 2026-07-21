@@ -7,6 +7,7 @@ import SwiftUI
 /// off by default.
 @MainActor
 public struct BetaFeaturesSection: View {
+    @State private var artifacts: DefaultsValueModel<Bool>
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
@@ -16,6 +17,7 @@ public struct BetaFeaturesSection: View {
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+        _artifacts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarArtifacts))
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
@@ -32,6 +34,8 @@ public struct BetaFeaturesSection: View {
                 BetaFeaturesWarningNote(
                     String(localized: "settings.betaFeatures.warning", defaultValue: "These features are experimental and may change or break. Enable them only when you are testing them.")
                 )
+                SettingsCardDivider()
+                artifactsRow
                 SettingsCardDivider()
                 feedRow
                 SettingsCardDivider()
@@ -53,6 +57,7 @@ public struct BetaFeaturesSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
+            artifacts,
             feed,
             dock,
             extensions,
@@ -62,6 +67,23 @@ public struct BetaFeaturesSection: View {
             workspaceTodosChecklistStyle,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    @ViewBuilder
+    private var artifactsRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:artifacts",
+            String(localized: "settings.betaFeatures.artifacts", defaultValue: "Artifacts"),
+            subtitle: artifacts.current
+                ? String(localized: "settings.betaFeatures.artifacts.subtitleOn", defaultValue: "Shows the project’s local artifact tree in the right sidebar.")
+                : String(localized: "settings.betaFeatures.artifacts.subtitleOff", defaultValue: "Hides Artifacts from the right sidebar until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { artifacts.current }, set: { artifacts.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaArtifactsToggle")
+        }
     }
 
     @ViewBuilder

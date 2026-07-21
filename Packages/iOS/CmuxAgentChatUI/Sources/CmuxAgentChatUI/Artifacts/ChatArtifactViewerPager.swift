@@ -19,6 +19,7 @@ struct ChatArtifactViewerPager: View {
     @Environment(\.chatArtifactLoader) private var loader
     @State private var model: ChatArtifactViewerPagerModel
     @State private var zoomedPath: String?
+    @State private var isSavingToArtifacts = false
 
     init(
         initialPath: String,
@@ -217,7 +218,7 @@ struct ChatArtifactViewerPager: View {
                 systemImage: "ellipsis.circle"
             )
         }
-        .disabled(snapshot.fileActionState.isRunning)
+        .disabled(snapshot.fileActionState.isRunning || isSavingToArtifacts)
     }
 
     @ViewBuilder
@@ -237,6 +238,20 @@ struct ChatArtifactViewerPager: View {
                 String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module),
                 systemImage: "folder.badge.plus"
             )
+        }
+        if loader.supportsArtifactSave {
+            Button {
+                saveToArtifacts(path: snapshot.path)
+            } label: {
+                Label(
+                    String(
+                        localized: "chat.artifact.save_to_artifacts",
+                        defaultValue: "Save to cmux Artifacts",
+                        bundle: .module
+                    ),
+                    systemImage: "shippingbox"
+                )
+            }
         }
         if snapshot.isTextFile {
             Button {
@@ -378,6 +393,37 @@ struct ChatArtifactViewerPager: View {
                 defaultValue: "Latest",
                 bundle: .module
             )
+        }
+    }
+
+    private func saveToArtifacts(path: String) {
+        guard !isSavingToArtifacts else { return }
+        isSavingToArtifacts = true
+        Task {
+            defer { isSavingToArtifacts = false }
+            do {
+                let result = try await loader.save(path: path)
+                toasts.present(.success(
+                    String(
+                        format: String(
+                            localized: "chat.artifact.saved_to_artifacts",
+                            defaultValue: "Saved as %@",
+                            bundle: .module
+                        ),
+                        result.reference
+                    ),
+                    systemImage: "shippingbox"
+                ))
+            } catch {
+                toasts.present(.failure(
+                    String(
+                        localized: "chat.artifact.save_to_artifacts_failed",
+                        defaultValue: "Couldn’t save this file to cmux Artifacts.",
+                        bundle: .module
+                    ),
+                    systemImage: "shippingbox"
+                ))
+            }
         }
     }
     #endif

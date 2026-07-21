@@ -3,7 +3,6 @@ import CmuxSettings
 import Foundation
 
 private enum TerminalControllerChatArtifactIndexProvider {
-    static let shared = AgentChatArtifactIndex()
     static let ordering = ChatArtifactGalleryOrderingCache()
 }
 
@@ -77,12 +76,13 @@ extension TerminalController {
               let transcriptPath = service.resolver.transcriptPath(for: record) else {
             return nil
         }
-        let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
+        let snapshot = try await service.artifactIndex.snapshot(
             sessionID: record.sessionID,
             agentKind: record.agentKind,
             transcriptPath: transcriptPath,
             workingDirectory: record.workingDirectory
         )
+        await service.captureIndexedArtifacts(record: record, snapshot: snapshot)
         return (record.sessionID, snapshot)
     }
 
@@ -220,6 +220,33 @@ extension TerminalController {
         }
     }
 
+    func v2MobileChatArtifactSave(params: [String: Any]) async -> V2CallResult {
+        let resolution = await mobileChatArtifactResolution(params: params, operation: .file)
+        guard case .success(let resolved) = resolution else {
+            return resolution.failureResult
+        }
+        guard let service = agentChatTranscriptService,
+              let record = service.sessionRecord(sessionID: resolved.sessionID) else {
+            return mobileChatArtifactError(.notFound, path: resolved.requestedPath)
+        }
+        do {
+            let result = try await service.saveArtifact(
+                record: record,
+                sourceURL: URL(fileURLWithPath: resolved.canonicalPath, isDirectory: false)
+            )
+            return .ok(ChatArtifactWire.payload(result) ?? [:])
+        } catch {
+            return .err(
+                code: "artifact_save_failed",
+                message: String(
+                    localized: "mobile.chat.artifact.error.saveFailed",
+                    defaultValue: "The file could not be saved to this project’s Artifacts."
+                ),
+                data: ["path": resolved.requestedPath]
+            )
+        }
+    }
+
     private enum ChatArtifactOperation {
         case file
         case list
@@ -235,6 +262,7 @@ extension TerminalController {
     }
 
     private struct ResolvedChatArtifact: Sendable {
+        let sessionID: String
         let requestedPath: String
         let canonicalPath: String
     }
@@ -280,7 +308,7 @@ extension TerminalController {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
         do {
-            let pathResult = try await TerminalControllerChatArtifactIndexProvider.shared.canonicalPath(
+            let pathResult = try await service.artifactIndex.canonicalPath(
                 sessionID: record.sessionID,
                 agentKind: record.agentKind,
                 transcriptPath: transcriptPath,
@@ -292,6 +320,7 @@ extension TerminalController {
             switch pathResult {
             case .success(let canonicalPath):
                 return .success(ResolvedChatArtifact(
+                    sessionID: record.sessionID,
                     requestedPath: requestedPath,
                     canonicalPath: canonicalPath
                 ))

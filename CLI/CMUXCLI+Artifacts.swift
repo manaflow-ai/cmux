@@ -1,0 +1,286 @@
+import CmuxArtifacts
+import Foundation
+
+extension CMUXCLI {
+    func runArtifactCommand(
+        commandArgs: [String],
+        jsonOutput: Bool,
+        processEnvironment: [String: String]
+    ) async throws {
+        let parsed = try artifactArguments(commandArgs)
+        let projectRoot = artifactProjectRoot(explicitPath: parsed.projectPath)
+        let repository = LocalArtifactRepository()
+
+        do {
+            switch parsed.subcommand {
+            case "list":
+                guard parsed.operands.isEmpty else {
+                    throw CLIError(message: artifactUsage(), exitCode: 2)
+                }
+                let snapshot = try await repository.snapshot(projectRoot: projectRoot)
+                let files = artifactFiles(in: snapshot.nodes)
+                if jsonOutput {
+                    print(jsonString([
+                        "project_root": projectRoot.path,
+                        "artifacts_root": snapshot.artifactsRoot.path,
+                        "artifacts": files.map(artifactPayload),
+                    ]))
+                } else if files.isEmpty {
+                    print(String(
+                        localized: "cli.artifact.output.empty",
+                        defaultValue: "No artifacts found."
+                    ))
+                } else {
+                    files.forEach { print($0.relativePath) }
+                }
+
+            case "path":
+                let name = try artifactRequiredOperand(parsed.operands, subcommand: "path")
+                let node = try await repository.resolve(projectRoot: projectRoot, name: name)
+                if jsonOutput {
+                    print(jsonString(artifactPayload(node)))
+                } else {
+                    print(node.absolutePath)
+                }
+
+            case "open":
+                let name = try artifactRequiredOperand(parsed.operands, subcommand: "open")
+                let node = try await repository.resolve(projectRoot: projectRoot, name: name)
+                try openArtifact(node)
+                if jsonOutput { print(jsonString(artifactPayload(node))) }
+
+            case "add":
+                let rawPath = try artifactRequiredOperand(parsed.operands, subcommand: "add")
+                let sourceURL = artifactFileURL(rawPath)
+                let context = artifactCaptureContext(
+                    projectRoot: projectRoot,
+                    environment: processEnvironment
+                )
+                let outcome = try await ArtifactCaptureService(store: repository).add(
+                    sourceURL: sourceURL,
+                    context: context
+                )
+                guard let record = outcome.record else {
+                    throw CLIError(message: String(
+                        localized: "cli.artifact.error.addRejected",
+                        defaultValue: "The artifact was not added."
+                    ))
+                }
+                let absolutePath = ArtifactStorePaths(projectRoot: projectRoot).artifactsRoot
+                    .appendingPathComponent(record.relativePath, isDirectory: false).path
+                if jsonOutput {
+                    print(jsonString([
+                        "path": absolutePath,
+                        "relative_path": record.relativePath,
+                        "digest": record.digest,
+                        "result": artifactOutcomeName(outcome),
+                    ]))
+                } else {
+                    print(absolutePath)
+                }
+
+            case "search":
+                let query = try artifactRequiredOperand(parsed.operands, subcommand: "search")
+                let results = try await repository.search(projectRoot: projectRoot, query: query)
+                if jsonOutput {
+                    print(jsonString([
+                        "query": query,
+                        "results": results.map { result in
+                            var payload = artifactPayload(result.node)
+                            payload["matched_content"] = result.matchedContent
+                            payload["snippet"] = result.snippet ?? NSNull()
+                            return payload
+                        },
+                    ]))
+                } else if results.isEmpty {
+                    print(String(
+                        localized: "cli.artifact.output.noMatches",
+                        defaultValue: "No artifacts matched."
+                    ))
+                } else {
+                    for result in results {
+                        if let snippet = result.snippet {
+                            print("\(result.node.relativePath): \(snippet)")
+                        } else {
+                            print(result.node.relativePath)
+                        }
+                    }
+                }
+
+            default:
+                throw CLIError(message: artifactUsage(), exitCode: 2)
+            }
+        } catch let error as ArtifactStoreError {
+            throw CLIError(message: artifactErrorMessage(error), exitCode: 2)
+        }
+    }
+
+    func artifactUsage() -> String {
+        String(localized: "cli.artifact.usage", defaultValue: """
+        Usage: cmux artifact list [--project <path>]
+               cmux artifact path <name-or-relative-path> [--project <path>]
+               cmux artifact open <name-or-relative-path> [--project <path>]
+               cmux artifact add <path> [--project <path>]
+               cmux artifact search <query> [--project <path>]
+
+        Browse and add ordinary files under <project>/.cmux/artifacts.
+        Commands work without a running cmux app or socket. The project defaults
+        to the nearest ancestor containing .cmux or .git.
+        """)
+    }
+
+    private func artifactArguments(_ arguments: [String]) throws -> ArtifactCLIArguments {
+        var projectPath: String?
+        var remaining: [String] = []
+        var index = 0
+        var pastTerminator = false
+        while index < arguments.count {
+            let argument = arguments[index]
+            if pastTerminator {
+                remaining.append(argument)
+                index += 1
+                continue
+            }
+            if argument == "--" {
+                pastTerminator = true
+                index += 1
+                continue
+            }
+            if argument == "--project" {
+                guard index + 1 < arguments.count else {
+                    throw CLIError(message: String(
+                        localized: "cli.artifact.error.projectValue",
+                        defaultValue: "artifact: --project requires a path"
+                    ), exitCode: 2)
+                }
+                projectPath = arguments[index + 1]
+                index += 2
+            } else if argument.hasPrefix("--project=") {
+                projectPath = String(argument.dropFirst("--project=".count))
+                index += 1
+            } else if argument.hasPrefix("-") {
+                throw CLIError(message: artifactUsage(), exitCode: 2)
+            } else {
+                remaining.append(argument)
+                index += 1
+            }
+        }
+        if let projectPath,
+           projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: String(
+                localized: "cli.artifact.error.projectValue",
+                defaultValue: "artifact: --project requires a path"
+            ), exitCode: 2)
+        }
+        return ArtifactCLIArguments(
+            subcommand: remaining.first?.lowercased() ?? "list",
+            operands: Array(remaining.dropFirst()),
+            projectPath: projectPath
+        )
+    }
+
+    private func artifactProjectRoot(explicitPath: String?) -> URL {
+        let start = explicitPath.map(artifactFileURL)
+            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        return ArtifactProjectLocator().projectRoot(startingAt: start, fileManager: .default)
+    }
+
+    private func artifactFileURL(_ rawPath: String) -> URL {
+        let expanded = NSString(string: rawPath).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return URL(fileURLWithPath: expanded).standardizedFileURL
+        }
+        return URL(
+            fileURLWithPath: expanded,
+            relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        ).standardizedFileURL
+    }
+
+    private func artifactRequiredOperand(_ operands: [String], subcommand: String) throws -> String {
+        let value = operands.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.artifact.error.missingOperand",
+                    defaultValue: "artifact %@ requires a value"
+                ),
+                subcommand
+            ), exitCode: 2)
+        }
+        return value
+    }
+
+    private func artifactCaptureContext(
+        projectRoot: URL,
+        environment: [String: String]
+    ) -> ArtifactCaptureContext {
+        let codexSession = environment["CMUX_CODEX_SESSION_ID"]
+        let claudeSession = environment["CMUX_CLAUDE_SESSION_ID"]
+        return ArtifactCaptureContext(
+            projectRoot: projectRoot,
+            workspaceID: environment["CMUX_WORKSPACE_ID"],
+            workspaceTitle: environment["CMUX_WORKSPACE_TITLE"],
+            sessionID: codexSession ?? claudeSession ?? environment["CMUX_AGENT_SESSION_ID"],
+            agentName: codexSession == nil ? (claudeSession == nil ? environment["CMUX_AGENT_NAME"] : "claude") : "codex"
+        )
+    }
+
+    private func artifactFiles(in nodes: [ArtifactNode]) -> [ArtifactNode] {
+        nodes.flatMap { node in
+            node.isDirectory ? artifactFiles(in: node.children) : [node]
+        }
+    }
+
+    private func artifactPayload(_ node: ArtifactNode) -> [String: Any] {
+        [
+            "name": node.name,
+            "relative_path": node.relativePath,
+            "path": node.absolutePath,
+            "kind": node.fileKind?.rawValue ?? "other",
+            "size": node.size ?? 0,
+        ]
+    }
+
+    private func artifactOutcomeName(_ outcome: ArtifactImportOutcome) -> String {
+        switch outcome {
+        case .copied: return "copied"
+        case .deduplicated: return "deduplicated"
+        case .alreadyStored: return "already_stored"
+        case .skipped: return "skipped"
+        }
+    }
+
+    private func openArtifact(_ node: ArtifactNode) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = [node.absolutePath]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.artifact.error.openFailed",
+                    defaultValue: "Could not open artifact at %@"
+                ),
+                node.absolutePath
+            ))
+        }
+    }
+
+    private func artifactErrorMessage(_ error: ArtifactStoreError) -> String {
+        switch error {
+        case .sourceNotRegularFile(let path):
+            return String(format: String(localized: "cli.artifact.error.notFile", defaultValue: "Not a regular file: %@"), path)
+        case .unsupportedExtension(let pathExtension):
+            return String(format: String(localized: "cli.artifact.error.unsupported", defaultValue: "Unsupported artifact extension: %@"), pathExtension)
+        case .fileTooLarge(let actual, let limit):
+            return String(format: String(localized: "cli.artifact.error.tooLarge", defaultValue: "Artifact is too large (%lld bytes; limit %lld)."), actual, limit)
+        case .artifactNotFound(let name):
+            return String(format: String(localized: "cli.artifact.error.notFound", defaultValue: "Artifact not found: %@"), name)
+        case .ambiguousArtifactName(let name, let matches):
+            return String(format: String(localized: "cli.artifact.error.ambiguous", defaultValue: "Artifact name '%@' is ambiguous: %@"), name, matches.joined(separator: ", "))
+        case .pathOutsideStore(let path):
+            return String(format: String(localized: "cli.artifact.error.outsideStore", defaultValue: "Artifact path escaped the store: %@"), path)
+        }
+    }
+}

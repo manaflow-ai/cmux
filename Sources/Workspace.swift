@@ -1972,10 +1972,11 @@ final class Workspace: Identifiable, ObservableObject {
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
+        case artifactPreview
         case restoration
 
         var permitsCreationWhenBrowserDisabled: Bool {
-            self == .restoration
+            self == .restoration || self == .artifactPreview
         }
 
         var preloadsInitialNavigationInBackground: Bool {

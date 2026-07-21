@@ -2,66 +2,11 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxAppKitSupportUI
+import CmuxArtifacts
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
-
-private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
-    guard let responder else { return "nil" }
-    return String(describing: type(of: responder))
-}
-
-/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
-    case customSidebar = "custom-sidebar"
-
-    var label: String {
-        switch self {
-        case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
-        case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
-        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
-        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        case .customSidebar: return "wand.and.stars"
-        }
-    }
-
-    var shortcutAction: KeyboardShortcutSettings.Action? {
-        switch self {
-        case .files: return .switchRightSidebarToFiles
-        case .find: return .switchRightSidebarToFind
-        case .sessions: return .switchRightSidebarToSessions
-        case .feed: return .switchRightSidebarToFeed
-        case .dock: return .switchRightSidebarToDock
-        case .customSidebar: return nil
-        }
-    }
-}
-
-extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
-
-    var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
-    }
-}
 
 enum RightSidebarContentMountPolicy {
     static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
@@ -75,32 +20,9 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .artifacts, .feed, .dock, .customSidebar:
             return false
         }
-    }
-}
-
-extension RightSidebarMode {
-    static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
-        modeShortcut(for: event, allowingAction: { _ in true })
-    }
-
-    static func modeShortcut(
-        for event: NSEvent,
-        allowingAction: (KeyboardShortcutSettings.Action) -> Bool
-    ) -> RightSidebarMode? {
-        guard event.type == .keyDown else { return nil }
-        for mode in RightSidebarMode.allCases {
-            guard let action = mode.shortcutAction,
-                  allowingAction(action),
-                  mode.isAvailable(),
-                  KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
-                continue
-            }
-            return mode
-        }
-        return nil
     }
 }
 
@@ -113,8 +35,10 @@ struct RightSidebarPanelView: View {
     let titlebarHeight: CGFloat
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
+    let artifactWorkspace: ArtifactSidebarWorkspace?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
+    let onOpenArtifact: (ArtifactSidebarRowSnapshot) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 
@@ -125,6 +49,7 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
+    @State private var artifactSidebarModel: ArtifactSidebarModel
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
@@ -136,6 +61,43 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @AppStorage(RightSidebarBetaFeatureSettings.artifactsEnabledKey)
+    private var artifactsEnabled = RightSidebarBetaFeatureSettings.defaultArtifactsEnabled
+
+    init(
+        tabManager: TabManager,
+        fileExplorerStore: FileExplorerStore,
+        fileExplorerState: FileExplorerState,
+        sessionIndexStore: SessionIndexStore,
+        titlebarHeight: CGFloat,
+        windowAppearance: WindowAppearanceSnapshot,
+        workspaceId: UUID?,
+        artifactWorkspace: ArtifactSidebarWorkspace?,
+        artifactStore: any ArtifactStoring,
+        artifactCaptureService: any ArtifactCapturing,
+        onResumeSession: ((SessionEntry) -> Void)?,
+        onOpenFilePreview: @escaping (String) -> Void,
+        onOpenArtifact: @escaping (ArtifactSidebarRowSnapshot) -> Void,
+        onOpenAsPane: @escaping (RightSidebarMode) -> Void,
+        onClose: @escaping () -> Void
+    ) {
+        self.tabManager = tabManager
+        self.fileExplorerStore = fileExplorerStore
+        self.fileExplorerState = fileExplorerState
+        self.sessionIndexStore = sessionIndexStore
+        self.titlebarHeight = titlebarHeight
+        self.windowAppearance = windowAppearance
+        self.workspaceId = workspaceId
+        self.artifactWorkspace = artifactWorkspace
+        self.onResumeSession = onResumeSession
+        self.onOpenFilePreview = onOpenFilePreview
+        self.onOpenArtifact = onOpenArtifact
+        self.onOpenAsPane = onOpenAsPane
+        self.onClose = onClose
+        _artifactSidebarModel = State(
+            initialValue: ArtifactSidebarModel(store: artifactStore, captureService: artifactCaptureService)
+        )
+    }
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -145,7 +107,11 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(
+            artifactsEnabled: artifactsEnabled,
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled
+        )
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
@@ -211,6 +177,7 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: artifactsEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
@@ -397,6 +364,12 @@ struct RightSidebarPanelView: View {
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }
+            case .artifacts:
+                ArtifactSidebarPanelView(
+                    model: artifactSidebarModel,
+                    workspace: artifactWorkspace,
+                    onOpenArtifact: onOpenArtifact
+                )
             case .feed:
                 FeedPanelView()
             case .dock:
@@ -457,97 +430,5 @@ struct RightSidebarPanelView: View {
             focusFirstItem: false,
             preferredWindow: window
         )
-    }
-}
-
-private struct RightSidebarKeyboardFocusBridge: NSViewRepresentable {
-    func makeNSView(context: Context) -> RightSidebarKeyboardFocusView {
-        let view = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
-        return view
-    }
-
-    func updateNSView(_ nsView: RightSidebarKeyboardFocusView, context: Context) {
-        nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
-    }
-}
-
-final class RightSidebarKeyboardFocusView: NSView {
-    override var acceptsFirstResponder: Bool { true }
-    override var canBecomeKeyView: Bool { true }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerRightSidebarHost(self)
-#if DEBUG
-        dlog(
-            "rs.focus.host.attach win=\(window.windowNumber) canAccept=\(cmuxCanAcceptRightSidebarKeyboardFocus ? 1 : 0) " +
-            "fr=\(rightSidebarDebugResponder(window.firstResponder))"
-        )
-#endif
-    }
-
-    func registerWithKeyboardFocusCoordinatorIfNeeded() {
-        guard let window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerRightSidebarHost(self)
-    }
-
-    override func layout() {
-        super.layout()
-        registerWithKeyboardFocusCoordinatorIfNeeded()
-    }
-
-    override func keyDown(with event: NSEvent) {
-        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
-            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                mode: mode,
-                focusFirstItem: true,
-                preferredWindow: window
-            )
-            return
-        }
-        if event.keyCode == 53 {
-            if let window,
-               AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() == true {
-                return
-            }
-            window?.makeFirstResponder(nil)
-            return
-        }
-        if let characters = event.charactersIgnoringModifiers, !characters.isEmpty {
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    func focusHostFromCoordinator() -> Bool {
-        guard let window else {
-#if DEBUG
-            dlog("rs.focus.host.focus result=0 reason=noWindow")
-#endif
-            return false
-        }
-        let result = window.makeFirstResponder(self)
-#if DEBUG
-        dlog(
-            "rs.focus.host.focus result=\(result ? 1 : 0) win=\(window.windowNumber) " +
-            "fr=\(rightSidebarDebugResponder(window.firstResponder))"
-        )
-#endif
-        return result
-    }
-}
-
-extension NSView {
-    var cmuxCanAcceptRightSidebarKeyboardFocus: Bool {
-        guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
-        var view: NSView? = self
-        while let current = view {
-            if current.bounds.width <= 0.5 || current.bounds.height <= 0.5 {
-                return false
-            }
-            view = current.superview
-        }
-        return true
     }
 }

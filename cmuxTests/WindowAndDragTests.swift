@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxArtifacts
 import Carbon.HIToolbox
 import Darwin
 import PDFKit
@@ -1887,6 +1888,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
+        let artifactRepository = LocalArtifactRepository()
         let rootView = RightSidebarPanelView(
             tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
@@ -1894,8 +1896,12 @@ final class WindowDragHandleHitTests: XCTestCase {
             sessionIndexStore: SessionIndexStore(),
             titlebarHeight: 36, windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
+            artifactWorkspace: nil,
+            artifactStore: artifactRepository,
+            artifactCaptureService: ArtifactCaptureService(store: artifactRepository),
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
+            onOpenArtifact: { _ in },
             onOpenAsPane: { _ in },
             onClose: {}
         )

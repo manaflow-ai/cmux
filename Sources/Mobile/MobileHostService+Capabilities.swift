@@ -42,6 +42,7 @@ extension MobileHostService {
             "workspace.directory_search.v1",
             "workspace.directory_search.v2",
             "chat.artifact.v1",
+            "chat.artifact.save.v1",
             "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",
             "dogfood.v1",

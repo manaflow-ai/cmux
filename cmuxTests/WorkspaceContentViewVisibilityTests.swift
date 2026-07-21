@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import CmuxUpdater
+import CmuxArtifacts
 import CoreGraphics
 import SwiftUI
 import Bonsplit
@@ -47,7 +48,13 @@ final class WorkspaceContentViewVisibilityTests {
         }
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
-        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+        let artifactRepository = LocalArtifactRepository()
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            windowId: UUID(),
+            artifactStore: artifactRepository,
+            artifactCaptureService: ArtifactCaptureService(store: artifactRepository)
+        )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)

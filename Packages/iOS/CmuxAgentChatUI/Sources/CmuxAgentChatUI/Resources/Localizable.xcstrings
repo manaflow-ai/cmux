@@ -2584,6 +2584,57 @@
           }
         }
       }
+    },
+    "chat.artifact.save_to_artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save to cmux Artifacts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux アーティファクトに保存"
+          }
+        }
+      }
+    },
+    "chat.artifact.save_to_artifacts_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t save this file to cmux Artifacts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを cmux アーティファクトに保存できませんでした。"
+          }
+        }
+      }
+    },
+    "chat.artifact.saved_to_artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved as %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ として保存しました"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
