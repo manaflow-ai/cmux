@@ -40,6 +40,11 @@ final class SidebarRowChecklistSection: NSView {
     /// zero-width frame pins the popover to the row's left edge (the legacy
     /// anchor-collapse bug class).
     private var pendingPopoverPresentation = false
+    /// Container write-back captured at present time, so an external close —
+    /// or this pooled cell being reused for another workspace — clears the
+    /// PRESENTED workspace's state even after `self.actions` was replaced
+    /// (legacy host dismantle parity: unmount writes `isPresented = false`).
+    private var activePopoverDismissContext: (() -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -80,7 +85,13 @@ final class SidebarRowChecklistSection: NSView {
             lastPopoverModel = nil
             if popoverPresenter.isShown {
                 popoverPresenter.close()
+                // Reused for another workspace: write the OLD workspace's
+                // presentation state back to closed (captured at present
+                // time), or scrolling back would re-present a popover the
+                // legacy host dismantles for good.
+                activePopoverDismissContext?()
             }
+            activePopoverDismissContext = nil
         }
 
         let snapshot = model.snapshot
@@ -205,6 +216,9 @@ final class SidebarRowChecklistSection: NSView {
             if popoverPresenter.isShown {
                 popoverPresenter.close()
             }
+            // The container already reflects the closed state on this path;
+            // drop the captured write-back without invoking it.
+            activePopoverDismissContext = nil
             return
         }
         guard !awaitingPopoverDismissAck else { return }
@@ -232,13 +246,23 @@ final class SidebarRowChecklistSection: NSView {
         guard !popoverPresenter.isShown else { return }
         let popoverModel = checklistPopoverModel(model)
         lastPopoverModel = popoverModel
+        // Capture the presented workspace's write-back closures NOW: by the
+        // time a dismissal fires, `self.actions` may already belong to a
+        // different workspace (pooled cell reuse).
+        let presentedChange = actions.onChecklistPopoverPresentedChange
+        let consumeToken = actions.onConsumeChecklistAddFieldActivation
+        activePopoverDismissContext = {
+            presentedChange(false)
+            consumeToken()
+        }
         popoverPresenter.onExternalDismiss = { [weak self] in
             // AppKit closed us (click-away / deactivation): latch until the
             // container acknowledges, and consume any pending add request
             // like the legacy presented-binding write-back does.
             self?.awaitingPopoverDismissAck = true
-            self?.actions?.onChecklistPopoverPresentedChange(false)
-            self?.actions?.onConsumeChecklistAddFieldActivation()
+            presentedChange(false)
+            consumeToken()
+            self?.activePopoverDismissContext = nil
         }
         // Legacy anchor: the section's top-trailing corner, opening to the
         // right (`preferredEdge: .maxX`, min width 320, max 520).
@@ -285,8 +309,8 @@ final class SidebarRowChecklistSection: NSView {
 
     private func closeChecklistPopoverFromContent() {
         popoverPresenter.close()
-        actions?.onChecklistPopoverPresentedChange(false)
-        actions?.onConsumeChecklistAddFieldActivation()
+        activePopoverDismissContext?()
+        activePopoverDismissContext = nil
     }
 
     private static func checklistActions(
@@ -651,7 +675,13 @@ final class SidebarRowChecklistItemLine: NSView {
             self.actions?.onBeginChecklistItemEdit(item.id)
         }
 
-        reconcileEditField(item: item, model: model, primary: primary, isEditing: isEditing)
+        reconcileEditField(
+            item: item,
+            model: model,
+            primary: primary,
+            isEditing: isEditing,
+            actions: actions
+        )
 
         attachmentButton.configure(
             item: item,
@@ -676,7 +706,8 @@ final class SidebarRowChecklistItemLine: NSView {
         item: WorkspaceChecklistItem,
         model: SidebarWorkspaceRowModel,
         primary: NSColor,
-        isEditing: Bool
+        isEditing: Bool,
+        actions: SidebarAppKitRowActions?
     ) {
         self.isEditing = isEditing
         textLabel.isHidden = isEditing
@@ -710,18 +741,25 @@ final class SidebarRowChecklistItemLine: NSView {
         field.selectsAllOnFocus = true
         field.setAccessibilityLabel(field.placeholderString ?? "")
         field.setAccessibilityIdentifier("SidebarChecklistEditItemField")
+        // Capture the edited item's identity and its workspace's action
+        // bundle at field-creation time: the pooled line's `self.item`/
+        // `self.actions` are overwritten by reconfiguration (ordering
+        // changes, cell reuse) BEFORE the old editor tears down, and a
+        // teardown-triggered focus-loss commit must not write the draft
+        // into whichever item the line shows next.
+        let editedItemId = item.id
+        guard let editActions = actions else { return }
         let bridge = SidebarRowChecklistFieldBridge(
-            onCommit: { [weak self] text in
-                guard let self, let item = self.item else { return }
+            onCommit: { text in
                 // Enter (or focus loss) commits trimmed text; empty keeps the
                 // old text (legacy `commitItemEdit`).
-                self.actions?.onBeginChecklistItemEdit(nil)
+                editActions.onBeginChecklistItemEdit(nil)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
-                self.actions?.checklistEditItem(item.id, trimmed)
+                editActions.checklistEditItem(editedItemId, trimmed)
             },
-            onCancel: { [weak self] in
-                self?.actions?.onBeginChecklistItemEdit(nil)
+            onCancel: {
+                editActions.onBeginChecklistItemEdit(nil)
             }
         )
         field.delegate = bridge
