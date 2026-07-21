@@ -14,6 +14,7 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     private var activePanelByWorkspace: [String: String] = [:]
     private var pendingDialogsByPanel: [String: MobileBrowserDialogEvent] = [:]
     private var lastResolvedDialogIDByPanel: [String: String] = [:]
+    private var viewportByPanel: [String: MobileBrowserViewport] = [:]
     private var currentConnectionStatus: BrowserStreamSurfaceState.ConnectionStatus = .disconnected
     @ObservationIgnored private var decodersByPanel: [String: BrowserStreamFrameDecoder] = [:]
     @ObservationIgnored private var frameTasksByPanel: [String: Task<Void, Never>] = [:]
@@ -115,6 +116,9 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     @discardableResult
     public func activate(panelID: String, in workspaceID: String) -> BrowserStreamSurfaceState? {
         guard let state = statesByPanel[panelID] else { return nil }
+        if let previousPanelID = activePanelByWorkspace[workspaceID], previousPanelID != panelID {
+            viewportByPanel[previousPanelID] = nil
+        }
         activePanelByWorkspace[workspaceID] = panelID
         state.connectionStatus = currentConnectionStatus
         state.streamStatus = .starting
@@ -126,7 +130,21 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     public func deactivate(in workspaceID: String) {
         if let panelID = activePanelByWorkspace.removeValue(forKey: workspaceID) {
             statesByPanel[panelID]?.streamStatus = .idle
+            viewportByPanel[panelID] = nil
         }
+    }
+
+    /// Records the latest measured phone viewport for a selected browser panel.
+    /// - Parameter parameters: Panel-scoped viewport report from the UIKit surface.
+    public func reportBrowserStreamViewport(_ parameters: MobileBrowserViewportParameters) {
+        viewportByPanel[parameters.panelID] = parameters.viewport
+    }
+
+    /// Returns the latest measured phone viewport for a browser panel.
+    /// - Parameter panelID: Mac browser panel identifier.
+    /// - Returns: The current phone viewport, when its surface has been laid out.
+    public func browserStreamViewport(for panelID: String) -> MobileBrowserViewport? {
+        viewportByPanel[panelID]
     }
 
     /// Records a frame as displayed and then sends its cumulative acknowledgement.
@@ -284,6 +302,7 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         statesByPanel[event.panelID]?.streamStatus = .closed
         pendingDialogsByPanel[event.panelID] = nil
         lastResolvedDialogIDByPanel[event.panelID] = nil
+        viewportByPanel[event.panelID] = nil
         if let dialogID = statesByPanel[event.panelID]?.pendingDialog?.dialogID {
             statesByPanel[event.panelID]?.resolveDialog(dialogID: dialogID)
         }

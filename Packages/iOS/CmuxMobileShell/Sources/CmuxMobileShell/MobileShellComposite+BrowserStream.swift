@@ -30,15 +30,36 @@ extension MobileShellComposite {
               connectionState == .connected,
               supportsBrowserStream,
               let client = remoteClient else { return }
+        let viewport = supportsBrowserStreamViewport
+            ? browserStreamEvents?.browserStreamViewport(for: panelID)
+            : nil
+        guard !supportsBrowserStreamViewport || viewport != nil else { return }
         await browserStreamEvents?.browserStreamWillStart(panelID: panelID)
         guard connectionState == .connected,
               supportsBrowserStream,
               remoteClient === client else { return }
-        guard let descriptor = try? await client.startMobileBrowserStream(panelID: panelID),
+        guard let descriptor = try? await client.startMobileBrowserStream(
+            panelID: panelID,
+            viewport: viewport
+        ),
               connectionState == .connected,
               remoteClient === client else { return }
         startedMobileBrowserPanelIDs.insert(panelID)
         browserStreamEvents?.browserStreamDidStart(descriptor)
+    }
+
+    /// Reports a changed phone viewport and applies it to the active Mac stream.
+    /// - Parameter parameters: Panel-scoped viewport measured by the content view.
+    public func updateMobileBrowserViewport(_ parameters: MobileBrowserViewportParameters) async {
+        browserStreamEvents?.reportBrowserStreamViewport(parameters)
+        guard connectionState == .connected, supportsBrowserStream else { return }
+        if !startedMobileBrowserPanelIDs.contains(parameters.panelID) {
+            await startMobileBrowserStream(panelID: parameters.panelID)
+        }
+        guard supportsBrowserStreamViewport,
+              startedMobileBrowserPanelIDs.contains(parameters.panelID),
+              let client = remoteClient else { return }
+        _ = try? await client.updateMobileBrowserViewport(parameters)
     }
 
     /// Stops streaming one panel without deleting its discovery entry.

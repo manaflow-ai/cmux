@@ -49,5 +49,10 @@ final class BrowserStreamSurfaceCoordinator: BrowserStreamContentViewDelegate {
     func browserStreamContentView(_ view: BrowserStreamContentView, didProduceText input: MobileBrowserTextInput) {
         Task { await actions.text(input) }
     }
+
+    func browserStreamContentView(_ view: BrowserStreamContentView, didChangeViewport viewport: MobileBrowserViewport) {
+        let parameters = MobileBrowserViewportParameters(panelID: panelID, viewport: viewport)
+        Task { await actions.viewport(parameters) }
+    }
 }
 #endif

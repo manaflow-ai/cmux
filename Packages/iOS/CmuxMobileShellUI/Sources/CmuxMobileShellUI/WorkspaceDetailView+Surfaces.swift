@@ -69,6 +69,10 @@ extension WorkspaceDetailView {
                 scroll: { await store.sendMobileBrowserScroll($0) },
                 key: { await store.sendMobileBrowserKey($0) },
                 text: { await store.sendMobileBrowserText($0) },
+                viewport: { parameters in
+                    await browserStreamStore.reportBrowserStreamViewport(parameters)
+                    await store.updateMobileBrowserViewport(parameters)
+                },
                 navigate: { await store.navigateMobileBrowser(panelID: $0, url: $1) },
                 back: { await store.backMobileBrowser(panelID: $0) },
                 forward: { await store.forwardMobileBrowser(panelID: $0) },

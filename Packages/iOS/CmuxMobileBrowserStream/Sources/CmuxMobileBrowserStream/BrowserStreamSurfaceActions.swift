@@ -10,6 +10,8 @@ public struct BrowserStreamSurfaceActions: Sendable {
     public let key: @Sendable (MobileBrowserKeyInput) async -> Void
     /// Sends committed text.
     public let text: @Sendable (MobileBrowserTextInput) async -> Void
+    /// Reports a changed phone viewport.
+    public let viewport: @Sendable (MobileBrowserViewportParameters) async -> Void
     /// Navigates to a user-entered address.
     public let navigate: @Sendable (_ panelID: String, _ url: String) async -> Void
     /// Navigates backward.
@@ -27,6 +29,7 @@ public struct BrowserStreamSurfaceActions: Sendable {
     ///   - scroll: Sends page-point scroll input.
     ///   - key: Sends a key token and modifiers.
     ///   - text: Sends committed text.
+    ///   - viewport: Reports the phone viewport used to reflow the Mac page.
     ///   - navigate: Navigates a panel to a smart address.
     ///   - back: Navigates a panel backward.
     ///   - forward: Navigates a panel forward.
@@ -37,6 +40,7 @@ public struct BrowserStreamSurfaceActions: Sendable {
         scroll: @escaping @Sendable (MobileBrowserScrollInput) async -> Void,
         key: @escaping @Sendable (MobileBrowserKeyInput) async -> Void,
         text: @escaping @Sendable (MobileBrowserTextInput) async -> Void,
+        viewport: @escaping @Sendable (MobileBrowserViewportParameters) async -> Void,
         navigate: @escaping @Sendable (String, String) async -> Void,
         back: @escaping @Sendable (String) async -> Void,
         forward: @escaping @Sendable (String) async -> Void,
@@ -47,6 +51,7 @@ public struct BrowserStreamSurfaceActions: Sendable {
         self.scroll = scroll
         self.key = key
         self.text = text
+        self.viewport = viewport
         self.navigate = navigate
         self.back = back
         self.forward = forward

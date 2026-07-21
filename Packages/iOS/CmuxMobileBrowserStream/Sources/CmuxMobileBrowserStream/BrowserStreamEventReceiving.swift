@@ -56,6 +56,13 @@ public protocol BrowserStreamEventReceiving: AnyObject {
     /// Records forwarded user input for unanswered-input liveness tracking.
     /// - Parameter panelID: The Mac browser panel identifier.
     func noteBrowserInputSent(panelID: String)
+    /// Records the latest phone viewport measured for a browser panel.
+    /// - Parameter parameters: Panel-scoped phone viewport report.
+    func reportBrowserStreamViewport(_ parameters: MobileBrowserViewportParameters)
+    /// Returns the latest phone viewport measured for a browser panel.
+    /// - Parameter panelID: Mac browser panel identifier.
+    /// - Returns: The current viewport, or `nil` before the surface is laid out.
+    func browserStreamViewport(for panelID: String) -> MobileBrowserViewport?
 }
 
 /// Acknowledges a frame after its decoded image was installed for display.

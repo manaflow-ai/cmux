@@ -15,15 +15,30 @@ extension MobileCoreRPCClient {
     }
 
     /// Starts streaming one browser panel and returns its descriptor.
-    /// - Parameter panelID: The Mac browser panel identifier.
+    /// - Parameters:
+    ///   - panelID: The Mac browser panel identifier.
+    ///   - viewport: Current phone viewport when the Mac supports stream reflow.
     /// - Returns: The descriptor accepted by the Mac for the new subscription.
     /// - Throws: A transport, authorization, RPC, or response-decoding error.
-    public func startMobileBrowserStream(panelID: String) async throws -> MobileBrowserPanelDescriptor {
+    public func startMobileBrowserStream(
+        panelID: String,
+        viewport: MobileBrowserViewport? = nil
+    ) async throws -> MobileBrowserPanelDescriptor {
         let data = try await sendBrowserRequest(
             method: "mobile.browser.stream.start",
-            parameters: MobileBrowserPanelParameters(panelID: panelID)
+            parameters: MobileBrowserStreamStartParameters(panelID: panelID, viewport: viewport)
         )
         return try JSONDecoder().decode(MobileBrowserPanelDescriptor.self, from: data)
+    }
+
+    /// Updates the phone viewport used to reflow an active browser stream.
+    /// - Parameter parameters: Panel-scoped phone viewport report.
+    /// - Returns: The Mac command acknowledgement.
+    /// - Throws: A transport, authorization, RPC, or response-decoding error.
+    public func updateMobileBrowserViewport(
+        _ parameters: MobileBrowserViewportParameters
+    ) async throws -> MobileBrowserCommandResponse {
+        try await sendBrowserCommand(method: "mobile.browser.viewport", parameters: parameters)
     }
 
     /// Stops streaming one browser panel.

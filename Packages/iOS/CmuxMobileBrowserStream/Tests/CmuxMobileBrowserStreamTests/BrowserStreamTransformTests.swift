@@ -16,6 +16,14 @@ import Testing
         #expect(abs(pagePoint.y - 600) < 0.001)
     }
 
+    @Test func phoneReflowWidthDisplaysAtOneToOneScale() {
+        let transform = BrowserStreamTransform(
+            viewSize: CGSize(width: 393, height: 740),
+            pageSize: CGSize(width: 393, height: 740)
+        )
+        #expect(transform.fitScale == 1)
+    }
+
     @Test func localZoomAndPanPreserveInvertibility() throws {
         let transform = BrowserStreamTransform(
             viewSize: CGSize(width: 400, height: 800),

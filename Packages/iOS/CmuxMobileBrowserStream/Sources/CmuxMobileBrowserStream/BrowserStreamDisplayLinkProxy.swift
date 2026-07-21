@@ -21,7 +21,7 @@ final class BrowserStreamDisplayLinkProxy {
             link = nil
             return
         }
-        target.flushPendingScroll()
+        target.flushPendingDisplayLinkWork()
     }
 }
 #endif

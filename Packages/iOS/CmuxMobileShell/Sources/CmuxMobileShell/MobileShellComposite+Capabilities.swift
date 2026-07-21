@@ -1,6 +1,10 @@
 extension MobileShellComposite {
     /// Whether the connected Mac supports browser-pane streaming.
     public var supportsBrowserStream: Bool { supportedHostCapabilities.contains(Self.browserStreamCapability) }
+    /// Whether the connected Mac can reflow a browser stream to the phone viewport.
+    public var supportsBrowserStreamViewport: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamViewportCapability)
+    }
     /// Whether the connected Mac supports native browser dialog mirroring.
     public var supportsBrowserStreamDialogs: Bool {
         supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamDialogCapability)

@@ -38,6 +38,23 @@ import Testing
         #expect(params["phase"] as? String == "momentum_changed")
     }
 
+    @Test func viewportUpdateUsesFlattenedWireKeys() throws {
+        let data = try MobileBrowserRPCRequestEncoder().requestData(
+            method: "mobile.browser.viewport",
+            parameters: MobileBrowserViewportParameters(
+                panelID: "panel-2",
+                viewport: MobileBrowserViewport(width: 393, height: 740, scale: 3)
+            )
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["method"] as? String == "mobile.browser.viewport")
+        #expect(params["panel_id"] as? String == "panel-2")
+        #expect(params["viewport_width"] as? Int == 393)
+        #expect(params["viewport_height"] as? Int == 740)
+        #expect(params["viewport_scale"] as? Int == 3)
+    }
+
     @Test func dialogResponseUsesWireKeysAndPreservesSensitiveText() throws {
         let data = try MobileBrowserRPCRequestEncoder().requestData(
             method: "mobile.browser.dialog.respond",
@@ -105,6 +122,21 @@ import Testing
             ticketWorkspaceID: "workspace-main"
         )
         #expect(frame.attachToken == nil)
+        #expect(frame.stackAccessToken == "test-stack-token")
+    }
+
+    @Test func viewportUpdateUsesMacWideTicketContext() async throws {
+        let frame = try await recordedRequest(
+            method: "mobile.browser.viewport",
+            params: [
+                "panel_id": "panel-1",
+                "viewport_width": 393,
+                "viewport_height": 740,
+                "viewport_scale": 3,
+            ],
+            ticketWorkspaceID: ""
+        )
+        #expect(frame.attachToken == "ticket-secret")
         #expect(frame.stackAccessToken == "test-stack-token")
     }
 

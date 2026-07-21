@@ -577,6 +577,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 workspaceSelection: workspaceSelection.value
             )
         case "mobile.browser.stream.start", "mobile.browser.stream.stop",
+             "mobile.browser.viewport",
              "mobile.browser.frame.ack",
              "mobile.browser.dialog.respond",
              "mobile.browser.input.pointer", "mobile.browser.input.scroll",

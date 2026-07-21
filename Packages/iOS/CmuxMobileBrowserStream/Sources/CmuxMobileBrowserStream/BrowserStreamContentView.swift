@@ -25,6 +25,7 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     private var pinchStartScale: CGFloat = 1
     private var panStartOffset = CGPoint.zero
     private var displayLink: CADisplayLink?
+    private var viewportPolicy = BrowserStreamViewportEmissionPolicy()
 
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
@@ -93,6 +94,7 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     override func didMoveToWindow() {
         super.didMoveToWindow()
         displayLink?.isPaused = window == nil
+        recordViewportIfPossible()
     }
 
     override func layoutSubviews() {
@@ -105,6 +107,7 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
         recenter(force: lastScrollOffset == .zero)
         inputProxy.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
         layoutImageLayer()
+        recordViewportIfPossible()
     }
 
     /// Installs one decoded frame into the backing layer.
@@ -132,21 +135,25 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
         }
     }
 
-    func flushPendingScroll() {
-        guard zoomScale == 1, let batch = scrollBatcher.next() else { return }
-        let transform = currentTransform
-        let pageDelta = transform.pageDelta(fromViewDelta: batch.delta)
-        let anchor = transform.pagePoint(fromViewPoint: lastAnchor)
-            ?? CGPoint(x: pageSize.width / 2, y: pageSize.height / 2)
-        let input = MobileBrowserScrollInput(
-            panelID: panelID,
-            deltaX: Double(-pageDelta.x),
-            deltaY: Double(-pageDelta.y),
-            phase: batch.phase,
-            x: Double(anchor.x),
-            y: Double(anchor.y)
-        )
-        delegate?.browserStreamContentView(self, didProduceScroll: input)
+    func flushPendingDisplayLinkWork() {
+        if zoomScale == 1, let batch = scrollBatcher.next() {
+            let transform = currentTransform
+            let pageDelta = transform.pageDelta(fromViewDelta: batch.delta)
+            let anchor = transform.pagePoint(fromViewPoint: lastAnchor)
+                ?? CGPoint(x: pageSize.width / 2, y: pageSize.height / 2)
+            let input = MobileBrowserScrollInput(
+                panelID: panelID,
+                deltaX: Double(-pageDelta.x),
+                deltaY: Double(-pageDelta.y),
+                phase: batch.phase,
+                x: Double(anchor.x),
+                y: Double(anchor.y)
+            )
+            delegate?.browserStreamContentView(self, didProduceScroll: input)
+        }
+        if let viewport = viewportPolicy.takePending() {
+            delegate?.browserStreamContentView(self, didChangeViewport: viewport)
+        }
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -214,6 +221,18 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         displayLink = link
+    }
+
+    private func recordViewportIfPossible() {
+        guard window != nil, bounds.width > 0, bounds.height > 0 else { return }
+        let scale = traitCollection.displayScale > 0
+            ? traitCollection.displayScale
+            : window?.screen.scale ?? 1
+        viewportPolicy.record(MobileBrowserViewport(
+            width: Int(bounds.width.rounded(.toNearestOrAwayFromZero)),
+            height: Int(bounds.height.rounded(.toNearestOrAwayFromZero)),
+            scale: Double(scale)
+        ))
     }
 
     private func recenter(force: Bool = false) {
