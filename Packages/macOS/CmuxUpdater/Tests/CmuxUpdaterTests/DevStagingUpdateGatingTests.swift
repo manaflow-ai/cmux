@@ -84,6 +84,42 @@ import Testing
         #expect(!controller.model.description.localizedCaseInsensitiveContains("running the latest"))
     }
 
+    /// Retry from the production "Update Didn't Start" error must retain install-latest intent,
+    /// then terminate truthfully when the tagged DEV build is ineligible for public updates.
+    @Test func installDidNotStartRetryOnDevBuildShowsDevelopmentOutcome() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: true
+        )
+        controller.setInstallDidNotStartError(diagnostic: "test setup")
+        guard case .error(let failure) = controller.model.state else {
+            Issue.record("failed to create retryable install error")
+            return
+        }
+
+        failure.retry()
+
+        guard case .notFound(let result) = controller.model.state else {
+            Issue.record("Retry did not reach a no-update terminal: \(controller.model.state)")
+            return
+        }
+        #expect(result.reason == .developmentBuild)
+        #expect(result.title.localizedCaseInsensitiveContains("unavailable"))
+        #expect(result.message.localizedCaseInsensitiveContains("development"))
+        #expect(!result.message.localizedCaseInsensitiveContains("internet"))
+        #expect(!result.message.localizedCaseInsensitiveContains("latest version"))
+        #expect(!controller.updater.sessionInProgress)
+        #expect(!controller.attemptCoordinator.isMonitoring)
+        #expect(!controller.installWatchdog.isArmed)
+    }
+
     /// A DEV/staging build disables Sparkle's automatic checks so its scheduler never queries the
     /// public appcast. (The override is also re-asserted before `start()`, so the DEBUG
     /// permission-reset path cannot undo it.)
