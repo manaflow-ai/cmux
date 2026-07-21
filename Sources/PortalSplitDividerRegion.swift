@@ -240,3 +240,28 @@ final class PortalSplitDividerRegion {
         }
     }
 }
+
+/// A snapshot of the subview-identity lists of the structure-observed views. Used to
+/// validate the split-divider cache without relying on KVO of `NSView.subviews`, which
+/// does not reliably fire for `addSubview(_:)` across macOS versions.
+struct PortalStructureSnapshot {
+    fileprivate weak var view: NSView?
+    fileprivate let subviewIds: [ObjectIdentifier]
+}
+
+extension PortalSplitDividerRegion {
+    static func structureSnapshots(of views: [NSView]) -> [PortalStructureSnapshot] {
+        views.map { PortalStructureSnapshot(view: $0, subviewIds: $0.subviews.map(ObjectIdentifier.init)) }
+    }
+
+    /// True only if every recorded view is still alive and its direct subview identities are
+    /// unchanged. A nested insertion changes an observed container's subview list, so this
+    /// catches it even when the KVO callback never fired.
+    static func structureSnapshotsMatch(_ snapshots: [PortalStructureSnapshot]) -> Bool {
+        for snapshot in snapshots {
+            guard let view = snapshot.view else { return false }
+            if view.subviews.map(ObjectIdentifier.init) != snapshot.subviewIds { return false }
+        }
+        return true
+    }
+}
