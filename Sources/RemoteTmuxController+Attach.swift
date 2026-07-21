@@ -337,6 +337,26 @@ extension RemoteTmuxController {
         resumeReconnectAfterAuthentication(host: host)
     }
 
+    /// Releases a host's login offer once nothing is left for it to unblock.
+    ///
+    /// A login exists to unfreeze mirrors. When the last mirror for the host goes away — closed,
+    /// detached, or taken with its window — the offer, its waiter and the sign-in pane are all
+    /// orphaned: the waiter would keep watching a socket nobody is waiting on, and the pane would
+    /// sit there with nothing to resume. Called from every path that removes a mirror, because
+    /// which path ran is not something the offer should have to know.
+    func releaseLoginOfferIfHostHasNoMirrors(host: RemoteTmuxHost) {
+        let key = host.connectionHash
+        guard loginOffers.hasOffer(host: key) else { return }
+        guard !sessionMirrors.values.contains(where: { $0.host.connectionHash == key }) else { return }
+        if let offer = loginOffers.openedWorkspace(host: key) {
+            closeLoginWorkspace(offer.workspace)
+            loginOffers.abandon(host: key, generation: offer.generation)
+        } else {
+            loginOffers.noteConnected(host: key)
+        }
+        cancelAuthWait(host: key)
+    }
+
     /// Stops a host's login waiter.
     ///
     /// Held so it can be stopped: the waiter probes the shared master on a timer, and one that
@@ -349,8 +369,17 @@ extension RemoteTmuxController {
 
     /// Closes a login workspace wherever it lives, if it still exists.
     private func closeLoginWorkspace(_ workspace: UUID) {
-        guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspace),
+        guard let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.tabManagerFor(tabId: workspace),
               let tab = manager.tabs.first(where: { $0.id == workspace }) else { return }
+        // `closeWorkspace` refuses to close the last tab in a window, so a login that ended up
+        // alone in its own window could not be closed at all: the offer cleared while the obsolete
+        // sign-in shell stayed on screen, and cmux opened it, so cmux has to be able to remove it.
+        // Discarding the window is the equivalent action when the login *is* the window.
+        if manager.tabs.count <= 1, let windowId = appDelegate.windowId(for: manager) {
+            appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
+            return
+        }
         manager.closeWorkspace(tab, recordHistory: false)
     }
 
