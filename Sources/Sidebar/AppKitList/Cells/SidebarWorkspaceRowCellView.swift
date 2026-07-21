@@ -435,7 +435,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Hint pill + indicators + dim/drag
         hintPill.configure(
             text: model.shortcutHintText,
-            fontSize: model.scaled(10),
+            fontSize: model.scaled(9),
             emphasis: model.isActive ? 1.0 : 0.9
         )
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor

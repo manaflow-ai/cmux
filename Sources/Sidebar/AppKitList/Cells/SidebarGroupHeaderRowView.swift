@@ -199,7 +199,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         hintPill.configure(
             text: model.shortcutHintText,
-            fontSize: GlobalFontMagnification.scaledSize(10, percent: percent),
+            fontSize: GlobalFontMagnification.scaledSize(9, percent: percent),
             emphasis: model.isAnchorActive ? 1.0 : 0.9
         )
 
@@ -592,6 +592,9 @@ final class SidebarHeaderGlyphButton: NSButton {
 /// putting both on one unclipped layer leaves a square material background.
 @MainActor
 final class SidebarShortcutHintPillView: NSView {
+    private static let horizontalPadding: CGFloat = 4
+    private static let visibilityAnimationKey = "shortcutHintVisibility"
+
     private let materialView = NSVisualEffectView()
     private let label = NSTextField(labelWithString: "")
     private var emphasis: Double = 1.0
@@ -616,7 +619,7 @@ final class SidebarShortcutHintPillView: NSView {
         label.alignment = .center
         label.lineBreakMode = .byClipping
         materialView.addSubview(label)
-        alphaValue = 0
+        layer?.opacity = 0
         isHidden = true
     }
 
@@ -641,7 +644,10 @@ final class SidebarShortcutHintPillView: NSView {
     func fittingPillSize() -> NSSize {
         guard !isHidden else { return .zero }
         let textSize = label.sidebarNaturalCellSize
-        return NSSize(width: ceil(textSize.width) + 12, height: ceil(textSize.height) + 4)
+        return NSSize(
+            width: ceil(textSize.width) + Self.horizontalPadding * 2,
+            height: ceil(textSize.height) + 4
+        )
     }
 
     override func layout() {
@@ -649,7 +655,7 @@ final class SidebarShortcutHintPillView: NSView {
         let radius = bounds.height / 2
         materialView.frame = bounds
         materialView.layer?.cornerRadius = radius
-        label.frame = materialView.bounds.insetBy(dx: 6, dy: 2)
+        label.frame = materialView.bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
         layer?.shadowPath = CGPath(
             roundedRect: bounds,
             cornerWidth: radius,
@@ -658,38 +664,72 @@ final class SidebarShortcutHintPillView: NSView {
         )
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
     private func setRevealed(_ revealed: Bool) {
         guard isRevealed != revealed else { return }
         isRevealed = revealed
         visibilityGeneration &+= 1
         let generation = visibilityGeneration
 
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            applyImmediateVisibility(revealed)
+            return
+        }
+
         if revealed {
             if isHidden {
-                alphaValue = 0
+                layer?.opacity = 0
                 isHidden = false
             }
-            animateAlpha(to: 1)
+            animateOpacity(to: 1, generation: generation)
         } else {
             guard !isHidden else {
-                alphaValue = 0
+                layer?.opacity = 0
                 return
             }
-            animateAlpha(to: 0) { [weak self] in
-                guard let self,
-                      self.visibilityGeneration == generation,
-                      !self.isRevealed else { return }
-                self.isHidden = true
-            }
+            animateOpacity(to: 0, generation: generation, hidesWhenFinished: true)
         }
     }
 
-    private func animateAlpha(to value: CGFloat, completion: (() -> Void)? = nil) {
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = ShortcutHintAnimation.visibilityDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            context.allowsImplicitAnimation = true
-            animator().alphaValue = value
-        }, completionHandler: completion)
+    private func applyImmediateVisibility(_ revealed: Bool) {
+        layer?.removeAnimation(forKey: Self.visibilityAnimationKey)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.opacity = revealed ? 1 : 0
+        CATransaction.commit()
+        isHidden = !revealed
+    }
+
+    private func animateOpacity(
+        to value: Float,
+        generation: UInt64,
+        hidesWhenFinished: Bool = false
+    ) {
+        guard let layer else { return }
+        let currentOpacity = layer.presentation()?.opacity ?? layer.opacity
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = currentOpacity
+        animation.toValue = value
+        animation.duration = ShortcutHintAnimation.visibilityDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if hidesWhenFinished {
+            CATransaction.setCompletionBlock { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.visibilityGeneration == generation,
+                          !self.isRevealed else { return }
+                    self.isHidden = true
+                }
+            }
+        }
+        layer.opacity = value
+        layer.add(animation, forKey: Self.visibilityAnimationKey)
+        CATransaction.commit()
     }
 }
