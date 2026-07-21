@@ -101,6 +101,7 @@ func TestWebSocketPTYLeaderExitTerminatesEverySessionProcessGroup(t *testing.T) 
 	t.Cleanup(hub.closeAll)
 
 	const sessionID = "leader-exit-cleanup"
+	releaseLeader := t.TempDir() + "/release-leader"
 	_, _, _, err := hub.prepareAttachment(
 		context.Background(),
 		nil,
@@ -109,7 +110,7 @@ func TestWebSocketPTYLeaderExitTerminatesEverySessionProcessGroup(t *testing.T) 
 		80,
 		24,
 		true,
-		`set -m; sleep 300 & exit 0`,
+		`set -m; sleep 300 & while [ ! -f `+strconv.Quote(releaseLeader)+` ]; do sleep 0.01; done; exit 0`,
 		"token",
 		false,
 		false,
@@ -135,6 +136,9 @@ func TestWebSocketPTYLeaderExitTerminatesEverySessionProcessGroup(t *testing.T) 
 		_ = syscall.Kill(-leaderPID, syscall.SIGKILL)
 	})
 
+	if err := os.WriteFile(releaseLeader, []byte("exit\n"), 0o600); err != nil {
+		t.Fatalf("release PTY session leader: %v", err)
+	}
 	waitForHubSessionCount(t, hub, 0, time.Second)
 	waitForLinuxProcessesStopped(t, backgroundPIDs, 5*time.Second)
 }
