@@ -122,12 +122,22 @@ final class MainWindowVisibilityController {
     }
 
     private var dependencies: Dependencies
+    private let committedClosedWindows = NSHashTable<NSWindow>.weakObjects()
     var appHiddenWindowRestoreTargets: [NSWindow] = []
     var dismissedWindowRestoreTargets: [NSWindow] = []
     var pendingApplicationActivationKeyRestoreTarget: NSWindow?
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
+    }
+
+    func commitClose(_ window: NSWindow) {
+        committedClosedWindows.add(window)
+        discardClosedWindow(window)
+    }
+
+    func hasCommittedClose(for window: NSWindow) -> Bool {
+        committedClosedWindows.contains(window)
     }
 
     @discardableResult

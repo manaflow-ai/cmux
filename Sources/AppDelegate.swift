@@ -4509,6 +4509,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         fileExplorerState: FileExplorerState? = nil,
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
+        guard !mainWindowVisibilityController.hasCommittedClose(for: window) else {
+            // SwiftUI's window accessor can run once more while dismantling a
+            // retained NSWindow. A committed close is authoritative: never
+            // recreate its context or give its terminal graph a respawn route.
+            return
+        }
         let key = ObjectIdentifier(window)
         forgetRecoverableMainWindowRoute(windowId: windowId)
         #if DEBUG
@@ -5874,33 +5880,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
-        guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
-        removed.teardownWindowDock()
+    @discardableResult
+    private func removeMainWindowContext(
+        _ context: MainWindowContext,
+        rememberRecoverableRoute: Bool
+    ) -> MainWindowContext? {
+        guard mainWindowContexts.values.contains(where: { $0 === context }) else { return nil }
+        context.teardownWindowDock()
         let removedKeys = mainWindowContexts.compactMap { key, value in
-            value === removed ? key : nil
+            value === context ? key : nil
         }
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
-        removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
+        if rememberRecoverableRoute {
+            rememberRecoverableMainWindowRoute(
+                windowId: context.windowId,
+                tabManager: context.tabManager,
+                window: context.window
+            )
+        } else {
+            forgetRecoverableMainWindowRoute(windowId: context.windowId)
+        }
+        removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
-        return removed
+        return context
     }
 
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
-        context.teardownWindowDock()
-        let contextKeys = mainWindowContexts.compactMap { key, value in
-            value === context ? key : nil
-        }
-        for key in contextKeys {
-            mainWindowContexts.removeValue(forKey: key)
-        }
-        rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
-        removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
-        notifyMainWindowContextsDidChange()
+        guard removeMainWindowContext(context, rememberRecoverableRoute: true) != nil else { return }
 
         commandPaletteWindowStore.removeWindow(context.windowId)
 
@@ -5918,7 +5927,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func pruneWindowlessMainWindowContexts() {
         for context in Array(mainWindowContexts.values) where resolvedWindow(for: context) == nil {
-            discardOrphanedMainWindowContext(context)
+            commitMainWindowClose(context: context, window: nil)
         }
     }
 
@@ -6495,7 +6504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func toggleSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
         func toggle(_ context: MainWindowContext) -> Bool {
             guard let window = resolvedWindow(for: context) else {
-                discardOrphanedMainWindowContext(context)
+                commitMainWindowClose(context: context, window: nil)
                 return false
             }
             setActiveMainWindow(window)
@@ -7277,7 +7286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let livePreferredContext: MainWindowContext? = {
             guard let preferredContext else { return nil }
             guard resolvedWindow(for: preferredContext) != nil else {
-                discardOrphanedMainWindowContext(preferredContext)
+                commitMainWindowClose(context: preferredContext, window: nil)
                 return nil
             }
             return preferredContext
@@ -7708,7 +7717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         guard let window = resolvedWindow(for: context) else {
-            discardOrphanedMainWindowContext(context)
+            commitMainWindowClose(context: context, window: nil)
             return false
         }
 #if DEBUG
@@ -8213,7 +8222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: workingDirectory
             )
             #endif
-            discardOrphanedMainWindowContext(context)
+            commitMainWindowClose(context: context, window: nil)
             return nil
         }
         setActiveMainWindow(window)
@@ -8265,7 +8274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let activeManager = tabManager,
            let activeContext = mainWindowContext(for: activeManager),
            resolvedWindow(for: activeContext) == nil {
-            discardOrphanedMainWindowContext(activeContext)
+            commitMainWindowClose(context: activeContext, window: nil)
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
@@ -8744,21 +8753,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let controller = MainWindowController(window: window)
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
-            let manager = self.tabManagerFor(windowId: windowId)
-            // An explicit close of the window's LAST remote workspace (a tab/session
-            // close) kills its remote session(s) — synced with tmux — even though it
-            // also closes the app window. A plain window/quit close leaves the marker
-            // unset and falls through to detach below (server stays alive for resume).
-            if self.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId),
-               let manager {
-                for workspace in manager.tabs where workspace.isRemoteTmuxMirror {
-                    self.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
-                }
-            }
-            if let manager {
-                self.remoteTmuxController.handleWindowWorkspacesClosed(
-                    workspaceIds: manager.tabs.map { $0.id }
-                )
+            if let closingWindow = controller.window {
+                self.unregisterMainWindow(closingWindow)
             }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
@@ -16149,46 +16145,137 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
+        commitMainWindowClose(window)
+    }
+
+    @discardableResult
+    func commitMainWindowClose(_ window: NSWindow) -> Bool {
+        // Tombstone before touching snapshots or surfaces. SwiftUI can invoke
+        // its window accessor during teardown, and registration must observe
+        // the close as committed even if AppKit retains the NSWindow object.
+        mainWindowVisibilityController.commitClose(window)
+        // A close signal owns only the exact NSWindow identity that emitted it.
+        // Matching by window id here can tear down the live owner when SwiftUI
+        // closes an ignored duplicate carrying the same restored identifier.
+        if let context = mainWindowContexts[ObjectIdentifier(window)] {
+            return commitMainWindowClose(context: context, window: window)
+        }
+        guard let windowId = mainWindowId(from: window),
+              let manager = tabManagerFor(windowId: windowId) else {
+            return false
+        }
+        return commitMainWindowClose(
+            windowId: windowId,
+            tabManager: manager,
+            context: nil,
+            window: window
+        )
+    }
+
+    @discardableResult
+    private func commitMainWindowClose(
+        context: MainWindowContext,
+        window: NSWindow?
+    ) -> Bool {
+        commitMainWindowClose(
+            windowId: context.windowId,
+            tabManager: context.tabManager,
+            context: context,
+            window: window
+        )
+    }
+
+    @discardableResult
+    private func commitMainWindowClose(
+        windowId: UUID,
+        tabManager closingTabManager: TabManager,
+        context: MainWindowContext?,
+        window: NSWindow?
+    ) -> Bool {
+        if let context {
+            guard mainWindowContexts.values.contains(where: { $0 === context }) else {
+                return false
+            }
+        } else {
+            guard recoverableMainWindowRoute(windowId: windowId)?.tabManager === closingTabManager else {
+                return false
+            }
+        }
+
         // Reset cascade point so the next new window appears near the closing
         // window's position, matching upstream Ghostty behavior.
-        let frame = window.frame
-        lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
-        let closingContext = contextForMainTerminalWindow(window, reindex: false)
-        let closingWindowIsCrashDiagnostic = closingContext.map { context in
+        if let window {
+            let frame = window.frame
+            lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
+        }
+        let closingWindowIsCrashDiagnostic = context.map { context in
             closeWindowSnapshotPruningCrashDiagnostics(
                 for: context,
                 includeScrollback: false,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
-            )
-                .isCrashDiagnostic
+            ).isCrashDiagnostic
         } ?? false
 
-        if let closingContext, !closingWindowIsCrashDiagnostic {
-            recordClosedWindowHistoryIfNeeded(for: closingContext)
+        if let context, !closingWindowIsCrashDiagnostic {
+            recordClosedWindowHistoryIfNeeded(for: context)
+        } else {
+            closedWindowHistorySuppressedWindowIds.remove(windowId)
         }
 
         // Keep geometry available as a fallback for the next window placement,
         // and remember the closing frame for the current configuration.
-        if !isTerminatingApp {
+        if !isTerminatingApp, let window {
             captureWindowConfigFrame(window, reason: "windowClose")
             persistWindowGeometry(from: window)
         }
-        mainWindowVisibilityController.discardClosedWindow(window)
 
-        guard let removed = unregisterMainWindowContext(for: window) else { return }
-        windowConfigFrames.removeValue(forKey: removed.windowId)
-        publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
-        commandPaletteWindowStore.removeWindow(removed.windowId)
+        let closingWorkspaces = Array(closingTabManager.tabs)
+        let closingWorkspaceIds = closingWorkspaces.map(\.id)
+        // An explicit close of a window's final remote workspace kills the
+        // marked session. Every other window close detaches and preserves it.
+        if remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId) {
+            for workspace in closingWorkspaces where workspace.isRemoteTmuxMirror {
+                remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
+            }
+        }
+        remoteTmuxController.handleWindowWorkspacesClosed(workspaceIds: closingWorkspaceIds)
+
+        // A window close is authoritative ownership teardown, not a temporary
+        // routing loss. Retire every surface before removing the context so a
+        // late PTY exit cannot respawn a shell into an otherwise-live model.
+        for workspace in closingWorkspaces {
+            workspace.withClosedPanelHistorySuppressed {
+                workspace.teardownAllPanels()
+            }
+            workspace.teardownRemoteConnection()
+            workspace.owningTabManager = nil
+        }
+
+        if let context {
+            guard removeMainWindowContext(context, rememberRecoverableRoute: false) != nil else {
+                return false
+            }
+        } else {
+            forgetRecoverableMainWindowRoute(windowId: windowId)
+            notifyMainWindowContextsDidChange()
+        }
+        closingTabManager.window = nil
+        if let window {
+            mainWindowControllers.removeAll(where: { $0.window === window })
+        }
+        windowConfigFrames.removeValue(forKey: windowId)
+        publishCmuxWindowLifecycle(name: "window.closed", windowId: windowId, origin: "appkit_close")
+        commandPaletteWindowStore.removeWindow(windowId)
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
-            store.clearNotifications(forTabId: removed.windowId)
-            for tab in removed.tabManager.tabs {
+            store.clearNotifications(forTabId: windowId)
+            for tab in closingTabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }
         }
 
-        if tabManager === removed.tabManager {
+        if tabManager === closingTabManager {
             // Repoint "active" pointers to any remaining main terminal window.
             let nextContext: MainWindowContext? = {
                 if let keyWindow = shortcutRoutingKeyWindow,
@@ -16211,6 +16298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 preserveManualRestoreBackupOnMissingPrimary: closingWindowIsCrashDiagnostic
             )
         }
+        return true
     }
 
     private func closeWindowSnapshotPruningCrashDiagnostics(

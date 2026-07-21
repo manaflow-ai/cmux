@@ -225,12 +225,14 @@ extension TerminalSurface {
 #endif
     }
 
-    /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
-    /// before deinit; deinit will skip the free if already torn down.
+    /// Explicitly retire this model and free its Ghostty runtime surface.
+    /// Idempotent — safe to call before deinit; deinit will skip the work if
+    /// already torn down.
     @MainActor
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        retireSurfaceRegistryRegistrationIfNeeded()
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()

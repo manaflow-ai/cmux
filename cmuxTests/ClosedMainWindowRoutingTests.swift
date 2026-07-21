@@ -161,6 +161,21 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.focusMainWindow(windowId: windowCId))
     }
+}
+
+@MainActor
+@Suite("Ghost main window context lifecycle", .serialized)
+struct GhostMainWindowContextLifecycleTests {
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
 
     @Test("Retained closed window cannot respawn its context or terminal")
     func retainedClosedWindowCannotRespawnItsContextOrTerminal() throws {
@@ -198,9 +213,12 @@ struct ClosedMainWindowRoutingTests {
         window.makeKeyAndOrderFront(nil)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
 
-        // Keep the NSWindow and SwiftUI-owned models alive across close, then
-        // reproduce the late window-accessor registration from issue #8349.
-        window.close()
+        // Drive the installed AppKit close observer without asking AppKit to
+        // destroy a synthetic contentless test window (which crashes its
+        // private layout machinery). Keep the NSWindow and SwiftUI-owned
+        // models alive, then reproduce issue #8349's late registration.
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        window.orderOut(nil)
         app.registerMainWindow(
             window,
             windowId: windowId,
@@ -210,13 +228,58 @@ struct ClosedMainWindowRoutingTests {
             fileExplorerState: fileExplorerState
         )
 
-        // A second AppKit close emits no notification for an already-closed
-        // NSWindow. The socket/API path must still converge on final teardown.
-        _ = app.closeMainWindow(windowId: windowId)
+        // A retained, already-closed NSWindow emits no second notification.
+        // The socket/API fallback calls this same authoritative transaction.
+        #expect(!app.commitMainWindowClose(window))
 
         #expect(app.tabManagerFor(windowId: windowId) == nil)
         #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+    }
+
+    @Test("Closing an ignored duplicate window preserves the live owner")
+    func closingIgnoredDuplicateWindowPreservesLiveOwner() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let liveWindow = makeMainWindow(id: windowId)
+        let duplicateWindow = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let sidebarState = SidebarState()
+        let sidebarSelectionState = SidebarSelectionState()
+        let fileExplorerState = FileExplorerState()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            liveWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            liveWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: fileExplorerState
+        )
+        liveWindow.makeKeyAndOrderFront(nil)
+
+        // An ignored duplicate's controller can still deliver a close callback
+        // carrying the live owner's restored id. Identity, not id, owns close.
+        #expect(!app.commitMainWindowClose(duplicateWindow))
+        #expect(app.tabManagerFor(windowId: windowId) === manager)
+        #expect(app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
     }
 }

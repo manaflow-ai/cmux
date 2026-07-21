@@ -14,6 +14,37 @@ import Testing
 /// native free to the runtime teardown coordinator.
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceTeardownCallbackLifetimeTests {
+    @Test func explicitTeardownRetiresLogicalRegistryOwnershipExactlyOnce() throws {
+        let registry = TerminalSurfaceRegistry()
+        var surface: TerminalSurface? = makeSurface(registry: registry)
+        let surfaceId = try #require(surface?.id)
+        let registeredGeneration = registry.topologyGeneration
+        #expect(registry.surface(id: surfaceId) != nil)
+
+        surface?.teardownSurface()
+        let teardownGeneration = registry.topologyGeneration
+        #expect(registry.surface(id: surfaceId) == nil)
+        #expect(teardownGeneration > registeredGeneration)
+
+        surface?.teardownSurface()
+        #expect(registry.topologyGeneration == teardownGeneration)
+
+        surface = nil
+        #expect(registry.topologyGeneration == teardownGeneration)
+    }
+
+    @Test func deinitOnlyTeardownStillRetiresRegistryOwnership() throws {
+        let registry = TerminalSurfaceRegistry()
+        var surface: TerminalSurface? = makeSurface(registry: registry)
+        let surfaceId = try #require(surface?.id)
+        let registeredGeneration = registry.topologyGeneration
+
+        surface = nil
+
+        #expect(registry.surface(id: surfaceId) == nil)
+        #expect(registry.topologyGeneration > registeredGeneration)
+    }
+
     @Test func teardownSurfaceKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
         let surface = makeSurface()
@@ -138,7 +169,9 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
-    private func makeSurface() -> TerminalSurface {
+    private func makeSurface(
+        registry: any TerminalSurfaceRegistering = FakeSurfaceRegistry()
+    ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         return TerminalSurface(
@@ -146,7 +179,7 @@ import Testing
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             dependencies: TerminalSurfaceRuntimeDependencies(
-                registry: FakeSurfaceRegistry(),
+                registry: registry,
                 engine: FakeTerminalEngine(),
                 viewProvider: FakeTerminalSurfaceViewProvider(surfaceView: nativeView, paneHost: paneHost),
                 spawnPolicy: FakeSpawnPolicyProvider(),
