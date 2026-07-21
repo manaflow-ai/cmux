@@ -8,10 +8,15 @@ extension BrowserPanel {
         recordTypedNavigation: Bool
     ) -> BrowserAutomationNavigationTicket {
         let ticket = automationNavigationCoordinator.begin(instanceID: webViewInstanceID)
-        let navigation = navigate(to: targetURL, recordTypedNavigation: recordTypedNavigation)
-        automationNavigationCoordinator.didStart(
-            ticket,
-            navigationID: navigation.map { ObjectIdentifier($0) }
+        navigate(
+            to: targetURL,
+            recordTypedNavigation: recordTypedNavigation,
+            onNavigationStarted: { [weak self] navigation in
+                self?.automationNavigationCoordinator.didStart(
+                    ticket,
+                    navigationID: navigation.map { ObjectIdentifier($0) }
+                )
+            }
         )
         return ticket
     }
@@ -21,37 +26,39 @@ extension BrowserPanel {
         targetURL: URL
     )? {
         guard let targetURL = automationReloadTargetURL() else { return nil }
-        return (beginAutomationNavigation(to: targetURL, recordTypedNavigation: false), targetURL)
+        let ticket = automationNavigationCoordinator.begin(instanceID: webViewInstanceID)
+        let navigationStarted: (WKNavigation?) -> Void = { [weak self] navigation in
+            self?.automationNavigationCoordinator.didStart(
+                ticket,
+                navigationID: navigation.map { ObjectIdentifier($0) }
+            )
+        }
+
+        switch navigationDelegate?.activeErrorPageRetryForAutomation() {
+        case .request(let request):
+            navigateWithoutInsecureHTTPPrompt(
+                request: request,
+                recordTypedNavigation: false,
+                onNavigationStarted: navigationStarted
+            )
+        case .urlOnly:
+            navigate(
+                to: targetURL,
+                recordTypedNavigation: false,
+                onNavigationStarted: navigationStarted
+            )
+        case .disabled:
+            navigationStarted(nil)
+        case nil:
+            navigationStarted(reload())
+        }
+        return (ticket, targetURL)
     }
 
     func finishAutomationNavigation(
-        _ ticket: BrowserAutomationNavigationTicket,
-        retrying targetURL: URL
+        _ ticket: BrowserAutomationNavigationTicket
     ) async -> BrowserAutomationNavigationOutcome {
-        let firstOutcome = await automationNavigationCoordinator.wait(for: ticket)
-        guard firstOutcome == .timedOut else { return firstOutcome }
-        guard replaceWebViewAfterAutomationNavigationTimeout(
-            expectedInstanceID: ticket.instanceID
-        ) else {
-            return .superseded
-        }
-
-        let retryTicket = beginAutomationNavigation(to: targetURL, recordTypedNavigation: false)
-        return await automationNavigationCoordinator.wait(for: retryTicket)
-    }
-
-    @discardableResult
-    private func replaceWebViewAfterAutomationNavigationTimeout(
-        expectedInstanceID: UUID
-    ) -> Bool {
-        guard webViewInstanceID == expectedInstanceID, canRecoverFromAutomationTimeout else { return false }
-        replaceWebViewPreservingState(
-            from: webView,
-            websiteDataStore: websiteDataStore,
-            reason: "automation_navigation_unresponsive",
-            waitForManualRecovery: true
-        )
-        return true
+        await automationNavigationCoordinator.wait(for: ticket)
     }
 
     func registerBrowserAutomationInitScript(_ userScript: WKUserScript) -> Int {

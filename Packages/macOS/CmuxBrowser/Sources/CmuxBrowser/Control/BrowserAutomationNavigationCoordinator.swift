@@ -25,7 +25,7 @@ public final class BrowserAutomationNavigationCoordinator {
     )?
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
-    public init(navigationTimeout: Duration = .seconds(8)) {
+    public init(navigationTimeout: Duration = .seconds(15)) {
         self.navigationTimeout = navigationTimeout
         let clock = ContinuousClock()
         self.sleep = { duration in
@@ -35,7 +35,7 @@ public final class BrowserAutomationNavigationCoordinator {
 
     /// Creates a coordinator with an injected timing source for deterministic tests.
     public init(
-        navigationTimeout: Duration = .seconds(8),
+        navigationTimeout: Duration = .seconds(15),
         sleep: @escaping Sleep
     ) {
         self.navigationTimeout = navigationTimeout

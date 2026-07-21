@@ -6720,7 +6720,6 @@ class TerminalController {
         }
         let navigationOutcome = v2AwaitBrowserAutomationNavigation(
             navigationTicket,
-            targetURL: navigationTargetURL,
             browserPanel: navigationPanel
         )
         if let failure = v2BrowserNavigationFailureResult(
@@ -6822,7 +6821,6 @@ class TerminalController {
         }
         let navigationOutcome = v2AwaitBrowserAutomationNavigation(
             navigationTicket,
-            targetURL: navigationTargetURL,
             browserPanel: navigationPanel
         )
         if let failure = v2BrowserNavigationFailureResult(

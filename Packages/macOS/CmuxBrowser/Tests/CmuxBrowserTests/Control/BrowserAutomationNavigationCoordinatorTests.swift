@@ -76,6 +76,20 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .failed("connection refused"))
     }
 
+    @Test("A deferred load can bind when its real navigation starts")
+    func deferredLoadBindsOnStart() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let navigation = NSObject()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+        coordinator.didCommit(instanceID: instanceID, navigationID: ObjectIdentifier(navigation))
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
     @Test("A load that returns no navigation terminates as not started")
     func missingNavigationIsNotStarted() async {
         let coordinator = BrowserAutomationNavigationCoordinator()

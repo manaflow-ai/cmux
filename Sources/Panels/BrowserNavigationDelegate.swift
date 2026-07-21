@@ -213,6 +213,11 @@ import WebKit
         return .urlOnly
     }
 
+    func activeErrorPageRetryForAutomation() -> BrowserErrorPageRetry? {
+        guard let failedURL = activeErrorPageDisplayURL?.absoluteString else { return nil }
+        return retryForFailedNavigation(failedURL: failedURL)
+    }
+
     private func loadErrorPage(in webView: WKWebView, failedURL: String, retry: BrowserErrorPageRetry, error: NSError) {
         activeSSLTrustBypassReplayRequest = nil
         activeSSLTrustBypassErrorPageRetryRequest = nil

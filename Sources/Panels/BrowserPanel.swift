@@ -3116,6 +3116,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let request: URLRequest
         let recordTypedNavigation: Bool
         let preserveRestoredSessionHistory: Bool
+        let onNavigationStarted: ((WKNavigation?) -> Void)?
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
     private let bypassesRemoteWorkspaceProxy: Bool
@@ -5756,13 +5757,26 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Navigate to a URL
     @discardableResult
-    func navigate(to url: URL, recordTypedNavigation: Bool = false) -> WKNavigation? {
+    func navigate(
+        to url: URL,
+        recordTypedNavigation: Bool = false,
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
+    ) -> WKNavigation? {
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
-            presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
+            presentInsecureHTTPAlert(
+                for: request,
+                intent: .currentTab,
+                recordTypedNavigation: recordTypedNavigation,
+                onNavigationStarted: onNavigationStarted
+            )
             return nil
         }
-        return navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+        return navigateWithoutInsecureHTTPPrompt(
+            request: request,
+            recordTypedNavigation: recordTypedNavigation,
+            onNavigationStarted: onNavigationStarted
+        )
     }
 
     @discardableResult
@@ -5770,29 +5784,37 @@ final class BrowserPanel: Panel, ObservableObject {
         to url: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false,
-        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         let request = URLRequest(url: url, cachePolicy: cachePolicy)
         return navigateWithoutInsecureHTTPPrompt(
             request: request,
             recordTypedNavigation: recordTypedNavigation,
-            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            onNavigationStarted: onNavigationStarted
         )
     }
 
     @discardableResult
-    private func navigateWithoutInsecureHTTPPrompt(
+    func navigateWithoutInsecureHTTPPrompt(
         request: URLRequest,
         recordTypedNavigation: Bool,
-        preserveRestoredSessionHistory: Bool = false
+        preserveRestoredSessionHistory: Bool = false,
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
-        guard let url = request.url else { return nil }
+        guard let url = request.url else {
+            onNavigationStarted?(nil)
+            return nil
+        }
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
+            pendingRemoteNavigation?.onNavigationStarted?(nil)
             pendingRemoteNavigation = PendingRemoteNavigation(
                 request: request,
                 recordTypedNavigation: recordTypedNavigation,
-                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                onNavigationStarted: onNavigationStarted
             )
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
@@ -5805,7 +5827,8 @@ final class BrowserPanel: Panel, ObservableObject {
             request: request,
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
-            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            onNavigationStarted: onNavigationStarted
         )
     }
 
@@ -5817,6 +5840,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
         guard let originalURL = navigation.request.url else {
+            navigation.onNavigationStarted?(nil)
             pendingRemoteNavigation = nil
             reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_cleared")
             return
@@ -5825,7 +5849,8 @@ final class BrowserPanel: Panel, ObservableObject {
             request: navigation.request,
             originalURL: originalURL,
             recordTypedNavigation: navigation.recordTypedNavigation,
-            preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory
+            preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory,
+            onNavigationStarted: navigation.onNavigationStarted
         )
         pendingRemoteNavigation = nil
     }
@@ -5835,7 +5860,8 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         originalURL: URL,
         recordTypedNavigation: Bool,
-        preserveRestoredSessionHistory: Bool
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         cancelHiddenWebViewDiscard()
         clearWebContentTerminationRecovery()
@@ -5864,6 +5890,7 @@ final class BrowserPanel: Panel, ObservableObject {
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
             pendingDiscardRestoreNavigation = startedNavigation
         }
+        onNavigationStarted?(startedNavigation)
         return startedNavigation
     }
 
@@ -5976,10 +6003,17 @@ final class BrowserPanel: Panel, ObservableObject {
         for request: URLRequest,
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool,
-        onResolution: @escaping (BrowserInsecureHTTPNavigationResolution) -> Void = { _ in }
+        onResolution: @escaping (BrowserInsecureHTTPNavigationResolution) -> Void = { _ in },
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) {
-        guard let url = request.url else { return }
-        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
+        guard let url = request.url else {
+            onNavigationStarted?(nil)
+            return
+        }
+        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+            onNavigationStarted?(nil)
+            return
+        }
         let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
@@ -5999,11 +6033,21 @@ final class BrowserPanel: Panel, ObservableObject {
                 url: url,
                 intent: intent,
                 recordTypedNavigation: recordTypedNavigation,
-                onResolution: onResolution
+                onResolution: onResolution,
+                onNavigationStarted: onNavigationStarted
             )
         }
 
-        presentBrowserAlert(alert, in: webView, windowProvider: insecureHTTPAlertWindowProvider, completion: handleResponse, cancel: { onResolution(.cancelled) })
+        presentBrowserAlert(
+            alert,
+            in: webView,
+            windowProvider: insecureHTTPAlertWindowProvider,
+            completion: handleResponse,
+            cancel: {
+                onNavigationStarted?(nil)
+                onResolution(.cancelled)
+            }
+        )
     }
 
     func handleInsecureHTTPAlertResponse(
@@ -6014,7 +6058,8 @@ final class BrowserPanel: Panel, ObservableObject {
         url: URL,
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool, openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
-        onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void
+        onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void,
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) {
         if browserShouldPersistInsecureHTTPAllowlistSelection(
             response: response,
@@ -6024,19 +6069,29 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         switch response {
         case .alertFirstButtonReturn:
-            if !openExternalURL(url) { return }
+            if !openExternalURL(url) {
+                onNavigationStarted?(nil)
+                return
+            }
+            onNavigationStarted?(nil)
             onResolution(.openedExternally)
         case .alertSecondButtonReturn:
             switch intent {
             case .currentTab:
                 onResolution(.proceededInCurrentTab)
                 insecureHTTPBypassHostOnce = host
-                navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+                navigateWithoutInsecureHTTPPrompt(
+                    request: request,
+                    recordTypedNavigation: recordTypedNavigation,
+                    onNavigationStarted: onNavigationStarted
+                )
             case .newTab:
+                onNavigationStarted?(nil)
                 onResolution(.proceededInNewTab)
                 openLinkInNewTab(request: request, bypassInsecureHTTPHostOnce: host)
             }
         default:
+            onNavigationStarted?(nil)
             onResolution(.cancelled)
             return
         }
@@ -6508,11 +6563,12 @@ extension BrowserPanel {
     }
 
     /// Reload the current page
-    func reload() {
+    @discardableResult
+    func reload() -> WKNavigation? {
         if prepareForReload(reason: "reload", mode: .soft) {
-            return
+            return nil
         }
-        webView.reload()
+        return webView.reload()
     }
 
     /// Reload the current page, bypassing WebKit's cache.

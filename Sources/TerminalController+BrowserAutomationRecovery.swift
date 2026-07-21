@@ -5,13 +5,12 @@ import WebKit
 extension TerminalController {
     nonisolated func v2AwaitBrowserAutomationNavigation(
         _ ticket: BrowserAutomationNavigationTicket,
-        targetURL: URL,
         browserPanel: BrowserPanel
     ) -> BrowserAutomationNavigationOutcome? {
         var navigationTask: Task<Void, Never>?
         let outcome: BrowserAutomationNavigationOutcome? = socketAwaitCallback(timeout: 17.5) { finish in
             navigationTask = Task { @MainActor in
-                finish(await browserPanel.finishAutomationNavigation(ticket, retrying: targetURL))
+                finish(await browserPanel.finishAutomationNavigation(ticket))
             }
         }
         if outcome == nil {
