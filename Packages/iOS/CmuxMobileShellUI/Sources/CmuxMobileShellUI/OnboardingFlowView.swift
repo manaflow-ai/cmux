@@ -16,7 +16,7 @@ struct OnboardingFlowView: View {
     let onComplete: () -> Void
 
     @State private var stage: OnboardingStage
-    @State private var connectionCompletionSource = "auto_connect"
+    @State private var didReachConnection = false
     @Environment(\.analytics) private var analytics
 
     init(
@@ -56,8 +56,14 @@ struct OnboardingFlowView: View {
             }
         )
         .interactiveDismissDisabled()
-        .onAppear { captureSceneViewed() }
-        .onChange(of: stage) { _, _ in captureSceneViewed() }
+        .onAppear {
+            captureSceneViewed()
+            reachConnectionIfNeeded()
+        }
+        .onChange(of: stage) { _, _ in
+            captureSceneViewed()
+            reachConnectionIfNeeded()
+        }
         .onChange(of: isAuthenticated) { _, _ in
             guard stage == .connect else { return }
             captureSceneViewed()
@@ -123,8 +129,13 @@ struct OnboardingFlowView: View {
     }
 
     private func showConnection() {
-        onReachedConnection()
         navigate(to: .connect)
+    }
+
+    private func reachConnectionIfNeeded() {
+        guard stage == .connect, !didReachConnection else { return }
+        didReachConnection = true
+        onReachedConnection()
     }
 
     private func navigate(to destination: OnboardingStage) {
@@ -140,24 +151,19 @@ struct OnboardingFlowView: View {
     private func finishOrRetry() {
         switch connectionPhase {
         case .idle:
-            connectionCompletionSource = "auto_connect"
             onRetryConnection()
         case .searching:
             break
         case .fallback:
-            connectionCompletionSource = "auto_connect"
             analytics.capture("ios_onboarding_connection_retried", eventProperties)
             onRetryConnection()
         case .ready:
-            var properties = eventProperties
-            properties["source"] = .string(connectionCompletionSource)
-            analytics.capture("ios_onboarding_completed", properties)
+            analytics.capture("ios_onboarding_completed", eventProperties)
             onComplete()
         }
     }
 
     private func startFallbackPairing() {
-        connectionCompletionSource = "qr_fallback"
         var properties = eventProperties
         properties["source"] = .string("qr_fallback")
         analytics.capture("ios_onboarding_pairing_started", properties)

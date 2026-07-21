@@ -6,16 +6,16 @@ import Testing
     @Test func stagesOccupyOrderedHorizontalPages() {
         let pageWidth = 400.0
 
-        #expect(onboardingPageOffset(for: .agents, pageWidth: pageWidth) == 0)
-        #expect(onboardingPageOffset(for: .notifications, pageWidth: pageWidth) == -400)
-        #expect(onboardingPageOffset(for: .connect, pageWidth: pageWidth) == -800)
+        #expect(OnboardingStage.agents.pageOffset(pageWidth: pageWidth) == 0)
+        #expect(OnboardingStage.notifications.pageOffset(pageWidth: pageWidth) == -400)
+        #expect(OnboardingStage.connect.pageOffset(pageWidth: pageWidth) == -800)
     }
 
     @Test func advancingAgainAfterReturningToFirstPageUsesForwardTrackMotion() {
         let pageWidth = 400.0
         let stages: [OnboardingStage] = [.agents, .notifications, .agents, .notifications]
         let offsets = stages.map {
-            onboardingPageOffset(for: $0, pageWidth: pageWidth)
+            $0.pageOffset(pageWidth: pageWidth)
         }
 
         #expect(offsets == [0, -400, 0, -400])

@@ -390,6 +390,8 @@ struct CMUXMobileRootView: View {
 
     private func markOnboardingReadyToConnect() {
         onboardingStore.markReadyToConnect()
+        guard store.connectionState != .connected else { return }
+        retryAutomaticConnection()
     }
 
     private func completeOnboarding() {

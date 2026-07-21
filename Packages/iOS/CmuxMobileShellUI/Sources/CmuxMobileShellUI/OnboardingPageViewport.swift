@@ -25,10 +25,7 @@ struct OnboardingPageViewport<PageContent: View>: View {
                 width: geometry.size.width * CGFloat(OnboardingStage.allCases.count),
                 alignment: .leading
             )
-            .offset(x: onboardingPageOffset(
-                for: stage,
-                pageWidth: geometry.size.width
-            ))
+            .offset(x: stage.pageOffset(pageWidth: geometry.size.width))
             .animation(reduceMotion ? nil : .smooth(duration: 0.32), value: stage)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -38,7 +35,9 @@ struct OnboardingPageViewport<PageContent: View>: View {
     }
 }
 
-func onboardingPageOffset(for stage: OnboardingStage, pageWidth: CGFloat) -> CGFloat {
-    -CGFloat(stage.rawValue) * pageWidth
+extension OnboardingStage {
+    func pageOffset(pageWidth: CGFloat) -> CGFloat {
+        -CGFloat(rawValue) * pageWidth
+    }
 }
 #endif

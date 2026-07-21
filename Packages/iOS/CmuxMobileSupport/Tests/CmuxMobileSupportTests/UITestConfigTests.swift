@@ -197,38 +197,38 @@ import Testing
     #if DEBUG
     @Test func pairingScannerPreviewFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_SCANNER_PREVIEW": "1"]
-        #expect(isPairingScannerPreviewEnabled(in: env) == true)
+        #expect(UITestEnvironmentConfig(environment: env).pairingScannerPreviewEnabled == true)
     }
 
     @Test func onboardingPreviewFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_ONBOARDING_PREVIEW": "1"]
-        #expect(isOnboardingPreviewEnabled(in: env) == true)
+        #expect(UITestEnvironmentConfig(environment: env).onboardingPreviewEnabled == true)
     }
 
     @Test func onboardingPreviewFlagRequiresOne() {
-        #expect(isOnboardingPreviewEnabled(in: [:]) == false)
-        #expect(isOnboardingPreviewEnabled(
-            in: ["CMUX_UITEST_ONBOARDING_PREVIEW": "0"]
-        ) == false)
+        #expect(UITestEnvironmentConfig(environment: [:]).onboardingPreviewEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_ONBOARDING_PREVIEW": "0"]
+        ).onboardingPreviewEnabled == false)
     }
 
     @Test func onboardingConnectionFallbackFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1"]
-        #expect(isOnboardingConnectionFallbackEnabled(in: env) == true)
+        #expect(UITestEnvironmentConfig(environment: env).onboardingConnectionFallbackEnabled == true)
     }
 
     @Test func onboardingConnectionFallbackFlagRequiresOne() {
-        #expect(isOnboardingConnectionFallbackEnabled(in: [:]) == false)
-        #expect(isOnboardingConnectionFallbackEnabled(
-            in: ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "0"]
-        ) == false)
+        #expect(UITestEnvironmentConfig(environment: [:]).onboardingConnectionFallbackEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "0"]
+        ).onboardingConnectionFallbackEnabled == false)
     }
 
     @Test func pairingScannerPreviewFlagRequiresOne() {
-        #expect(isPairingScannerPreviewEnabled(in: [:]) == false)
-        #expect(isPairingScannerPreviewEnabled(
-            in: ["CMUX_UITEST_SCANNER_PREVIEW": "0"]
-        ) == false)
+        #expect(UITestEnvironmentConfig(environment: [:]).pairingScannerPreviewEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_SCANNER_PREVIEW": "0"]
+        ).pairingScannerPreviewEnabled == false)
     }
     #endif
 }
