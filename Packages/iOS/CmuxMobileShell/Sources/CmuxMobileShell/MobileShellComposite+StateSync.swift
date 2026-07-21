@@ -22,7 +22,7 @@ extension MobileShellComposite {
     /// stream. Runs concurrently with event consumption; a delta racing the
     /// fetch overlaps idempotently or gaps into a repair fetch.
     func beginStateSyncNegotiation(client: MobileCoreRPCClient) {
-        stateSyncActive = false
+        stateSyncAuthorityClientID = nil
         scheduleStateSyncFetch(client: client)
     }
 
@@ -30,6 +30,13 @@ extension MobileShellComposite {
     /// The caller already proved the event belongs to the current client and a
     /// connected session.
     func handleStateSyncDeltaEvent(_ event: MobileEventEnvelope) {
+        // Deltas are processed only while v2 is authoritative for the CURRENT
+        // client. Before activation the negotiation fetch covers them; after a
+        // legacy fallback the list has a legacy writer and mirror projections
+        // must stop until a new subscription generation renegotiates —
+        // otherwise legacy responses and v2 projections interleave as
+        // concurrent writers.
+        guard stateSyncActive else { return }
         guard let payload = event.payloadJSON else {
             scheduleStateSyncRepairIfActive()
             return
@@ -97,13 +104,26 @@ extension MobileShellComposite {
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
         var task = scheduleStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds)
+        var followedGeneration = stateSyncFetchGeneration
         for _ in 0..<5 {
             let applied = await task.value
             if applied { return true }
-            guard let replacement = stateSyncFetchTask, replacement != task else {
-                return applied
+            if let replacement = stateSyncFetchTask, replacement != task {
+                followedGeneration = stateSyncFetchGeneration
+                task = replacement
+                continue
             }
-            task = replacement
+            // A finished replacement can clear the shared handle before this
+            // waiter's superseded task settles false. If a NEWER generation
+            // settled successfully, that outcome is the authoritative answer;
+            // reporting false here would let a liveness caller tear down a
+            // healthy session.
+            if let settled = stateSyncLastSettledFetch,
+               settled.generation != followedGeneration,
+               settled.applied {
+                return true
+            }
+            return applied
         }
         return false
     }
@@ -116,7 +136,8 @@ extension MobileShellComposite {
         stateSyncFetchTask?.cancel()
         stateSyncFetchTask = nil
         stateSyncFetchGeneration = UUID()
-        stateSyncActive = false
+        stateSyncAuthorityClientID = nil
+        stateSyncLastSettledFetch = nil
         stateSyncMirror.reset()
     }
 
@@ -145,11 +166,13 @@ extension MobileShellComposite {
                     self.stateSyncFetchTask = nil
                 }
             }
-            return await self?.runStateSyncFetch(
+            let applied = await self?.runStateSyncFetch(
                 client: client,
                 generation: generation,
                 timeoutNanoseconds: timeoutNanoseconds
             ) ?? false
+            self?.stateSyncLastSettledFetch = (generation, applied)
+            return applied
         }
         stateSyncFetchTask = task
         return task
@@ -196,7 +219,7 @@ extension MobileShellComposite {
                 return false
             }
             let result = stateSyncMirror.apply(response: response)
-            stateSyncActive = true
+            stateSyncAuthorityClientID = ObjectIdentifier(client)
             switch result {
             case .applied:
                 applyStateSyncProjection()
@@ -217,7 +240,7 @@ extension MobileShellComposite {
             if case MobileShellConnectionError.rpcError(let code, _) = error, code == "method_not_found" {
                 // Legacy Mac: stay on the workspace.updated refetch loop for
                 // this connection. Not an error.
-                stateSyncActive = false
+                stateSyncAuthorityClientID = nil
                 return false
             }
             mobileStateSyncLog.error(
@@ -237,7 +260,7 @@ extension MobileShellComposite {
     private func fallBackToLegacyListAfterFetchFailure(client: MobileCoreRPCClient) {
         guard remoteClient === client, connectionState == .connected else { return }
         guard stateSyncActive else { return }
-        stateSyncActive = false
+        stateSyncAuthorityClientID = nil
         Task { @MainActor [weak self] in
             // The missed delta may have been the last event, so this reload
             // cannot be fire-and-forget: retry a bounded number of times with

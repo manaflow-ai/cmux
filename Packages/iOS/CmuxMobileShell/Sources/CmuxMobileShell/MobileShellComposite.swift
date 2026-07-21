@@ -771,10 +771,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Never reset on reconnect; the epoch in every frame invalidates stale
     /// cursors, so a same-Mac resubscribe catches up with one small delta.
     let stateSyncMirror = MobileStateSyncMirror()
-    /// Whether the connected Mac answered `mobile.sync.fetch` this connection.
-    /// While true, `workspace.updated` no longer schedules full-list refetches;
+    /// The client that earned state-sync authority by a successful
+    /// `mobile.sync.fetch`. v2 is active only while this identity matches the
+    /// CURRENT `remoteClient`, so replacing the client (secondary-to-
+    /// foreground promotion, reconnect) implicitly demotes to legacy until
+    /// the new client's own negotiation completes — no explicit hook needed,
+    /// and a stale client's deltas or fallbacks can never act on its
+    /// successor's authority.
+    var stateSyncAuthorityClientID: ObjectIdentifier?
+    /// Whether state sync v2 owns the list for the CURRENT client. While
+    /// true, `workspace.updated` no longer schedules full-list refetches;
     /// `mobile.sync.delta` events own the list.
-    var stateSyncActive = false
+    var stateSyncActive: Bool {
+        guard let stateSyncAuthorityClientID, let remoteClient else { return false }
+        return stateSyncAuthorityClientID == ObjectIdentifier(remoteClient)
+    }
+    /// Outcome of the most recently settled fetch generation, so a waiter
+    /// whose superseded task lost the race to its finished replacement can
+    /// still observe that authoritative success.
+    var stateSyncLastSettledFetch: (generation: UUID, applied: Bool)?
     /// Single-flight handle for negotiation and gap-repair fetches, restart-on-
     /// newest like ``workspaceListRefreshTask``. Bool payload = fetch applied.
     var stateSyncFetchTask: Task<Bool, Never>?

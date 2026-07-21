@@ -212,6 +212,30 @@ struct MobileShellStateSyncTests {
         #expect(reloaded, "the fallback must converge with one authoritative legacy reload")
     }
 
+    @Test func replacingTheForegroundClientDemotesStateSyncAuthority() async throws {
+        let router = LivenessHostRouter()
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 3,
+                records: [workspaceRecord(id: UUID().uuidString, title: "synced-alpha", sortIndex: 0)]
+            )
+        )
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        let negotiated = try await pollUntil { store.stateSyncActive }
+        #expect(negotiated)
+
+        // Promoting/replacing the foreground client (secondary-to-foreground,
+        // reconnect) must implicitly demote v2: the new client's events flow
+        // through the legacy invalidation path until ITS negotiation grants
+        // authority, so no window exists where the old Mac's authority
+        // suppresses the new Mac's updates.
+        try installFreshLivenessRemoteClient(on: store, router: router, box: box, clock: clock)
+        #expect(store.stateSyncActive == false)
+    }
+
     @Test func legacyMacKeepsWorkspaceUpdatedRefetchLoop() async throws {
         // No scripted sync result: the router answers `method_not_found`,
         // modeling a released Mac.
