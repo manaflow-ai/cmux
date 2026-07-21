@@ -738,6 +738,12 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/SpecializedTaskSleepTests.swift",
+            "try await Task<Never, Never>.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/sh.sh",
             "sleep 1\ntest -f /tmp/out || exit 1\n",
             set(),  # shell `test -f` is not in our assertion vocabulary; ensure no false negative is required
