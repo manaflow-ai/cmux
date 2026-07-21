@@ -4,7 +4,8 @@ import Foundation
 ///
 /// Back-compat: existing terminal-only configs omit `type`/`url` and require
 /// `command`; those decode unchanged as `.terminal` entries. New configs may add
-/// `"type": "browser"` with a `url` to seed a browser pane.
+/// `"type": "browser"` with a `url` to seed a browser pane. Floating Dock
+/// content may also use `"type": "note"`; top-level right-Dock controls reject it.
 struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
     let id: String
     let title: String
@@ -35,7 +36,7 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         self.env = env
     }
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case id
         case title
         case type
@@ -47,6 +48,9 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
     }
 
     init(from decoder: Decoder) throws {
+        try decoder.rejectUnknownDockConfigKeys(
+            allowedKeys: Set(CodingKeys.allCases.map(\.stringValue))
+        )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawID = try container.decode(String.self, forKey: .id)
         let normalizedID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -65,7 +69,7 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             guard let parsed = DockSurfaceKind(rawValue: rawType) else {
                 throw Self.validationError(
                     code: 3,
-                    message: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be terminal or browser.")
+                    message: String(localized: "dock.error.unknownContentType", defaultValue: "Dock content type must be terminal, browser, or note.")
                 )
             }
             resolvedKind = parsed
@@ -100,6 +104,19 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             }
             url = normalizedURL
             command = nil
+        case .note:
+            let unsupportedKeys: [CodingKeys] = [.command, .url, .cwd, .height, .env]
+            guard !unsupportedKeys.contains(where: container.contains) else {
+                throw Self.validationError(
+                    code: 6,
+                    message: String(
+                        localized: "dock.error.noteFieldsUnsupported",
+                        defaultValue: "Dock note content cannot include command, url, cwd, height, or env."
+                    )
+                )
+            }
+            command = nil
+            url = nil
         }
 
         id = normalizedID
@@ -140,6 +157,18 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
                 throw EncodingError.invalidValue(url as Any, context)
             }
             try container.encode(url, forKey: .url)
+        case .note:
+            guard command == nil, url == nil, cwd == nil, height == nil, env.isEmpty else {
+                let context = EncodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: String(
+                        localized: "dock.error.noteFieldsUnsupported",
+                        defaultValue: "Dock note content cannot include command, url, cwd, height, or env."
+                    )
+                )
+                throw EncodingError.invalidValue(self, context)
+            }
+            try container.encode(DockSurfaceKind.note.rawValue, forKey: .type)
         }
         try container.encodeIfPresent(cwd, forKey: .cwd)
         try container.encodeIfPresent(height, forKey: .height)

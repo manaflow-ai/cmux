@@ -70,7 +70,7 @@ extension DockSplitStore {
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
         let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
-        let kind = (panel.panelType == .browser) ? "browser" : "terminal"
+        let kind = panel.panelType.rawValue
         let icon = panel.displayIcon
         let browser = panel as? BrowserPanel
         let iconImageData = browser?.faviconPNGData

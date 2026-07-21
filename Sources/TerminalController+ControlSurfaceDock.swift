@@ -181,6 +181,31 @@ extension TerminalController {
         return nil
     }
 
+    /// Resolves a Dock-hosted surface or pane across every Bonsplit container.
+    ///
+    /// Window-Dock aliases still use the existing owner-aware routing above.
+    /// Explicit surface and pane selectors additionally recognize workspace
+    /// Docks and floating Docks through the live-store index, while rejecting a
+    /// selector whose owning window disagrees with the routed TabManager.
+    func containerDockForSurfaceRouting(
+        _ routing: ControlRoutingSelectors,
+        tabManager: TabManager
+    ) -> DockSplitStore? {
+        if let surfaceID = routing.surfaceID,
+           let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
+            guard let location = locateDockSurface(surfaceID),
+                  location.tabManager === tabManager else { return nil }
+            return dock
+        }
+        if let paneID = routing.paneID,
+           let dock = DockSplitStore.liveStores.first(where: { $0.containsPane(paneID) }) {
+            guard let location = locateDockPane(paneID),
+                  location.tabManager === tabManager else { return nil }
+            return dock
+        }
+        return windowDockForRouting(routing, tabManager: tabManager)
+    }
+
     /// The window Dock owner targeted by a Dock create request. Explicit Dock-owner
     /// selectors (including the legacy alias pinned to the caller window) still
     /// choose the owner first, but a non-Dock `workspace_id` can be an injected

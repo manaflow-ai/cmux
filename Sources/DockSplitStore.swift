@@ -33,6 +33,9 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    private let loadsConfiguration: Bool
+    private let appliesControlSeed: Bool
+    private let onConfigurationResolved: ((DockConfigResolution) -> Void)?
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
@@ -74,15 +77,22 @@ final class DockSplitStore: BonsplitDelegate {
     init(
         workspaceId: UUID,
         scope: DockScope = .workspace,
+        loadsConfiguration: Bool = true,
+        appliesControlSeed: Bool = true,
+        registersForRouting: Bool = true,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
-        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
+        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
+        onConfigurationResolved: ((DockConfigResolution) -> Void)? = nil
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
+        self.loadsConfiguration = loadsConfiguration
+        self.appliesControlSeed = appliesControlSeed
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.onConfigurationResolved = onConfigurationResolved
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
@@ -116,7 +126,12 @@ final class DockSplitStore: BonsplitDelegate {
             _ = bonsplitController.closeTab(tabId)
         }
         focusHistoryNavigation.attach(host: self)
-        Self.liveStoresTable.add(self)
+        if registersForRouting {
+            Self.liveStoresTable.add(self)
+        }
+        if !loadsConfiguration {
+            hasLoadedConfiguration = true
+        }
     }
 
     // MARK: - Lookups
@@ -179,8 +194,13 @@ final class DockSplitStore: BonsplitDelegate {
         rootDirectoryOverride = Self.normalizedBaseDirectory(directory)
     }
 
+    func configurationContextDidChange() {
+        guard loadsConfiguration, hasLoadedConfiguration else { return }
+        reloadIfBaseDirectoryChanged()
+    }
+
     private func reloadIfBaseDirectoryChanged() {
-        guard hasLoadedConfiguration else { return }
+        guard loadsConfiguration, hasLoadedConfiguration else { return }
         let rootDirectory = currentBaseDirectory()
         if configurationLoadTask != nil, rootDirectory != configurationLoadRootDirectory { reload(); return }
         guard configurationLoadTask == nil else { return }
@@ -227,6 +247,7 @@ final class DockSplitStore: BonsplitDelegate {
     func ensureLoaded() {
         guard !hasLoadedConfiguration else { return }
         hasLoadedConfiguration = true
+        guard loadsConfiguration else { return }
         startConfigurationLoad(replacingPanels: false)
     }
 
@@ -254,6 +275,8 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
@@ -267,6 +290,8 @@ final class DockSplitStore: BonsplitDelegate {
             environment: environment,
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
             tmuxStartCommand: tmuxStartCommand,
+            noteFilePath: noteFilePath,
+            noteTitle: noteTitle,
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else { return nil }
@@ -299,6 +324,8 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         initialDividerPosition: CGFloat? = nil,
         focus: Bool = true
     ) -> UUID? {
@@ -309,7 +336,9 @@ final class DockSplitStore: BonsplitDelegate {
             url: url,
             environment: environment,
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            noteFilePath: noteFilePath,
+            noteTitle: noteTitle
         ) else { return nil }
 
         guard let source = resolveSourcePanelId(sourcePanelId), let sourcePaneId = paneId(forPanelId: source) else {
@@ -420,6 +449,10 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
 #if DEBUG
+    var hasPendingConfigurationWorkForTesting: Bool {
+        configurationLoadTask != nil || configurationIdentityTask != nil
+    }
+
     func markConfigurationLoadInFlightForTesting(rootDirectory: String?) -> Int {
         hasLoadedConfiguration = true; configurationLoadGeneration += 1
         configurationLoadRootDirectory = rootDirectory; configurationLoadTask = Task {}
@@ -437,6 +470,8 @@ final class DockSplitStore: BonsplitDelegate {
         environment: [String: String],
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> (any Panel)? {
@@ -462,6 +497,15 @@ final class DockSplitStore: BonsplitDelegate {
                 preferredProfileID: preferredProfileID,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
             )
+        case .note:
+            guard let noteFilePath else { return nil }
+            return FilePreviewPanel(
+                workspaceId: workspaceId,
+                filePath: noteFilePath,
+                presentation: .note(
+                    title: noteTitle ?? String(localized: "floatingDock.note.title", defaultValue: "Notes")
+                )
+            )
         }
     }
 
@@ -480,6 +524,8 @@ final class DockSplitStore: BonsplitDelegate {
         case .browser:
             guard browserAvailabilityProvider() else { return nil }
             return makeBrowserPanel(url: def.url.flatMap { URL(string: $0) })
+        case .note:
+            return nil
         }
     }
 
@@ -520,6 +566,7 @@ final class DockSplitStore: BonsplitDelegate {
         switch kind {
         case .terminal: return "terminal"
         case .browser: return "browser"
+        case .note: return "filepreview"
         }
     }
 
@@ -735,9 +782,10 @@ final class DockSplitStore: BonsplitDelegate {
                 return
             }
             sourceLabel = Self.sourceLabel(for: resolution)
+            onConfigurationResolved?(resolution)
             let shouldSeed = configurationSeedSuppressionGeneration != generation && (replacingPanels || !hasAppliedConfigurationSeed)
-            if shouldSeed {
-                seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
+            if shouldSeed, appliesControlSeed {
+                seedConfiguration(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
             }
             if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
             hasAppliedConfigurationSeed = true
@@ -762,7 +810,7 @@ final class DockSplitStore: BonsplitDelegate {
     /// initial divider is set from the requested-height ratios (a fractional
     /// Bonsplit tree cannot pin absolute point heights, but the proportions are
     /// preserved and remain user-resizable).
-    private func seed(definitions: [DockControlDefinition], baseDirectory: String) {
+    func seedConfiguration(definitions: [DockControlDefinition], baseDirectory: String) {
         // Build panels first so divider math runs over the entries actually
         // created (e.g. browser entries are skipped when the browser is disabled).
         let created: [(definition: DockControlDefinition, panel: any Panel)] = definitions.compactMap { definition in
@@ -826,6 +874,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {
         guard resolution.isProjectSource, let sourceURL = resolution.sourceURL else { return nil }
+        guard appliesControlSeed || !resolution.floats.isEmpty else { return nil }
         let descriptor = Self.trustDescriptor(for: resolution)
         guard !CmuxActionTrust.shared.isTrusted(descriptor) else { return nil }
         return DockTrustRequest(descriptor: descriptor, configPath: sourceURL.path)

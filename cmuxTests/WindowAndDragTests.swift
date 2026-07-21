@@ -2941,6 +2941,59 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
+    func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Notes",
+            frame: CGRect(x: 20, y: 20, width: 500, height: 360),
+            isPresented: true,
+            noteFilePath: url.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        dock.store.setActive(
+            isVisible: true,
+            mode: .dock,
+            visibilityHostId: UUID()
+        )
+
+        let notePanel = try XCTUnwrap(dock.notePanel)
+        XCTAssertEqual(notePanel.filePath, url.path)
+        XCTAssertEqual(dock.store.panels.count, 1)
+        XCTAssertNotNil(dock.store.paneId(forPanelId: notePanel.id))
+        XCTAssertFalse(dock.store.hasPendingConfigurationWorkForTesting)
+        XCTAssertEqual(dock.store.dockPortalReconcileState.reconcilePassCount, 0)
+    }
+
+    func testFloatingDockNoteControlWriteIsSynchronousAndUpdatesEditor() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            presentation: .note(title: "Notes")
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        let textView = NSTextView()
+        textView.string = panel.textContent
+        panel.attachTextView(textView)
+
+        try panel.replaceAutosavedTextContent("agent-visible note")
+
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "agent-visible note")
+        XCTAssertEqual(panel.textContent, "agent-visible note")
+        XCTAssertEqual(textView.string, "agent-visible note")
+        XCTAssertFalse(panel.isDirty)
+    }
+
     func testNativePreviewSessionsDetachAndManageViewsAcrossRecreation() throws {
         let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

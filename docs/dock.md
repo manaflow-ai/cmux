@@ -1,6 +1,6 @@
 # Dock
 
-Dock is the cmux right sidebar rendered as a full panel container. It uses the **same surface and split system as the main content area** — terminals *and* browsers, tiled with the same split affordances — just docked on the right. Each Dock terminal runs in its own Ghostty-backed surface, so TUIs keep normal keyboard behavior such as arrow keys, `j` / `k`, and `Ctrl-C`. Dock browsers share the same browser stack as main-area browser panes (cookies, profile, devtools, navigation).
+Dock is the cmux right sidebar rendered as a full panel container. It uses the **same surface and split system as the main content area** — terminals *and* browsers, tiled with the same split affordances — just docked on the right. Each Dock terminal runs in its own Ghostty-backed surface, so TUIs keep normal keyboard behavior such as arrow keys, `j` / `k`, and `Ctrl-C`. Dock browsers share the same browser stack as main-area browser panes (cookies, profile, devtools, navigation). Workspace-scoped, movable containers use the same configuration file; see [Floating Docks](floating-docks.md).
 
 Dock is useful for project dashboards, git views, logs, queues, local services, test watchers, dev servers, custom TUIs, and reference web pages. Feed can be added as one optional terminal with `cmux feed tui --opentui`, but Dock is not limited to Feed.
 
@@ -69,11 +69,42 @@ Dock is configured with JSON:
       "type": "browser",
       "url": "https://example.com"
     }
+  ],
+  "floats": [
+    {
+      "id": "scratch",
+      "title": "Scratch",
+      "frame": {
+        "x": 36,
+        "y": 80,
+        "width": 520,
+        "height": 380
+      },
+      "content": {
+        "id": "scratch-note",
+        "title": "Notes",
+        "type": "note"
+      }
+    },
+    {
+      "id": "preview",
+      "title": "Preview",
+      "frame": {
+        "width": 640,
+        "height": 480
+      },
+      "content": {
+        "id": "preview-browser",
+        "title": "App",
+        "type": "browser",
+        "url": "http://localhost:3000"
+      }
+    }
   ]
 }
 ```
 
-Fields:
+Right-Dock `controls` fields:
 
 - `id`: stable unique identifier for the control.
 - `title`: label shown on the Dock tab.
@@ -86,6 +117,27 @@ Fields:
 
 Existing terminal-only configs (no `type`) keep loading unchanged. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
 
+The top-level `floats` array is optional. An existing file containing only `{"controls": [...]}` decodes and seeds the right Dock exactly as before; no migration or new key is required. Each float supports:
+
+- `id`: stable config seed identifier, unique within `floats`. It is not the runtime Floating Dock UUID or `float:N` CLI selector.
+- `title`: Floating Dock window title.
+- `frame`: optional initial `x`, `y`, `width`, and `height` in screen points. Missing values use a cascaded origin and a `520` × `380` size. Width must be at least `320`; height must be at least `220`.
+- `content`: optional initial content using the same control fields above. `terminal` uses `command`, `cwd`, and `env`; `browser` uses `url`; `note` creates an autosaving note. Omitting `content` also creates an autosaving note.
+
+Unknown keys, duplicate IDs, invalid content, malformed `floats`/`frame` sections, and undersized frames produce the existing **Dock Config Error** UI. They are never ignored silently.
+
+### Floating Dock seeding and identity
+
+Floating Dock config is seed-only, not continuously reconciled. A seed identity combines the resolved project config source with the float's config `id` and is persisted in the workspace session snapshot; runtime UUIDs and `float:N` selectors remain independent.
+
+- A restored float with the same seed identity is kept; config does not duplicate it or overwrite its saved title, frame, or visibility.
+- Closing a configured float records that its identity was already seeded, so it stays closed after restart.
+- Adding a new float `id` to the same config seeds that new float the next time the config is loaded.
+- Editing or removing an already-seeded entry does not rewrite or close the user's existing float. Use a new `id` when a deliberately new seed is required.
+- Initial terminal/browser content is recreated from the seed stored in the session snapshot. Note text continues to autosave in its note file. Live interactive and CLI changes win for the rest of the session.
+
+See [Floating Docks](floating-docks.md) for interactive and CLI usage.
+
 ## Config Precedence
 
 cmux looks for Dock config in this order:
@@ -96,6 +148,8 @@ cmux looks for Dock config in this order:
 Use `.cmux/dock.json` for repo-specific controls that should be shared with teammates. Commit it to the repo when the commands are safe and portable.
 
 Use `~/.config/cmux/dock.json` for personal defaults, machines without a repo, or controls that are specific to your local setup.
+
+Floating Docks are workspace-scoped and, in this first schema version, are supported only by project `.cmux/dock.json`. A global config containing a non-empty `floats` array fails with **Dock Config Error** instead of ignoring it. Keep global files controls-only.
 
 Nested project configs apply to their directory tree. If a nested project has its own `.cmux/dock.json`, use that nearest config for work inside the nested project. Do not put unrelated project controls into the global config just because a repo is absent.
 

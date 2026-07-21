@@ -13,7 +13,7 @@ Use this skill for user-facing cmux customization. Keep the user's config intact
 - New workspace button: set `ui.newWorkspace.action` to replace the normal plus-button click, and `ui.newWorkspace.contextMenu` to control right-click actions. `ui.newWorkspace.rightClick` is accepted as an alias, but new examples should use `contextMenu`.
 - Surface tab bar buttons: set `ui.surfaceTabBar.buttons` to replace the default tab bar buttons. Include built-in IDs such as `cmux.newTerminal`, `cmux.newBrowser`, `cmux.splitRight`, and `cmux.splitDown` only when they should stay visible.
 - Workflows and layouts: use `commands` with workspace definitions to open a worktree, multiple checkouts, local services, browser previews, or SSH sessions in a deliberate split layout.
-- Dock controls: create `.cmux/dock.json` or `~/.config/cmux/dock.json` for right-sidebar terminal controls such as logs, test watchers, git TUIs, dev servers, queues, or `cmux feed tui --opentui`.
+- Dock configuration: create `.cmux/dock.json` for right-sidebar `controls` and workspace-scoped `floats`, or `~/.config/cmux/dock.json` for global right-sidebar controls. Global Floating Docks are not supported.
 - Sidebar and app behavior: use `cmux-settings` for supported settings such as appearance, sidebar display, notification behavior, browser routing, automation, shortcuts, and new-workspace placement.
 - Workspace metadata: use the cmux CLI or `cmux-workspace` for workspace names, descriptions, colors, read state, and sidebar metadata updates.
 - Feed and notifications: use `cmux hooks setup` for Feed event sources, notification settings for delivery behavior, and notification hooks in `cmux.json` for filtering or post-processing banners.
@@ -25,7 +25,7 @@ Use this skill for user-facing cmux customization. Keep the user's config intact
 
 - cmux app preferences: use `cmux-settings` for global `~/.config/cmux/cmux.json` settings such as appearance, sidebar, notifications, browser behavior, automation, and shortcuts.
 - Custom actions, workspace layouts, tab bar buttons, plus-button behavior, and Command Palette entries: edit `~/.config/cmux/cmux.json` globally or `.cmux/cmux.json` in the project. Project-local actions and commands override global entries with the same ID or name.
-- Dock controls: edit `.cmux/dock.json` in the project or `~/.config/cmux/dock.json` globally. Run `cmux docs dock` when available.
+- Dock controls and Floating Dock seeds: edit `.cmux/dock.json` in the project. Global `~/.config/cmux/dock.json` supports right-Dock `controls` only. Run `cmux docs dock` when available.
 - Terminal rendering and terminal keybindings: use Ghostty config, usually `~/.config/ghostty/config`. This includes fonts, cursor style, copy-on-select, shell integration, themes, and terminal keybindings.
 - Project-specific behavior: prefer `.cmux/cmux.json` in the project so actions, commands, UI action wiring, and notification hooks travel with the repo. Do not put global app preferences there.
 
@@ -217,11 +217,29 @@ Add project Dock controls:
 }
 ```
 
+Add a project Floating Dock seed alongside right-Dock controls:
+
+```json
+{
+  "controls": [],
+  "floats": [
+    {
+      "id": "scratch",
+      "title": "Scratch",
+      "frame": { "width": 520, "height": 380 },
+      "content": { "id": "note", "title": "Notes", "type": "note" }
+    }
+  ]
+}
+```
+
+Float IDs are config seed identities, not runtime UUIDs or `float:N` CLI selectors. Session-restored or previously closed seeds are not recreated or overwritten; use a new ID for a deliberately new seed. Omit `content` for the default autosaving note, or reuse a terminal/browser Dock control definition. Keep `floats` out of the global config; cmux reports a Dock config error instead of ignoring it.
+
 ## Validation
 
 - App settings: run `cmux-settings validate`.
 - JSONC shape: keep valid JSONC and avoid duplicate keys.
-- Dock JSON: parse `.cmux/dock.json` or `~/.config/cmux/dock.json` with a JSON parser before reporting completion.
+- Dock JSON: parse `.cmux/dock.json` or `~/.config/cmux/dock.json` with a JSON parser before reporting completion. Use `floats` only in the project file and reject unknown keys instead of assuming cmux will ignore them.
 - Runtime reload: run `cmux reload-config` when the CLI is available.
 - User-facing action: confirm the action title, shortcut, plus-button behavior, context-menu entry, or tab bar placement the user asked for.
 

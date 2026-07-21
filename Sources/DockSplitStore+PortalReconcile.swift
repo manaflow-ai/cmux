@@ -16,6 +16,7 @@ final class DockPortalReconcileState {
     var isAttempting = false
     var layoutWakeAttemptsRemaining = 0
     var scheduledRequestCount = 0
+    var reconcilePassCount = 0
 
     deinit {
         (portalObservers + layoutObservers).forEach { NotificationCenter.default.removeObserver($0) }
@@ -32,6 +33,11 @@ extension DockSplitStore {
         state.scheduledRequestCount += 1
         state.reason = reason
         removeDockPortalReconcileObservers()
+        guard isVisibleInUI, !selectedVisibleDockPortalPanels().isEmpty else {
+            state.layoutWakeAttemptsRemaining = 0
+            state.reason = nil
+            return
+        }
         state.layoutWakeAttemptsRemaining = Self.maxDockPortalLayoutWakeAttempts
         installDockPortalReconcileObservers()
         installDockPortalLayoutObservers()
@@ -160,6 +166,7 @@ extension DockSplitStore {
 
     @discardableResult
     func reconcileDockPortalPass(reason: String) -> Bool {
+        dockPortalReconcileState.reconcilePassCount += 1
         var needsFollowUpPass = false
         flushDockWindowLayouts()
         let visiblePanels = selectedVisibleDockPortalPanels()
@@ -188,7 +195,9 @@ extension DockSplitStore {
         let paneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         return paneIds.compactMap { paneId in
             guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else { return nil }
-            return panel(for: tabId)
+            guard let panel = panel(for: tabId),
+                  panel is TerminalPanel || panel is BrowserPanel else { return nil }
+            return panel
         }
     }
 

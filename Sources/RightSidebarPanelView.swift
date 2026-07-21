@@ -418,15 +418,20 @@ struct RightSidebarPanelView: View {
     @ViewBuilder
     private func dockPanel(windowAppearance: WindowAppearanceSnapshot) -> some View {
         if let app = AppDelegate.shared, let dock = app.windowDock(for: tabManager) {
-            DockPanelView(
-                store: dock,
-                isSidebarVisible: fileExplorerState.isVisible,
-                mode: fileExplorerState.mode,
-                rootDirectory: nil,
-                windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
-            )
-            .id("dock.window.\(dock.workspaceId.uuidString)")
+            if let workspace = tabManager.selectedWorkspace {
+                WorkspaceFloatingDockConfigurationStatusHost(
+                    workspace: workspace,
+                    windowDockStore: dock,
+                    isSidebarVisible: fileExplorerState.isVisible,
+                    mode: fileExplorerState.mode,
+                    rootDirectory: workspace.currentDirectory,
+                    windowAppearance: windowAppearance,
+                    rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
+                )
+                .id("dock.window.\(dock.workspaceId.uuidString).workspace.\(workspace.id.uuidString)")
+            } else {
+                Color.clear
+            }
         } else {
             Color.clear
         }

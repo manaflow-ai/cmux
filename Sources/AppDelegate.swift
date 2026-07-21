@@ -553,6 +553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
+        var workspaceFloatingDockPresenter: WorkspaceFloatingDockPresenter?
 
         init(
             windowId: UUID,
@@ -4481,6 +4482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // (cmuxTests/AppDelegateMainWindowTestingSupport.swift, via @testable
     // import) drive the same registration paths.
     func notifyMainWindowContextsDidChange() {
+        refreshAllWorkspaceFloatingDocks()
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -4599,6 +4601,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+        if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
+            context.installWorkspaceFloatingDockPresenterIfNeeded()
+            context.workspaceFloatingDockPresenter?.refresh()
+        }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
@@ -5876,6 +5882,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
+        removed.teardownWorkspaceFloatingDockPresenter()
         removed.teardownWindowDock()
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === removed ? key : nil
@@ -5891,6 +5898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+        context.teardownWorkspaceFloatingDockPresenter()
         context.teardownWindowDock()
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
