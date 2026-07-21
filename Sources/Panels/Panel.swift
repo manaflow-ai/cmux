@@ -103,12 +103,12 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 }
 
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
-    case notificationBlue
+    case projectNotificationGold
 
     var strokeColor: NSColor {
         switch self {
-        case .notificationBlue:
-            return .systemBlue
+        case .projectNotificationGold:
+            return .systemYellow
         }
     }
 }
@@ -145,13 +145,13 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .projectNotificationGold,
         glowOpacity: 0.35,
         glowRadius: 3
     )
 
     static let flashRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .projectNotificationGold,
         glowOpacity: 0.6,
         glowRadius: 6
     )
