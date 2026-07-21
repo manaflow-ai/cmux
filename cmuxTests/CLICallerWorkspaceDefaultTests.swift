@@ -83,9 +83,8 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(params["tab_id"] as? String == Self.otherWorkspaceId)
     }
 
-    /// `identify` must carry an independent terminal signal when the restored
-    /// shell has no injected workspace or surface identity. The app can then
-    /// recover the caller from the live PTY instead of returning `caller: null`.
+    /// `identify` must carry its live descriptor TTY when the restored shell has
+    /// no injected workspace or surface identity, ignoring stale ambient names.
     @Test func identifyWithoutCallerIdsSendsCallerTTY() throws {
         let (requests, result) = try runIdentify(arguments: [], callerWorkspaceId: nil)
 
@@ -93,7 +92,9 @@ struct CLICallerWorkspaceDefaultTests {
         let identify = try #require(requests.first { $0["method"] as? String == "system.identify" })
         let params = try #require(identify["params"] as? [String: Any])
         #expect(params["caller"] == nil)
-        #expect(params["caller_tty"] as? String == "ttys8362")
+        let callerTTY = try #require(params["caller_tty"] as? String)
+        #expect(callerTTY.hasPrefix("ttys"))
+        #expect(callerTTY != "ttys9999999")
     }
 
     /// An explicit caller selector must fail closed on the server instead of
@@ -150,10 +151,14 @@ struct CLICallerWorkspaceDefaultTests {
         }
 
         var environment = cliEnvironment(socketPath: socketPath, callerWorkspaceId: callerWorkspaceId)
-        environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys8362"
+        environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys9999999"
+        environment["CMUX_TTY_NAME"] = "/dev/ttys9999999"
+        environment["TTY"] = "/dev/ttys9999999"
+        environment["SSH_TTY"] = "/dev/ttys9999999"
+        let cliPath = try Self.bundledCLIPath()
         let result = Self.runProcess(
-            executablePath: try Self.bundledCLIPath(),
-            arguments: ["identify"] + arguments,
+            executablePath: "/usr/bin/script",
+            arguments: ["-q", "/dev/null", cliPath, "identify"] + arguments,
             environment: environment,
             timeout: 5
         )

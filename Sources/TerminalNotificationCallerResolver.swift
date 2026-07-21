@@ -212,6 +212,7 @@ extension TerminalController {
         _ ttyName: String,
         tabManagers: [TabManager]
     ) -> TerminalCallerTarget? {
+        guard let callerTTY = normalizedTTYName(ttyName) else { return nil }
         var liveCandidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
         var reportedCandidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
         var targets: [TerminalCallerTTYBinding: TerminalCallerTarget] = [:]
@@ -232,11 +233,7 @@ extension TerminalController {
                     if let liveTTYName = terminalPanel.surface.controllingTTYName() {
                         liveCandidates.append((binding: binding, ttyName: liveTTYName))
                     }
-                    if let reportedTTYName = workspace.surfaceTTYNames[surfaceId],
-                       PortScanner.shared.freshReportedTTYName(
-                           workspaceId: workspace.id,
-                           panelId: surfaceId
-                       ) == reportedTTYName {
+                    if let reportedTTYName = workspace.surfaceTTYNames[surfaceId] {
                         reportedCandidates.append((binding: binding, ttyName: reportedTTYName))
                     }
                 }
@@ -246,10 +243,24 @@ extension TerminalController {
             liveCandidates: liveCandidates,
             reportedCandidates: reportedCandidates
         )
-        guard let binding = resolver.binding(for: ttyName) else {
+        guard let binding = resolver.binding(for: callerTTY),
+              let target = targets[binding] else {
             return nil
         }
-        return targets[binding]
+        let resolvedFromLiveTTY = liveCandidates.contains { candidate in
+            candidate.binding == binding && normalizedTTYName(candidate.ttyName) == callerTTY
+        }
+        if resolvedFromLiveTTY {
+            return target
+        }
+
+        guard normalizedTTYName(PortScanner.shared.freshReportedTTYName(
+            workspaceId: binding.workspaceId,
+            panelId: binding.surfaceId
+        )) == callerTTY else {
+            return nil
+        }
+        return target
     }
 
     private static func targetForSurface(

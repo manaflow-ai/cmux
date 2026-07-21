@@ -4287,7 +4287,7 @@ struct CMUXCLI {
                 if effectiveWindowRaw == nil,
                    idWsFlag == nil,
                    idSurfaceFlag == nil,
-                   let callerTTY = resolveCallerTTYName() {
+                   let callerTTY = resolveCallerDescriptorTTYName() {
                     params["caller_tty"] = callerTTY
                 }
             }
@@ -25417,6 +25417,10 @@ struct CMUXCLI {
                 return ttyName
             }
         }
+        return resolveCallerDescriptorTTYName()
+    }
+
+    func resolveCallerDescriptorTTYName() -> String? {
         for fileDescriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
             if let rawTTYName = ttyname(fileDescriptor),
                let ttyName = normalizedTTYName(String(cString: rawTTYName)) {
