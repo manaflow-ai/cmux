@@ -327,6 +327,45 @@ import Testing
         }
     }
 
+    @Test func reapplyingSameAutoTitleRepairsRemoteMirrorDrift() throws {
+        try withAutoNamingSetting(true) {
+            let harness = try RemoteTmuxMirrorRenameHarness(includeSecondWindow: true)
+            defer { harness.tearDown() }
+
+            let surface = try #require(harness.surfaces().first)
+            let panelId = try #require(
+                harness.workspace.remoteTmuxControlPane(surfaceID: surface.surfaceID)?.containerPanelID
+            )
+            let tabId = try #require(harness.workspace.surfaceIdFromPanelId(panelId))
+            let params: [String: Any] = [
+                "workspace_id": harness.workspace.id.uuidString,
+                "panel_id": panelId.uuidString,
+                "panel_only_if_multiple": true,
+                "title": "Fix auth bug"
+            ]
+
+            _ = try call(method: "workspace.set_auto_title", params: params)
+            harness.connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "Fix auth bug"))
+            harness.connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "Claude Code"))
+            #expect(harness.workspace.panelCustomTitles[panelId] == "Fix auth bug")
+            #expect(harness.workspace.panelTitles[panelId] == "Claude Code")
+            #expect(harness.workspace.bonsplitController.tab(tabId)?.title == "Claude Code")
+
+            let envelope = try call(method: "workspace.set_auto_title", params: params)
+            let result = try #require(envelope["result"] as? [String: Any])
+            #expect(result["panel_applied"] as? Bool == true)
+            #expect(harness.workspace.bonsplitController.tab(tabId)?.title == "Fix auth bug")
+
+            let renameCommands = try harness.finishCommands().filter {
+                $0.hasPrefix("rename-window ")
+            }
+            #expect(renameCommands == [
+                "rename-window -t @2 'Fix auth bug'",
+                "rename-window -t @2 'Fix auth bug'",
+            ])
+        }
+    }
+
     @Test func malformedParamsProduceCleanErrors() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in

@@ -4098,8 +4098,8 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
-        // A remote tmux mirror tab rename propagates to `rename-window`.
-        if isRemoteTmuxMirror, previous != trimmed {
+        // Propagate changed custom text or reconcile a divergent authoritative remote title.
+        if isRemoteTmuxMirror, previous != trimmed || panelTitles[panelId] != trimmed {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
             )
