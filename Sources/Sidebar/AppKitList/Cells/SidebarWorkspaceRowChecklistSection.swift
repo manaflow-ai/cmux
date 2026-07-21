@@ -179,18 +179,18 @@ final class SidebarRowChecklistSection: NSView {
                     // the prototype height measurement sees it.
                     WorkspaceTodoActions.requestChecklistAddField(workspaceId: model.workspaceId)
                 },
-                onCommit: { [weak self] text in
-                    // Legacy `commitInlineAdd`: commit re-arms a fresh,
-                    // focused, empty add field for the next item.
+                // Workspace-bound closures frozen for THIS configure pass:
+                // resolving through the pooled section's `self.actions` at
+                // fire time routed teardown-triggered commits to whichever
+                // workspace the cell showed next.
+                onCommit: { [addItem = actions.checklistAddItem] text in
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty {
-                        self?.actions?.checklistAddItem(trimmed)
-                    }
-                    self?.addRow.rearmField()
+                    guard !trimmed.isEmpty else { return }
+                    addItem(trimmed)
                 },
-                onCancel: { [weak self] in
+                onCancel: { [consumeToken = actions.onConsumeChecklistAddFieldActivation] in
                     // Esc (or focus loss with an empty draft) dismisses.
-                    self?.actions?.onConsumeChecklistAddFieldActivation()
+                    consumeToken()
                 }
             )
         }
@@ -1028,14 +1028,20 @@ final class SidebarRowChecklistAddRow: NSView {
         )
         field.setAccessibilityLabel(field.placeholderString ?? "")
         field.setAccessibilityIdentifier("SidebarChecklistAddItemField")
-        // Capture the closures at field-creation time: this pooled row's
-        // stored onCommit/onCancel are replaced when the cell is reused for
-        // another workspace, and the OLD editor's teardown-triggered
-        // focus-loss commit must go to the workspace that armed it.
+        // Capture the closure VALUES at field-creation time: this pooled
+        // row's stored onCommit/onCancel are replaced when the cell is
+        // reused for another workspace, and the OLD editor's
+        // teardown-triggered focus-loss commit must go to the workspace
+        // that armed it (the stored closures are workspace-bound and free
+        // of section-state dereferences).
         guard let commit = onCommit, let cancel = onCancel else { return }
         let bridge = SidebarRowChecklistFieldBridge(
-            onCommit: { text in
+            onCommit: { [weak self] text in
                 commit(text)
+                // Legacy `commitInlineAdd`: commit re-arms a fresh, focused,
+                // empty add field — only while this row still shows the
+                // armed state that created the editor.
+                self?.rearmFieldIfStillAdding()
             },
             onCancel: {
                 cancel()
@@ -1062,6 +1068,11 @@ final class SidebarRowChecklistAddRow: NSView {
             x: fieldX, y: max(0, (bounds.height - fieldHeight) / 2),
             width: max(10, bounds.width - fieldX), height: fieldHeight
         )
+    }
+
+    private func rearmFieldIfStillAdding() {
+        guard isAdding else { return }
+        rearmField()
     }
 
     private func teardownField() {
