@@ -18,7 +18,7 @@ extension TerminalSurface {
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
         claudeShim: ClaudeCommandShim?
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
-        let baseConfig = runtimeCreationConfigTemplate()
+        var baseConfig = runtimeCreationConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
         let magnificationPercent = globalFontMagnificationPercent()
         surfaceConfig.font_size = CmuxSurfaceConfigTemplate.runtimeFontSize(
