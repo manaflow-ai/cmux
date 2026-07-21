@@ -100,6 +100,10 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         observers.removeAll()
     }
 
+    /// Forwards to the shared stream: for a multiplexed session the thing parked on
+    /// authentication is the per-host view connection, not this per-session view of it.
+    func resumeAfterInteractiveAuth() { sharedStream?.resumeAfterInteractiveAuth() }
+
     func releaseMirror() { detach() }
 
     func endSession(kill: Bool) {
