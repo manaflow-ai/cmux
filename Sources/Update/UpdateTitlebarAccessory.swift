@@ -1054,8 +1054,11 @@ struct TitlebarControlsView: View {
                         iconGeometryKeyPrefix: "titlebarControl_showNotificationsIcon"
                     )
 
-                    if notificationStore.unreadCount > 0 {
-                        Text("\(min(notificationStore.unreadCount, 99))")
+                    // Tracked, coalesced unread projection: the badge must
+                    // read observable state (the indexes-backed unreadCount is
+                    // @ObservationIgnored and only refreshed alongside it).
+                    if notificationStore.notificationMenuSnapshot.unreadCount > 0 {
+                        Text("\(min(notificationStore.notificationMenuSnapshot.unreadCount, 99))")
                             // Fixed-size badge; cap effective glyph size.
                             .cmuxFont(size: badgeBaseFontSize, weight: .semibold)
                             .foregroundColor(.white)
