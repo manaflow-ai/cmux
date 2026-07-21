@@ -257,6 +257,30 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func shortcutHintPillKeepsVisibleDuringFadeOut() async throws {
+        let pill = SidebarShortcutHintPillView()
+        pill.configure(text: "⌘1", fontSize: 10, emphasis: 1)
+
+        pill.configure(text: nil, fontSize: 10, emphasis: 1)
+
+        #expect(!pill.isHidden)
+        try await Task.sleep(for: .milliseconds(180))
+        #expect(pill.isHidden)
+    }
+
+    @Test
+    func shortcutHintPillClipsMaterialToItsCapsule() throws {
+        let pill = SidebarShortcutHintPillView()
+        pill.frame = NSRect(x: 0, y: 0, width: 36, height: 18)
+        pill.configure(text: "⌘1", fontSize: 10, emphasis: 1)
+        pill.layoutSubtreeIfNeeded()
+
+        let material = try #require(Self.descendants(of: pill).compactMap { $0 as? NSVisualEffectView }.first)
+        #expect(material.layer?.masksToBounds == true)
+        #expect(material.layer?.cornerRadius == pill.bounds.height / 2)
+    }
+
+    @Test
     func optimisticSelectionPaintsFlippedModelButKeepsAuthoritativeState() {
         let model = Self.makeModel(isActive: false)
         let cell = Self.configuredCell(model: model)
