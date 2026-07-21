@@ -8331,9 +8331,7 @@ struct CMUXCLI {
         )
     }
 
-    /// Emit a `cmux workspace-group` mutation response: JSON when --json,
-    /// otherwise a compact `OK`. Centralized so every mutating subcommand
-    /// honors --json the same way the list/create paths do.
+    /// Emit a workspace-group mutation response, including removal impact.
     private func printWorkspaceGroupResponse(
         _ response: [String: Any],
         jsonOutput: Bool,
@@ -8341,6 +8339,18 @@ struct CMUXCLI {
     ) {
         if jsonOutput {
             print(jsonString(formatIDs(response, mode: idFormat)))
+        } else if response["operation"] as? String == "dissolved",
+                  let count = (response["kept_workspace_count"] as? NSNumber)?.intValue {
+            let format = count == 1
+                ? String(localized: "cli.workspaceGroup.response.dissolved.one", defaultValue: "OK group dissolved (kept %lld workspace)")
+                : String(localized: "cli.workspaceGroup.response.dissolved.many", defaultValue: "OK group dissolved (kept %lld workspaces)")
+            print(String.localizedStringWithFormat(format, Int64(count)))
+        } else if response["operation"] as? String == "closed_workspaces",
+                  let count = (response["closed_workspace_count"] as? NSNumber)?.intValue {
+            let format = count == 1
+                ? String(localized: "cli.workspaceGroup.response.closed.one", defaultValue: "OK group deleted (closed %lld workspace)")
+                : String(localized: "cli.workspaceGroup.response.closed.many", defaultValue: "OK group deleted (closed %lld workspaces)")
+            print(String.localizedStringWithFormat(format, Int64(count)))
         } else {
             print("OK")
         }
@@ -8414,10 +8424,10 @@ struct CMUXCLI {
             let resolvedName = nameOpt ?? rem3.first(where: { !$0.hasPrefix("--") }) ?? ""
             params["name"] = resolvedName
             if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
-            if let fromOpt {
-                let ids = fromOpt.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
-                params["child_workspace_ids"] = ids
-            }
+            let ids = fromOpt?.split(separator: ",").map {
+                String($0).trimmingCharacters(in: .whitespaces)
+            } ?? []
+            params["child_workspace_ids"] = ids
             let response = try client.sendV2(method: "workspace.group.create", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(response, mode: idFormat)))
@@ -8433,10 +8443,12 @@ struct CMUXCLI {
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "delete":
-            // Destructive: closes every workspace inside the group. Use
-            // `ungroup` instead if you want to keep the workspaces.
-            params["group_id"] = try resolveGroupId(in: rest)
-            let resp = try client.sendV2(method: "workspace.group.delete", params: params)
+            let closesWorkspaces = hasFlag(rest, name: "--close-workspaces")
+            let routedArgs = rest.filter { $0 != "--close-workspaces" }
+            params["group_id"] = try resolveGroupId(in: routedArgs)
+            let method = closesWorkspaces ? "workspace.group.delete" : "workspace.group.ungroup"
+            if closesWorkspaces { params["close_workspaces"] = true }
+            let resp = try client.sendV2(method: method, params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "rename":
@@ -15633,6 +15645,18 @@ struct CMUXCLI {
         case "layout":
             return Self.layoutHelpText()
         case "workspace-group":
+            let createSafety = String(
+                localized: "cli.workspaceGroup.help.createSafety",
+                defaultValue: "Omitting --from creates an anchor-only group without capturing live workspaces."
+            )
+            let deleteSafety = String(
+                localized: "cli.workspaceGroup.help.deleteSafety",
+                defaultValue: "Dissolve a group, preserving all members"
+            )
+            let destructiveDelete = String(
+                localized: "cli.workspaceGroup.help.destructiveDelete",
+                defaultValue: "Delete the group AND close every member workspace. Explicitly destructive."
+            )
             return """
             Usage: cmux workspace-group <subcommand> [flags]
 
@@ -15644,12 +15668,11 @@ struct CMUXCLI {
             Subcommands:
               list [--json]
               create [--name <name>] [--cwd <path>] [--from <id>,<id>...]
-                                        Defaults --from to the active sidebar
-                                        selection / caller workspace when omitted.
+                                        \(createSafety)
               ungroup <group>           Dissolve a group, preserving all members
-              delete <group>            Delete a group AND close every workspace
-                                        inside it. Destructive. Use `ungroup` to
-                                        keep the workspaces.
+              delete <group>            \(deleteSafety)
+              delete <group> --close-workspaces
+                                        \(destructiveDelete)
               rename <group> --name <new>
               collapse <group>
               expand <group>

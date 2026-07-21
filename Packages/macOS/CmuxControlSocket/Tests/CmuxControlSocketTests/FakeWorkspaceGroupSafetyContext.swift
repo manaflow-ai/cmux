@@ -6,7 +6,6 @@ import Foundation
 final class FakeWorkspaceGroupSafetyContext: ControlCommandContext {
     struct CreateCall: Equatable {
         let childWorkspaceIDs: [UUID]
-        let childrenExplicit: Bool
     }
 
     var createCall: CreateCall?
@@ -19,12 +18,10 @@ final class FakeWorkspaceGroupSafetyContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID],
-        childrenExplicit: Bool
+        childWorkspaceIDs: [UUID]
     ) -> ControlWorkspaceGroupCreateResolution {
         createCall = CreateCall(
-            childWorkspaceIDs: childWorkspaceIDs,
-            childrenExplicit: childrenExplicit
+            childWorkspaceIDs: childWorkspaceIDs
         )
         return createResolution
     }
@@ -32,9 +29,9 @@ final class FakeWorkspaceGroupSafetyContext: ControlCommandContext {
     func controlUngroupWorkspaceGroup(
         routing: ControlRoutingSelectors,
         groupID: UUID
-    ) -> Bool? {
+    ) -> Int? {
         ungroupedGroupIDs.append(groupID)
-        return true
+        return 2
     }
 
     func controlDeleteWorkspaceGroup(

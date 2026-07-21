@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Testing
 
@@ -54,19 +53,22 @@ struct CLIWorkspaceGroupSafetyTests {
         process.standardOutput = outputPipe
         process.standardError = outputPipe
 
-        let exited = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exited.signal() }
-        try process.run()
-        let timedOut = exited.wait(timeout: .now() + 5) == .timedOut
-        if timedOut {
-            process.terminate()
+        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+            process.terminationHandler = { completedProcess in
+                continuation.resume(returning: completedProcess.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                continuation.resume(throwing: error)
+            }
         }
         let output = String(
             decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(),
             as: UTF8.self
         )
-        #expect(!timedOut, Comment(rawValue: output))
-        #expect(process.terminationStatus == 0, Comment(rawValue: output))
+        #expect(status == 0, Comment(rawValue: output))
 
         let requestLine = try #require(await requestTask.value)
         return try #require(

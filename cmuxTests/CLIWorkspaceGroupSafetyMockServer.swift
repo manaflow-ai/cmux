@@ -98,9 +98,16 @@ struct CLIWorkspaceGroupSafetyMockServer: Sendable {
                     "ref": "workspace_group:1",
                 ],
             ]
-        case "workspace.group.delete", "workspace.group.ungroup":
+        case "workspace.group.ungroup":
             result = [
                 "group_id": "11111111-1111-1111-1111-111111111111",
+                "operation": "dissolved",
+                "kept_workspace_count": 2,
+            ]
+        case "workspace.group.delete":
+            result = [
+                "group_id": "11111111-1111-1111-1111-111111111111",
+                "operation": "closed_workspaces",
                 "closed_workspace_count": 2,
             ]
         default:

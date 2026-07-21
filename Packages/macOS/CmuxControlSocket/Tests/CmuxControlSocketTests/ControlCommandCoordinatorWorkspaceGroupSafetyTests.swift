@@ -12,7 +12,6 @@ struct ControlCommandCoordinatorWorkspaceGroupSafetyTests {
         _ = coordinator.handle(request("workspace.group.create"))
 
         #expect(context.createCall?.childWorkspaceIDs == [])
-        #expect(context.createCall?.childrenExplicit == true)
     }
 
     @Test func deleteDefaultsToDissolvingTheGroup() {
@@ -20,7 +19,7 @@ struct ControlCommandCoordinatorWorkspaceGroupSafetyTests {
         let coordinator = ControlCommandCoordinator(context: context)
         let groupID = UUID()
 
-        guard case .ok = coordinator.handle(request(
+        guard case .ok(.object(let payload)) = coordinator.handle(request(
             "workspace.group.delete",
             ["group_id": .string(groupID.uuidString)]
         )) else {
@@ -30,6 +29,8 @@ struct ControlCommandCoordinatorWorkspaceGroupSafetyTests {
 
         #expect(context.ungroupedGroupIDs == [groupID])
         #expect(context.deletedGroupIDs.isEmpty)
+        #expect(payload["operation"] == .string("dissolved"))
+        #expect(payload["kept_workspace_count"] == .int(2))
     }
 
     @Test func deleteClosesWorkspacesOnlyWithExplicitIntent() {
@@ -50,6 +51,7 @@ struct ControlCommandCoordinatorWorkspaceGroupSafetyTests {
 
         #expect(context.ungroupedGroupIDs.isEmpty)
         #expect(context.deletedGroupIDs == [groupID])
+        #expect(payload["operation"] == .string("closed_workspaces"))
         #expect(payload["closed_workspace_count"] == .int(2))
     }
 
