@@ -6015,13 +6015,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The computer rejected this phone's sign-in, so the two are on different cmux accounts or this phone's session is stale. Sign this phone out and back in with the computer's account, then try again."
+            "value": "The computer rejected this phone's sign-in, so the two are on different cmux accounts or this phone's session is stale. Sign either one out and back in so both use the same account, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータがこの端末のサインインを拒否しました。両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。この端末でいったんサインアウトし、コンピュータと同じアカウントでサインインし直してから、もう一度お試しください。"
+            "value": "コンピュータがこの端末のサインインを拒否しました。両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。どちらかでいったんサインアウトし、両方が同じアカウントになるようにサインインし直してから、もう一度お試しください。"
           }
         }
       }
