@@ -221,8 +221,10 @@ process.argv.splice(
   "--model",
   "anthropic/claude-sonnet-4-5"
 );
+let agentIdle = true;
 const ctx = {
   cwd: "/tmp/pi-project",
+  isIdle() { return agentIdle; },
   sessionManager: {
     getSessionId() { return "pi-session-test"; }
   }
@@ -266,6 +268,10 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("repeated agent_end emitted completion before settlement");
+agentIdle = false;
+await handlers.get("agent_settled")({}, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("busy settlement emitted completion while another run was active");
+agentIdle = true;
 await handlers.get("agent_settled")({}, ctx);
 completionCount += 2;
 if (await completionHookCount() !== completionCount) throw new Error("agent_settled did not emit notification and stop");
@@ -274,6 +280,7 @@ if (await completionHookCount() !== completionCount) throw new Error("duplicate 
 await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
 const interruptedCtx = {
   cwd: "/tmp/pi-project",
+  isIdle() { return true; },
   sessionManager: {
     getSessionId() { return "pi-session-interrupted"; }
   }
@@ -294,6 +301,7 @@ if (await completionHookCount() !== completionCount) throw new Error("late settl
 process.env.CMUX_PI_HOOKS_DISABLED = "1";
 const disabledCtx = {
   cwd: "/tmp/pi-project",
+  isIdle() { return true; },
   sessionManager: {
     getSessionId() { return "pi-session-disabled"; }
   }
@@ -303,6 +311,7 @@ await handlers.get("session_shutdown")({ reason: "disabled" }, disabledCtx);
 delete process.env.CMUX_PI_HOOKS_DISABLED;
 const notificationFailureCtx = {
   cwd: "/tmp/pi-project",
+  isIdle() { return true; },
   sessionManager: {
     getSessionId() { return "pi-session-notification-fails"; }
   }
@@ -323,6 +332,24 @@ completionCount += 2;
 if (await completionHookCount() !== completionCount) throw new Error("settlement did not attempt failed notification and stop");
 await handlers.get("agent_settled")({}, notificationFailureCtx);
 if (await completionHookCount() !== completionCount) throw new Error("failed notification was retried after duplicate settlement");
+process.env.CMUX_TEST_PI_VERSION = "0.74.0";
+const legacyCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-legacy"; }
+  }
+};
+await handlers.get("session_start")({}, legacyCtx);
+await handlers.get("before_agent_start")({ prompt: "legacy pi" }, legacyCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "legacy done" }],
+  stopReason: "completed"
+}, legacyCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("legacy Pi agent_end did not emit completion fallback");
+delete process.env.CMUX_TEST_PI_VERSION;
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -367,7 +394,7 @@ if (await completionHookCount() !== completionCount) throw new Error("failed not
                 resume_ops.append("set")
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
-        expected_resume_ops = ["set", "get", "clear", "set", "get", "clear", "set", "get"]
+        expected_resume_ops = ["set", "get", "clear", "set", "get", "clear", "set", "get", "set", "get"]
         if resume_ops != expected_resume_ops:
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
             return 1
@@ -426,6 +453,18 @@ if (await completionHookCount() !== completionCount) throw new Error("failed not
                 "FAIL: failed Pi completion notification still suppressed native notification fallback, "
                 f"got {fallback_stop_payload!r}"
             )
+            return 1
+        legacy_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-legacy"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if legacy_stop_payload is None or legacy_stop_payload.get("last_assistant_message") != "legacy done":
+            print(f"FAIL: legacy Pi agent_end did not emit its completion payload, got {payloads!r}")
             return 1
         interrupted_stop_payload = next(
             (payload for payload in payloads if payload.get("terminationReason") == "terminated"),
