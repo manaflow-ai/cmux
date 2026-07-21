@@ -443,6 +443,30 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "after")
     }
 
+    func testTextSaverRejectsOversizedContentWithoutReplacingExistingFile() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        try "original".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let oversized = String(
+            repeating: "x",
+            count: Int(FilePreviewTextLoader.maximumLoadedTextBytes) + 1
+        )
+
+        guard case .failed(let fileExists) = FilePreviewTextSaver.saveSynchronously(
+            content: oversized,
+            to: url,
+            encoding: .utf8
+        ) else {
+            XCTFail("Expected oversized text save to fail")
+            return
+        }
+
+        XCTAssertTrue(fileExists)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
+    }
+
     func testFocusCoordinatorKeepsPendingFocusUntilEndpointHasWindow() {
         let textView = FilePreviewReviewFocusTestView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         let coordinator = FilePreviewFocusCoordinator(preferredIntent: .textEditor)

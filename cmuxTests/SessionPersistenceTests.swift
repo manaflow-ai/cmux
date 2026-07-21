@@ -101,6 +101,83 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testFloatingDockTerminalSnapshotPreservesResumeAndRemoteMetadata() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let terminalId = try XCTUnwrap(workspace.focusedPanelId)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "floating-agent-session",
+            workingDirectory: "/tmp/floating-agent",
+            launchCommand: nil
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Floating Codex",
+            kind: "codex",
+            command: "codex resume floating-agent-session",
+            cwd: "/tmp/floating-agent",
+            checkpointId: "floating-agent-session",
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_777_777_777
+        )
+        workspace.setRestoredAgentSnapshotForTesting(agent, panelId: terminalId)
+        workspace.surfaceResumeBindingsByPanelId[terminalId] = binding
+        workspace.updatePanelShellActivityState(panelId: terminalId, state: .commandRunning)
+        workspace.activeRemoteTerminalSurfaceIds.insert(terminalId)
+        workspace.remotePTYSessionIDsByPanelId[terminalId] = "floating-remote-pty"
+
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let transfer = try XCTUnwrap(workspace.detachSurface(panelId: terminalId))
+        let dockPane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        _ = try XCTUnwrap(dock.store.attachDetachedSurface(transfer, inPane: dockPane, focus: false))
+
+        let terminalSnapshot = try XCTUnwrap(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .floatingDocks?.first?.content?.surfaces
+                .first(where: { $0.id == terminalId })?.terminal
+        )
+        XCTAssertEqual(terminalSnapshot.agent?.sessionId, agent.sessionId)
+        XCTAssertEqual(terminalSnapshot.resumeBinding?.checkpointId, binding.checkpointId)
+        XCTAssertEqual(terminalSnapshot.isRemoteTerminal, true)
+        XCTAssertEqual(terminalSnapshot.remotePTYSessionID, "floating-remote-pty")
+        XCTAssertEqual(terminalSnapshot.wasAgentRunning, true)
+    }
+
+    @MainActor
+    func testFloatingDockCloseRefusesToDiscardFailedNoteAutosave() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-close-autosave-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocker = root.appendingPathComponent("not-a-directory")
+        try "block".write(to: blocker, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Unsaved note",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            isPresented: false,
+            noteFilePath: blocker.appendingPathComponent("note.md").path,
+            initialContent: .note,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let note = try XCTUnwrap(dock.notePanel)
+        await note.loadTextContent().value
+        note.updateTextContent("must remain recoverable")
+
+        XCTAssertFalse(workspace.closeFloatingDock(id: dock.id))
+        XCTAssertTrue(workspace.floatingDock(id: dock.id) === dock)
+        XCTAssertTrue(note.isDirty)
+        XCTAssertTrue(note.hasAutosaveError)
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresIntentionallyEmptyFloatingDock() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
