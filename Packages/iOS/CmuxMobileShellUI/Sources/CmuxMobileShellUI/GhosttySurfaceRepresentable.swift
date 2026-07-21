@@ -186,6 +186,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactCountNeedsRefresh: Bool
         var freshestLocalArtifactCount = 0
         var folderTapStatsInFlight: Set<String> = []
+        /// Taps must apply in user order: a newer tap invalidates pending classification
+        /// outcomes, while same-path duplicates coalesce onto the pending classification.
+        var tapGeneration: UInt64 = 0
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.

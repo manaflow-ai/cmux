@@ -282,11 +282,16 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     row: row,
                     columns: snapshot.columns
                 ) {
-                    let folderTapEnabled = terminalFolderTapEnabled
-                    if !folderTapEnabled,
-                       !folderTapStatsInFlight.insert(path).inserted {
+                    if folderTapStatsInFlight.contains(path) {
                         // Duplicates coalesce onto the pending classification.
                         return .ignored
+                    }
+                    tapGeneration &+= 1
+                    let generation = tapGeneration
+
+                    let folderTapEnabled = terminalFolderTapEnabled
+                    if !folderTapEnabled {
+                        folderTapStatsInFlight.insert(path)
                     }
                     defer {
                         if !folderTapEnabled {
@@ -309,16 +314,24 @@ extension GhosttySurfaceRepresentable.Coordinator {
                             path: path
                         ).kind
                     }
+                    guard self.surfaceView === surfaceView,
+                          generation == tapGeneration else {
+                        return .ignored
+                    }
                     guard decision == .openArtifact else {
                         // Forward only against revalidated content; stale coordinates
                         // are dropped instead of clicking a changed TUI cell.
                         guard self.surfaceView === surfaceView else { return .ignored }
                         let currentPath = await revalidatedTapPath(in: surfaceView, col: col, row: row)
-                        guard self.surfaceView === surfaceView else { return .ignored }
+                        guard self.surfaceView === surfaceView,
+                              generation == tapGeneration else {
+                            return .ignored
+                        }
                         if currentPath == path {
-                            Task { @MainActor [weak self, weak surfaceView, surfaceID = self.surfaceID, col, row] in
+                            Task { @MainActor [weak self, weak surfaceView, surfaceID = self.surfaceID, col, row, generation] in
                                 guard let self, let surfaceView,
-                                      self.surfaceView === surfaceView else { return }
+                                      self.surfaceView === surfaceView,
+                                      generation == self.tapGeneration else { return }
                                 await self.store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
                             }
                         }
@@ -327,6 +340,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     guard self.surfaceView === surfaceView else { return .ignored }
                     let currentPath = await revalidatedTapPath(in: surfaceView, col: col, row: row)
                     guard self.surfaceView === surfaceView,
+                          generation == tapGeneration,
                           currentPath == path else {
                         return .ignored
                     }
@@ -334,9 +348,13 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     return .openedArtifact
                 }
             }
+            tapGeneration &+= 1
+            let generation = tapGeneration
             guard self.surfaceView === surfaceView else { return .ignored }
             await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
-            return self.surfaceView === surfaceView ? .focusTerminal : .ignored
+            return self.surfaceView === surfaceView && generation == tapGeneration
+                ? .focusTerminal
+                : .ignored
         }
 
         func ghosttySurfaceView(
