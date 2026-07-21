@@ -8,7 +8,6 @@ actor AgentHookDeliveryQueue {
     private let capacityContinuation: AsyncStream<Void>.Continuation
     private let delivery: Delivery
     private let maximumConcurrentDeliveries: Int
-    private var admissionTask: Task<Void, Never>? = nil
     private var pendingByOrderingKey: [String: [AgentHookDeliveryEvent]] = [:]
     private var readyOrderingKeys: [String] = []
     private var activeOrderingKeys: Set<String> = []
@@ -50,7 +49,7 @@ actor AgentHookDeliveryQueue {
             capacityPair.continuation.yield(())
         }
 
-        admissionTask = Task {
+        Task {
             [weak self, admissionStream = admissionPair.stream, capacityStream = capacityPair.stream] in
             var admissionIterator = admissionStream.makeAsyncIterator()
             for await _ in capacityStream {
@@ -64,7 +63,6 @@ actor AgentHookDeliveryQueue {
     deinit {
         admissionContinuation.finish()
         capacityContinuation.finish()
-        admissionTask?.cancel()
     }
 
     /// Synchronously transfers ownership to bounded ingress. The socket can
