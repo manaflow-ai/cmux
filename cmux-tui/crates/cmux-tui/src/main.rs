@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use cmux_tui_core::platform::transport;
 use cmux_tui_core::{Mux, SurfaceOptions};
 use session::{RemoteSession, Session};
 
@@ -127,6 +128,16 @@ struct Args {
     term: Option<String>,
 }
 
+impl Args {
+    fn should_attach_existing(&self) -> bool {
+        !self.headless
+            && self.ws.is_none()
+            && self.ws_token.is_none()
+            && !self.ws_insecure_bind
+            && self.term.is_none()
+    }
+}
+
 fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
     let mut out = Args {
         attach: false,
@@ -222,6 +233,17 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
+    // Compute the socket path up front so a normal interactive launch can
+    // reuse an existing local session and surface children inherit it.
+    let socket_path = args
+        .socket
+        .clone()
+        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    if args.should_attach_existing() && transport::connect(&socket_path).is_ok() {
+        let remote = RemoteSession::connect(&socket_path)?;
+        return run_tui(Session::Remote(remote), args.session);
+    }
+
     let mut surface_options = SurfaceOptions::default();
     let config = config::load();
     let ws_addr = args.ws.or(config.server.ws.clone());
@@ -230,9 +252,6 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     if let Some(term) = args.term {
         surface_options.term = term;
     }
-    // Compute the socket path up front so surface children inherit it.
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
