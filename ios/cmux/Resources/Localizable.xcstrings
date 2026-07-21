@@ -4131,6 +4131,40 @@
         }
       }
     },
+    "mobile.onboarding.notifications.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知では、ペアリングしたすべてのMacからのエージェント通知を時系列で確認できます。プッシュ通知がオフでも履歴は残り、通知をタップするとそのワークスペースが開きます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.notifications.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every agent alert, in one place"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのエージェント通知を一か所で"
+          }
+        }
+      }
+    },
     "mobile.onboarding.preview.activeAgents": {
       "extractionState": "manual",
       "localizations": {
@@ -5967,23 +6001,6 @@
         }
       }
     },
-    "mobile.settings.howPairingWorks": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "How Pairing Works"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペアリングの仕組み"
-          }
-        }
-      }
-    },
     "mobile.settings.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh and Relays"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh とリレー"}}}},
     "mobile.settings.legalSupport": {
       "extractionState": "manual",
@@ -6628,13 +6645,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your computer and leave it running, signed in to the same account. The phone pairs to a running cmux build, so a quit or never-installed app is the most common reason pairing does nothing."
+            "value": "Install cmux on your computer, leave it running, and sign in to the same account. Your phone discovers it automatically. If it does not appear, use Pair iPhone and scan the QR code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータにcmuxをインストールし、同じアカウントでサインインしたまま起動しておきます。iPhoneは起動中のcmuxビルドとペアリングするため、アプリが終了している、または未インストールであることが、ペアリングが進まない最も多い原因です。"
+            "value": "コンピュータにcmuxをインストールして起動したまま、同じアカウントでサインインします。iPhoneが自動的にMacを検出します。表示されない場合は「iPhoneをペアリング」を選び、QRコードをスキャンしてください。"
           }
         }
       }
@@ -6713,13 +6730,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan the Iroh code shown by cmux on the Mac. Iroh connects directly when possible and uses a cmux relay when needed, while verifying the Mac identity and your cmux account end to end. Tailscale is not required."
+            "value": "Iroh connects live Macs on your cmux account automatically. It connects directly when possible and uses a cmux relay when needed. QR pairing is available if a Mac does not appear. Tailscale is not required."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macのcmuxに表示されるIrohコードをスキャンします。Irohは可能な場合は直接接続し、必要な場合はcmuxリレーを使いながら、MacのIDとcmuxアカウントをエンドツーエンドで検証します。Tailscaleは必須ではありません。"
+            "value": "Irohはcmuxアカウント上で起動中のMacに自動接続します。可能な場合は直接接続し、必要な場合はcmuxリレーを使用します。Macが表示されない場合はQRコードでペアリングできます。Tailscaleは必須ではありません。"
           }
         }
       }
@@ -6764,13 +6781,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux on this phone with the same account the paired computer uses. Without that, there is nothing to connect to."
+            "value": "Sign in to cmux on this phone with the same account as your computer. Same-account Macs appear automatically while cmux is running."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この端末で、ペアリング済みコンピュータと同じアカウントを使ってcmuxにサインインします。サインインしないと、接続先がありません。"
+            "value": "この端末とコンピュータで同じcmuxアカウントにサインインします。コンピュータでcmuxが起動していれば、Macは自動的に表示されます。"
           }
         }
       }

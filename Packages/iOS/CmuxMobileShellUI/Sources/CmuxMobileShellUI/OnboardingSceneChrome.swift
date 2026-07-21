@@ -22,7 +22,7 @@ struct OnboardingSceneChrome: Equatable {
                 defaultValue: "Continue"
             )
             secondaryTitle = nil
-        case .reserved:
+        case .notifications:
             primaryTitle = L10n.string(
                 "mobile.onboarding.continue",
                 defaultValue: "Continue"

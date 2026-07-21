@@ -9,8 +9,8 @@ import Testing
             isAuthenticated: true,
             connectionPhase: .searching
         )
-        let reserved = OnboardingSceneChrome(
-            stage: .reserved,
+        let notifications = OnboardingSceneChrome(
+            stage: .notifications,
             isAuthenticated: true,
             connectionPhase: .searching
         )
@@ -20,10 +20,10 @@ import Testing
         #expect(agents.primaryTitle != nil)
         #expect(agents.secondaryTitle == nil)
 
-        #expect(reserved.showsBack)
-        #expect(reserved.showsSkip)
-        #expect(reserved.primaryTitle != nil)
-        #expect(reserved.secondaryTitle == nil)
+        #expect(notifications.showsBack)
+        #expect(notifications.showsSkip)
+        #expect(notifications.primaryTitle != nil)
+        #expect(notifications.secondaryTitle == nil)
     }
 
     @Test func connectionChromeFollowsAuthenticationAndDiscoveryPhase() {

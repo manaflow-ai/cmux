@@ -47,11 +47,11 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. The middle scene reserves its position without presenting an
-    /// unfinished interface. Relaunching after the simulated search finishes
-    /// must resume at Connect and expose QR as an explicit fallback.
+    /// path. The middle scene explains the shipped chronological notification
+    /// feed without depending on its current GUI. Relaunching after the simulated
+    /// search finishes must resume at Connect and expose QR as an explicit fallback.
     @MainActor
-    func testOnboardingScenesReservedSlotResumeAndScannerFallback() throws {
+    func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
         let app = XCUIApplication()
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         let progressOverride = [
@@ -123,19 +123,20 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
         primaryButton.tap()
 
-        let reservedScene = element("MobileOnboardingReservedScene")
-        assertPageVisible(reservedScene)
+        let notificationsScene = element("MobileOnboardingNotificationsScene")
+        assertPageVisible(notificationsScene)
         XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
-        XCTAssertFalse(element("MobileOnboardingHandoffPreview").exists)
-        XCTAssertFalse(app.staticTexts["Answer agents from your phone"].exists)
-        XCTAssertFalse(app.staticTexts[
-            "Choose an answer when an agent needs a decision. It keeps working on your Mac."
-        ].exists)
+        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
+        let notificationsBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+        )).firstMatch
+        XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
         XCTAssertTrue(primaryButton.exists)
         assertStableChrome()
-        capture("onboarding-02-reserved")
+        capture("onboarding-02-notifications")
 
         let backButton = app.buttons["MobileOnboardingBackButton"]
         backButton.tap()
@@ -145,11 +146,12 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-02a-agents-after-back")
 
         primaryButton.tap()
-        assertPageVisible(reservedScene)
+        assertPageVisible(notificationsScene)
         XCTAssertTrue(backButton.waitForExistence(timeout: 2))
         XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
+        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
         assertStableChrome()
-        capture("onboarding-02b-reserved-after-return")
+        capture("onboarding-02b-notifications-after-return")
 
         primaryButton.tap()
 

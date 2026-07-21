@@ -77,8 +77,8 @@ struct OnboardingFlowView: View {
             switch pageStage {
             case .agents:
                 OnboardingAgentsView()
-            case .reserved:
-                OnboardingReservedView()
+            case .notifications:
+                OnboardingNotificationsView()
             case .connect:
                 OnboardingConnectionView(phase: connectionPhase)
             }
@@ -89,18 +89,18 @@ struct OnboardingFlowView: View {
         switch stage {
         case .agents:
             break
-        case .reserved:
+        case .notifications:
             showAgents()
         case .connect:
-            showReserved()
+            showNotifications()
         }
     }
 
     private func handlePrimary() {
         switch stage {
         case .agents:
-            showReserved()
-        case .reserved:
+            showNotifications()
+        case .notifications:
             showConnection()
         case .connect:
             finishOrRetry()
@@ -111,8 +111,8 @@ struct OnboardingFlowView: View {
         navigate(to: .agents)
     }
 
-    private func showReserved() {
-        navigate(to: .reserved)
+    private func showNotifications() {
+        navigate(to: .notifications)
     }
 
     private func showConnection() {

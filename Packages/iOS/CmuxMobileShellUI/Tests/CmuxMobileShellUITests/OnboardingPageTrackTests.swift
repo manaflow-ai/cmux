@@ -7,13 +7,13 @@ import Testing
         let pageWidth = 400.0
 
         #expect(OnboardingPageTrack.offset(for: .agents, pageWidth: pageWidth) == 0)
-        #expect(OnboardingPageTrack.offset(for: .reserved, pageWidth: pageWidth) == -400)
+        #expect(OnboardingPageTrack.offset(for: .notifications, pageWidth: pageWidth) == -400)
         #expect(OnboardingPageTrack.offset(for: .connect, pageWidth: pageWidth) == -800)
     }
 
     @Test func advancingAgainAfterReturningToFirstPageUsesForwardTrackMotion() {
         let pageWidth = 400.0
-        let stages: [OnboardingStage] = [.agents, .reserved, .agents, .reserved]
+        let stages: [OnboardingStage] = [.agents, .notifications, .agents, .notifications]
         let offsets = stages.map {
             OnboardingPageTrack.offset(for: $0, pageWidth: pageWidth)
         }
