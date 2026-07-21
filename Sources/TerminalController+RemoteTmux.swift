@@ -56,10 +56,20 @@ extension TerminalController {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let identityFile, identityFile.hasPrefix("-") { return nil }
         if let identityFile, Self.remoteTmuxValueHasHiddenCharacter(identityFile) { return nil }
+        // A closed set, so an unknown transport is refused here rather than producing a
+        // host nothing can spawn.
+        guard let transport = RemoteTmuxTransportKind.parse(params["transport"] as? String) else {
+            return nil
+        }
+        // The transport's own port, kept apart from ssh's: one-shots still ride ssh.
+        let transportPort = params["transport_port"] as? Int
+        if let transportPort, !(1...65535).contains(transportPort) { return nil }
         return RemoteTmuxHost(
             destination: destination,
             port: port,
-            identityFile: (identityFile?.isEmpty == false) ? identityFile : nil
+            identityFile: (identityFile?.isEmpty == false) ? identityFile : nil,
+            transport: transport,
+            transportPort: transportPort
         )
     }
 
