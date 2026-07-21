@@ -356,6 +356,27 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testClosedItemHistoryRetainsFloatingDockNoteFiles() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let history = ClosedItemHistoryStore(capacity: 10, loadPersisted: false)
+        history.push(.workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: workspace.id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: workspace.sessionSnapshot(includeScrollback: false)
+        )))
+
+        let retainedPaths = try XCTUnwrap(history.retainedFloatingDockNotePaths())
+        XCTAssertTrue(
+            retainedPaths.contains(
+                URL(fileURLWithPath: dock.noteFilePath).standardizedFileURL.path
+            )
+        )
+    }
+
     func testFloatingDockNoteStorageOnlyRemovesUnreferencedManagedFiles() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-floating-note-gc-\(UUID().uuidString)", isDirectory: true)

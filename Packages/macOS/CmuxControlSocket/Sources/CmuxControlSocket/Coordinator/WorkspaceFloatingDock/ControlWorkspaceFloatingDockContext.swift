@@ -18,6 +18,14 @@ public protocol ControlWorkspaceFloatingDockContext: AnyObject {
         selector: String,
         text: String
     ) -> ControlWorkspaceFloatingDockResolution
+
+    /// Reads a managed floating note on the socket worker. Implementations
+    /// keep disk I/O off the main actor and use short hops for model state.
+    nonisolated func controlGetWorkspaceFloatingDockNote(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        selector: String
+    ) -> ControlWorkspaceFloatingDockResolution
 }
 
 public extension ControlWorkspaceFloatingDockContext {
@@ -35,6 +43,14 @@ public extension ControlWorkspaceFloatingDockContext {
         workspaceID: UUID?,
         selector: String,
         text: String
+    ) -> ControlWorkspaceFloatingDockResolution {
+        .tabManagerUnavailable
+    }
+
+    nonisolated func controlGetWorkspaceFloatingDockNote(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        selector: String
     ) -> ControlWorkspaceFloatingDockResolution {
         .tabManagerUnavailable
     }

@@ -4310,8 +4310,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         retainedFloatingNotePaths.formUnion(
             autosavingNotePanelsForLifecycle().map { $0.fileURL.standardizedFileURL.path }
         )
+        let closedItemRetentionPaths = ClosedItemHistoryStore.shared.retainedFloatingDockNotePaths()
+        if let closedItemRetentionPaths {
+            retainedFloatingNotePaths.formUnion(closedItemRetentionPaths)
+        }
 
         let writeBlock = {
+            var retainedFloatingNotePaths = retainedFloatingNotePaths
+            let canCleanManualRestoreNotes: Bool
+            if let backupURL = self.sessionSnapshotStore.manualRestoreSnapshotFileURL() {
+                switch self.sessionSnapshotStore.loadOutcome(fileURL: backupURL) {
+                case .loaded(let backup):
+                    retainedFloatingNotePaths.formUnion(
+                        WorkspaceFloatingDockNoteStorage.retainedPaths(in: backup)
+                    )
+                    canCleanManualRestoreNotes = true
+                case .missing:
+                    canCleanManualRestoreNotes = true
+                case .unusable:
+                    // An unreadable backup may still be the user's only
+                    // recovery path. Never delete its external note payloads.
+                    canCleanManualRestoreNotes = false
+                }
+            } else {
+                canCleanManualRestoreNotes = true
+            }
+            let canRemoveOrphanedNotes = closedItemRetentionPaths != nil
+                && canCleanManualRestoreNotes
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
                 UserDefaults.standard.set(
@@ -4321,7 +4346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if let snapshot {
                 Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
-                if self.sessionSnapshotStore.save(snapshot, fileURL: nil) {
+                if self.sessionSnapshotStore.save(snapshot, fileURL: nil), canRemoveOrphanedNotes {
                     WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
                         retaining: retainedFloatingNotePaths
                     )
@@ -4333,9 +4358,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
                 }
                 self.sessionSnapshotStore.removeSnapshot(fileURL: nil)
-                WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
-                    retaining: retainedFloatingNotePaths
-                )
+                if canRemoveOrphanedNotes {
+                    WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
+                        retaining: retainedFloatingNotePaths
+                    )
+                }
             }
         }
 

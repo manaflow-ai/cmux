@@ -237,8 +237,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_caller",
         "workspace.set_auto_title",
         // Managed note writes serialize on a dedicated writer and perform
-        // atomic disk I/O before acknowledging. Main-actor hops only resolve
-        // and commit the resulting UI snapshot.
+        // atomic disk I/O before acknowledging. First note reads can load up
+        // to 16 MiB from disk. Main-actor hops only resolve and commit model
+        // snapshots for both operations.
+        "workspace.float.note.get",
         "workspace.float.note.set",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.

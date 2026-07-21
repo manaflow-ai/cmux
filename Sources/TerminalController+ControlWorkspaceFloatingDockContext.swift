@@ -16,6 +16,18 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         case ready(FloatingDockNoteWriteTarget)
     }
 
+    private struct FloatingDockNoteReadTarget: Sendable {
+        let workspaceID: UUID
+        let dockID: UUID
+        let fileURL: URL
+        let snapshotGeneration: Int
+    }
+
+    private enum FloatingDockNoteReadPreparation: Sendable {
+        case resolution(ControlWorkspaceFloatingDockResolution)
+        case ready(FloatingDockNoteReadTarget)
+    }
+
     private enum FloatingDockWorkspaceResolution {
         case tabManagerUnavailable
         case notFound
@@ -143,6 +155,69 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         }
     }
 
+    nonisolated func controlGetWorkspaceFloatingDockNote(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        selector: String
+    ) -> ControlWorkspaceFloatingDockResolution {
+        let preparation: FloatingDockNoteReadPreparation = v2MainSync {
+            switch self.resolveFloatingDockWorkspace(routing: routing, workspaceID: workspaceID) {
+            case .tabManagerUnavailable:
+                return .resolution(.tabManagerUnavailable)
+            case .notFound:
+                return .resolution(.workspaceNotFound)
+            case .found(let tabManager, let workspace):
+                guard let dock = workspace.floatingDock(selector: selector) else {
+                    return .resolution(.floatingDockNotFound)
+                }
+                if let text = dock.loadedNoteTextSnapshot {
+                    return .resolution(.resolved(self.floatingDockNotePayload(
+                        dock: dock,
+                        workspace: workspace,
+                        notePanel: self.floatingDockNotePanel(for: dock, tabManager: tabManager),
+                        text: text
+                    )))
+                }
+                return .ready(FloatingDockNoteReadTarget(
+                    workspaceID: workspace.id,
+                    dockID: dock.id,
+                    fileURL: URL(fileURLWithPath: dock.noteFilePath),
+                    snapshotGeneration: dock.reserveNoteSnapshotRead()
+                ))
+            }
+        }
+        guard case .ready(let target) = preparation else {
+            if case .resolution(let resolution) = preparation { return resolution }
+            return .operationFailed("note read failed")
+        }
+
+        let loadedText: String
+        switch FilePreviewTextLoader.loadSynchronously(url: target.fileURL) {
+        case .loaded(let text, _):
+            loadedText = text
+        case .unavailable:
+            loadedText = ""
+        }
+
+        return v2MainSync {
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: target.workspaceID),
+                  let workspace = tabManager.tabs.first(where: { $0.id == target.workspaceID }),
+                  let dock = workspace.floatingDocks.first(where: { $0.id == target.dockID }) else {
+                return .operationFailed("note target changed during read")
+            }
+            let text = dock.applyLoadedNoteTextSnapshot(
+                loadedText,
+                generation: target.snapshotGeneration
+            )
+            return .resolved(self.floatingDockNotePayload(
+                dock: dock,
+                workspace: workspace,
+                notePanel: self.floatingDockNotePanel(for: dock, tabManager: tabManager),
+                text: text
+            ))
+        }
+    }
+
     private func performFloatingDockAction(
         _ action: ControlWorkspaceFloatingDockAction,
         tabManager: TabManager,
@@ -263,12 +338,9 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: tabManager)
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .noteGet(let selector):
-            guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
-            let notePanel = floatingDockNotePanel(for: dock, tabManager: tabManager)
-            let text = dock.noteTextSnapshotForControl()
-            return .resolved(floatingDockNotePayload(
-                dock: dock, workspace: workspace, notePanel: notePanel, text: text
-            ))
+            return .operationFailed(
+                "workspace.float.note.get must run on the socket worker (selector: \(selector))"
+            )
         case .noteSet(let selector, let text):
             return .operationFailed(
                 "workspace.float.note.set must run on the socket worker (selector: \(selector), bytes: \(text.utf8.count))"

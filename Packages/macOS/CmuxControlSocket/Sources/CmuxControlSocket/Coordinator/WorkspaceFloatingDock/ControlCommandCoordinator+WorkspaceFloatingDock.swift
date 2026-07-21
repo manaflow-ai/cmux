@@ -161,6 +161,41 @@ extension ControlCommandCoordinator {
         }
     }
 
+    nonisolated func workspaceFloatingDockNoteGet(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
+            return .err(code: "unavailable", message: "Workspace controls are unavailable", data: nil)
+        }
+        let parsed: FloatingDockNoteGetParse = context.controlResolveOnMain { _ in
+            let workspaceID = self.uuid(params, "workspace_id")
+            if self.hasNonNull(params, "workspace_id"), workspaceID == nil {
+                return .invalidWorkspaceID
+            }
+            guard let selector = self.floatingDockSelector(params) else {
+                return .missingSelector
+            }
+            return .ready(
+                routing: self.routingSelectors(params),
+                workspaceID: workspaceID,
+                selector: selector
+            )
+        }
+        switch parsed {
+        case .invalidWorkspaceID:
+            return invalidFloatingDockIdentifier("workspace_id")
+        case .missingSelector:
+            return missingFloatingDock()
+        case let .ready(routing, workspaceID, selector):
+            return floatingDockResult(context.controlGetWorkspaceFloatingDockNote(
+                routing: routing,
+                workspaceID: workspaceID,
+                selector: selector
+            ))
+        }
+    }
+
     private enum FloatingDockNoteSetParse: Sendable {
         case invalidWorkspaceID
         case missingSelector
@@ -170,6 +205,16 @@ extension ControlCommandCoordinator {
             workspaceID: UUID?,
             selector: String,
             text: String
+        )
+    }
+
+    private enum FloatingDockNoteGetParse: Sendable {
+        case invalidWorkspaceID
+        case missingSelector
+        case ready(
+            routing: ControlRoutingSelectors,
+            workspaceID: UUID?,
+            selector: String
         )
     }
 

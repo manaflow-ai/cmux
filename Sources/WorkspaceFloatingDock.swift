@@ -205,16 +205,20 @@ final class WorkspaceFloatingDock: Identifiable {
         return (noteTextGeneration, noteWriter.reserveSequence())
     }
 
-    func noteTextSnapshotForControl() -> String {
-        guard !noteSnapshotIsLoaded else { return noteTextSnapshot }
+    var loadedNoteTextSnapshot: String? {
+        noteSnapshotIsLoaded ? noteTextSnapshot : nil
+    }
+
+    func reserveNoteSnapshotRead() -> Int {
         noteTextGeneration += 1
         noteSnapshotIsLoaded = true
-        if case .loaded(let text, _) = FilePreviewTextLoader.loadSynchronously(
-            url: URL(fileURLWithPath: noteFilePath)
-        ) {
-            noteTextSnapshot = text
-        }
-        return noteTextSnapshot
+        return noteTextGeneration
+    }
+
+    func applyLoadedNoteTextSnapshot(_ text: String, generation: Int) -> String {
+        guard noteTextGeneration == generation else { return noteTextSnapshot }
+        setNoteTextSnapshot(text)
+        return text
     }
 
     func applyPersistedNoteText(_ text: String, to panel: FilePreviewPanel?) -> Bool {

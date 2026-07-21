@@ -178,6 +178,23 @@ final class ClosedItemHistoryStore: ObservableObject {
         !records.isEmpty
     }
 
+    /// Returns every note path needed by reopen-closed-item recovery. A nil
+    /// result means persisted records are still loading, so callers must skip
+    /// destructive note cleanup until the complete history is available.
+    func retainedFloatingDockNotePaths() -> Set<String>? {
+        guard didFinishPersistedRecordsLoad else { return nil }
+        return records.reduce(into: Set<String>()) { paths, record in
+            switch record.entry {
+            case .panel(let entry):
+                paths.formUnion(WorkspaceFloatingDockNoteStorage.retainedPaths(in: entry.snapshot))
+            case .workspace(let entry):
+                paths.formUnion(WorkspaceFloatingDockNoteStorage.retainedPaths(in: entry.snapshot))
+            case .window(let entry):
+                paths.formUnion(WorkspaceFloatingDockNoteStorage.retainedPaths(in: entry.snapshot))
+            }
+        }
+    }
+
     func push(_ entry: ClosedItemHistoryEntry) {
         push(ClosedItemHistoryRecord(entry: entry))
     }

@@ -367,30 +367,40 @@ enum WorkspaceFloatingDockNoteStorage {
     }
 
     static func retainedPaths(in snapshot: AppSessionSnapshot) -> Set<String> {
-        var paths = Set<String>()
-        for window in snapshot.windows {
-            for workspace in window.tabManager.workspaces {
-                for panel in workspace.panels {
-                    if let path = panel.filePreview?.filePath {
-                        paths.insert(URL(fileURLWithPath: path).standardizedFileURL.path)
-                    }
-                }
-                for dock in workspace.floatingDocks ?? [] {
-                    if let stableID = workspace.stableId {
-                        paths.insert(
-                            fileURL(workspaceStableID: stableID, dockID: dock.id)
-                                .standardizedFileURL.path
-                        )
-                    }
-                    for surface in dock.content?.surfaces ?? [] {
-                        if let path = surface.filePreview?.filePath {
-                            paths.insert(URL(fileURLWithPath: path).standardizedFileURL.path)
-                        }
-                    }
+        snapshot.windows.reduce(into: Set<String>()) { paths, window in
+            paths.formUnion(retainedPaths(in: window))
+        }
+    }
+
+    static func retainedPaths(in window: SessionWindowSnapshot) -> Set<String> {
+        window.tabManager.workspaces.reduce(into: Set<String>()) { paths, workspace in
+            paths.formUnion(retainedPaths(in: workspace))
+        }
+    }
+
+    static func retainedPaths(in workspace: SessionWorkspaceSnapshot) -> Set<String> {
+        var paths = workspace.panels.reduce(into: Set<String>()) { paths, panel in
+            paths.formUnion(retainedPaths(in: panel))
+        }
+        for dock in workspace.floatingDocks ?? [] {
+            if let stableID = workspace.stableId {
+                paths.insert(
+                    fileURL(workspaceStableID: stableID, dockID: dock.id)
+                        .standardizedFileURL.path
+                )
+            }
+            for surface in dock.content?.surfaces ?? [] {
+                if let path = surface.filePreview?.filePath {
+                    paths.insert(URL(fileURLWithPath: path).standardizedFileURL.path)
                 }
             }
         }
         return paths
+    }
+
+    static func retainedPaths(in panel: SessionPanelSnapshot) -> Set<String> {
+        guard let path = panel.filePreview?.filePath else { return [] }
+        return [URL(fileURLWithPath: path).standardizedFileURL.path]
     }
 
     static func removeOrphanedFiles(

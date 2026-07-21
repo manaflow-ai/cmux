@@ -291,10 +291,12 @@ struct WindowDockRoutingSocketTests {
             )
             workspace.floatingDocks.append(dock)
 
-            let result = try v2Result(method: "workspace.float.note.get", params: [
+            let envelope = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.get", params: [
                 "workspace_id": workspace.id.uuidString,
                 "float": dock.id.uuidString,
             ])
+            #expect(envelope["ok"] as? Bool == true)
+            let result = try #require(envelope["result"] as? [String: Any])
 
             #expect(result["text"] as? String == "persisted before restore")
             #expect(dock.noteTextSnapshot == "persisted before restore")
