@@ -575,6 +575,36 @@ struct WindowDockRoutingSocketTests {
 
             let activeWorkspace = try #require(activeManager.tabs.first)
             let dockWorkspace = try #require(dockManager.tabs.first)
+            let floatingDock = try #require(activeWorkspace.createFloatingDock(initialContent: .note))
+            let floatingNote = try #require(floatingDock.notePanel)
+            await floatingNote.loadTextContent().value
+            let floatingNoteTextBeforeConflict = floatingNote.textContent
+
+            // Explicit window and workspace selectors are conjunctive. A
+            // window-B scope cannot mutate a floating Dock in window A, even
+            // on the worker-side note-write path.
+            let crossWindowNoteWrite = try await v2EnvelopeOnSocketWorker(
+                method: "workspace.float.note.set",
+                params: [
+                    "window_id": dockWindowId.uuidString,
+                    "workspace_id": activeWorkspace.id.uuidString,
+                    "float": floatingDock.id.uuidString,
+                    "text": "must not cross windows",
+                ]
+            )
+            #expect(crossWindowNoteWrite["ok"] as? Bool == false)
+            #expect(floatingNote.textContent == floatingNoteTextBeforeConflict)
+
+            let crossWindowFloatCloseAll = try v2Envelope(
+                method: "workspace.float.close_all",
+                params: [
+                    "window_id": dockWindowId.uuidString,
+                    "workspace_id": activeWorkspace.id.uuidString,
+                ]
+            )
+            #expect(crossWindowFloatCloseAll["ok"] as? Bool == false)
+            #expect(activeWorkspace.floatingDock(id: floatingDock.id) === floatingDock)
+
             let activeWindowDock = appDelegate.windowDock(forWindowId: activeWindowId)
             let dockPane = try #require(activeWindowDock.bonsplitController.allPaneIds.first)
             let result = try v2Result(method: "surface.create", params: [
@@ -633,6 +663,14 @@ struct WindowDockRoutingSocketTests {
             #expect(otherWindowDock !== activeWindowDock)
             let otherPane = try #require(otherWindowDock.resolvePane(requestedPaneID: nil))
             let otherDockSurfaceId = try #require(otherWindowDock.newSurface(kind: .terminal, inPane: otherPane, focus: true))
+
+            // A Dock-owner workspace selector resolves to its concrete window.
+            // It cannot authorize a floating-Dock surface owned by another window.
+            let ownerFloatingSurfaceConflict = try v2Envelope(method: "surface.list", params: [
+                "workspace_id": dockWindowId.uuidString,
+                "surface_id": floatingNote.id.uuidString,
+            ])
+            #expect(ownerFloatingSurfaceConflict["ok"] as? Bool == false)
 
             // The CLI injects the caller's main workspace_id even when the
             // user explicitly targets a Dock pane. A non-Dock workspace_id

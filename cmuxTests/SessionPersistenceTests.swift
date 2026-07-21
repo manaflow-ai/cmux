@@ -299,6 +299,21 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testFloatingDockFrameSanitizerBoundsCorruptedSessionGeometry() {
+        let sanitized = Workspace.sanitizedFloatingDockFrame(CGRect(
+            x: CGFloat.greatestFiniteMagnitude,
+            y: -CGFloat.greatestFiniteMagnitude,
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+
+        XCTAssertLessThanOrEqual(abs(sanitized.origin.x), 1_000_000)
+        XCTAssertLessThanOrEqual(abs(sanitized.origin.y), 1_000_000)
+        XCTAssertLessThanOrEqual(sanitized.width, 16_384)
+        XCTAssertLessThanOrEqual(sanitized.height, 16_384)
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)

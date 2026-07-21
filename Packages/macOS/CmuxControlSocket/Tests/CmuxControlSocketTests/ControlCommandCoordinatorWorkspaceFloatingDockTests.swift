@@ -110,6 +110,23 @@ struct ControlCommandCoordinatorWorkspaceFloatingDockTests {
         #expect(context.lastAction == nil)
     }
 
+    @Test func createRejectsExtremeFrameBeforeMutation() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(request("workspace.float.create", [
+            "x": .int(0),
+            "y": .int(0),
+            "width": .double(Double.greatestFiniteMagnitude),
+            "height": .int(480),
+        ]))
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid params")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastAction == nil)
+    }
+
     @Test func paneCreateForwardsTopologyInputs() {
         let (coordinator, context) = makeCoordinator()
         let workspaceID = UUID()
