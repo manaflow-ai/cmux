@@ -83,7 +83,7 @@ import Testing
 
 @MainActor
 @Observable
-private final class BrowserPanelReplacementModel {
+fileprivate final class BrowserPanelReplacementModel {
     var panel: BrowserPanel
 
     init(panel: BrowserPanel) {

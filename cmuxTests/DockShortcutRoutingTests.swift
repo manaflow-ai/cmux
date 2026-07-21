@@ -421,7 +421,7 @@ private extension DockShortcutRoutingTests {
 
 @MainActor
 @Observable
-private final class DockShortcutTestPanel: Panel {
+fileprivate final class DockShortcutTestPanel: Panel {
     @ObservationIgnored let id = UUID()
     @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     @ObservationIgnored let panelType: PanelType = .terminal

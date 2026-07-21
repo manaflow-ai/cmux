@@ -12,7 +12,7 @@ import Testing
 
 @MainActor
 @Observable
-private final class DurableDeepLinkDockTestPanel: Panel {
+fileprivate final class DurableDeepLinkDockTestPanel: Panel {
     @ObservationIgnored let id = UUID()
     @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     @ObservationIgnored let panelType: PanelType = .terminal

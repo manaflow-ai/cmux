@@ -13,7 +13,7 @@ import Testing
 
 @MainActor
 @Observable
-private final class DockTransferTestPanel: Panel {
+fileprivate final class DockTransferTestPanel: Panel {
     @ObservationIgnored let id: UUID
     @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     @ObservationIgnored let panelType: PanelType

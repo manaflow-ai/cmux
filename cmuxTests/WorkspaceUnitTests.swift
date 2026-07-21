@@ -3019,7 +3019,7 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
 @MainActor
 final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     @Observable
-    private final class DetachedWorkspaceTestPanel: Panel {
+    fileprivate final class DetachedWorkspaceTestPanel: Panel {
         @ObservationIgnored let id: UUID
         @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
         @ObservationIgnored let panelType: PanelType = .terminal
