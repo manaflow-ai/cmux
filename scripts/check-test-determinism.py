@@ -193,7 +193,7 @@ _DURATION_COMPARE = re.compile(
 _SLEEP_CALL = re.compile(
     r"""(?x)
     \btime\.sleep\s*\(
-  | \bsleep\s*\(                            # sleep(...) call (C/shell function form)
+  | (?<!\.)\bsleep\s*\(                    # unqualified sleep(...) call (C/shell function form)
   | \busleep\s*\(
   | \bnanosleep\s*\(
   | Thread\.sleep\s*\(
@@ -639,6 +639,11 @@ def _self_test() -> int:
         (
             "tests/e.py",
             "time.sleep(0.3)\nassert widget.is_rendered()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/free_sleep.py",
+            "sleep(0.3)\nassert widget.is_rendered()\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
