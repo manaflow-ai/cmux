@@ -868,7 +868,23 @@
         }
       }
     },
-    "mobile.common.actions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Actions"}},"ja":{"stringUnit":{"state":"translated","value":"操作"}}}},
+    "mobile.common.actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作"
+          }
+        }
+      }
+    },
     "mobile.common.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -971,7 +987,23 @@
         }
       }
     },
-    "mobile.common.remove": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Remove"}},"ja":{"stringUnit":{"state":"translated","value":"削除"}}}},
+    "mobile.common.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
     "mobile.common.retry": {
       "extractionState": "manual",
       "localizations": {

@@ -16,10 +16,4 @@ import Testing
         #expect(!MobileOnboardingProgress.complete.shouldShowOnboarding)
     }
 
-    @Test func connectionCompletesOnlyTheConnectionMilestone() {
-        #expect(!MobileOnboardingProgress.welcome.shouldCompleteAfterConnection(isConnected: true))
-        #expect(MobileOnboardingProgress.connect.shouldCompleteAfterConnection(isConnected: true))
-        #expect(!MobileOnboardingProgress.complete.shouldCompleteAfterConnection(isConnected: true))
-        #expect(!MobileOnboardingProgress.connect.shouldCompleteAfterConnection(isConnected: false))
-    }
 }

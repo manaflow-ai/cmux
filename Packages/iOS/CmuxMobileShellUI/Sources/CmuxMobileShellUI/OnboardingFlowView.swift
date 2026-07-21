@@ -16,6 +16,7 @@ struct OnboardingFlowView: View {
     let onComplete: () -> Void
 
     @State private var stage: OnboardingStage
+    @State private var connectionCompletionSource = "auto_connect"
     @Environment(\.analytics) private var analytics
 
     init(
@@ -141,15 +142,19 @@ struct OnboardingFlowView: View {
         case .searching:
             break
         case .fallback:
+            connectionCompletionSource = "auto_connect"
             analytics.capture("ios_onboarding_connection_retried", eventProperties)
             onRetryConnection()
         case .ready:
-            analytics.capture("ios_onboarding_completed", eventProperties)
+            var properties = eventProperties
+            properties["source"] = .string(connectionCompletionSource)
+            analytics.capture("ios_onboarding_completed", properties)
             onComplete()
         }
     }
 
     private func startFallbackPairing() {
+        connectionCompletionSource = "qr_fallback"
         var properties = eventProperties
         properties["source"] = .string("qr_fallback")
         analytics.capture("ios_onboarding_pairing_started", properties)

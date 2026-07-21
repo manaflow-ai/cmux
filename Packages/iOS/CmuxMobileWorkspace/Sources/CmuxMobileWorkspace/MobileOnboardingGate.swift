@@ -14,9 +14,4 @@ public extension MobileOnboardingProgress {
     var shouldShowOnboarding: Bool {
         self != .complete
     }
-
-    /// Whether an established connection completes the remaining onboarding milestone.
-    func shouldCompleteAfterConnection(isConnected: Bool) -> Bool {
-        isConnected && self == .connect
-    }
 }

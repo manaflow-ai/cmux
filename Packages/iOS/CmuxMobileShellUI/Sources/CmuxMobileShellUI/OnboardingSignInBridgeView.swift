@@ -3,7 +3,8 @@ import SwiftUI
 
 struct OnboardingSignInBridgeView: View {
     var body: some View {
-        SignInView()
+        SignInView(usesStandaloneChrome: false)
+            .accessibilityIdentifier("MobileOnboardingSignInBridge")
     }
 }
 #endif

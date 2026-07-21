@@ -203,20 +203,6 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
-                #if os(iOS)
-                if !shouldShowOnboardingPreview,
-                   onboardingStore.progress.shouldCompleteAfterConnection(isConnected: true) {
-                    analytics.capture(
-                        "ios_onboarding_completed",
-                        [
-                            "context": .string(OnboardingContext.firstRun.rawValue),
-                            "stage": .string(OnboardingStage.connect.analyticsValue),
-                            "source": .string("auto_connect")
-                        ]
-                    )
-                    completeOnboarding()
-                }
-                #endif
                 isShowingAddDeviceSheet = false
                 pairingPresentation = .manual
             } else {
