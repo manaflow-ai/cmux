@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxSidebar
 import Testing
 @testable import cmux_DEV
@@ -382,16 +383,28 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func containerWidthChangeRemeasuresVisibleRowsDuringLayout() throws {
+    func appKitSplitWidthChangeRemeasuresVisibleRowsDuringLayout() throws {
         let controller = SidebarWorkspaceTableController()
-        let container = controller.makeContainerView()
+        let tableContainer = controller.makeContainerView()
+        let splitContainer = SidebarContentLayoutView(
+            sidebarView: tableContainer,
+            mainContentView: NSView(),
+            dividerView: NSView(),
+            configuration: SidebarContentLayoutConfiguration(
+                sidebarWidth: 640,
+                isSidebarVisible: true,
+                mode: .sideBySide,
+                dividerLeadingHitWidth: SidebarResizeInteraction.sidebarSideHitWidth,
+                dividerTrailingHitWidth: SidebarResizeInteraction.contentSideHitWidth
+            )
+        )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 240),
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 240),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.contentView = container
+        window.contentView = splitContainer
 
         let model = Self.makeModel(
             title: "Resize probe",
@@ -404,21 +417,35 @@ struct SidebarAppKitRowCellTests {
             selectedWorkspaceId: model.workspaceId,
             selectedScrollTargetWorkspaceId: model.workspaceId
         )
-        container.layoutSubtreeIfNeeded()
-        container.tableView.layoutSubtreeIfNeeded()
-        let wideHeight = container.tableView.rect(ofRow: 0).height
+        splitContainer.layoutSubtreeIfNeeded()
+        tableContainer.tableView.layoutSubtreeIfNeeded()
+        let wideHeight = tableContainer.tableView.rect(ofRow: 0).height
 
-        window.setContentSize(NSSize(width: 180, height: 240))
-        container.layoutSubtreeIfNeeded()
-        container.tableView.layoutSubtreeIfNeeded()
-        let narrowHeight = container.tableView.rect(ofRow: 0).height
+        splitContainer.apply(
+            configuration: SidebarContentLayoutConfiguration(
+                sidebarWidth: 180,
+                isSidebarVisible: true,
+                mode: .sideBySide,
+                dividerLeadingHitWidth: SidebarResizeInteraction.sidebarSideHitWidth,
+                dividerTrailingHitWidth: SidebarResizeInteraction.contentSideHitWidth
+            )
+        )
+        tableContainer.tableView.layoutSubtreeIfNeeded()
+        let narrowHeight = tableContainer.tableView.rect(ofRow: 0).height
 
         #expect(narrowHeight > wideHeight)
 
-        window.setContentSize(NSSize(width: 640, height: 240))
-        container.layoutSubtreeIfNeeded()
-        container.tableView.layoutSubtreeIfNeeded()
-        let restoredHeight = container.tableView.rect(ofRow: 0).height
+        splitContainer.apply(
+            configuration: SidebarContentLayoutConfiguration(
+                sidebarWidth: 640,
+                isSidebarVisible: true,
+                mode: .sideBySide,
+                dividerLeadingHitWidth: SidebarResizeInteraction.sidebarSideHitWidth,
+                dividerTrailingHitWidth: SidebarResizeInteraction.contentSideHitWidth
+            )
+        )
+        tableContainer.tableView.layoutSubtreeIfNeeded()
+        let restoredHeight = tableContainer.tableView.rect(ofRow: 0).height
 
         #expect(abs(restoredHeight - wideHeight) < 0.5)
     }

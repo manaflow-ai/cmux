@@ -1,4 +1,6 @@
 import AppKit
+import CmuxAppKitSupportUI
+import Combine
 import QuartzCore
 import SwiftUI
 
@@ -28,6 +30,167 @@ struct SidebarDividerTracker: NSViewRepresentable {
         nsView.onBegan = onBegan
         nsView.onChanged = onChanged
         nsView.onEnded = onEnded
+    }
+}
+
+/// Bridges the existing SwiftUI sidebar and content trees into the AppKit
+/// container that authoritatively owns their horizontal geometry.
+struct SidebarContentLayoutHost: NSViewRepresentable {
+    let sidebarRoot: AnyView
+    let mainContentRoot: AnyView
+    let layout: SidebarLayoutModel
+    let isSidebarVisible: Bool
+    let mode: SidebarContentLayoutMode
+    let onDividerBegan: (CGFloat) -> Void
+    let onDividerChanged: (CGFloat, CGFloat) -> Void
+    let onDividerEnded: (CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            sidebarRoot: sidebarRoot,
+            mainContentRoot: mainContentRoot,
+            layout: layout
+        )
+    }
+
+    func makeNSView(context: Context) -> SidebarContentLayoutView {
+        let divider = SidebarDividerTrackingView()
+        divider.identifier = NSUserInterfaceItemIdentifier("SidebarResizer")
+        divider.setAccessibilityElement(true)
+        divider.setAccessibilityRole(.splitter)
+        divider.setAccessibilityIdentifier("SidebarResizer")
+
+        let container = SidebarContentLayoutView(
+            sidebarView: context.coordinator.sidebarHostingView,
+            mainContentView: context.coordinator.mainContentHostingView,
+            dividerView: divider,
+            configuration: configuration(width: layout.width)
+        )
+        context.coordinator.attach(container: container, divider: divider)
+        context.coordinator.update(from: self)
+        return container
+    }
+
+    func updateNSView(_ nsView: SidebarContentLayoutView, context: Context) {
+        context.coordinator.update(from: self)
+    }
+
+    private func configuration(width: CGFloat) -> SidebarContentLayoutConfiguration {
+        SidebarContentLayoutConfiguration(
+            sidebarWidth: width,
+            isSidebarVisible: isSidebarVisible,
+            mode: mode,
+            dividerLeadingHitWidth: SidebarResizeInteraction.sidebarSideHitWidth,
+            dividerTrailingHitWidth: SidebarResizeInteraction.contentSideHitWidth
+        )
+    }
+
+    @MainActor
+    final class Coordinator {
+        let sidebarHostingView: NSHostingView<AnyView>
+        let mainContentHostingView: NSHostingView<AnyView>
+
+        private weak var container: SidebarContentLayoutView?
+        private weak var divider: SidebarDividerTrackingView?
+        private var widthObservation: AnyCancellable?
+        private var observedLayout: SidebarLayoutModel
+        private var latestWidth: CGFloat
+        private var isSidebarVisible = true
+        private var mode = SidebarContentLayoutMode.sideBySide
+        private var isDividerTracking = false
+        private var onDividerBegan: (CGFloat) -> Void = { _ in }
+        private var onDividerChanged: (CGFloat, CGFloat) -> Void = { _, _ in }
+        private var onDividerEnded: (CGFloat) -> Void = { _ in }
+
+        init(
+            sidebarRoot: AnyView,
+            mainContentRoot: AnyView,
+            layout: SidebarLayoutModel
+        ) {
+            sidebarHostingView = NSHostingView(rootView: sidebarRoot)
+            mainContentHostingView = NSHostingView(rootView: mainContentRoot)
+            observedLayout = layout
+            latestWidth = layout.width
+
+            // The AppKit container dictates both host sizes. Opt out of
+            // NSHostingView's intrinsic-size negotiation so its ideal SwiftUI
+            // size cannot feed back into the split geometry.
+            sidebarHostingView.sizingOptions = []
+            mainContentHostingView.sizingOptions = []
+        }
+
+        func attach(
+            container: SidebarContentLayoutView,
+            divider: SidebarDividerTrackingView
+        ) {
+            self.container = container
+            self.divider = divider
+            bindDividerCallbacks()
+            observeWidth(of: observedLayout)
+        }
+
+        func update(from host: SidebarContentLayoutHost) {
+            sidebarHostingView.rootView = host.sidebarRoot
+            mainContentHostingView.rootView = host.mainContentRoot
+            isSidebarVisible = host.isSidebarVisible
+            mode = host.mode
+            onDividerBegan = host.onDividerBegan
+            onDividerChanged = host.onDividerChanged
+            onDividerEnded = host.onDividerEnded
+
+            if observedLayout !== host.layout {
+                observedLayout = host.layout
+                latestWidth = host.layout.width
+                observeWidth(of: host.layout)
+            }
+
+            applyCurrentConfiguration(synchronously: false)
+            bindDividerCallbacks()
+        }
+
+        private func observeWidth(of layout: SidebarLayoutModel) {
+            widthObservation = layout.$width
+                .removeDuplicates()
+                .sink { [weak self] width in
+                    guard let self else { return }
+                    latestWidth = width
+                    applyCurrentConfiguration(synchronously: isDividerTracking)
+                }
+        }
+
+        private func bindDividerCallbacks() {
+            divider?.onBegan = { [weak self] in
+                guard let self else { return }
+                isDividerTracking = true
+                onDividerBegan(availableWidth)
+            }
+            divider?.onChanged = { [weak self] translation in
+                guard let self else { return }
+                onDividerChanged(translation, availableWidth)
+            }
+            divider?.onEnded = { [weak self] in
+                guard let self else { return }
+                onDividerEnded(availableWidth)
+                isDividerTracking = false
+            }
+        }
+
+        private var availableWidth: CGFloat {
+            max(0, container?.bounds.width ?? 0)
+        }
+
+        private func applyCurrentConfiguration(synchronously: Bool) {
+            container?.apply(
+                configuration: SidebarContentLayoutConfiguration(
+                    sidebarWidth: latestWidth,
+                    isSidebarVisible: isSidebarVisible,
+                    mode: mode,
+                    dividerLeadingHitWidth: SidebarResizeInteraction.sidebarSideHitWidth,
+                    dividerTrailingHitWidth: SidebarResizeInteraction.contentSideHitWidth
+                ),
+                synchronously: synchronously
+            )
+        }
     }
 }
 
