@@ -727,12 +727,14 @@ final class RemoteTmuxControlConnection {
                 observers.notifyExit()
                 return
             }
-            switch RemoteTmuxStreamEndDisposition.forStreamEnd() {
+            switch RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: enterReceived) {
             case .reconnect:
                 // Keep the mirror frozen and reconnect.
                 beginReconnecting()
             case .sessionOver:
-                record("stream-end-session-over")
+                // Either the session ended, or the transport never started — both are terminal, and
+                // both must report rather than retry.
+                record(enterReceived ? "stream-end-session-over" : "stream-end-before-connect")
                 connectionState = .ended
                 cancelScheduledWork()
                 teardownProcessHandles()
