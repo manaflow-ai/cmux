@@ -3,6 +3,7 @@ import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileShell
 
@@ -14,6 +15,97 @@ import Testing
 /// doubles.
 @MainActor
 @Suite struct MobileShellCompositePreviewTests {
+    @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {
+        let store = MobileShellComposite.preview()
+        let workspace = MobileWorkspacePreview(
+            id: "workspace-stable",
+            name: "Stable",
+            terminals: [MobileTerminalPreview(id: "terminal-stable", name: "stable")]
+        )
+        store.replaceForegroundWorkspaceState([workspace])
+        let topologyVersion = store.workspaceTopologyVersion
+
+        await confirmation("identical workspace state stays quiet", expectedCount: 0) {
+            didChange in
+            withObservationTracking {
+                _ = store.workspaces
+                _ = store.workspaceGroups
+                _ = store.workspaceTopologyVersion
+            } onChange: {
+                didChange()
+            }
+
+            store.replaceForegroundWorkspaceState([workspace])
+        }
+
+        #expect(store.workspaceTopologyVersion == topologyVersion)
+    }
+
+    @Test func remoteRefreshPreservesOnlyForegroundViewportFit() throws {
+        let store = MobileShellComposite.preview()
+        let foregroundFit = MobileTerminalViewportFit(
+            effective: MobileTerminalViewportSize(columns: 80, rows: 24),
+            client: MobileTerminalViewportSize(columns: 100, rows: 30),
+            isCurrentClientLimiting: true
+        )
+        let secondaryFit = MobileTerminalViewportFit(
+            effective: MobileTerminalViewportSize(columns: 40, rows: 12),
+            client: nil,
+            isCurrentClientLimiting: false
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [MobileWorkspacePreview(
+                    id: "shared",
+                    macDeviceID: "mac-a",
+                    name: "Foreground",
+                    terminals: [MobileTerminalPreview(
+                        id: "terminal-shared",
+                        name: "old",
+                        viewportFit: foregroundFit
+                    )]
+                )],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [MobileWorkspacePreview(
+                    id: "shared",
+                    macDeviceID: "mac-b",
+                    name: "Secondary",
+                    terminals: [MobileTerminalPreview(
+                        id: "terminal-shared",
+                        name: "other",
+                        viewportFit: secondaryFit
+                    )]
+                )],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+        let response = try MobileSyncWorkspaceListResponse.decode(Data(#"""
+        {
+          "workspaces": [{
+            "id": "shared",
+            "title": "Refreshed",
+            "is_selected": true,
+            "terminals": [
+              {"id": "terminal-shared", "title": "updated", "is_focused": true},
+              {"id": "terminal-new", "title": "new", "is_focused": false}
+            ]
+          }],
+          "groups": []
+        }
+        """#.utf8))
+
+        store.applyRemoteWorkspaceList(response)
+
+        let refreshed = try #require(store.workspaces.first { $0.macDeviceID == "mac-a" })
+        #expect(refreshed.name == "Refreshed")
+        #expect(refreshed.terminals.first?.viewportFit == foregroundFit)
+        #expect(refreshed.terminals.last?.viewportFit == nil)
+    }
+
     @Test func startsAtSignInWithoutConnection() {
         let store = MobileShellComposite.preview()
 
@@ -39,7 +131,7 @@ import Testing
         #expect(store.connectedHostName == "cmux-macbook")
     }
 
-    @Test func signOutReturnsToPreviewHostState() {
+    @Test func signOutReturnsToSignInStateWithNoWorkspaces() {
         let store = MobileShellComposite.preview()
         store.signIn()
         store.pairingCode = "debug"
@@ -61,7 +153,10 @@ import Testing
         #expect(store.phase == .signIn)
         #expect(store.connectionState == .disconnected)
         #expect(store.connectedHostName.isEmpty)
-        #expect(store.selectedWorkspace?.name == "cmux")
+        // No placeholder workspaces survive sign-out: the next session starts
+        // from an empty list, not the `PreviewMobileHost` fixtures.
+        #expect(store.selectedWorkspace == nil)
+        #expect(store.workspaces.isEmpty)
         #expect(store.workspaceGroups.isEmpty)
     }
 

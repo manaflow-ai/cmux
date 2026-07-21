@@ -6052,7 +6052,14 @@ impl Mux {
                 let screen = self.next_id();
                 state.panes.insert(
                     pane,
-                    Pane { id: pane, name: None, tabs: Vec::new(), active_tab: 0, active_at },
+                    Pane {
+                        id: pane,
+                        name: None,
+                        tabs: Vec::new(),
+                        active_tab: 0,
+                        active_at,
+                        focused_at: 0,
+                    },
                 );
                 state.workspaces[destination].screens.push(Screen {
                     id: screen,

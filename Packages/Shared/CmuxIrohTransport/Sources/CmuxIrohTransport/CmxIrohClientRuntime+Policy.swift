@@ -157,7 +157,8 @@ extension CmxIrohClientRuntime {
                 localBindingExpectation: policy.expectation,
                 managedRelayURLs: managedRelayURLs,
                 allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
-                offlinePolicy: offlinePolicy
+                offlinePolicy: offlinePolicy,
+                verifiedDiscovery: policy.discovery
             )
             provider = registryContextProvider
         } else {
@@ -171,6 +172,7 @@ extension CmxIrohClientRuntime {
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
                 customPrivateFallback: customPrivateFallback,
+                verifiedDiscovery: policy.discovery,
                 now: now
             )
             registryContextProvider = provider
@@ -194,6 +196,7 @@ extension CmxIrohClientRuntime {
                 broker: broker,
                 managedRelayURLs: managedRelayURLs,
                 selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
+                automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
                 credentialDidInstall: { [handleRelayCredential] response in
                     await handleRelayCredential(response, policy.binding)
                 }
@@ -203,13 +206,17 @@ extension CmxIrohClientRuntime {
 
         let bootstrap = startRelays ? configuration.cachedRelayCredential : nil
         if startRelays || bootstrap != nil {
+            let requiresRelayReadiness = !protocolConfiguration
+                .allowsNATTraversalAfterAdmission
             do {
                 try await coordinator.activate(
                     bindingID: policy.binding.bindingID,
                     endpointIdentity: policy.binding.endpointID,
-                    bootstrap: bootstrap
+                    bootstrap: bootstrap,
+                    waitForInitialCredential: requiresRelayReadiness
                 )
             } catch {
+                if requiresRelayReadiness { throw error }
                 // Registration remains authoritative; direct paths remain usable.
             }
         }

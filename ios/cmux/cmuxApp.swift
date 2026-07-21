@@ -122,7 +122,7 @@ struct cmuxApp: App {
             #if DEBUG
             MobileIrohReleaseGateScene(
                 root: mobileRootScene,
-                settingsController: Self.root.iroh
+                iroh: Self.root.iroh
             )
             #else
             mobileRootScene

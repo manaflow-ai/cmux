@@ -264,6 +264,13 @@ extension MobileShellComposite {
             }
         }
         guard await isScopeCurrent(scope) else { return }
+        let failedPhysicalIDs = Set(targets.lazy
+            .filter { failedPairingIDs.contains($0.id) }
+            .map(\.macDeviceID))
+        let persistedFullyRemovedPhysicalIDs = fullyRemovedPhysicalIDs.subtracting(failedPhysicalIDs)
+        for id in persistedFullyRemovedPhysicalIDs {
+            removeNotificationFeedSnapshot(macDeviceID: id)
+        }
         if !failedPairingIDs.isEmpty {
             for pairingID in failedPairingIDs {
                 await clearForgottenMacDeviceID(pairingID, scope: scope)

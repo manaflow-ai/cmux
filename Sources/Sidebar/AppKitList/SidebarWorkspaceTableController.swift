@@ -19,6 +19,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
+    private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
+        applyFlush: { [weak self] in self?.flushApply($0) },
+        viewportChangeFlush: { [weak self] in self?.flushViewportChange() }
+    )
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
 
@@ -131,7 +135,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedWorkspaceId: UUID?,
         selectedScrollTargetWorkspaceId: UUID?
     ) {
+        mutationScheduler.stageApply(
+            SidebarWorkspaceTableApplyInput(
+                rows: nextRows,
+                actions: actions,
+                workspaceIds: nextWorkspaceIds,
+                selectedWorkspaceId: selectedWorkspaceId,
+                selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+            )
+        )
+    }
+
+    private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
         guard let containerView else { return }
+        let nextRows = input.rows
+        let actions = input.actions
+        let nextWorkspaceIds = input.workspaceIds
+        let selectedWorkspaceId = input.selectedWorkspaceId
+        let selectedScrollTargetWorkspaceId = input.selectedScrollTargetWorkspaceId
         // Authoritative render: reconciles any optimistic preview, so the
         // preview bailout stands down.
         applyGeneration &+= 1
@@ -143,10 +164,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
         let previousRows = rows
         let hasStructuralChanges = previousRows.map(\.id) != nextRows.map(\.id)
-        let contentChanges = IndexSet(nextRows.indices.filter { index in
+        var contentChanges = IndexSet(nextRows.indices.filter { index in
             previousRows.indices.contains(index)
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
+        // Optimistically painted rows reconcile even when their model did
+        // not change: the preview may not match the authoritative outcome,
+        // and this apply cancels the bailout that would otherwise catch it.
+        if !optimisticallyPaintedRowIds.isEmpty {
+            for (index, row) in nextRows.enumerated()
+            where optimisticallyPaintedRowIds.contains(row.id) {
+                contentChanges.insert(index)
+            }
+            optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
+        }
         let width = currentColumnWidth()
         var heightChanges = IndexSet()
         if width == lastMeasuredWidth || lastMeasuredWidth == 0 {
@@ -293,9 +324,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #endif
         guard rows.indices.contains(row) else { return }
         if let actions = rows[row].appKitWorkspaceRowActions {
-            // Capture modifiers at click time: a coalesced (trailing) apply
-            // must not re-read the keyboard ~100ms later.
-            let modifiers = NSEvent.modifierFlags
+            // Capture modifiers from the clicking EVENT at action time: a
+            // coalesced (trailing) apply must not re-read the keyboard
+            // ~100ms later, and the global NSEvent.modifierFlags reads
+            // hardware state, which misses event-carried flags (synthetic
+            // clicks, exotic input methods).
+            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+            // Down-then-up highlight: the optimistic paint bridges the model
+            // round trip, applied here (action == completed click), never on
+            // the press.
+            previewSelection(row: row, modifiers: modifiers, hitView: nil)
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 // Multi-select mutations are order-dependent and extend the
                 // selection the user currently sees: flush (not drop) a
@@ -309,9 +347,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         } else if let headerActions = rows[row].appKitGroupHeaderActions {
             // Group headers focus their anchor workspace: same fast path as
-            // workspace rows (burst coalescing; the press already painted the
-            // optimistic anchor-active treatment).
-            let modifiers = NSEvent.modifierFlags
+            // workspace rows (burst coalescing; the completed click paints
+            // the optimistic anchor-active treatment).
+            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+            previewSelection(row: row, modifiers: modifiers, hitView: nil)
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 selectionCoalescer.flushNow()
                 headerActions.onFocusAnchor()
@@ -473,6 +512,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 // Headers preview anchor-active the same way workspace rows
                 // preview selection; a replaced header preview must peel too.
                 (cellView as? SidebarGroupHeaderTableCellView)?.clearOptimisticAnchorActive()
+                if rows.indices.contains(visibleRow) {
+                    optimisticallyPaintedRowIds.insert(rows[visibleRow].id)
+                }
             }
             workspaceCell?.showOptimisticSelectionHighlight()
         } else {
@@ -482,6 +524,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             workspaceCell?.showOptimisticMultiSelection()
         }
         headerCell?.showOptimisticAnchorActive()
+        optimisticallyPaintedRowIds.insert(rows[row].id)
         // Optimistic paint is only reconciled by an authoritative apply, and
         // some presses never produce one (drag that lands where it started,
         // press swallowed by the drag threshold, selection unchanged). Left
@@ -493,9 +536,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// A user drag misaligns one contiguous span (single-digit moves); past
     /// this, the per-move array rescans trend quadratic and the reload path
     /// is both cheaper and visually equivalent for bulk permutations.
-    static let maxAnimatedReorderMoves = 32
+    private static let maxAnimatedReorderMoves = 32
 
-    static func multisetEqual(
+    private static func multisetEqual(
         _ a: [SidebarWorkspaceRenderItemID],
         _ b: [SidebarWorkspaceRenderItemID]
     ) -> Bool {
@@ -513,6 +556,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var applyGeneration: UInt64 = 0
     private var previewBailoutTask: Task<Void, Never>?
     private let previewBailoutClock = ContinuousClock()
+    /// Rows whose cells carry optimistic paint. apply()'s reconcile diff only
+    /// reconfigures rows whose MODEL changed, and a preview on a row whose
+    /// authoritative state ends up unchanged (modifier mismatch, replaced
+    /// preview) would otherwise keep its speculative paint forever — the
+    /// apply cancels the bailout believing it reconciled.
+    private var optimisticallyPaintedRowIds: Set<SidebarWorkspaceRenderItemID> = []
 
     private func schedulePreviewBailout() {
         previewBailoutTask?.cancel()
@@ -529,6 +578,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func restoreVisibleCellPaint() {
         guard let table = containerView?.tableView else { return }
+        optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         let visible = table.rows(in: table.visibleRect)
         for row in visible.lowerBound..<(visible.lowerBound + visible.length) {
             let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
@@ -596,7 +646,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
+        mutationScheduler.stageViewportChange()
+    }
+
+    private func flushViewportChange() {
         let width = currentColumnWidth()
+#if DEBUG
+        if width != lastMeasuredWidth {
+            cmuxDebugLog("sidebar.viewport width=\(width) lastMeasured=\(lastMeasuredWidth)")
+        }
+#endif
         if width > 0, width != lastMeasuredWidth {
             performLiveWidthRemeasure(width: width)
             scheduleWidthRemeasure()
@@ -620,9 +679,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// and hosted rows settle in the full pass at drag end.
     private func performLiveWidthRemeasure(width: CGFloat) {
         guard floor(width) != floor(lastLiveMeasuredWidth) else { return }
-        guard let table = containerView?.tableView else { return }
+        guard let table = containerView?.tableView else {
+#if DEBUG
+            cmuxDebugLog("sidebar.liveReflow.skip reason=noTable width=\(width)")
+#endif
+            return
+        }
         let visibleRange = table.rows(in: table.visibleRect)
-        guard visibleRange.length > 0 else { return }
+        guard visibleRange.length > 0 else {
+#if DEBUG
+            cmuxDebugLog("sidebar.liveReflow.skip reason=noVisibleRows width=\(width)")
+#endif
+            return
+        }
         let start = max(0, visibleRange.location - 2)
         let end = min(rows.count, visibleRange.location + visibleRange.length + 2)
         guard start < end else { return }
@@ -639,6 +708,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if !changed.isEmpty {
             noteHeightOfRowsWithoutAnimation(table, changed)
         }
+#if DEBUG
+        cmuxDebugLog(
+            "sidebar.liveReflow width=\(width) tableWidth=\(table.bounds.width) " +
+            "rows=\(start)..<\(end) changed=\(changed.count)"
+        )
+#endif
     }
 
     /// Trailing re-measure fallback for width churn with no explicit end
@@ -875,6 +950,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         reorder.performDropAtPoint = { [weak self] point, targets in
             let performed = actions.performWorkspaceDrop(point, targets)
+#if DEBUG
+            // Every silent "the workspace I dragged didn't move" report needs
+            // this line: where the drop landed, how many targets existed, and
+            // whether the shared planner accepted it.
+            cmuxDebugLog(
+                "sidebar.drop.perform point=(\(Int(point.x)),\(Int(point.y))) " +
+                "targets=\(targets.count) performed=\(performed ? 1 : 0)"
+            )
+#endif
             self?.setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
             return performed
         }
