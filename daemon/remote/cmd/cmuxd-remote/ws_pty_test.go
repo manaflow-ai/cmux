@@ -625,28 +625,31 @@ func TestPersistentPTYExecHelperResolvesBareExecutableFromPATH(t *testing.T) {
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	bin := t.TempDir()
-	const helperName = "cmux-persistent-pty-path-helper"
-	if err := os.Symlink(executable, filepath.Join(bin, helperName)); err != nil {
-		t.Fatalf("link helper test executable: %v", err)
-	}
-	cmd := exec.Command(
-		executable,
-		persistentPTYExecHelperArgument,
-		helperName,
-		helperName,
-		"-test.run",
-		"^TestPersistentPTYExecHelperResolvesBareExecutableFromPATH$",
-	)
-	cmd.Env = append(os.Environ(),
-		"PATH="+bin,
-		"CMUX_PERSISTENT_PTY_PATH_LOOKUP_TEST_CHILD=1",
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("persistent PTY exec helper did not resolve a bare executable through PATH: %v output=%q", err, output)
-	}
-	if !bytes.Contains(output, []byte("CMUX_PERSISTENT_PTY_PATH_LOOKUP_OK")) {
-		t.Fatalf("persistent PTY exec helper child did not run through PATH: %q", output)
+	for _, helperName := range []string{"bash", "cmux-custom-shell"} {
+		t.Run(helperName, func(t *testing.T) {
+			if err := os.Symlink(executable, filepath.Join(bin, helperName)); err != nil {
+				t.Fatalf("link helper test executable: %v", err)
+			}
+			cmd := exec.Command(
+				executable,
+				persistentPTYExecHelperArgument,
+				helperName,
+				helperName,
+				"-test.run",
+				"^TestPersistentPTYExecHelperResolvesBareExecutableFromPATH$",
+			)
+			cmd.Env = append(os.Environ(),
+				"PATH="+bin,
+				"CMUX_PERSISTENT_PTY_PATH_LOOKUP_TEST_CHILD=1",
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("persistent PTY exec helper did not resolve bare executable %q through PATH: %v output=%q", helperName, err, output)
+			}
+			if !bytes.Contains(output, []byte("CMUX_PERSISTENT_PTY_PATH_LOOKUP_OK")) {
+				t.Fatalf("persistent PTY exec helper child did not run through PATH: %q", output)
+			}
+		})
 	}
 }
 
