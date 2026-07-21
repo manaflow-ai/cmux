@@ -56,6 +56,15 @@ for tool in ET_CLIENT ET_SERVER ET_TERMINAL; do
   fi
 done
 
+# Resolve the deadline command before anything uses it. Stock macOS has no `timeout`, and a
+# missing one makes every et_run exit 127 - which the ">MAX_CANON is not delivered" check reads
+# as the claim holding. Fail loudly instead of passing for the wrong reason.
+TIMEOUT_BIN="${CMUX_TIMEOUT_BIN:-$(command -v timeout || command -v gtimeout || true)}"
+if [ -z "$TIMEOUT_BIN" ] || [ ! -x "$TIMEOUT_BIN" ]; then
+  echo "no usable timeout(1)/gtimeout(1) at '${TIMEOUT_BIN:-<none>}'; brew install coreutils, or point CMUX_TIMEOUT_BIN at one" >&2
+  exit 2
+fi
+
 VERSION="$("$ET_CLIENT" --version 2>&1 | head -1)"
 echo "=== conformance against: $VERSION"
 echo "    client=$ET_CLIENT server=$ET_SERVER terminal=$ET_TERMINAL"
@@ -79,8 +88,8 @@ nc -z 127.0.0.1 "$PORT" 2>/dev/null || { echo "etserver did not start on $PORT" 
 # path named rather than assumed.
 et_run() {
   local timeout_s="$1" command="$2"
-  timeout "$timeout_s" /usr/bin/script -q /dev/null \
-    "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" -c "$command" "$HOST" 2>&1
+  "$TIMEOUT_BIN" "$timeout_s" /usr/bin/script -q /dev/null \
+    "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" -c "$command" -- "$HOST" 2>&1
 }
 
 echo "--- claim: the remote command runs in a LOGIN shell, so it inherits the user's PATH"
