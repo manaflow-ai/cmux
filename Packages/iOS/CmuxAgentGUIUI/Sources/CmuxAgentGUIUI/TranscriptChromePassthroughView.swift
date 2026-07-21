@@ -5,10 +5,9 @@ final class TranscriptChromePassthroughView: UIView {
     var bottomPassthroughHeight: CGFloat = 0
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let keyboardTop = keyboardLayoutGuide.layoutFrame.minY
         let passthroughFrame = Self.bottomPassthroughFrame(
             bounds: bounds,
-            keyboardTop: keyboardTop,
+            keyboardTop: keyboardLayoutGuide.layoutFrame.minY,
             height: bottomPassthroughHeight
         )
         if passthroughFrame.contains(point) {

@@ -44,6 +44,7 @@ extension WorkspaceDetailView {
                     engine: engine,
                     sessionID: availability.sessionID,
                     bottomChromeHeight: transcriptBottomChromeHeight,
+                    bottomEdgeElementContainers: transcriptBottomEdgeElementContainers,
                     terminalTheme: store.activeTerminalTheme,
                     terminalThemeGeneration: store.terminalThemeGeneration,
                     density: displaySettings.transcriptDensity,

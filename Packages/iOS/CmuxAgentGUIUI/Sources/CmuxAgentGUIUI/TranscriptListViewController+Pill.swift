@@ -11,13 +11,13 @@ extension TranscriptListViewController {
             return
         }
         bottomChromeHeight = height
-        (view as? TranscriptChromePassthroughView)?.bottomPassthroughHeight = height
-        updateCollectionViewportConstraints()
+        additionalSafeAreaInsets.bottom = height
+        view.setNeedsLayout()
         updatePillBottomConstraint()
     }
 
     var distanceFromBottom: CGFloat {
-        max(0, collectionView.contentOffset.y - bottomRestOffset.y)
+        max(0, bottomRestOffset.y - collectionView.contentOffset.y)
     }
 
     func configurePill() {

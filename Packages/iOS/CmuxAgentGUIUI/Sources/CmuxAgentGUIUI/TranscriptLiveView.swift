@@ -4,12 +4,14 @@ import CmuxAgentGUIProjection
 public import CmuxAgentReplica
 public import CmuxAgentSync
 public import SwiftUI
+public import UIKit
 
 /// Live transcript surface backed by ``AgentSyncEngine`` conversation replication.
 public struct TranscriptLiveView: View {
     private let engine: AgentSyncEngine
     private let sessionID: AgentSessionID
     private let bottomChromeHeight: CGFloat
+    private let bottomEdgeElementContainers: [UIView]
     private let terminalTheme: TerminalTheme
     private let terminalThemeGeneration: UInt64
     private let density: TranscriptDensity
@@ -28,6 +30,7 @@ public struct TranscriptLiveView: View {
     ///   - engine: Sync engine that owns the session directory and conversations.
     ///   - sessionID: Agent session to open and render.
     ///   - bottomChromeHeight: Height occupied by bottom composer chrome.
+    ///   - bottomEdgeElementContainers: Real composer and accessory views overlaying the transcript.
     ///   - terminalTheme: Current terminal theme reported by the attached Mac.
     ///   - terminalThemeGeneration: Observable generation for terminal-theme changes.
     ///   - density: Current transcript spacing and metadata-type register.
@@ -35,6 +38,7 @@ public struct TranscriptLiveView: View {
         engine: AgentSyncEngine,
         sessionID: AgentSessionID,
         bottomChromeHeight: CGFloat,
+        bottomEdgeElementContainers: [UIView] = [],
         terminalTheme: TerminalTheme,
         terminalThemeGeneration: UInt64,
         density: TranscriptDensity,
@@ -44,6 +48,7 @@ public struct TranscriptLiveView: View {
         self.engine = engine
         self.sessionID = sessionID
         self.bottomChromeHeight = bottomChromeHeight
+        self.bottomEdgeElementContainers = bottomEdgeElementContainers
         self.terminalTheme = terminalTheme
         self.terminalThemeGeneration = terminalThemeGeneration
         self.density = density
@@ -62,6 +67,7 @@ public struct TranscriptLiveView: View {
             TranscriptLiveControllerRepresentable(
                 input: input,
                 bottomChromeHeight: bottomChromeHeight,
+                bottomEdgeElementContainers: bottomEdgeElementContainers,
                 theme: theme,
                 terminalThemeGeneration: terminalThemeGeneration,
                 density: density,

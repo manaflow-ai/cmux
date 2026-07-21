@@ -15,9 +15,9 @@ extension TranscriptRenderingRegressionTests {
             defer { mounted.window.isHidden = true }
             let controller = mounted.container.transcript
             #expect(controller.view.safeAreaInsets.top > 0)
-            let minimumOffsetY = controller.bottomRestOffset.y
-            let maximumOffsetY = Self.maximumContentOffsetY(in: controller)
-            let range = maximumOffsetY - minimumOffsetY
+            let bottomOffsetY = controller.bottomRestOffset.y
+            let historyOffsetY = -controller.collectionView.contentInset.top
+            let range = bottomOffsetY - historyOffsetY
             let isJustInsideHistoryEnd = requestedPosition == -1
             let position = requestedPosition == 0.05 ? min(20 / max(range, 1), 1) : requestedPosition
             let isExactlyAtBottom = position == 0
@@ -25,8 +25,8 @@ extension TranscriptRenderingRegressionTests {
             Self.scrollMountedController(
                 controller,
                 to: isJustInsideHistoryEnd
-                    ? max(minimumOffsetY, maximumOffsetY - 1)
-                    : minimumOffsetY + (range * position)
+                    ? min(bottomOffsetY, historyOffsetY + 1)
+                    : bottomOffsetY - (range * position)
             )
             controller.collectionView.layer.removeAllAnimations()
             controller.collectionView.visibleCells.forEach {

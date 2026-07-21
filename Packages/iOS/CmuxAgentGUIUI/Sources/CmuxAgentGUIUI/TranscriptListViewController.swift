@@ -4,7 +4,7 @@ public import CmuxAgentGUIProjection
 import CmuxAgentReplica
 import SwiftUI
 public import UIKit
-/// UIKit transcript list with flipped collection-view physics.
+/// UIKit transcript list with bottom-origin collection layout physics.
 @MainActor public final class TranscriptListViewController: UIViewController {
     /// The collection view that owns transcript virtualization and scroll physics.
     public private(set) var collectionView: UICollectionView!
@@ -37,14 +37,17 @@ public import UIKit
     private var collectionViewportBottomConstraint: NSLayoutConstraint!
     private var collectionViewportHeightConstraint: NSLayoutConstraint!
     var bottomChromeHeight: CGFloat = 0
+    static let nativeBottomEdgeReadabilityClearance: CGFloat = 52
     private var unreadTracker = TranscriptUnreadTracker()
     var pillChromeView: UIView?
     var pillHost: UIHostingController<ScrollToBottomPill>?
     var pillBottomConstraint: NSLayoutConstraint?
     var unreadCount = 0
     var renderedPillUnreadCount = 0
-    private var topMaskView: TranscriptPinnedTopMaskView?
-    private var bottomMaskView: TranscriptPinnedBottomMaskView?
+    var bottomEdgeElementContainers: [UIView] = []
+    var bottomEdgeInteractions: [any UIInteraction] = []
+    weak var topEdgeElementContainer: UIView?
+    var topEdgeInteraction: (any UIInteraction)?
     var answeringAskID: String?
     var failedAskID: String?
     var onAnswer: (PendingAsk, Int) -> Void = { _, _ in }
@@ -55,9 +58,13 @@ public import UIKit
         currentTheme = theme
         super.init(nibName: nil, bundle: nil)
     }
-
     required init?(coder: NSCoder) {
         nil
+    }
+    deinit {
+        MainActor.assumeIsolated {
+            removeScrollEdgeInteractions()
+        }
     }
     public override func loadView() {
         view = TranscriptChromePassthroughView()
@@ -70,18 +77,16 @@ public import UIKit
         configureDataSource()
         configurePill()
     }
-
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateCollectionViewportConstraints()
         updateVisualEdgeInsets(preservingBottomPosition: true)
+        reconcileTopEdgeElementContainer()
     }
-
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         cancelActiveScrollTransition()
     }
-
     /// Applies a replica projection input to the identity-stable collection snapshot.
     /// - Parameter input: The platform-neutral projection input.
     public func apply(input: TranscriptProjectionInput) {
@@ -91,7 +96,6 @@ public import UIKit
         currentRows = projection.rows
         applyRows(projection.rows, diff: projection.diff)
     }
-
     /// Recolors the mounted transcript and chrome without replacing the list controller.
     public func apply(theme: AgentGUITheme) {
         guard theme != currentTheme else {
@@ -104,8 +108,6 @@ public import UIKit
         let anchor = captureAnchor()
         view.backgroundColor = .clear
         collectionView.backgroundColor = UIColor(theme.background)
-        topMaskView?.apply(theme: theme)
-        bottomMaskView?.apply(theme: theme)
         refreshPillTheme()
         applySnapshot(
             dataSource.snapshot(),
@@ -114,15 +116,13 @@ public import UIKit
             invalidatingLayout: true
         )
     }
-
-    /// Scrolls to the newest transcript row in flipped space.
+    /// Scrolls to the newest transcript row at the bottom-origin layout rest position.
     public func scrollToBottom(animated: Bool = true) {
         cancelActiveScrollTransition()
         flushLatestProjectionForJump { [weak self] in
             self?.performScrollToBottom(animated: animated)
         }
     }
-
     private func performScrollToBottom(animated: Bool) {
         guard animated, distanceFromBottom > 44 else {
             collectionView.setContentOffset(bottomRestOffset, animated: false)
@@ -172,7 +172,9 @@ public import UIKit
         let collection = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
         collection.translatesAutoresizingMaskIntoConstraints = false
         collection.backgroundColor = UIColor(currentTheme.background)
-        collection.transform = CGAffineTransform(scaleX: 1, y: -1)
+        // The bottom-origin layout preserves newest-first projection identity
+        // while leaving the scroll view's geometry native. Insets are mapped
+        // explicitly so the floating chrome remains the sole obstruction source.
         collection.contentInsetAdjustmentBehavior = .never
         collection.keyboardDismissMode = .interactive
         collection.scrollsToTop = false
@@ -193,7 +195,10 @@ public import UIKit
         viewport.addSubview(motionView)
         motionView.addSubview(collection)
         view.addSubview(viewport)
-        let bottomConstraint = viewport.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        let bottomConstraint = viewport.bottomAnchor.constraint(
+            equalTo: view.keyboardLayoutGuide.topAnchor
+        )
         let heightConstraint = viewport.heightAnchor.constraint(equalTo: view.heightAnchor)
         NSLayoutConstraint.activate([
             viewport.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -312,6 +317,9 @@ public import UIKit
             anchor: previousIDs.isEmpty ? nil : anchor,
             invalidatingLayout: true
         )
+        if previousIDs.isEmpty {
+            collectionView.setContentOffset(bottomRestOffset, animated: false)
+        }
         if mode == .animatedIdleAtBottom, !previousIDs.isEmpty {
             isAutoStickingToBottom = true
             updateUnreadCountFromVisibility()
@@ -343,9 +351,9 @@ public import UIKit
         let wasNearBottom = distanceFromBottom <= 40
         let safeArea = view.safeAreaInsets
         let mappedInsets = UIEdgeInsets(
-            top: 0,
+            top: safeArea.top,
             left: safeArea.left,
-            bottom: safeArea.top + keyboardBottomInset,
+            bottom: safeArea.bottom + Self.nativeBottomEdgeReadabilityClearance,
             right: safeArea.right
         )
         guard collectionView.contentInset != mappedInsets else {
@@ -370,13 +378,17 @@ public import UIKit
         collectionView.contentOffset.y += newRestOffset.y - oldRestOffset.y
     }
 
-    private static let visualBottomBreathingGap: CGFloat = 8
-
     func updateCollectionViewportConstraints() {
         guard collectionViewportView != nil else { return }
-        let chromeBlock = pixelRounded(bottomChromeHeight + Self.visualBottomBreathingGap)
-        collectionViewportBottomConstraint.constant = -chromeBlock
-        collectionViewportHeightConstraint.constant = -pixelRounded(view.safeAreaInsets.bottom + chromeBlock)
+        let baseBottomSafeArea = view.window?.safeAreaInsets.bottom ?? 0
+        let keyboardObstruction = view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY
+        let keyboardIsDocked = keyboardObstruction > baseBottomSafeArea + 0.5
+        collectionViewportBottomConstraint.constant = 0
+        collectionViewportHeightConstraint.constant = 0
+        (view as? TranscriptChromePassthroughView)?.bottomPassthroughHeight = pixelRounded(
+            bottomChromeHeight + (keyboardIsDocked ? 0 : baseBottomSafeArea)
+        )
+        updatePillBottomConstraint()
     }
 
     func pixelRounded(_ value: CGFloat) -> CGFloat {
@@ -422,50 +434,6 @@ public import UIKit
         unreadCount = unreadTracker.unreadCount(rows: currentRows, visibleRowIDs: visibleIDs)
     }
 
-    private func configureScrollEdgeEffects(for collection: UICollectionView) {
-        if #available(iOS 26.0, *) {
-            // Native edge effects derive their regions from the translated, flipped
-            // scroll view and expand across the reading area while the keyboard is up.
-            collection.topEdgeEffect.isHidden = true
-            collection.bottomEdgeEffect.isHidden = true
-        }
-        let topMask = TranscriptPinnedTopMaskView()
-        topMask.apply(theme: currentTheme)
-        topMask.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(topMask)
-        let bottomMask = TranscriptPinnedBottomMaskView()
-        bottomMask.apply(theme: currentTheme)
-        bottomMask.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(bottomMask)
-        topMaskView = topMask
-        bottomMaskView = bottomMask
-        NSLayoutConstraint.activate([
-            topMask.topAnchor.constraint(equalTo: view.topAnchor),
-            topMask.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topMask.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topMask.heightAnchor.constraint(equalToConstant: 56),
-            bottomMask.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bottomMask.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomMask.topAnchor.constraint(equalTo: collectionViewportView.bottomAnchor),
-            bottomMask.heightAnchor.constraint(equalToConstant: 44),
-        ])
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_UITEST_CHROME_DEBUG"] == "1" {
-            let effectBand = UIView()
-            effectBand.translatesAutoresizingMaskIntoConstraints = false
-            effectBand.isUserInteractionEnabled = false
-            effectBand.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.22)
-            effectBand.accessibilityIdentifier = "transcript.chrome.edge-effect-band"
-            view.addSubview(effectBand)
-            NSLayoutConstraint.activate([
-                effectBand.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                effectBand.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                effectBand.bottomAnchor.constraint(equalTo: collectionViewportView.bottomAnchor),
-                effectBand.heightAnchor.constraint(equalToConstant: 10),
-            ])
-        }
-        #endif
-    }
 }
 
 extension TranscriptListViewController: UICollectionViewDelegate {

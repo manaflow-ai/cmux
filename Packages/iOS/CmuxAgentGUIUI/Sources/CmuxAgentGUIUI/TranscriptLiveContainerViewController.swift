@@ -8,6 +8,8 @@ public import UIKit
     let transcript: TranscriptListViewController
     private(set) var terminalThemeGeneration: UInt64
     private var currentTheme: AgentGUITheme
+    private var requestedBottomChromeViews: [UIView] = []
+    private var hostedBottomChrome: [(view: UIView, originalSuperview: UIView, originalIndex: Int)] = []
 
     /// Creates a live container with the current terminal-derived palette.
     public init(theme: AgentGUITheme, terminalThemeGeneration: UInt64) {
@@ -19,6 +21,12 @@ public import UIKit
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    deinit {
+        MainActor.assumeIsolated {
+            prepareForDismantle()
+        }
     }
 
     /// Installs a root that passes uncovered transcript chrome touches to the host below.
@@ -40,6 +48,18 @@ public import UIKit
             transcript.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             transcript.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+    }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        reconcileBottomChromeHosting()
+    }
+
+    public override func willMove(toParent parent: UIViewController?) {
+        if parent == nil {
+            prepareForDismantle()
+        }
+        super.willMove(toParent: parent)
     }
 
     /// Applies the latest transcript projection input to the embedded list.
@@ -90,10 +110,57 @@ public import UIKit
         transcript.setBottomChromeHeight(height)
     }
 
+    /// Registers the live composer and accessory views that shape the native bottom fade.
+    /// - Parameter containers: Real floating chrome containers owned by the terminal surface.
+    public func setBottomEdgeElementContainers(_ containers: [UIView]) {
+        let uniqueContainers = containers.reduce(into: [UIView]()) { result, container in
+            guard !result.contains(where: { $0 === container }) else { return }
+            result.append(container)
+        }
+        guard uniqueContainers.map(ObjectIdentifier.init)
+            != requestedBottomChromeViews.map(ObjectIdentifier.init)
+        else {
+            return
+        }
+        restoreBottomChromeHosting()
+        requestedBottomChromeViews = uniqueContainers
+        transcript.setBottomEdgeElementContainers(containers)
+        reconcileBottomChromeHosting()
+    }
+
+    /// Restores terminal-owned chrome and removes transcript edge interactions.
+    public func prepareForDismantle() {
+        restoreBottomChromeHosting()
+        requestedBottomChromeViews.removeAll()
+        transcript.prepareForDismantle()
+    }
+
     /// Applies the transcript spacing and metadata-type register.
     /// - Parameter density: The density selected in mobile display settings.
     public func setDensity(_ density: TranscriptDensity) {
         transcript.setDensity(density)
+    }
+
+    private func reconcileBottomChromeHosting() {
+        guard view.window != nil, hostedBottomChrome.isEmpty else { return }
+        for chromeView in requestedBottomChromeViews {
+            guard let originalSuperview = chromeView.superview else { continue }
+            let originalIndex = originalSuperview.subviews.firstIndex(where: { $0 === chromeView }) ?? 0
+            let frameInHost = originalSuperview.convert(chromeView.frame, to: view)
+            hostedBottomChrome.append((chromeView, originalSuperview, originalIndex))
+            view.addSubview(chromeView)
+            chromeView.frame = frameInHost
+        }
+    }
+
+    private func restoreBottomChromeHosting() {
+        for hosted in hostedBottomChrome.reversed() {
+            let frameInOriginalSuperview = view.convert(hosted.view.frame, to: hosted.originalSuperview)
+            let insertionIndex = min(hosted.originalIndex, hosted.originalSuperview.subviews.count)
+            hosted.originalSuperview.insertSubview(hosted.view, at: insertionIndex)
+            hosted.view.frame = frameInOriginalSuperview
+        }
+        hostedBottomChrome.removeAll()
     }
 }
 #endif

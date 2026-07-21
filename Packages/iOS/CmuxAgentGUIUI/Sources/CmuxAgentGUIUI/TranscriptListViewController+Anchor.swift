@@ -84,19 +84,14 @@ extension TranscriptListViewController {
         // `contentOffset` already incorporates `adjustedContentInset`; adding the
         // inset again here would double-count the safe-area/nav contribution.
         let unalignedTargetY = collectionView.contentOffset.y
-            + anchor.screenY
-            - currentScreenY
+            + currentScreenY
+            - anchor.screenY
         let scale = view.window?.screen.scale ?? traitCollection.displayScale
         let anchorTargetY = (unalignedTargetY * max(scale, 1)).rounded() / max(scale, 1)
-        let minimumY = bottomRestOffset.y
-        let maximumY = max(
-            minimumY,
-            collectionView.contentSize.height
-                - collectionView.bounds.height
-                + collectionView.contentInset.bottom
-        )
+        let minimumY = -collectionView.contentInset.top
+        let maximumY = bottomRestOffset.y
         let targetY = anchor.pinsExactBottomRest
-            ? minimumY
+            ? maximumY
             : min(max(anchorTargetY, minimumY), maximumY)
         return CGPoint(x: collectionView.contentOffset.x, y: targetY)
     }

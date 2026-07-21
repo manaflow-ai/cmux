@@ -12,7 +12,6 @@ import SwiftUI
 #elseif os(macOS)
 import AppKit
 #endif
-
 struct WorkspaceDetailView: View {
     let host: String
     let connectionStatus: MobileMacConnectionStatus
@@ -53,11 +52,11 @@ struct WorkspaceDetailView: View {
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     @State var guiModeSelected = false
     @State var transcriptBottomChromeHeight = GhosttySurfaceView.persistentBottomToolbarHeight
+    @State var transcriptBottomEdgeElementContainers: [UIView] = []
     @State var transcriptActivityDetails: TranscriptActivityDetails?
     #endif
     var body: some View {
         let content = Group { detailSurfaceContent }
-
         #if os(iOS)
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
@@ -108,7 +107,6 @@ struct WorkspaceDetailView: View {
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #endif
     }
-
     #if os(iOS)
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
@@ -136,7 +134,6 @@ struct WorkspaceDetailView: View {
             toolbarTrailingCluster
         }
     }
-
     private var workspaceTitleToolbarMenu: some View {
         WorkspaceTitleMenu(
             contentWidth: contentWidth,
@@ -149,7 +146,6 @@ struct WorkspaceDetailView: View {
             toolbarTitleLabel
         }
     }
-
     @ViewBuilder
     private var toolbarTrailingCluster: some View {
         HStack(spacing: 8) {
@@ -167,7 +163,6 @@ struct WorkspaceDetailView: View {
         .animation(.easeInOut(duration: 0.2), value: agentGUIAvailability)
         .frame(width: agentGUIAvailability == nil ? 44 : 96, height: 44, alignment: .trailing)
     }
-
     @ViewBuilder
     private var toolbarTitleLabel: some View {
         if let browser = activeBrowser {
@@ -181,7 +176,6 @@ struct WorkspaceDetailView: View {
         }
     }
     #endif
-
     func detailContent() -> some View {
         // `GhosttySurfaceView` owns the bottom accessory bar and reserves its
         // height in the terminal grid.
@@ -212,6 +206,13 @@ struct WorkspaceDetailView: View {
                         Task { @MainActor in
                             guard abs(transcriptBottomChromeHeight - height) > 0.5 else { return }
                             transcriptBottomChromeHeight = height
+                        }
+                    },
+                    onBottomScrollEdgeElementContainersChange: { containers in
+                        Task { @MainActor in
+                            guard transcriptBottomEdgeElementContainers.map(ObjectIdentifier.init)
+                                != containers.map(ObjectIdentifier.init) else { return }
+                            transcriptBottomEdgeElementContainers = containers
                         }
                     }
                 )
@@ -314,7 +315,6 @@ struct WorkspaceDetailView: View {
         newWorkspaceToolbarButton
         terminalPickerToolbarButton
     }
-
     #if os(iOS)
     /// Leading back-button island; iOS 26 supplies toolbar glass.
     @ViewBuilder

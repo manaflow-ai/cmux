@@ -77,9 +77,11 @@ import UIKit
         container.apply(input: TranscriptProjectionInput(entries: entries))
         container.view.layoutIfNeeded()
         container.transcript.collectionView.layoutIfNeeded()
-        container.transcript.collectionView.setContentOffset(CGPoint(x: 0, y: 120), animated: false)
         let list = container.transcript
         let collection = list.collectionView!
+        let historyOffsetY = -collection.contentInset.top
+        let middleOffsetY = (historyOffsetY + list.bottomRestOffset.y) / 2
+        collection.setContentOffset(CGPoint(x: 0, y: middleOffsetY), animated: false)
         let offset = collection.contentOffset
 
         container.apply(theme: replacement, terminalThemeGeneration: 5)

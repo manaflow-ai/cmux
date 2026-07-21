@@ -45,35 +45,13 @@ extension TranscriptRenderingRegressionTests {
             #expect(abs(newerFrame.minY - olderFrame.maxY) <= pixelTolerance)
         }
         let newestFrame = try #require(visualRows.last.flatMap { framesByID[$0.rowID] })
-        #expect(abs(newestFrame.maxY - viewport.maxY) <= pixelTolerance)
-    }
-
-    @Test func bottomMaskDoesNotOverlapNewestRowAtLiveBottomRest() throws {
-        let mounted = try Self.makeMountedSparseLiveRepresentable()
-        defer { mounted.window.isHidden = true }
-        let controller = mounted.container.transcript
-        controller.scrollToBottom(animated: false)
-        Self.pumpLiveRunLoop()
-
-        let newestRow = try #require(controller.currentRows.first)
-        let newestIndexPath = try #require(controller.dataSource.indexPath(for: newestRow.rowID))
-        let newestAttributes = try #require(
-            controller.collectionView.layoutAttributesForItem(at: newestIndexPath)
+        #expect(
+            abs(
+                viewport.maxY
+                    - newestFrame.maxY
+                    - controller.collectionView.adjustedContentInset.bottom
+            ) <= pixelTolerance
         )
-        let newestFrame = controller.collectionView.convert(
-            newestAttributes.frame,
-            to: mounted.window
-        ).standardized
-        let mask = try #require(Self.view(
-            withAccessibilityIdentifier: "transcript.chrome.bottom-mask",
-            in: controller.view
-        ))
-        let maskFrame = mask.convert(mask.bounds, to: mounted.window).standardized
-        let pixelTolerance = 1 / max(mounted.window.screen.scale, 1)
-
-        #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
-        #expect(newestFrame.maxY <= maskFrame.minY + pixelTolerance)
-        #expect(!newestFrame.intersects(maskFrame))
     }
 
     @Test func proseRowsUseSelectableNonScrollingTextViewsOnly() throws {
@@ -180,10 +158,17 @@ extension TranscriptRenderingRegressionTests {
         for pair in zip(frames, frames.dropFirst()) {
             #expect(abs(pair.1.minY - pair.0.maxY) <= pixelTolerance)
         }
-        #expect(abs(newestFrame.maxY - viewport.maxY) <= pixelTolerance)
+        #expect(
+            abs(
+                viewport.maxY
+                    - newestFrame.maxY
+                    - controller.collectionView.adjustedContentInset.bottom
+            ) <= pixelTolerance
+        )
     }
 
-    @Test func liveComposerBandRemainsVisuallyExposedAboveTranscriptViewport() throws {
+    @available(iOS 26.0, *)
+    @Test func liveComposerBandShapesNativeEdgeWithoutShrinkingTranscriptViewport() throws {
         let root = UIViewController()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         window.rootViewController = root
@@ -208,6 +193,7 @@ extension TranscriptRenderingRegressionTests {
         root.view.addSubview(transcript.view)
         transcript.didMove(toParent: root)
         transcript.setBottomChromeHeight(composerHeight)
+        transcript.setBottomEdgeElementContainers([composer])
         root.view.layoutIfNeeded()
         transcript.view.layoutIfNeeded()
 
@@ -218,7 +204,19 @@ extension TranscriptRenderingRegressionTests {
         #expect(composer.frame.width > 0)
         #expect(composer.frame.height > 0)
         #expect(root.view.bounds.contains(composer.frame))
-        #expect(transcriptViewport.maxY <= composer.frame.minY)
+        #expect(transcriptViewport.maxY > composer.frame.minY)
+        #expect(
+            abs(transcriptViewport.maxY - root.view.bounds.maxY) < 0.5
+        )
+        #expect(
+            transcript.transcript.collectionView.adjustedContentInset.bottom
+                >= composerHeight + TranscriptListViewController.nativeBottomEdgeReadabilityClearance - 0.5
+        )
+        let interaction = try #require(composer.interactions.compactMap {
+            $0 as? UIScrollEdgeElementContainerInteraction
+        }.first)
+        #expect(interaction.scrollView === transcript.transcript.collectionView)
+        #expect(interaction.edge == .bottom)
         #expect(transcript.view.backgroundColor == UIColor.clear)
         #expect(transcript.transcript.view.backgroundColor == UIColor.clear)
     }
@@ -253,37 +251,74 @@ extension TranscriptRenderingRegressionTests {
         #expect(container.transcript.bottomChromeHeight == initialChromeHeight)
     }
 
-    private static func makeMountedSparseLiveRepresentable() throws -> (
-        hosting: UIHostingController<TranscriptLiveControllerRepresentable>,
+    static func makeMountedSparseLiveRepresentable(
+        density: TranscriptDensity = .comfortable
+    ) throws -> (
+        hosting: UIHostingController<AnyView>,
         window: UIWindow,
-        container: TranscriptLiveContainerViewController
+        container: TranscriptLiveContainerViewController,
+        edgeContainer: UIView
     ) {
-        let hosting = UIHostingController(rootView: Self.sparseLiveRepresentable(entryCount: 1))
+        let hosting = UIHostingController(rootView: AnyView(
+            Self.sparseLiveRepresentable(
+                entryCount: 1,
+                density: density
+            )
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+        ))
         let navigation = UINavigationController(rootViewController: hosting)
         navigation.navigationBar.prefersLargeTitles = false
         let window = UIWindow(frame: UIScreen.main.bounds)
         window.rootViewController = navigation
         window.makeKeyAndVisible()
         Self.pumpLiveRunLoop()
+        let edgeContainer = UIView()
+        edgeContainer.translatesAutoresizingMaskIntoConstraints = false
+        edgeContainer.backgroundColor = .clear
+        let edgeControl = UIButton(type: .system)
+        edgeControl.translatesAutoresizingMaskIntoConstraints = false
+        edgeControl.setImage(UIImage(systemName: "keyboard"), for: .normal)
+        edgeContainer.addSubview(edgeControl)
+        hosting.view.addSubview(edgeContainer)
+        NSLayoutConstraint.activate([
+            edgeContainer.leadingAnchor.constraint(equalTo: hosting.view.leadingAnchor),
+            edgeContainer.trailingAnchor.constraint(equalTo: hosting.view.trailingAnchor),
+            edgeContainer.bottomAnchor.constraint(equalTo: hosting.view.keyboardLayoutGuide.topAnchor),
+            edgeContainer.heightAnchor.constraint(equalToConstant: 112),
+            edgeControl.leadingAnchor.constraint(equalTo: edgeContainer.leadingAnchor, constant: 16),
+            edgeControl.topAnchor.constraint(equalTo: edgeContainer.topAnchor, constant: 8),
+            edgeControl.widthAnchor.constraint(equalToConstant: 44),
+            edgeControl.heightAnchor.constraint(equalToConstant: 44),
+        ])
         for count in 2...3 {
-            hosting.rootView = Self.sparseLiveRepresentable(entryCount: count)
+            hosting.rootView = AnyView(
+                Self.sparseLiveRepresentable(
+                    entryCount: count,
+                    density: density,
+                    bottomEdgeElementContainers: [edgeContainer]
+                )
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+            )
             Self.pumpLiveRunLoop()
         }
         let container = try #require(Self.liveContainer(in: hosting))
         container.transcript.scrollToBottom(animated: false)
         Self.pumpLiveRunLoop()
-        return (hosting, window, container)
+        return (hosting, window, container, edgeContainer)
     }
 
     private static func sparseLiveRepresentable(
-        entryCount: Int
+        entryCount: Int,
+        density: TranscriptDensity = .comfortable,
+        bottomEdgeElementContainers: [UIView] = []
     ) -> TranscriptLiveControllerRepresentable {
         TranscriptLiveControllerRepresentable(
             input: TranscriptProjectionInput(entries: Array(Self.sparseLiveEntries.prefix(entryCount))),
             bottomChromeHeight: 112,
+            bottomEdgeElementContainers: bottomEdgeElementContainers,
             theme: AgentGUITheme(terminalTheme: .monokai),
             terminalThemeGeneration: 0,
-            density: .comfortable,
+            density: density,
             answeringAskID: nil,
             failedAskID: nil,
             onAnswer: { _, _ in },
@@ -350,28 +385,14 @@ extension TranscriptRenderingRegressionTests {
         return nil
     }
 
-    private static func view(
-        withAccessibilityIdentifier identifier: String,
-        in root: UIView
-    ) -> UIView? {
-        if root.accessibilityIdentifier == identifier {
-            return root
-        }
-        for subview in root.subviews {
-            if let match = Self.view(withAccessibilityIdentifier: identifier, in: subview) {
-                return match
-            }
-        }
-        return nil
-    }
-
     private static func textViews(in root: UIView) -> [UITextView] {
         let current = (root as? UITextView).map { [$0] } ?? []
         return current + root.subviews.flatMap { Self.textViews(in: $0) }
     }
 
-    private static func pumpLiveRunLoop() {
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+    static func pumpLiveRunLoop(duration: TimeInterval = 0.02) {
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: duration))
     }
+
 }
 #endif

@@ -109,8 +109,8 @@ final class TranscriptCollectionView: UICollectionView, UIGestureRecognizerDeleg
                 abs(geometricGap) < 0.5,
                 "Transcript cells must remain contiguous (gap: \(geometricGap), frames: \(pair.0.frame), \(pair.1.frame))"
             )
-            guard let newerRow = pair.0.row, let olderRow = pair.1.row else { continue }
-            let visualGap = pair.0.rowSpacing.top + pair.1.rowSpacing.bottom
+            guard let olderRow = pair.0.row, let newerRow = pair.1.row else { continue }
+            let visualGap = pair.0.rowSpacing.bottom + pair.1.rowSpacing.top
             let activeDensity = pair.0.rowSpacing.density
             assert(pair.1.rowSpacing.density == activeDensity)
             let expected = TranscriptRowSpacing.gap(

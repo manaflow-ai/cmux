@@ -76,6 +76,7 @@ final class TranscriptDemoContainerViewController: UIViewController {
         host.didMove(toParent: self)
         composerHost = host
         composerBottomConstraint = bottomConstraint
+        transcript.setBottomEdgeElementContainers([host.view])
         view.setNeedsLayout()
     }
 

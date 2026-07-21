@@ -45,13 +45,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var configThemeGeneration: UInt64 = 0
     var composerSubmitAction: (@MainActor () async -> Void)? = nil
     var onComposerChromeHeightChange: ((CGFloat) -> Void)? = nil
+    var onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             surfaceID: surfaceID,
             store: store,
             composerSubmitAction: composerSubmitAction,
-            onComposerChromeHeightChange: onComposerChromeHeightChange
+            onComposerChromeHeightChange: onComposerChromeHeightChange,
+            onBottomScrollEdgeElementContainersChange: onBottomScrollEdgeElementContainersChange
         )
     }
 
@@ -110,7 +112,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         context.coordinator.updateComposerRouting(
             submitAction: composerSubmitAction,
-            chromeHeightChange: onComposerChromeHeightChange
+            chromeHeightChange: onComposerChromeHeightChange,
+            edgeElementContainersChange: onBottomScrollEdgeElementContainersChange
         )
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
@@ -143,6 +146,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var composerController: UIHostingController<TerminalComposerView>?
         let composerSubmitRouter: TerminalComposerSubmitRouter
         var onComposerChromeHeightChange: ((CGFloat) -> Void)?
+        var onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
         var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         /// Serializes the natural-grid viewport reports and their echoes. One
@@ -163,25 +167,35 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: String,
             store: CMUXMobileShellStore,
             composerSubmitAction: (@MainActor () async -> Void)?,
-            onComposerChromeHeightChange: ((CGFloat) -> Void)?
+            onComposerChromeHeightChange: ((CGFloat) -> Void)?,
+            onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
         ) {
             self.surfaceID = surfaceID
             self.store = store
             self.composerSubmitRouter = TerminalComposerSubmitRouter(action: composerSubmitAction)
             self.onComposerChromeHeightChange = onComposerChromeHeightChange
+            self.onBottomScrollEdgeElementContainersChange = onBottomScrollEdgeElementContainersChange
             super.init()
         }
 
         func updateComposerRouting(
             submitAction: (@MainActor () async -> Void)?,
-            chromeHeightChange: ((CGFloat) -> Void)?
+            chromeHeightChange: ((CGFloat) -> Void)?,
+            edgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
         ) {
             composerSubmitRouter.action = submitAction
             onComposerChromeHeightChange = chromeHeightChange
+            onBottomScrollEdgeElementContainersChange = edgeElementContainersChange
+            if let surfaceView {
+                edgeElementContainersChange?(surfaceView.bottomScrollEdgeElementContainers)
+            }
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
+            onBottomScrollEdgeElementContainersChange?(
+                surfaceView.bottomScrollEdgeElementContainers
+            )
             guard let store else { return }
             let surfaceID = surfaceID
             viewportReportScheduler = TerminalViewportReportScheduler(
@@ -300,6 +314,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func detach() {
+            onBottomScrollEdgeElementContainersChange?([])
             outputTask?.cancel()
             outputTask = nil
             liveFontTask?.cancel()

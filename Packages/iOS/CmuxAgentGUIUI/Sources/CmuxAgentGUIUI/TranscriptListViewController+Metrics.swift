@@ -1,16 +1,16 @@
 #if os(iOS)
-public import UIKit
+import UIKit
 
 extension TranscriptListViewController {
-    /// The current physical bottom obstruction reported by `keyboardLayoutGuide`.
-    public var keyboardBottomInset: CGFloat {
-        guard isViewLoaded else { return 0 }
-        let obstruction = view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY
-        return pixelRounded(max(0, obstruction - view.safeAreaInsets.bottom))
-    }
-
     var bottomRestOffset: CGPoint {
-        CGPoint(x: -collectionView.contentInset.left, y: -collectionView.contentInset.top)
+        let minimumY = -collectionView.contentInset.top
+        let maximumY = max(
+            minimumY,
+            collectionView.contentSize.height
+                - collectionView.bounds.height
+                + collectionView.contentInset.bottom
+        )
+        return CGPoint(x: -collectionView.contentInset.left, y: pixelRounded(maximumY))
     }
 
     var isScrollInteractionActive: Bool {

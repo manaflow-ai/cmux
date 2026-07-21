@@ -26,18 +26,23 @@ final class TranscriptCollectionLayout: UICollectionViewLayout {
         measuredWidth = width
         measuredHeight = height
         needsMeasurement = false
+        let heights = (0..<itemCount).map { item in
+            max(1, heightForItem?(IndexPath(item: item, section: 0), width) ?? 44)
+        }
+        let measuredContentHeight = heights.reduce(0, +)
+        let layoutHeight = max(measuredContentHeight, height)
         attributes.removeAll(keepingCapacity: true)
         attributes.reserveCapacity(itemCount)
-        var originY: CGFloat = 0
+        var originY = layoutHeight
         for item in 0..<itemCount {
             let indexPath = IndexPath(item: item, section: 0)
-            let height = max(1, heightForItem?(indexPath, width) ?? 44)
+            let height = heights[item]
+            originY -= height
             let itemAttributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
             itemAttributes.frame = CGRect(x: 0, y: originY, width: width, height: height)
             attributes.append(itemAttributes)
-            originY += height
         }
-        contentSize = CGSize(width: width, height: max(originY, height))
+        contentSize = CGSize(width: width, height: layoutHeight)
     }
 
     override var collectionViewContentSize: CGSize {

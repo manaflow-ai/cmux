@@ -2,11 +2,13 @@
 public import CmuxAgentGUIProjection
 public import CmuxAgentReplica
 public import SwiftUI
+public import UIKit
 
 /// SwiftUI bridge for the production live transcript container.
 public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentable {
     private let input: TranscriptProjectionInput
     private let bottomChromeHeight: CGFloat
+    private let bottomEdgeElementContainers: [UIView]
     private let theme: AgentGUITheme
     private let terminalThemeGeneration: UInt64
     private let density: TranscriptDensity
@@ -20,12 +22,14 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
     /// - Parameters:
     ///   - input: The latest projection input to render.
     ///   - bottomChromeHeight: Height occupied by bottom composer chrome.
+    ///   - bottomEdgeElementContainers: Real composer and accessory views overlaying the transcript.
     ///   - theme: Agent GUI palette derived from the current terminal theme.
     ///   - terminalThemeGeneration: Observable generation for terminal-theme changes.
     ///   - density: Current transcript spacing and metadata-type register.
     public init(
         input: TranscriptProjectionInput,
         bottomChromeHeight: CGFloat,
+        bottomEdgeElementContainers: [UIView] = [],
         theme: AgentGUITheme,
         terminalThemeGeneration: UInt64,
         density: TranscriptDensity,
@@ -37,6 +41,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
     ) {
         self.input = input
         self.bottomChromeHeight = bottomChromeHeight
+        self.bottomEdgeElementContainers = bottomEdgeElementContainers
         self.theme = theme
         self.terminalThemeGeneration = terminalThemeGeneration
         self.density = density
@@ -62,6 +67,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
         )
         controller.applyActivityPresentation(onShowActivity: onShowActivity)
         controller.setBottomChromeHeight(bottomChromeHeight)
+        controller.setBottomEdgeElementContainers(bottomEdgeElementContainers)
         return controller
     }
 
@@ -83,6 +89,14 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
         )
         uiViewController.applyActivityPresentation(onShowActivity: onShowActivity)
         uiViewController.setBottomChromeHeight(bottomChromeHeight)
+        uiViewController.setBottomEdgeElementContainers(bottomEdgeElementContainers)
+    }
+
+    public static func dismantleUIViewController(
+        _ uiViewController: TranscriptLiveContainerViewController,
+        coordinator: Void
+    ) {
+        uiViewController.prepareForDismantle()
     }
 }
 #endif

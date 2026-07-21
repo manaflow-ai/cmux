@@ -469,7 +469,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var diagnosticLog: DiagnosticLog?
     #endif
 
-    private lazy var inputProxy: TerminalInputTextView = {
+    lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
         inputProxy.terminalTheme = terminalTheme
         inputProxy.onText = { [weak self] text in
@@ -658,6 +658,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
+        observeKeyboardVisibilityReconciliation()
     }
 
     @objc private func handleAppWillResignActive() {
@@ -722,7 +723,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
-    private var keyboardVisible = false
+    var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is docked above the keyboard (when up) or the home indicator
     /// (when down) via `keyboardLayoutGuide`, so the grid must shrink by this
@@ -754,9 +755,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// reparenting the toolbar into a second layout system.
     private var composerActive = false
     /// The composer band: a surface-owned container the host installs the SwiftUI
-    /// compose field into (via a `UIHostingController` in
-    /// `GhosttySurfaceRepresentable`, which can see both layers; the terminal package
-    /// cannot import the UI package). The surface positions it itself — pinned
+    /// compose field into (via a `UIHostingController` in `GhosttySurfaceRepresentable`;
+    /// the terminal package cannot import the UI package). It is pinned
     /// directly above the keyboard (iMessage's field-nearest-keyboard layout), with
     /// the docked toolbar riding its top edge and the terminal grid above that — and
     /// reserves its height in the grid, so the compose field, the toolbar, and the
@@ -772,11 +772,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
+    /// Real bottom-dock containers for native scroll-edge registration by an overlaying transcript.
+    public var bottomScrollEdgeElementContainers: [UIView] { [dockedToolbar, composerContainer].compactMap { $0 } }
     /// True once SwiftUI has dismantled the hosting representable for this
     /// surface. A dismantled surface performs no render, output, or
     /// accessibility work so a view SwiftUI has removed cannot keep driving the
     /// renderer or the accessibility tree.
-    /// Internal for `GhosttySurfaceView+RenderRecovery.swift` recovery guards.
     var isDismantled = false
     /// Whether the hidden terminal input should become first responder when the
     /// surface attaches to a window. Set to `false` to suppress autofocus after
@@ -812,8 +813,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
         }
         #endif
-        keyboardVisible = willBeVisible
-        inputProxy.setKeyboardShown(willBeVisible)
+        reconcileKeyboardVisibilityFromSystem(willBeVisible)
         // Round 8 removes the `composerPresented ⇒ keyboardUp` enforcement: the
         // toolbar is ALWAYS visible and the composer band survives a keyboard-down, so
         // the keyboard collapsing no longer dismisses the composer. The composer's
@@ -912,8 +912,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// keyboard. Used only by the terminal-layout preview harness.
     public func debugSetKeyboardHeightForLayoutPreview(_ height: CGFloat) {
         stopKeyboardHeightAnimation()
-        keyboardVisible = height > 0
-        inputProxy.setKeyboardShown(keyboardVisible)
+        reconcileKeyboardVisibilityFromSystem(height > 0)
         keyboardHeight = max(0, height)
         // Mirror the live keyboard-tied visibility so the preview shows the bar
         // only when the synthetic keyboard is "up".
