@@ -1198,6 +1198,46 @@ func TestCLIWorkspaceGroupCreateMapsFlags(t *testing.T) {
 	}
 }
 
+func TestCLIWorkspaceGroupBareCreateSendsExplicitEmptyMembers(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "create"})
+	if code != 0 {
+		t.Fatalf("bare workspace group create should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.create")
+	ids, ok := params["child_workspace_ids"].([]any)
+	if !ok || len(ids) != 0 {
+		t.Fatalf("expected explicit empty child_workspace_ids, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupDeleteDefaultsToUngroupMethod(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "delete", "workspace_group:2"})
+	if code != 0 {
+		t.Fatalf("workspace group delete should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.ungroup")
+	if got := params["group_id"]; got != "workspace_group:2" {
+		t.Fatalf("expected group_id to survive safe delete routing, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupDeleteForwardsExplicitCloseIntent(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json", "workspace", "group", "delete",
+		"workspace_group:2", "--close-workspaces",
+	})
+	if code != 0 {
+		t.Fatalf("explicit destructive workspace group delete should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.delete")
+	if got, ok := params["close_workspaces"].(bool); !ok || !got {
+		t.Fatalf("expected close_workspaces=true, got %v", params)
+	}
+}
+
 func TestCLIWorkspaceGroupAddRequiresGroupAndWorkspace(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "add", "--group", "g1"}); code != 2 {
