@@ -59,7 +59,7 @@
 //!     "new-tab": ["t", "alt+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
-//!     "select-screen-1": "1",
+//!     "select-screen-0": "0",
 //!     "browser-edit-url": "u"
 //!   }
 //! }
@@ -89,9 +89,8 @@
 //! The defaults intentionally match tmux where cmux has the same
 //! capability. `x` closes the active pane and `X` closes the active tab;
 //! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
-//! cmux defaults. Screens are visibly numbered from 1, so
-//! `select-screen-1` selects the first visible screen, ..., and
-//! `select-screen-0` selects the tenth visible screen. Zellij's modal
+//! cmux defaults. Screens are visibly numbered from 0, so each
+//! `select-screen-N` action selects the screen labeled `N`. Zellij's modal
 //! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
@@ -691,8 +690,7 @@ impl Action {
 
     pub fn screen_index(&self) -> Option<usize> {
         match self {
-            Action::SelectScreen(0) => Some(9),
-            Action::SelectScreen(number @ 1..=9) => Some((*number as usize) - 1),
+            Action::SelectScreen(number @ 0..=9) => Some(*number as usize),
             _ => None,
         }
     }

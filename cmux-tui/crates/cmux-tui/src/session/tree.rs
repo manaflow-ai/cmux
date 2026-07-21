@@ -136,11 +136,11 @@ impl ScreenView {
         self.panes.iter().find(|p| p.id == id)
     }
 
-    /// Display name: the user-assigned name, else "screen N" by position.
+    /// Display name: the user-assigned name, else its zero-based position.
     pub fn display_name(&self, index: usize) -> String {
         match self.name.as_deref() {
             Some(name) if !name.is_empty() => name.to_string(),
-            _ => format!("{}", index + 1),
+            _ => format!("{index}"),
         }
     }
 }

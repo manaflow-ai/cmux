@@ -18,8 +18,7 @@ These defaults come from `Keys::default`.
 | `Alt-n` | Create a pane with Zellij's default vertical auto-layout |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
-| `Ctrl-b 1` through `Ctrl-b 9` | Select visible screen 1 through 9 |
-| `Ctrl-b 0` | Select visible screen 10 |
+| `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
 | `Ctrl-b %` | Split the active pane right |
 | `Ctrl-b "` | Split the active pane down |
 | `Ctrl-b x` | Close the active pane |
@@ -58,7 +57,7 @@ These defaults come from `Keys::default`.
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
-The screen bindings intentionally use tmux verbs: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are visibly numbered from 1, so `Ctrl-b 1` selects the first visible screen and `Ctrl-b 0` selects the tenth visible screen.
+The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"` in `cmux-tui.json`.
 
