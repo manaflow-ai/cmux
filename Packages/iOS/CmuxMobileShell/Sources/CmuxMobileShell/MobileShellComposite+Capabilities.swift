@@ -40,12 +40,12 @@ extension MobileShellComposite {
     /// Whether the Mac supports creating a workspace directly inside a group.
     public var supportsWorkspaceCreateInGroup: Bool {
         supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability)
-            && hasMacScopedWorkspaceMutationTicketScope
+            && discoversMacScopedWorkspaceMutations
     }
     /// Whether the Mac supports creating workspace groups from iOS.
     public var supportsWorkspaceGroupCreate: Bool {
         supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability)
-            && hasMacScopedWorkspaceMutationTicketScope
+            && discoversMacScopedWorkspaceMutations
     }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
