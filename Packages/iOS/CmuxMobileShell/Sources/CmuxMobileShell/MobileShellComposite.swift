@@ -781,6 +781,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Identifies the fetch generation that owns ``stateSyncFetchTask``, so a
     /// cancelled predecessor's deferred cleanup cannot clear its replacement.
     var stateSyncFetchGeneration = UUID()
+    /// Number of deadline-abandoned reconnect dials that have not yet
+    /// resolved. Bounds automatic retry scheduling (see
+    /// ``registerAbandonedReconnectDial(_:)``).
+    var abandonedReconnectDialCount = 0
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.

@@ -248,7 +248,7 @@ extension MobileShellComposite {
                 // transient backoff owner schedules the next automatic try.
                 let deadlineNanoseconds = self.runtime?.reconnectAttemptDeadlineNanoseconds
                     ?? 30_000_000_000
-                let reconnectOutcome = await Self.raceAgainstDeadline(
+                let race = await Self.raceAgainstDeadline(
                     nanoseconds: deadlineNanoseconds
                 ) { [weak self] in
                     await self?.reconnectActiveMacOutcome(
@@ -258,7 +258,7 @@ extension MobileShellComposite {
                 }
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
-                guard let reconnectOutcome else {
+                guard let reconnectOutcome = race.value else {
                     MobileDebugLog.anchormux(
                         "connection.recovery redial deadline expired; abandoning attempt \(attempt.id.uuidString)"
                     )
@@ -268,7 +268,13 @@ extension MobileShellComposite {
                         self.macConnectionStatus = .unavailable
                         self.clearRemoteConnectionContext()
                     }
-                    if let accountID = stackUserID ?? self.identityProvider?.currentUserID {
+                    self.registerAbandonedReconnectDial(race.abandoned)
+                    // Schedule the next automatic try only while the number of
+                    // still-wedged abandoned dials is bounded; each dial that
+                    // eventually resolves re-arms the retry itself. Manual,
+                    // foreground, and network-change triggers are never gated.
+                    if self.abandonedReconnectDialCount <= Self.maximumAbandonedReconnectDials,
+                       let accountID = stackUserID ?? self.identityProvider?.currentUserID {
                         self.recordTransientAutomaticReconnectBackoff(accountID: accountID)
                     }
                     self.applyConnectionRecoveryOwnerState()
@@ -860,14 +866,47 @@ extension MobileShellComposite {
     /// one side resumes. An abandoned dial retains its captures until it
     /// eventually resolves — bounded by transport teardown and precisely the
     /// cost of not being wedged.
+    /// Ceiling on concurrently outstanding abandoned (wedged) dials before
+    /// automatic retries pause. A dial that resolves reclaims its slot and
+    /// re-arms the automatic retry when still disconnected.
+    static var maximumAbandonedReconnectDials: Int { 3 }
+
+    /// Tracks an abandoned dial until it resolves, so a persistently wedged
+    /// transport cannot accumulate an unbounded set of retained reconnect
+    /// tasks across automatic retries. On resolution, if the shell is still
+    /// signed in and disconnected, the automatic retry loop is re-armed
+    /// (covers the case where retries were paused at the ceiling).
+    func registerAbandonedReconnectDial(_ task: Task<StoredMacReconnectOutcome, Never>?) {
+        guard let task else { return }
+        abandonedReconnectDialCount += 1
+        Task { @MainActor [weak self] in
+            _ = await task.value
+            guard let self else { return }
+            self.abandonedReconnectDialCount = max(0, self.abandonedReconnectDialCount - 1)
+            guard self.isSignedIn, self.connectionState != .connected,
+                  let accountID = self.identityProvider?.currentUserID else { return }
+            self.recordTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
+    }
+
+    /// The race result: `value` is nil when the deadline won, in which case
+    /// `abandoned` is the still-running operation task so the caller can
+    /// bound how many abandoned dials may exist at once and reclaim the slot
+    /// when the task eventually resolves.
+    struct DeadlineRaceOutcome<Value: Sendable>: Sendable {
+        let value: Value?
+        let abandoned: Task<Value, Never>?
+    }
+
     static func raceAgainstDeadline<Value: Sendable>(
         nanoseconds: UInt64,
         _ operation: @escaping @Sendable () async -> Value
-    ) async -> Value? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
+    ) async -> DeadlineRaceOutcome<Value> {
+        let operationTask = Task { await operation() }
+        let value: Value? = await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
             let once = RaceContinuationOnce(continuation)
-            let operationTask = Task {
-                once.finish(await operation())
+            Task {
+                once.finish(await operationTask.value)
             }
             Task {
                 try? await Task.sleep(nanoseconds: nanoseconds)
@@ -875,6 +914,10 @@ extension MobileShellComposite {
                 once.finish(nil)
             }
         }
+        return DeadlineRaceOutcome(
+            value: value,
+            abandoned: value == nil ? operationTask : nil
+        )
     }
 }
 

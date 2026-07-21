@@ -16,21 +16,23 @@ extension ReconnectRouteSelectionTests {
         // The race must not structurally await the losing side: an operation
         // that never completes AND ignores cancellation (the wedged-FFI-dial
         // shape) must still let the deadline resolve the race.
-        let outcome: Int? = await MobileShellComposite.raceAgainstDeadline(
+        let outcome = await MobileShellComposite.raceAgainstDeadline(
             nanoseconds: 50_000_000
         ) {
             await withCheckedContinuation { (_: CheckedContinuation<Int, Never>) in
                 // Parked forever; no cancellation handler on purpose.
             }
         }
-        #expect(outcome == nil)
+        #expect(outcome.value == nil)
+        #expect(outcome.abandoned != nil, "the wedged operation is handed back for bounded tracking")
     }
 
     @Test func deadlineRaceReturnsOperationValueWhenItWins() async {
-        let outcome: Int? = await MobileShellComposite.raceAgainstDeadline(
+        let outcome = await MobileShellComposite.raceAgainstDeadline(
             nanoseconds: 5_000_000_000
         ) { 42 }
-        #expect(outcome == 42)
+        #expect(outcome.value == 42)
+        #expect(outcome.abandoned == nil)
     }
 
     @Test func hungRedialSettlesAtDeadlineAndUnfreezesRecovery() async throws {

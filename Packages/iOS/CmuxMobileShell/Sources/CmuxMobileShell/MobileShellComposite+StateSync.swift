@@ -177,7 +177,19 @@ extension MobileShellComposite {
         guard stateSyncActive else { return }
         stateSyncActive = false
         Task { @MainActor [weak self] in
-            _ = await self?.reloadWorkspaceListFromMac()
+            // The missed delta may have been the last event, so this reload
+            // cannot be fire-and-forget: retry a bounded number of times with
+            // short pauses. If the connection itself is dead, the recovery
+            // owner (stream-end/liveness paths) takes over and a successful
+            // reconnect re-negotiates v2 with a snapshot anyway.
+            for attempt in 0..<3 {
+                guard let self, self.remoteClient === client,
+                      self.connectionState == .connected,
+                      !self.stateSyncActive else { return }
+                if await self.reloadWorkspaceListFromMac() { return }
+                try? await ContinuousClock().sleep(for: .seconds(2 << attempt))
+            }
+            mobileStateSyncLog.error("legacy fallback reload exhausted retries; awaiting next event or recovery")
         }
     }
 
