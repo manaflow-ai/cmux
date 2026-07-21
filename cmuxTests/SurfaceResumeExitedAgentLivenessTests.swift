@@ -36,7 +36,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
         defer { source.teardownAllPanels() }
         let panelID = try #require(source.focusedPanelId)
         let sessionID = "codex-exited-agent-session"
-        try writeExitedCodexHookRecord(
+        try writeCodexHookRecord(
             sessionID: sessionID,
             workspaceID: source.id,
             panelID: panelID,
@@ -49,24 +49,17 @@ struct SurfaceResumeExitedAgentLivenessTests {
             fileManager: fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
-            processArgumentsProvider: { _ in nil }
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent }
         )
         #expect(agentIndex.snapshot(workspaceId: source.id, panelId: panelID)?.sessionId == sessionID)
         #expect(!agentIndex.hasLiveProcess(workspaceId: source.id, panelId: panelID))
 
-        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
-            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: panelID):
-                SurfaceResumeBindingSnapshot(
-                    name: "Codex",
-                    kind: "codex",
-                    command: "codex resume \(sessionID)",
-                    cwd: "/tmp/repo",
-                    checkpointId: sessionID,
-                    source: "agent-hook",
-                    autoResume: true,
-                    updatedAt: 1_777_777_777
-                ),
-        ])
+        let bindingIndex = codexBindingIndex(
+            sessionID: sessionID,
+            workspaceID: source.id,
+            panelID: panelID
+        )
         source.updatePanelShellActivityState(panelId: panelID, state: .unknown)
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
@@ -90,7 +83,191 @@ struct SurfaceResumeExitedAgentLivenessTests {
         )
     }
 
-    private func writeExitedCodexHookRecord(
+    @Test("Cached running process is revalidated before surface resume")
+    @MainActor
+    func cachedRunningProcessIsRevalidatedBeforeSurfaceResume() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-cached-running-agent-resume-\(UUID().uuidString)", isDirectory: true)
+        let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
+        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
+        defer {
+            if let previousHookStateDirectory {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+            try? fileManager.removeItem(at: root)
+        }
+
+        let defaultsName = "cmux-cached-running-agent-resume-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let panelID = try #require(source.focusedPanelId)
+        let sessionID = "codex-cached-running-agent-session"
+        let recordedIdentity = AgentPIDProcessIdentity(
+            pid: 987_654_321,
+            startSeconds: 1_777_777_700,
+            startMicroseconds: 0
+        )
+        try writeCodexHookRecord(
+            sessionID: sessionID,
+            workspaceID: source.id,
+            panelID: panelID,
+            root: root,
+            fileManager: fileManager
+        )
+
+        let agentIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { processID in
+                processID == Int(recordedIdentity.pid)
+                    ? self.codexProcessArguments(workspaceID: source.id, panelID: panelID)
+                    : nil
+            },
+            processPresenceProvider: { _ in .present },
+            processIdentityProvider: { processID in
+                processID == Int(recordedIdentity.pid) ? recordedIdentity : nil
+            }
+        )
+        let observation = try #require(agentIndex.entry(workspaceId: source.id, panelId: panelID))
+        #expect(observation.processLiveness == .running)
+        #expect(observation.agentProcessIdentities == [Int(recordedIdentity.pid): recordedIdentity])
+
+        source.updatePanelShellActivityState(panelId: panelID, state: .promptIdle)
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: agentIndex,
+            surfaceResumeBindingIndex: codexBindingIndex(
+                sessionID: sessionID,
+                workspaceID: source.id,
+                panelID: panelID
+            ),
+            currentAgentProcessIdentity: { _ in nil },
+            agentProcessPresence: { _ in .absent }
+        )
+
+        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restored.focusedPanelId)
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @Test("Autosave fingerprint includes agent process liveness")
+    @MainActor
+    func autosaveFingerprintIncludesAgentProcessLiveness() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-agent-liveness-fingerprint-\(UUID().uuidString)", isDirectory: true)
+        let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
+        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
+        defer {
+            if let previousHookStateDirectory {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+            try? fileManager.removeItem(at: root)
+        }
+
+        let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        let sessionID = "codex-agent-liveness-fingerprint"
+        let recordedIdentity = AgentPIDProcessIdentity(
+            pid: 987_654_321,
+            startSeconds: 1_777_777_700,
+            startMicroseconds: 0
+        )
+        try writeCodexHookRecord(
+            sessionID: sessionID,
+            workspaceID: workspace.id,
+            panelID: panelID,
+            root: root,
+            fileManager: fileManager
+        )
+
+        let runningIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { processID in
+                processID == Int(recordedIdentity.pid)
+                    ? self.codexProcessArguments(workspaceID: workspace.id, panelID: panelID)
+                    : nil
+            },
+            processPresenceProvider: { _ in .present },
+            processIdentityProvider: { _ in recordedIdentity }
+        )
+        let exitedIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent }
+        )
+
+        #expect(runningIndex.entry(workspaceId: workspace.id, panelId: panelID)?.processLiveness == .running)
+        #expect(exitedIndex.entry(workspaceId: workspace.id, panelId: panelID)?.processLiveness == .exited)
+        #expect(
+            manager.sessionAutosaveFingerprint(restorableAgentIndex: runningIndex) !=
+                manager.sessionAutosaveFingerprint(restorableAgentIndex: exitedIndex)
+        )
+    }
+
+    private func codexBindingIndex(
+        sessionID: String,
+        workspaceID: UUID,
+        panelID: UUID
+    ) -> SurfaceResumeBindingIndex {
+        SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspaceID, panelId: panelID):
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume \(sessionID)",
+                    cwd: "/tmp/repo",
+                    checkpointId: sessionID,
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+        ])
+    }
+
+    private func codexProcessArguments(
+        workspaceID: UUID,
+        panelID: UUID
+    ) -> CmuxTopProcessArguments {
+        CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/codex"],
+            environment: [
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CMUX_WORKSPACE_ID": workspaceID.uuidString,
+                "CMUX_SURFACE_ID": panelID.uuidString,
+            ]
+        )
+    }
+
+    private func writeCodexHookRecord(
         sessionID: String,
         workspaceID: UUID,
         panelID: UUID,

@@ -52,7 +52,15 @@ extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        agentProcessPresence: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let rawLayout = sessionLayoutSnapshot(from: tree)
@@ -78,7 +86,9 @@ extension Workspace {
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
-                    )
+                    ),
+                    currentAgentProcessIdentity: currentAgentProcessIdentity,
+                    agentProcessPresence: agentProcessPresence
                 )
             }
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
@@ -400,7 +410,15 @@ extension Workspace {
         panelId: UUID,
         includeScrollback: Bool,
         restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
-        resumeBinding: SurfaceResumeBindingSnapshot?
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        agentProcessPresence: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
@@ -521,7 +539,12 @@ extension Workspace {
             let agentWasRunning: Bool? = {
                 guard effectiveRestorableAgent != nil else { return nil }
                 return (restorableAgentObservation?.processLiveness ?? .unknown)
-                    .wasRunning(fallingBackTo: panelShellActivityStates[panelId])
+                    .wasRunning(
+                        fallingBackTo: panelShellActivityStates[panelId],
+                        recordedProcessIdentities: restorableAgentObservation?.agentProcessIdentities ?? [:],
+                        currentProcessIdentity: currentAgentProcessIdentity,
+                        processPresence: agentProcessPresence
+                    )
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 resumeBinding,
