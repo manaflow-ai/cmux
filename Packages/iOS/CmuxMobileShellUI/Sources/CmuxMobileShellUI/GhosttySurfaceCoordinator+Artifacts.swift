@@ -207,8 +207,25 @@ extension GhosttySurfaceRepresentable.Coordinator {
             // so the PTY settles on the NEWEST grid) and drops echoes whose
             // report was superseded while in flight; the surface additionally
             // rejects any echo whose reportID is no longer the newest.
-            guard size.columns > 0, size.rows > 0 else { return }
-            viewportReportScheduler?.submit(
+            guard size.columns > 0, size.rows > 0,
+                  self.surfaceView === surfaceView,
+                  surfaceView.window != nil,
+                  let store,
+                  let viewportReportScheduler else { return }
+            if let outputStartContinuation {
+                guard let preparation = store.prepareTerminalViewport(
+                    surfaceID: surfaceID,
+                    columns: size.columns,
+                    rows: size.rows
+                ) else {
+                    return
+                }
+                preparedViewportReportsByReportID[reportID] = preparation
+                self.outputStartContinuation = nil
+                outputStartContinuation.yield()
+                outputStartContinuation.finish()
+            }
+            viewportReportScheduler.submit(
                 .init(id: reportID, columns: size.columns, rows: size.rows)
             )
         }

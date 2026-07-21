@@ -262,14 +262,38 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             }
             bytes.append(sgrBytes(for: defaultStyle))
             var activeStyleID = 0
+            var paintedEnd = 0
             for span in (spansByRow[line] ?? []).sorted(by: { $0.column < $1.column }) {
                 guard !span.text.isEmpty else { continue }
+                if span.column > paintedEnd {
+                    if activeStyleID != 0 {
+                        bytes.append(sgrBytes(for: defaultStyle))
+                    }
+                    activeStyleID = 0
+                    appendCursor(row: nil, column: paintedEnd, to: &bytes)
+                    appendVTPrintable(
+                        String(repeating: " ", count: span.column - paintedEnd),
+                        to: &bytes
+                    )
+                    paintedEnd = span.column
+                }
                 let style = activeStyleID != span.styleID ? stylesByID[span.styleID] : nil
                 appendSpanReplay(span, row: nil, style: style, to: &bytes)
                 if activeStyleID != span.styleID,
                    style != nil {
                     activeStyleID = span.styleID
                 }
+                paintedEnd = max(paintedEnd, span.column + span.gridCellWidth)
+            }
+            if paintedEnd < frame.columns {
+                if activeStyleID != 0 {
+                    bytes.append(sgrBytes(for: defaultStyle))
+                }
+                appendCursor(row: nil, column: paintedEnd, to: &bytes)
+                appendVTPrintable(
+                    String(repeating: " ", count: frame.columns - paintedEnd),
+                    to: &bytes
+                )
             }
         }
         if terminateLast {

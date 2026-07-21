@@ -25,10 +25,14 @@ public final class MobileDisplaySettings {
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
     private static let terminalFilesChipEnabledKey = "cmux.mobile.terminalFilesChipEnabled"
+    private static let taskComposerEnabledKey = "cmux.mobile.taskComposerEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
+    #if DEBUG
+    private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
@@ -84,6 +88,15 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// Whether the beta New Task composer is available from the workspace list.
+    /// Defaults to `false`. Mutating this writes through to the injected
+    /// ``UserDefaults``.
+    public var taskComposerEnabled: Bool {
+        didSet {
+            defaults.set(taskComposerEnabled, forKey: Self.taskComposerEnabledKey)
+        }
+    }
+
     /// How many lines a workspace row's activity preview shows (1 or 2).
     /// Defaults to 2. Mutating this clamps to the supported range and writes
     /// through to the injected ``UserDefaults``.
@@ -125,6 +138,21 @@ public final class MobileDisplaySettings {
         }
     }
 
+    #if DEBUG
+    /// Persisted selection for the debug-only Shell icon lab.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant {
+        didSet {
+            defaults.set(
+                taskComposerShellIconVariant.rawValue,
+                forKey: Self.taskComposerShellIconVariantKey
+            )
+        }
+    }
+    #else
+    /// Production builds expose only the shipping Shell icon treatment.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+    #endif
+
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
@@ -138,6 +166,7 @@ public final class MobileDisplaySettings {
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
+        self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
@@ -157,6 +186,11 @@ public final class MobileDisplaySettings {
             storedProfilePictureSize ?? Self.defaultProfilePictureSize,
             to: Self.profilePictureSizeRange
         )
+        #if DEBUG
+        self.taskComposerShellIconVariant = defaults.string(
+            forKey: Self.taskComposerShellIconVariantKey
+        ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        #endif
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.
