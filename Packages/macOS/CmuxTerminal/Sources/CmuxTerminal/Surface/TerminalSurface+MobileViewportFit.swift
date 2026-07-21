@@ -176,10 +176,10 @@ extension TerminalSurface {
         paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
 
         guard let surface = liveSurfaceForGhosttyAccess(reason: "clearMobileViewportLimit") else {
-            mobileFitBaseFontPointSize = nil
-            mobileFittedFontPointSize = nil
+            mobileViewportFontFitState = nil
             return false
         }
+        _ = fontSizeLineageSnapshot()
         let fontRestored = restoreMobileViewportFitFontIfNeeded()
         let uncappedWidth = lastUncappedPixelWidth
         let uncappedHeight = lastUncappedPixelHeight
@@ -229,8 +229,9 @@ extension TerminalSurface {
         let grantedRows = max(1, mobileViewportCellLimit.rows)
         let paneWidth = max(1, Int(width))
         let paneHeight = max(1, Int(height))
+        _ = fontSizeLineageSnapshot()
         let baseFont = resolvedMobileViewportBaseFontPointSize(surface: surface)
-        var currentFont = mobileFittedFontPointSize
+        var currentFont = mobileViewportFontFitState?.fittedRuntimePointSize
             ?? GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
             ?? baseFont
         var measurement = mobileViewportMeasurement(surface: surface)
@@ -247,11 +248,7 @@ extension TerminalSurface {
         for _ in 0..<3 {
             let fontFloor = min(baseFont, MobileViewportFitGeometry.defaultFontFloorPointSize)
             if abs(targetFont - currentFont) >= 0.25 {
-                if mobileFitBaseFontPointSize == nil {
-                    mobileFitBaseFontPointSize = baseFont
-                }
-                if applyMobileViewportFontPointSize(targetFont) {
-                    mobileFittedFontPointSize = targetFont
+                if applyMobileViewportFontPointSize(targetFont, baseFont: baseFont) {
                     currentFont = targetFont
                     fontChanged = true
                     measurement = mobileViewportMeasurement(surface: surface)
@@ -276,11 +273,7 @@ extension TerminalSurface {
             guard abs(nextTarget - currentFont) > 0.001 else {
                 break
             }
-            if mobileFitBaseFontPointSize == nil {
-                mobileFitBaseFontPointSize = baseFont
-            }
-            if applyMobileViewportFontPointSize(nextTarget) {
-                mobileFittedFontPointSize = nextTarget
+            if applyMobileViewportFontPointSize(nextTarget, baseFont: baseFont) {
                 currentFont = nextTarget
                 fontChanged = true
                 measurement = mobileViewportMeasurement(surface: surface)
@@ -301,14 +294,10 @@ extension TerminalSurface {
             // This force-to-floor step can be the first font change of the fit
             // (every earlier apply may have been skipped or broken out of), so
             // it must capture the restore point like the loop branches do.
-            if mobileFitBaseFontPointSize == nil {
-                mobileFitBaseFontPointSize = baseFont
-            }
-            guard applyMobileViewportFontPointSize(fontFloor) else {
+            guard applyMobileViewportFontPointSize(fontFloor, baseFont: baseFont) else {
                 let fallback = geometry.cappedFallbackGrant(grantedColumns: grantedColumns, grantedRows: grantedRows)
                 return .fallback(width: fallback.width, height: fallback.height, columns: fallback.columns, rows: fallback.rows, grant: appliedBox, baseFont: baseFont, currentFont: currentFont, fontChanged: fontChanged)
             }
-            mobileFittedFontPointSize = fontFloor
             currentFont = fontFloor
             fontChanged = true
             measurement = mobileViewportMeasurement(surface: surface)
@@ -397,8 +386,8 @@ extension TerminalSurface {
 
     @MainActor
     private func resolvedMobileViewportBaseFontPointSize(surface: ghostty_surface_t) -> Float {
-        if let mobileFitBaseFontPointSize {
-            return mobileFitBaseFontPointSize
+        if let mobileViewportFontFitState {
+            return mobileViewportFontFitState.baseRuntimePointSize
         }
         if let current = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface),
            current.isFinite,
@@ -415,26 +404,47 @@ extension TerminalSurface {
     @discardableResult
     @MainActor
     private func restoreMobileViewportFitFontIfNeeded() -> Bool {
-        guard mobileFittedFontPointSize != nil,
-              let baseFont = mobileFitBaseFontPointSize else {
-            mobileFitBaseFontPointSize = nil
-            mobileFittedFontPointSize = nil
+        guard mobileViewportFontFitState != nil else {
             return false
         }
-        guard applyMobileViewportFontPointSize(baseFont) else {
+        let restored: Bool
+        if let lineage = lastKnownFontSizeLineage,
+           lineage.isExplicitOverride {
+            let runtimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: lineage.basePoints,
+                percent: globalFontMagnificationPercent()
+            )
+            restored = performMobileViewportFontPointSizeAction(runtimePoints)
+        } else {
+            restored = performInternalBindingAction("reset_font_size")
+        }
+        guard restored else {
             // Keep the fit state when the binding action fails so a later
             // clear or fit pass can retry; dropping it here would leave the
             // pane at the shrunken font with no way back to the base size.
             return false
         }
-        mobileFitBaseFontPointSize = nil
-        mobileFittedFontPointSize = nil
+        mobileViewportFontFitState = nil
         return true
     }
 
     @MainActor
     @discardableResult
-    private func applyMobileViewportFontPointSize(_ points: Float) -> Bool {
+    private func applyMobileViewportFontPointSize(_ points: Float, baseFont: Float) -> Bool {
+        guard performMobileViewportFontPointSizeAction(points) else { return false }
+        if mobileViewportFontFitState == nil {
+            mobileViewportFontFitState = MobileViewportFontFitState(
+                baseRuntimePointSize: baseFont,
+                fittedRuntimePointSize: points
+            )
+        } else {
+            mobileViewportFontFitState?.fittedRuntimePointSize = points
+        }
+        return true
+    }
+
+    @MainActor
+    private func performMobileViewportFontPointSizeAction(_ points: Float) -> Bool {
         let action = String(format: "set_font_size:%.3f", points)
         return performInternalBindingAction(action)
     }

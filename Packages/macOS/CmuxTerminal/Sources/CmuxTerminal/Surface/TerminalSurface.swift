@@ -156,7 +156,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
     var lastKnownFontSizeLineage: TerminalFontSizeLineage?
-    var lastKnownFontSizeFollowsCurrentConfig = false
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.
@@ -238,10 +237,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
-    /// Runtime font size to restore when mobile viewport fitting clears.
-    var mobileFitBaseFontPointSize: Float?
-    /// Last runtime font size applied by mobile viewport fitting.
-    var mobileFittedFontPointSize: Float?
+    /// Temporary runtime font-size ownership while a mobile viewport is fitted.
+    var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.

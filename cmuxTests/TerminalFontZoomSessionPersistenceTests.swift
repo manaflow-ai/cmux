@@ -90,6 +90,68 @@ struct TerminalFontZoomSessionPersistenceTests {
         #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == nil)
     }
 
+    @Test("cold non-explicit lineage follows current config before runtime creation")
+    func coldNonExplicitLineageDoesNotPinInheritedPoints() {
+        var inheritedTemplate = CmuxSurfaceConfigTemplate()
+        inheritedTemplate.setFontSize(12, isExplicitOverride: false)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedTemplate,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+
+        #expect(surface.fontSizeLineageSnapshot() == inheritedTemplate.fontSizeLineage)
+        #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == nil)
+    }
+
+    @Test("mobile viewport fitting does not claim durable zoom ownership")
+    func mobileViewportFitPreservesDurableOwnership() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let configLineage = TerminalFontSizeLineage(
+            basePoints: 12,
+            isExplicitOverride: false
+        )
+        surface.recordCurrentFontSizeLineage(configLineage)
+        surface.mobileViewportFontFitState = MobileViewportFontFitState(
+            baseRuntimePointSize: 12,
+            fittedRuntimePointSize: 6
+        )
+
+        let fittedLineage = surface.recordObservedFontSizeLineage(
+            runtimePoints: 6,
+            isExplicitOverride: true,
+            globalFontMagnificationPercent: 100
+        )
+
+        #expect(fittedLineage == configLineage)
+        #expect(surface.sessionFontSizeOverrideBasePoints() == nil)
+
+        let resetLineage = surface.recordObservedFontSizeLineage(
+            runtimePoints: 6,
+            isExplicitOverride: false,
+            globalFontMagnificationPercent: 100
+        )
+
+        #expect(resetLineage == TerminalFontSizeLineage(basePoints: 6, isExplicitOverride: false))
+        #expect(surface.mobileViewportFontFitState?.baseRuntimePointSize == 6)
+
+        let userLineage = surface.recordObservedFontSizeLineage(
+            runtimePoints: 7,
+            isExplicitOverride: true,
+            globalFontMagnificationPercent: 100
+        )
+
+        #expect(userLineage == TerminalFontSizeLineage(basePoints: 7, isExplicitOverride: true))
+        #expect(surface.mobileViewportFontFitState?.baseRuntimePointSize == 7)
+        #expect(surface.sessionFontSizeOverrideBasePoints() == 7)
+    }
+
     @Test("closing the remembered zoom source discards its explicit lineage")
     func closingZoomSourceClearsWorkspaceFallback() throws {
         let workspace = Workspace()

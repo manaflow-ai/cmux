@@ -21,12 +21,42 @@ extension TerminalSurface {
             return lastKnownFontSizeLineage
         }
 
+        return recordObservedFontSizeLineage(
+            runtimePoints: runtimePoints,
+            isExplicitOverride: ghostty_surface_font_size_adjusted(runtimeSurface),
+            globalFontMagnificationPercent: globalFontMagnificationPercent()
+        )
+    }
+
+    /// Reconciles observed runtime points with durable surface ownership.
+    ///
+    /// A live value matching the active mobile fit is temporary and leaves the
+    /// pre-fit lineage unchanged. A different live value came from outside the
+    /// fitter, so it becomes the new durable base and restore point.
+    @MainActor
+    func recordObservedFontSizeLineage(
+        runtimePoints: Float32,
+        isExplicitOverride: Bool,
+        globalFontMagnificationPercent: Int
+    ) -> TerminalFontSizeLineage? {
+        guard runtimePoints.isFinite, runtimePoints > 0 else {
+            return lastKnownFontSizeLineage
+        }
+        if var fitState = mobileViewportFontFitState {
+            guard !isExplicitOverride
+                    || !fitState.matchesFittedRuntimePointSize(runtimePoints) else {
+                return lastKnownFontSizeLineage
+            }
+            fitState.rebase(to: runtimePoints)
+            mobileViewportFontFitState = fitState
+        }
+
         let lineage = TerminalFontSizeLineage(
             basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
                 fromRuntimePoints: runtimePoints,
-                percent: globalFontMagnificationPercent()
+                percent: globalFontMagnificationPercent
             ),
-            isExplicitOverride: ghostty_surface_font_size_adjusted(runtimeSurface)
+            isExplicitOverride: isExplicitOverride
         )
         recordCurrentFontSizeLineage(lineage)
         return lineage
@@ -40,7 +70,6 @@ extension TerminalSurface {
     @MainActor
     func recordCurrentFontSizeLineage(_ lineage: TerminalFontSizeLineage) {
         lastKnownFontSizeLineage = lineage
-        lastKnownFontSizeFollowsCurrentConfig = !lineage.isExplicitOverride
     }
 
     /// Resolves the Swift-owned template used to create this surface's runtime.
@@ -51,7 +80,7 @@ extension TerminalSurface {
     @MainActor
     func runtimeCreationConfigTemplate() -> CmuxSurfaceConfigTemplate {
         var template = configTemplate ?? CmuxSurfaceConfigTemplate()
-        if lastKnownFontSizeFollowsCurrentConfig {
+        if lastKnownFontSizeLineage?.isExplicitOverride == false {
             template.fontSizeLineage = nil
         } else if let lastKnownFontSizeLineage {
             template.fontSizeLineage = lastKnownFontSizeLineage
