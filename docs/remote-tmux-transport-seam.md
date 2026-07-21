@@ -57,7 +57,12 @@ implementation wraps a persistent-session transport. For ET that is:
 et --command 'exec tmux -CC attach-session -t <session>' [--port N] <user>@<host>
 ```
 
-Four details are load-bearing for any such transport:
+Four details are load-bearing for any such transport. Each one is a claim about a program cmux
+does not control, so each one is a check in `scripts/remote-tmux-et-conformance.sh` rather than
+only a paragraph here — every defect this transport shipped with was a claim in this list that
+nothing executed. Run that script against every ET version you intend to support: 7.x rewrote the
+pty input path that 6.x deadlocks on, so "et behaves like this" is version-scoped.
+
 
 - **Run the command, do not open a shell.** ET's `--command` runs one command and exits.
   Prefix it with `exec` so the remote process tree does not keep a shell parent around.
