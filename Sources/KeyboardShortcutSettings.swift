@@ -960,8 +960,8 @@ enum KeyboardShortcutSettings {
     }
 
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
-        guard !isManagedBySettingsFile(action) else { return }
-
+        // The settings file is a default source, not a lock: a UI edit of a file-managed
+        // shortcut persists a user override that wins over the file (see shortcutIfBound).
         guard let storedShortcut = storedShortcutForPersistence(shortcut, action: action) else {
             return
         }

@@ -8,16 +8,18 @@ extension KeyboardShortcutSettings {
         shortcutLookupObserver?(action)
         #endif
 
+        // Precedence: user explicit choice (UserDefaults) > cmux.json imported default >
+        // built-in default. A persisted value (including an explicit unbind) wins over the
+        // settings file; the file is a default source, not a lock.
+        if let data = UserDefaults.standard.data(forKey: action.defaultsKey),
+           let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) {
+            return shortcut.isUnbound ? nil : shortcut
+        }
         if let managedShortcut = settingsFileStore.override(for: action) {
             return managedShortcut.isUnbound ? nil : managedShortcut
         }
-
-        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            let defaultShortcut = action.defaultShortcut
-            return defaultShortcut.isUnbound ? nil : defaultShortcut
-        }
-        return shortcut.isUnbound ? nil : shortcut
+        let defaultShortcut = action.defaultShortcut
+        return defaultShortcut.isUnbound ? nil : defaultShortcut
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
