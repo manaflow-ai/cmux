@@ -7,32 +7,6 @@ public enum RestorableAgentProcessLiveness: Equatable, Hashable, Sendable {
     /// Available evidence cannot determine whether the recorded agent is running.
     case unknown
 
-    /// Classifies a recorded process identifier using caller-provided process inspection.
-    ///
-    /// - Parameters:
-    ///   - recordedProcessID: The process identifier saved by the agent hook.
-    ///   - processMatch: Returns whether a valid identifier still represents the expected agent generation.
-    /// - Returns: The live process identifier, when matched, and its liveness classification.
-    public static func scopedProcessObservation(
-        recordedProcessID: Int?,
-        processMatch: (Int) -> RestorableAgentProcessMatch
-    ) -> (processID: Int?, liveness: Self) {
-        guard let recordedProcessID else {
-            return (nil, .unknown)
-        }
-        guard recordedProcessID > 0, recordedProcessID <= Int(Int32.max) else {
-            return (nil, .exited)
-        }
-        switch processMatch(recordedProcessID) {
-        case .matches:
-            return (recordedProcessID, .running)
-        case .mismatches:
-            return (nil, .exited)
-        case .unknown:
-            return (nil, .unknown)
-        }
-    }
-
     /// Revalidates cached running state against current process-generation evidence.
     ///
     /// Non-running states are already authoritative. A cached running state remains

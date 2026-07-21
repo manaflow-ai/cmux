@@ -5,35 +5,35 @@ import Testing
 struct RestorableAgentProcessLivenessTests {
     @Test("Recorded process observation preserves tri-state evidence")
     func recordedProcessObservationPreservesTriStateEvidence() {
-        let missing = RestorableAgentProcessLiveness.scopedProcessObservation(
+        let missing = RestorableAgentProcessObservation(
             recordedProcessID: nil,
             processMatch: { _ in .matches }
         )
         #expect(missing.processID == nil)
         #expect(missing.liveness == .unknown)
 
-        let invalid = RestorableAgentProcessLiveness.scopedProcessObservation(
+        let invalid = RestorableAgentProcessObservation(
             recordedProcessID: -1,
             processMatch: { _ in .matches }
         )
         #expect(invalid.processID == nil)
         #expect(invalid.liveness == .exited)
 
-        let matched = RestorableAgentProcessLiveness.scopedProcessObservation(
+        let matched = RestorableAgentProcessObservation(
             recordedProcessID: 42,
             processMatch: { _ in .matches }
         )
         #expect(matched.processID == 42)
         #expect(matched.liveness == .running)
 
-        let mismatched = RestorableAgentProcessLiveness.scopedProcessObservation(
+        let mismatched = RestorableAgentProcessObservation(
             recordedProcessID: 42,
             processMatch: { _ in .mismatches }
         )
         #expect(mismatched.processID == nil)
         #expect(mismatched.liveness == .exited)
 
-        let unknown = RestorableAgentProcessLiveness.scopedProcessObservation(
+        let unknown = RestorableAgentProcessObservation(
             recordedProcessID: 42,
             processMatch: { _ in .unknown }
         )
