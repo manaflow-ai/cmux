@@ -212,17 +212,30 @@ extension DockSplitStore {
         clearRestoredAgentContinuationState(panelId: panelId)
     }
 
-    func persistentSSHResumeRegistration(
-        panelId: UUID
-    ) -> (context: SurfaceResumeRemoteContext, relayToken: String)? {
+    func persistentSSHResumeContext(panelId: UUID) -> SurfaceResumeRemoteContext? {
         guard let transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
+              transfer.remoteTerminalSessionPhase != .ended,
               let sessionID = transfer.remotePTYSessionID?
                   .trimmingCharacters(in: .whitespacesAndNewlines),
               !sessionID.isEmpty else {
             return nil
         }
-        let sourceWorkspaceId = transfer.sessionRestoreWorkspaceId
+        return SurfaceResumeRemoteContext(
+            workspaceID: transfer.sessionRestoreWorkspaceId,
+            surfaceID: panelId,
+            persistentPTYSessionID: sessionID
+        )
+    }
+
+    func persistentSSHResumeRegistration(
+        panelId: UUID
+    ) -> (context: SurfaceResumeRemoteContext, relayToken: String)? {
+        guard let transfer = detachedSurfaceTransfersByPanelId[panelId],
+              let context = persistentSSHResumeContext(panelId: panelId) else {
+            return nil
+        }
+        let sourceWorkspaceId = context.workspaceID
         let sourceWorkspace = AppDelegate.shared?.workspaceFor(tabId: sourceWorkspaceId)
         guard let configuration = transfer.remoteCleanupConfiguration ?? sourceWorkspace?.remoteConfiguration,
               configuration.transport == .ssh,
@@ -233,11 +246,7 @@ extension DockSplitStore {
             return nil
         }
         return (
-            SurfaceResumeRemoteContext(
-                workspaceID: sourceWorkspaceId,
-                surfaceID: panelId,
-                persistentPTYSessionID: sessionID
-            ),
+            context,
             relayToken
         )
     }
