@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
+import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -317,26 +318,39 @@ public struct CMUXMobileRootScene: View {
         } else if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
             ToastGalleryView()
         } else {
-            CMUXMobileAppView(
-                store: makeStore(),
-                onboardingStore: onboardingStore,
-                signOutHook: signOutHook
-            )
+            makeMobileAppView()
         }
         #else
-        CMUXMobileAppView(
-            store: makeStore(),
-            onboardingStore: onboardingStore,
-            signOutHook: signOutHook
-        )
+        makeMobileAppView()
         #endif
         #else
-        CMUXMobileAppView(store: makeStore(), signOutHook: signOutHook)
+        makeMobileAppView()
         #endif
     }
 
     @MainActor
-    package func makeStore() -> CMUXMobileShellStore {
+    private func makeMobileAppView() -> CMUXMobileAppView {
+        let browserStreamStore = BrowserStreamStore()
+        #if os(iOS)
+        return CMUXMobileAppView(
+            store: makeStore(browserStreamEvents: browserStreamStore),
+            browserStreamStore: browserStreamStore,
+            onboardingStore: onboardingStore,
+            signOutHook: signOutHook
+        )
+        #else
+        return CMUXMobileAppView(
+            store: makeStore(browserStreamEvents: browserStreamStore),
+            browserStreamStore: browserStreamStore,
+            signOutHook: signOutHook
+        )
+        #endif
+    }
+
+    @MainActor
+    package func makeStore(
+        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil
+    ) -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
@@ -375,7 +389,8 @@ public struct CMUXMobileRootScene: View {
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore,
-            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard)
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard),
+            browserStreamEvents: browserStreamEvents
         )
     }
 }

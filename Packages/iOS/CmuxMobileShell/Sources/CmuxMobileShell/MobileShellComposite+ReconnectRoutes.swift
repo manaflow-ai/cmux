@@ -241,6 +241,7 @@ extension MobileShellComposite {
         if shouldResync, pairedMacStore == nil {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
+        restartActiveMobileBrowserStreams()
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
@@ -255,6 +256,7 @@ extension MobileShellComposite {
     public func suspendForegroundRefresh() {
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
+        stopActiveMobileBrowserStreamsForBackground()
     }
 
     func loadReconnectRefreshSnapshot(
