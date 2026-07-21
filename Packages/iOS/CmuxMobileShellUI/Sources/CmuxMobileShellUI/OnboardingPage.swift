@@ -44,7 +44,7 @@ struct OnboardingPage: Sendable {
             ),
             body: L10n.string(
                 "mobile.onboarding.whatBody",
-                defaultValue: "cmux runs your terminals and AI coding agents on your Mac. This app lets you watch them, type, and get notified when an agent needs you, right from your phone."
+                defaultValue: "cmux runs your terminals and AI coding agents on your Mac. Watch, type, and respond from your phone. Every agent alert stays in Notifications, and push alerts are optional when you want an immediate heads-up away from the app."
             )
         )
     }

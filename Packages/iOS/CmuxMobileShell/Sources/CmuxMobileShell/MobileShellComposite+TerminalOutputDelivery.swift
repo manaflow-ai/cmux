@@ -297,6 +297,10 @@ extension MobileShellComposite {
                     token: replayBarrierToken,
                     reason: "dropped_output_cap"
                 )
+                let isPartialVerifiedRenderGrid = terminalOutputTransport == .renderGrid
+                    && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
+                    && delivery.sourceRenderGridFrame?.full == false
+                guard !isPartialVerifiedRenderGrid else { return false }
                 return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
             }
             if remoteClient != nil,
@@ -333,6 +337,9 @@ extension MobileShellComposite {
                     data: immediate.bytes,
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
+                    sourceRenderGridFrame: immediate.sourceRenderGridFrame,
+                    requiresVerifiedReplay: terminalOutputTransport == .renderGrid
+                        && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability),
                     terminalConfigTheme: immediate.terminalConfigTheme
                 )
             )
@@ -418,6 +425,9 @@ extension MobileShellComposite {
             data: next.bytes,
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,
+            sourceRenderGridFrame: next.sourceRenderGridFrame,
+            requiresVerifiedReplay: terminalOutputTransport == .renderGrid
+                && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability),
             terminalConfigTheme: next.terminalConfigTheme
         ))
     }

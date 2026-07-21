@@ -199,6 +199,18 @@ public actor CmxIrohClientSession {
         return await connection.isClosed()
     }
 
+    /// Returns Iroh's process-local identity for this exact admitted QUIC
+    /// connection. Alternate endpoint implementations may not provide one.
+    func connectionContinuityID() async -> UInt64? {
+        guard !closed,
+              let connection,
+              let continuityConnection = connection as? any CmxIrohConnectionContinuityIdentifying else {
+            return nil
+        }
+        guard !(await connection.isClosed()) else { return nil }
+        return await continuityConnection.connectionContinuityID()
+    }
+
     /// Reads package-private path evidence from the exact admitted connection.
     func observedSelectedPath() async -> CmxIrohObservedConnectionPath {
         guard let connection = connection as? any CmxIrohConnectionPathInspecting else {
