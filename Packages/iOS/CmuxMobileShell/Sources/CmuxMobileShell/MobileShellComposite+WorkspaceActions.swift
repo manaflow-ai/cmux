@@ -282,12 +282,17 @@ extension MobileShellComposite {
         let policy = MobileShellWorkspaceMutationTicketPolicy(now: now)
         if target.isForeground {
             return policy.allowsMacScopedWorkspaceMutations(
-                activeTicket ?? client.attachTicket
+                activeTicket ?? client.attachTicket,
+                hostAuthorizesByAccount: hostAuthorizesAccountScopedMutations
             )
         }
-        let ticket = target.macDeviceID.flatMap { secondaryMacSubscriptions[$0]?.ticket }
-            ?? client.attachTicket
-        return policy.allowsMacScopedWorkspaceMutations(ticket)
+        let subscription = target.macDeviceID.flatMap { secondaryMacSubscriptions[$0] }
+        let ticket = subscription?.ticket ?? client.attachTicket
+        return policy.allowsMacScopedWorkspaceMutations(
+            ticket,
+            hostAuthorizesByAccount: subscription?.supportedHostCapabilities
+                .contains(Self.workspaceMutationAccountAuthCapability) ?? false
+        )
     }
 
     private func sendWorkspaceMutation(

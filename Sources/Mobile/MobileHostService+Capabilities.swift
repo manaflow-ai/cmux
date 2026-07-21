@@ -37,6 +37,12 @@ extension MobileHostService {
             "workspace.group_actions.v1",
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
+            // Mac-scoped workspace mutations (move, group actions/create,
+            // create-in-group) are authorized by the signed-in Stack account;
+            // an attach ticket only narrows scope while current. iOS keeps the
+            // drag-and-drop and group-create affordances enabled after ticket
+            // expiry only against hosts that advertise this.
+            "workspace.mutations.account_auth.v1",
             "workspace.task_create.v1",
             "workspace.directory_browse.v1",
             "workspace.directory_search.v1",

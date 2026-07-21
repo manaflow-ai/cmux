@@ -92,6 +92,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceReadStateCapability = "workspace.read_state.v1"
     static let workspaceCloseCapability = "workspace.close.v1"
     static let workspaceMoveCapability = "workspace.move.v1"
+    static let workspaceMutationAccountAuthCapability = "workspace.mutations.account_auth.v1"
     static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
     static let taskCreateCapability = "workspace.task_create.v1"
@@ -3369,7 +3370,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             actionCapabilities: Self.workspaceActionCapabilities(
                 from: capabilities,
                 allowsMacScopedMutations: MobileShellWorkspaceMutationTicketPolicy(now: runtime.now())
-                    .allowsMacScopedWorkspaceMutations(ticket)
+                    .allowsMacScopedWorkspaceMutations(
+                        ticket,
+                        hostAuthorizesByAccount: capabilities.contains(Self.workspaceMutationAccountAuthCapability)
+                    )
             )
         )
     }
