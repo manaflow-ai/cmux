@@ -71,18 +71,27 @@ struct TerminalFolderTapPolicyTests {
 
     @Test("disabled fails closed when classification exceeds its deadline")
     func disabledClassificationDeadlineFocusesTerminal() async {
+        let clock = ContinuousClock()
+        let startedAt = clock.now
         let decision = await TerminalFolderTapPolicy(
             folderTapEnabled: false,
             classificationDeadline: .milliseconds(50)
         ).decision(
             for: "/tmp/file",
             stat: { _ in
-                try await Task.sleep(for: .milliseconds(250))
+                await withCheckedContinuation { continuation in
+                    _ = Task.detached {
+                        try? await Task.sleep(for: .seconds(2))
+                        continuation.resume()
+                    }
+                }
                 return .text
             }
         )
+        let elapsed = startedAt.duration(to: clock.now)
 
         #expect(decision == .focusTerminal)
+        #expect(elapsed < .seconds(1), "Deadline result took \(elapsed)")
     }
 
     @Test("disabled still accepts a fast classification before the deadline")
