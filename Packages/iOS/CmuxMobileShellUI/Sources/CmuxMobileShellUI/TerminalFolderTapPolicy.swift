@@ -2,8 +2,6 @@ import CmuxAgentChat
 
 /// Decides whether a detected terminal path should open as an artifact.
 struct TerminalFolderTapPolicy: Sendable {
-    private struct ClassificationDeadlineExceeded: Error {}
-
     /// Whether detected directory paths should open in the artifact viewer.
     let folderTapEnabled: Bool
 
@@ -36,25 +34,36 @@ struct TerminalFolderTapPolicy: Sendable {
     ) async -> Decision {
         guard !folderTapEnabled else { return .openArtifact }
 
-        do {
-            let kind = try await withThrowingTaskGroup(of: ChatArtifactKind.self) { group in
-                group.addTask {
-                    try await stat(path)
-                }
-                group.addTask {
-                    // This bounded, cancellable sleep is the intentional classification deadline.
-                    try await Task.sleep(for: classificationDeadline)
-                    throw ClassificationDeadlineExceeded()
-                }
-                defer { group.cancelAll() }
-                guard let first = try await group.next() else {
-                    throw CancellationError()
-                }
-                return first
+        let (decisions, continuation) = AsyncStream<Decision>.makeStream(
+            bufferingPolicy: .bufferingOldest(1)
+        )
+        let statTask = Task { @MainActor in
+            let decision: Decision
+            do {
+                let kind = try await stat(path)
+                decision = kind == .directory ? .focusTerminal : .openArtifact
+            } catch {
+                decision = .focusTerminal
             }
-            return kind == .directory ? .focusTerminal : .openArtifact
-        } catch {
-            return .focusTerminal
+            continuation.yield(decision)
+            continuation.finish()
         }
+        let deadlineTask = Task {
+            do {
+                // This bounded, cancellable sleep is the intentional classification deadline.
+                try await Task.sleep(for: classificationDeadline)
+            } catch {
+                return
+            }
+            continuation.yield(.focusTerminal)
+            continuation.finish()
+        }
+
+        defer {
+            statTask.cancel()
+            deadlineTask.cancel()
+        }
+        var iterator = decisions.makeAsyncIterator()
+        return await iterator.next() ?? .focusTerminal
     }
 }

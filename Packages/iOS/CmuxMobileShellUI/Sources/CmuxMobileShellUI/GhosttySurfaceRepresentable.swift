@@ -185,7 +185,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactCountState = TerminalArtifactChipCountState()
         var artifactCountNeedsRefresh: Bool
         var freshestLocalArtifactCount = 0
-        var folderTapStatInFlight = false
+        var folderTapStatsInFlight: Set<String> = []
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.

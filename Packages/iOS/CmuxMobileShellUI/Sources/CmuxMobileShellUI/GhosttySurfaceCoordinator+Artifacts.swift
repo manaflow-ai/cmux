@@ -266,34 +266,44 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     columns: snapshot.columns
                 ) {
                     let folderTapEnabled = terminalFolderTapEnabled
-                    if !folderTapEnabled {
-                        guard !folderTapStatInFlight else { return .focusTerminal }
-                        folderTapStatInFlight = true
-                    }
-                    defer {
-                        if !folderTapEnabled {
-                            folderTapStatInFlight = false
+                    let decision: TerminalFolderTapPolicy.Decision
+                    if !folderTapEnabled,
+                       !folderTapStatsInFlight.insert(path).inserted {
+                        decision = .focusTerminal
+                    } else {
+                        defer {
+                            if !folderTapEnabled {
+                                folderTapStatsInFlight.remove(path)
+                            }
                         }
-                    }
 
-                    let decision = await TerminalFolderTapPolicy(
-                        folderTapEnabled: folderTapEnabled
-                    ).decision(
-                        for: path
-                    ) { [weak self] path in
-                        guard let self,
-                              let source = self.store?.makeChatEventSource() else {
-                            throw CancellationError()
+                        decision = await TerminalFolderTapPolicy(
+                            folderTapEnabled: folderTapEnabled
+                        ).decision(
+                            for: path
+                        ) { [weak self] path in
+                            guard let self,
+                                  let source = self.store?.makeChatEventSource() else {
+                                throw CancellationError()
+                            }
+                            return try await source.terminalArtifactStat(
+                                workspaceID: self.workspaceID,
+                                surfaceID: self.surfaceID,
+                                path: path
+                            ).kind
                         }
-                        return try await source.terminalArtifactStat(
-                            workspaceID: self.workspaceID,
-                            surfaceID: self.surfaceID,
-                            path: path
-                        ).kind
                     }
                     guard decision == .openArtifact else {
-                        // Preserve interception parity with enabled path taps; replaying
-                        // coordinates after an await could click stale TUI content.
+                        // Forward only against revalidated content; stale coordinates
+                        // are dropped instead of clicking a changed TUI cell.
+                        guard self.surfaceView === surfaceView,
+                              let currentSnapshot = await surfaceView.visibleTextForArtifactHitTesting(),
+                              self.surfaceView === surfaceView,
+                              currentSnapshot.text == snapshot.text,
+                              currentSnapshot.columns == snapshot.columns else {
+                            return .focusTerminal
+                        }
+                        await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
                         return .focusTerminal
                     }
                     guard self.surfaceView === surfaceView else {
