@@ -373,7 +373,6 @@ struct WorkspaceListView: View {
             MobileSettingsView(
                 connectedHostName: host,
                 rescanQR: rescanQR,
-                startPairing: showAddDevice,
                 startPairingScanner: showPairingScanner,
                 signOut: signOut,
                 store: store

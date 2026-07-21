@@ -20,7 +20,6 @@ struct MobileSettingsView: View {
     @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
     let rescanQR: (() -> Void)?
-    let startPairing: (() -> Void)?
     let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
@@ -38,6 +37,7 @@ struct MobileSettingsView: View {
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var startsPairingAfterDismiss = false
+    @State private var isOnboardingRetryPending = false
     @State private var showingSetupHelp = false
     #if DEBUG
     @State private var showingChatDemo = false
@@ -383,8 +383,8 @@ struct MobileSettingsView: View {
                     isAuthenticated: true,
                     connectionPhase: OnboardingConnectionPhase.resolve(
                         isMacReady: store?.connectionState == .connected,
-                        isSearching: store?.isReconnectingStoredMac == true,
-                        didFinishSearch: store?.isReconnectingStoredMac == true
+                        isSearching: isOnboardingRetryPending || store?.isReconnectingStoredMac == true,
+                        didFinishSearch: isOnboardingRetryPending || store?.isReconnectingStoredMac == true
                             ? store?.didFinishStoredMacReconnectAttempt ?? false
                             : true
                     ),
@@ -427,10 +427,12 @@ struct MobileSettingsView: View {
     }
 
     private func retryAutomaticConnection() {
-        guard let store else { return }
+        guard let store, !isOnboardingRetryPending, !store.isReconnectingStoredMac else { return }
+        isOnboardingRetryPending = true
         let stackUserID = authManager.currentUser?.id
         Task {
             _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            isOnboardingRetryPending = false
         }
     }
 

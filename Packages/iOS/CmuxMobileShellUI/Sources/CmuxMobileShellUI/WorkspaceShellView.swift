@@ -244,7 +244,6 @@ struct WorkspaceShellView: View {
                 MobileSettingsView(
                     connectedHostName: store.connectedHostName,
                     rescanQR: { store.disconnectAndForgetActiveMac() },
-                    startPairing: showAddDevice,
                     startPairingScanner: showPairingScanner,
                     signOut: signOut,
                     store: store

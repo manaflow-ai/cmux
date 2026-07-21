@@ -29,6 +29,7 @@ struct CMUXMobileRootView: View {
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
+    @State private var isOnboardingRetryPending = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -403,7 +404,7 @@ struct CMUXMobileRootView: View {
     private var onboardingConnectionPhase: OnboardingConnectionPhase {
         OnboardingConnectionPhase.resolve(
             isMacReady: store.connectionState == .connected,
-            isSearching: store.isReconnectingStoredMac,
+            isSearching: isOnboardingRetryPending || store.isReconnectingStoredMac,
             didFinishSearch: store.didFinishStoredMacReconnectAttempt
         )
     }
@@ -476,9 +477,12 @@ struct CMUXMobileRootView: View {
     /// A user retry intentionally supersedes any startup attempt that is still
     /// winding down after the restoring deadline exposed the fallback UI.
     private func retryAutomaticConnection() {
+        guard !isOnboardingRetryPending, !store.isReconnectingStoredMac else { return }
+        isOnboardingRetryPending = true
         let stackUserID = authManager.currentUser?.id
         Task {
             _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            isOnboardingRetryPending = false
         }
     }
 
