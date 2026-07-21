@@ -31,8 +31,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
 #if DEBUG
         if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
             || method == "remote.tmux.test_perturb_divider"
-            || method == "remote.tmux.root_frames"
-            || method == "remote.tmux.window" {
+            || method == "remote.tmux.root_frames" {
             self = .socketWorker(mainThreadCallable: false)
             return
         }
@@ -130,7 +129,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
-        "remote.tmux.mirror", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+        "remote.tmux.mirror", "remote.tmux.window",
+        "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
