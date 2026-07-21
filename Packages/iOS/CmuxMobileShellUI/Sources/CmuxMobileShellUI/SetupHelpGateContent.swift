@@ -23,7 +23,7 @@ struct SetupHelpGateContent {
                 title: L10n.string("mobile.setupHelp.signInTitle", defaultValue: "Sign in"),
                 body: L10n.string(
                     "mobile.setupHelp.signInBody",
-                    defaultValue: "Sign in to cmux on this phone with the same account your computer uses. Computers on your account are found automatically once you sign in."
+                    defaultValue: "Sign in to cmux on this phone with the same account your computer uses. Once you sign in, your computer is found automatically."
                 ),
                 link: nil,
                 identifierSuffix: "notSignedIn",

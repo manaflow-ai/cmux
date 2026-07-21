@@ -2727,13 +2727,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switch which computer this device controls. Computers on your account appear here automatically while cmux is running on them. Pairing another keeps the ones you already have."
+            "value": "Switch which computer this device controls. A computer joins this list automatically the first time this phone connects to it. Pair Another Computer adds more without removing the ones you have."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイスが操作するコンピュータを切り替えます。アカウントのコンピュータは、cmuxの実行中に自動的にここに表示されます。別のコンピュータをペアリングしても、今あるコンピュータはそのまま残ります。"
+            "value": "このデバイスが操作するコンピュータを切り替えます。コンピュータは、この端末が最初に接続したときに自動的にこの一覧に追加されます。「別のコンピュータをペアリング」で、今あるコンピュータを残したまま追加できます。"
           }
         }
       }
@@ -6100,13 +6100,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux on this phone with the same account your computer uses. Computers on your account are found automatically once you sign in."
+            "value": "Sign in to cmux on this phone with the same account your computer uses. Once you sign in, your computer is found automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この端末で、コンピュータと同じアカウントを使ってcmuxにサインインします。サインインすると、アカウントのコンピュータは自動的に見つかります。"
+            "value": "この端末で、コンピュータと同じアカウントを使ってcmuxにサインインします。サインインすると、コンピュータは自動的に見つかります。"
           }
         }
       }

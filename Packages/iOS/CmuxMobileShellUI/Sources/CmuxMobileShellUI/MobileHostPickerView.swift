@@ -31,7 +31,7 @@ struct MobileHostPickerView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.hostPicker.footer",
-                        defaultValue: "Switch which computer this device controls. Computers on your account appear here automatically while cmux is running on them. Pairing another keeps the ones you already have."
+                        defaultValue: "Switch which computer this device controls. A computer joins this list automatically the first time this phone connects to it. Pair Another Computer adds more without removing the ones you have."
                     ))
                 }
 
