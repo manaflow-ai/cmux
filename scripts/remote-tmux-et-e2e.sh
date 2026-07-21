@@ -75,7 +75,13 @@ esac
 #   enter    the ESC P 1000 p handshake was parsed. cmux withholds commands until it arrives,
 #            and et delivers it mid-line behind the login shell's echo.
 #   windows  a real `list-windows` result came back over the stream and was applied.
-state() { cli rpc remote.tmux.state "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}"; }
+# The transport and its port are part of the endpoint's identity, so a lookup that omits them
+# addresses a different endpoint and quietly matches nothing — which reads as "the stream never
+# reached control mode" rather than "you asked about the wrong connection".
+state() {
+  cli rpc remote.tmux.state \
+    "{\"host\":\"$HOST\",\"session\":\"$SESSION\",\"transport\":\"et\",\"transport_port\":$PORT}"
+}
 stream_entered() { state | grep -q '"enter_received" : true'; }
 stream_has_windows() { state | grep -qE '"window_count" : [1-9]'; }
 
