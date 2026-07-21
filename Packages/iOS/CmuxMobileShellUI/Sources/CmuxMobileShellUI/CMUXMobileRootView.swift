@@ -17,7 +17,6 @@ struct CMUXMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
-    @Environment(\.analytics) private var analytics
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)

@@ -408,7 +408,6 @@ struct PairingView: View {
     }
 
     private func cancelDirectScanner() {
-        cancelPairing()
         cancel()
     }
 }
