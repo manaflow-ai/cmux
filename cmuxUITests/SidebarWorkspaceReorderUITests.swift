@@ -1,0 +1,260 @@
+import CoreGraphics
+import XCTest
+
+final class SidebarWorkspaceReorderUITests: XCTestCase {
+    private let workspaceTitlePrefix = "reorder-ui-"
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+    }
+
+    func testReordersWhenDraggedRowCenterCrossesNeighborCenter() throws {
+        let app = launchFixture()
+        defer { app.terminate() }
+        let titles = try createRootWorkspaces(count: 4, app: app)
+        let targetTitle = titles[2]
+        let draggedTitle = titles[3]
+        let target = try workspaceRow(targetTitle, app: app)
+        let dragged = try workspaceRow(draggedTitle, app: app)
+        let window = try XCTUnwrap(app.windows.firstMatch)
+
+        // Grab near the bottom. The pointer remains below the target midpoint,
+        // while the floating row's midpoint has already crossed it.
+        let destination = windowCoordinate(
+            window,
+            point: CGPoint(
+                x: dragged.frame.midX,
+                y: target.frame.midY + target.frame.height * 0.2
+            )
+        )
+        dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+            .click(forDuration: 0.25, thenDragTo: destination, withVelocity: .slow, thenHoldForDuration: 0.35)
+
+        addScreenshot(named: "center-crossing")
+        XCTAssertTrue(
+            waitForWorkspace(draggedTitle, immediatelyBefore: targetTitle, app: app),
+            "Expected the dragged row to reorder when its center crossed the target center. order=\(workspaceOrder(app: app))"
+        )
+    }
+
+    func testCanEnterAndLeaveGroupAtLastMember() throws {
+        let app = launchFixture()
+        defer { app.terminate() }
+        let titles = try createRootWorkspaces(count: 5, app: app)
+        let memberTitle = titles[1]
+        let draggedTitle = titles[3]
+        let followingRootTitle = titles[4]
+
+        let member = try workspaceRow(memberTitle, app: app)
+        member.rightClick()
+        let createGroup = member.menuItems["New Group from Workspace"].firstMatch
+        XCTAssertTrue(createGroup.waitForExistence(timeout: 3), "Expected workspace group context-menu action")
+        createGroup.click()
+        XCTAssertTrue(isWorkspaceGrouped(memberTitle, app: app), "Expected the seed workspace to be in the new group")
+
+        let groupedMember = try workspaceRow(memberTitle, app: app)
+        let dragged = try workspaceRow(draggedTitle, app: app)
+        dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .click(
+                forDuration: 0.25,
+                thenDragTo: groupedMember.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.8)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.35
+            )
+
+        XCTAssertTrue(
+            isWorkspaceGrouped(draggedTitle, app: app),
+            "Expected a root workspace dropped over the last member to join the group. order=\(workspaceOrder(app: app))"
+        )
+
+        let groupedDragged = try workspaceRow(draggedTitle, app: app)
+        let followingRoot = try workspaceRow(followingRootTitle, app: app)
+        groupedDragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .click(
+                forDuration: 0.25,
+                thenDragTo: followingRoot.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.8)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.35
+            )
+
+        addScreenshot(named: "group-tail-entry-exit")
+        XCTAssertFalse(
+            isWorkspaceGrouped(draggedTitle, app: app),
+            "Expected dragging the last member across the following root's center to leave the group. order=\(workspaceOrder(app: app))"
+        )
+    }
+
+    func testReordersWhilePointerIsOutsideSidebar() throws {
+        let app = launchFixture()
+        defer { app.terminate() }
+        let titles = try createRootWorkspaces(count: 4, app: app)
+        let targetTitle = titles[2]
+        let draggedTitle = titles[3]
+        let target = try workspaceRow(targetTitle, app: app)
+        let dragged = try workspaceRow(draggedTitle, app: app)
+        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
+        let window = app.windows.firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5), "Expected sidebar accessibility element")
+        XCTAssertTrue(window.waitForExistence(timeout: 5), "Expected main window")
+
+        let destination = windowCoordinate(
+            window,
+            point: CGPoint(
+                x: min(window.frame.maxX - 24, sidebar.frame.maxX + 100),
+                y: target.frame.midY - 3
+            )
+        )
+        dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .click(forDuration: 0.25, thenDragTo: destination, withVelocity: .slow, thenHoldForDuration: 0.35)
+
+        addScreenshot(named: "outside-sidebar-drop")
+        XCTAssertTrue(
+            waitForWorkspace(draggedTitle, immediatelyBefore: targetTitle, app: app),
+            "Expected the reorder to commit after the pointer left the sidebar. order=\(workspaceOrder(app: app))"
+        )
+    }
+
+    private func launchFixture() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-newWorkspacePlacement", "end",
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = "uisr-\(UUID().uuidString.prefix(8).lowercased())"
+        app.launch()
+        if !app.wait(for: .runningForeground, timeout: 10) {
+            app.activate()
+        }
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 8), "Expected cmux window")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["Sidebar"].firstMatch.waitForExistence(timeout: 5),
+            "Expected workspace sidebar"
+        )
+        return app
+    }
+
+    private func createRootWorkspaces(count: Int, app: XCUIApplication) throws -> [String] {
+        precondition(count > 0)
+        var titles: [String] = []
+        for index in 1...count {
+            if index > 1 {
+                app.typeKey("n", modifierFlags: [.command])
+                XCTAssertTrue(waitForWorkspaceCount(index, app: app), "Expected \(index) workspace rows")
+            } else {
+                XCTAssertTrue(waitForWorkspaceCount(1, app: app), "Expected the initial workspace row")
+            }
+            let title = "\(workspaceTitlePrefix)\(index)"
+            renameWorkspace(at: index, total: index, to: title, app: app)
+            XCTAssertTrue(
+                workspaceRowElement(title, app: app).waitForExistence(timeout: 6),
+                "Expected the terminal title to update workspace \(index). rows=\(allWorkspaceLabels(app: app))"
+            )
+            titles.append(title)
+        }
+        return titles
+    }
+
+    private func renameWorkspace(at index: Int, total: Int, to title: String, app: XCUIApplication) {
+        let row = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label ENDSWITH %@", "workspace \(index) of \(total)"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 6), "Expected workspace \(index) of \(total) before rename")
+        row.rightClick()
+        let renameItem = row.menuItems["Rename Workspace…"].firstMatch
+        XCTAssertTrue(renameItem.waitForExistence(timeout: 3), "Expected Rename Workspace context-menu action")
+        renameItem.click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3), "Expected rename sheet")
+        let input = sheet.textFields.firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 3), "Expected rename text field")
+        input.click()
+        input.typeKey("a", modifierFlags: [.command])
+        input.typeText(title)
+        let renameButton = sheet.buttons["Rename"]
+        XCTAssertTrue(renameButton.waitForExistence(timeout: 3), "Expected Rename button")
+        renameButton.click()
+    }
+
+    private func workspaceRow(_ title: String, app: XCUIApplication) throws -> XCUIElement {
+        let row = workspaceRowElement(title, app: app)
+        XCTAssertTrue(row.waitForExistence(timeout: 6), "Expected workspace row \(title)")
+        XCTAssertTrue(row.isHittable, "Expected workspace row \(title) to be hittable")
+        return row
+    }
+
+    private func workspaceRowElement(_ title: String, app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "\(title), workspace "))
+            .firstMatch
+    }
+
+    private func allWorkspaceRows(app: XCUIApplication) -> [XCUIElement] {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", ", workspace "))
+            .allElementsBoundByIndex
+            .filter { $0.exists && !$0.frame.isEmpty }
+            .sorted { $0.frame.midY < $1.frame.midY }
+    }
+
+    private func workspaceRows(app: XCUIApplication) -> [XCUIElement] {
+        allWorkspaceRows(app: app).filter { $0.label.hasPrefix(workspaceTitlePrefix) }
+    }
+
+    private func allWorkspaceLabels(app: XCUIApplication) -> [String] {
+        allWorkspaceRows(app: app).map(\.label)
+    }
+
+    private func workspaceOrder(app: XCUIApplication) -> [String] {
+        workspaceRows(app: app).map { workspaceTitle(from: $0.label) }
+    }
+
+    private func waitForWorkspaceCount(_ count: Int, app: XCUIApplication) -> Bool {
+        pollUntil(timeout: 8) { self.allWorkspaceRows(app: app).count == count }
+    }
+
+    private func waitForWorkspace(_ title: String, immediatelyBefore targetTitle: String, app: XCUIApplication) -> Bool {
+        pollUntil(timeout: 6) {
+            let order = self.workspaceOrder(app: app)
+            guard let index = order.firstIndex(of: title), index + 1 < order.count else { return false }
+            return order[index + 1] == targetTitle
+        }
+    }
+
+    private func isWorkspaceGrouped(_ title: String, app: XCUIApplication) -> Bool {
+        guard let row = try? workspaceRow(title, app: app) else { return false }
+        row.rightClick()
+        let removeFromGroup = row.menuItems["Remove from Group"].firstMatch
+        let grouped = removeFromGroup.waitForExistence(timeout: 1) && removeFromGroup.isEnabled
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        return grouped
+    }
+
+    private func workspaceTitle(from label: String) -> String {
+        label.split(separator: ",", maxSplits: 1).first.map(String.init) ?? label
+    }
+
+    private func windowCoordinate(_ window: XCUIElement, point: CGPoint) -> XCUICoordinate {
+        window.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: point.x - window.frame.minX, dy: point.y - window.frame.minY)
+        )
+    }
+
+    private func pollUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline
+        return condition()
+    }
+
+    private func addScreenshot(named name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
