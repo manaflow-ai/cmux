@@ -72,7 +72,7 @@ struct WorkspaceDetailView: View {
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
     @State var visibleArtifactCount = 0
-    /// Shared presentation state for toolbar and discoverability-banner entry points.
+    /// Shared presentation state for the toolbar, title-menu, and hint entry points.
     @State var isWorkspaceChangesSheetPresented = false
     @State var workspaceChangesHint: MobileWorkspaceChangesHint?
     @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
@@ -424,9 +424,11 @@ struct WorkspaceDetailView: View {
             workspace: workspace,
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
+            workspaceChangesAreAvailable: workspaceChangesAreAvailable,
             canCloseWorkspace: closeWorkspace != nil,
             presentRename: presentRenameFromMenu,
             toggleReadState: toggleWorkspaceReadStateFromMenu,
+            openWorkspaceChanges: openWorkspaceChanges,
             requestClose: requestCloseWorkspaceFromMenu
         )
     }

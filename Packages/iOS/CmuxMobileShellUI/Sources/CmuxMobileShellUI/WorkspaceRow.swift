@@ -1,4 +1,3 @@
-import CmuxMobileChanges
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -11,8 +10,8 @@ struct WorkspaceRow: View {
     let workspace: MobileWorkspacePreview
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
-    /// The workspace's `+adds −dels` changes summary, when the connected Mac
-    /// supports workspace changes and the repository is dirty. Rendered here
+    /// The workspace's compact changes summary, when the connected Mac supports
+    /// workspace changes and the repository is dirty. Rendered here
     /// (not in a wrapper) so every list pipeline that shows a workspace row
     /// (SwiftUI List and the UIKit table) carries the same signifier.
     var changesChip: MobileWorkspaceChangesChip? = nil
@@ -129,41 +128,5 @@ struct WorkspaceAvatar: View {
             }
         }
         .offset(x: -CGFloat(leftShift))
-    }
-}
-
-/// The compact `+adds −dels` capsule shared by every workspace-row pipeline.
-struct WorkspaceChangesChipLabel: View {
-    let chip: MobileWorkspaceChangesChip
-    let workspaceID: String
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let theme = ChangesTheme(colorScheme: colorScheme)
-        HStack(spacing: 3) {
-            Text("+\(chip.additions)")
-                .foregroundStyle(theme.addedStatus)
-            Text("−\(chip.deletions)")
-                .foregroundStyle(theme.deletedStatus)
-        }
-        .font(.caption2.weight(.semibold))
-        .monospacedDigit()
-        .lineLimit(1)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(Color.secondary.opacity(0.12)))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            String(
-                format: String(
-                    localized: "workspace.changes.chip.accessibility",
-                    defaultValue: "%1$lld additions, %2$lld deletions",
-                    bundle: .module
-                ),
-                chip.additions,
-                chip.deletions
-            )
-        )
-        .accessibilityIdentifier("MobileChangesChip-\(workspaceID)")
     }
 }

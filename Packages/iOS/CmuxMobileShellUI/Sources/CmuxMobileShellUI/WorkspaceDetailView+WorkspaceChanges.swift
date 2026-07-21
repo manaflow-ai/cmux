@@ -20,7 +20,7 @@ extension WorkspaceDetailView {
         return "\(workspace.rpcWorkspaceID.rawValue)#\(capability)#\(connected)#\(filesChanged)"
     }
 
-    /// The single presentation path shared by the toolbar button and hint banner.
+    /// The single presentation path shared by the toolbar chip, title menu, and hint banner.
     func openWorkspaceChanges() {
         guard workspaceChangesAreAvailable else { return }
         let workspaceID = workspace.rpcWorkspaceID.rawValue
