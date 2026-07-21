@@ -410,6 +410,8 @@ extension TerminalSurface {
         let restored: Bool
         if let lineage = lastKnownFontSizeLineage,
            lineage.isExplicitOverride {
+            // Lineage stores unscaled base points, so restoration intentionally
+            // reapplies the current global magnification.
             let runtimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
                 fromBasePoints: lineage.basePoints,
                 percent: globalFontMagnificationPercent()
