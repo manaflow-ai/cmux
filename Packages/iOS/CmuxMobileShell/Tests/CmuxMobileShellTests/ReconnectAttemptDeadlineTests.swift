@@ -56,9 +56,9 @@ extension ReconnectRouteSelectionTests {
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(
                 suiteName: "reconnect-deadline-retry-\(UUID().uuidString)"
-            )!
+            )!,
+            storedMacReconnectRestoringDeadlineSeconds: 0.5
         )
-        store.storedMacReconnectRestoringDeadlineSeconds = 0.15
 
         let firstAttempt = Task {
             await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
@@ -70,7 +70,6 @@ extension ReconnectRouteSelectionTests {
         #expect(deadlineElapsed)
 
         let firstGeneration = store.storedMacReconnectGeneration
-        store.storedMacReconnectRestoringDeadlineSeconds = 5
         let retry = Task {
             await store.retryActiveMacReconnect(stackUserID: "user-1")
         }

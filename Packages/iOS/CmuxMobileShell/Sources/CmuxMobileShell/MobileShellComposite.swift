@@ -79,7 +79,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// onboarding connection scene exposes retry and QR fallback. The launch
     /// ``RestoringSessionView`` has its own shorter gate in ``CMUXMobileRootView``;
     /// this longer backstop covers scope lookup, backup refresh, and dialing.
-    var storedMacReconnectRestoringDeadlineSeconds: Double = 15
+    private let storedMacReconnectRestoringDeadlineSeconds: Double
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
@@ -1010,12 +1010,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore(),
-        taskTemplateStore: (any MobileTaskTemplateStoring)? = nil
+        taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
+        storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
         self.taskTemplateStore = taskTemplateStore
+        self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
@@ -4149,7 +4151,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     #endif
 
-    func invalidateStoredMacReconnectAttempt() { storedMacReconnectGeneration &+= 1 }
+    func invalidateStoredMacReconnectAttempt() {
+        storedMacReconnectGeneration &+= 1
+        isReconnectingStoredMac = false
+    }
 
     /// Drop the PREVIOUS foreground/anonymous workspace snapshot from the aggregate
     /// after the foreground Mac changes (switch A→B, promotion, or a real connect
@@ -5713,7 +5718,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // recovery suspended in a registry refresh for the same device id.
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
-        storedMacReconnectGeneration &+= 1
+        invalidateStoredMacReconnectAttempt()
         let attemptID = beginPairingValidationAttempt(method: method)
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()

@@ -26,6 +26,17 @@ import Testing
         #expect(!store.didFinishStoredMacReconnectAttempt)
     }
 
+    @Test func explicitPairingReleasesSupersededStoredReconnectState() {
+        let store = MobileShellComposite.preview()
+        store.isReconnectingStoredMac = true
+        store.didFinishStoredMacReconnectAttempt = false
+        store.pairingCode = "preview-host"
+
+        store.connectPreviewHost()
+
+        #expect(!store.isReconnectingStoredMac)
+    }
+
     @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {
         let store = MobileShellComposite.preview()
         let workspace = MobileWorkspacePreview(

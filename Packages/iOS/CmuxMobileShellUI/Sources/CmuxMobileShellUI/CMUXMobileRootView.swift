@@ -243,6 +243,7 @@ struct CMUXMobileRootView: View {
                 store: store,
                 signOut: signOut,
                 showAddDevice: showAddDevice,
+                showPairingScanner: showPairingScanner,
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
         } else if store.connectionState != .connected && !store.hasKnownPairedMac {
