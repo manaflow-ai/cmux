@@ -1305,6 +1305,14 @@ class TabManager: ObservableObject {
         }
     }
 
+    /// Restores the startup invariant when the workspace collection is empty.
+    @discardableResult
+    func recoverEmptyWorkspaceAfterStartupIfNeeded() -> Bool {
+        guard tabs.isEmpty else { return false }
+        addWorkspace()
+        return true
+    }
+
     // Keep addTab as convenience alias
     @discardableResult
     func addTab(select: Bool = true, eagerLoadTerminal: Bool = false) -> Workspace {
