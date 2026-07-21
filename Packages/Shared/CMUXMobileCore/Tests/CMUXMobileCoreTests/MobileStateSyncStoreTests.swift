@@ -160,6 +160,25 @@ struct MobileStateSyncStoreTests {
         #expect(payload.removedIDs.isEmpty)
     }
 
+    @Test func splitTombstoneRevisionBatchForcesSnapshot() {
+        let store = MobileSyncCollectionStore<WorkspaceSyncRecord>(maximumTombstoneCount: 2)
+        _ = store.apply(rows: [
+            workspace(id: "a"), workspace(id: "b"),
+            workspace(id: "c"), workspace(id: "d"),
+        ])
+        // One tick removes three records, all tombstoned at rev 2; the ring
+        // keeps only two of them. A cursor at rev 1 cannot prove it saw the
+        // discarded rev-2 removal, so a delta would leave a ghost record —
+        // it must snapshot even though retained tombstones start at rev 2.
+        _ = store.apply(rows: [workspace(id: "d")])
+        #expect(store.payload(since: 1).mode == .snapshot)
+        // A cursor at the discarded bound itself is safe: every removal it
+        // needs (rev > 2) is fully retained.
+        _ = store.apply(rows: [])
+        #expect(store.payload(since: 2).mode == .delta)
+        #expect(store.payload(since: 2).removedIDs == ["d"])
+    }
+
     @Test func rootStoreMismatchedEpochResolvesToSnapshot() {
         let store = MobileStateSyncStore(epoch: "epoch-1")
         _ = store.workspaces.apply(rows: [workspace(id: "a")])

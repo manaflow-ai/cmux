@@ -850,23 +850,50 @@ extension MobileShellComposite {
     ///   the synthetic id. `nil` for a genuinely manual/unknown host.
 
     /// Races `operation` against a wall-clock deadline. Returns the
-    /// operation's value, or `nil` when the deadline expires first. The
-    /// losing side is cancelled best-effort; a hung FFI dial may ignore
-    /// cancellation, which is exactly why the caller must abandon the
-    /// attempt instead of awaiting it forever.
+    /// operation's value, or `nil` when the deadline expires first.
+    ///
+    /// Deliberately UNSTRUCTURED: a task group would structurally await the
+    /// losing child, so a dial that ignores cancellation (the exact wedge
+    /// this exists for) would suspend the race forever. Instead the
+    /// operation runs in its own task that the deadline path abandons after
+    /// a best-effort cancel; the once-guard is MainActor-confined so exactly
+    /// one side resumes. An abandoned dial retains its captures until it
+    /// eventually resolves — bounded by transport teardown and precisely the
+    /// cost of not being wedged.
     static func raceAgainstDeadline<Value: Sendable>(
         nanoseconds: UInt64,
         _ operation: @escaping @Sendable () async -> Value
     ) async -> Value? {
-        await withTaskGroup(of: Value?.self) { group in
-            group.addTask { await operation() }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: nanoseconds)
-                return nil
+        await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
+            let once = RaceContinuationOnce(continuation)
+            let operationTask = Task {
+                once.finish(await operation())
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+            Task {
+                try? await Task.sleep(nanoseconds: nanoseconds)
+                operationTask.cancel()
+                once.finish(nil)
+            }
         }
+    }
+}
+
+/// Resumes a race continuation exactly once, whichever side finishes first.
+/// Lock-based rather than actor-based so both racing tasks can call it
+/// without an isolation hop.
+private final class RaceContinuationOnce<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value?, Never>?
+
+    init(_ continuation: CheckedContinuation<Value?, Never>) {
+        self.continuation = continuation
+    }
+
+    func finish(_ value: Value?) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: value)
     }
 }

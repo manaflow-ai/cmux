@@ -72,6 +72,12 @@ actor LivenessHostRouter {
         syncFetchResults.append(object)
     }
 
+    /// Scripts the next `mobile.sync.fetch` to fail with a transient (non
+    /// method_not_found) error, modeling a timeout/decoding failure mid-repair.
+    func scriptSyncFetchTransientError() {
+        syncFetchResults.append(["__transient_error__": true])
+    }
+
     func record(method: String?, topics: [String]?, workspaceID: String? = nil) {
         recorded.append(RecordedRequest(
             method: method,
@@ -390,7 +396,11 @@ actor LivenessHostRouter {
             guard !syncFetchResults.isEmpty else {
                 return try? Self.errorFrame(id: id, code: "method_not_found", message: "Unknown mobile method")
             }
-            return try? Self.resultFrame(id: id, result: syncFetchResults.removeFirst())
+            let scripted = syncFetchResults.removeFirst()
+            if scripted["__transient_error__"] as? Bool == true {
+                return try? Self.errorFrame(id: id, message: "scripted transient sync failure")
+            }
+            return try? Self.resultFrame(id: id, result: scripted)
         case "mobile.terminal.viewport":
             viewportRequestCount += 1
             if heldViewportRequestNumbers.contains(viewportRequestCount) {

@@ -179,6 +179,39 @@ struct MobileShellStateSyncTests {
         #expect(fetches >= 2, "gap repair must issue a second mobile.sync.fetch")
     }
 
+    @Test func failedRepairFetchFallsBackToLegacyListAndReenablesRefetch() async throws {
+        let router = LivenessHostRouter()
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 3,
+                records: [workspaceRecord(id: UUID().uuidString, title: "synced-alpha", sortIndex: 0)]
+            )
+        )
+        // The gap-repair fetch fails transiently; the shell must not strand
+        // the mirror behind a suppressed refetch loop.
+        await router.scriptSyncFetchTransientError()
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        _ = try await pollUntil { store.stateSyncActive }
+
+        let listCallsBefore = await router.count(of: "mobile.workspace.list")
+        let transport = try #require(box.get())
+        await transport.deliver(try syncDeltaEventFrame(
+            epoch: "epoch-1",
+            fromRev: 9,
+            toRev: 10,
+            records: [workspaceRecord(id: UUID().uuidString, title: "lost", sortIndex: 1)]
+        ))
+        let fellBack = try await pollUntil { !store.stateSyncActive }
+        #expect(fellBack, "a failed repair fetch must drop back to legacy semantics")
+        let reloaded = try await pollUntil {
+            await router.count(of: "mobile.workspace.list") > listCallsBefore
+        }
+        #expect(reloaded, "the fallback must converge with one authoritative legacy reload")
+    }
+
     @Test func legacyMacKeepsWorkspaceUpdatedRefetchLoop() async throws {
         // No scripted sync result: the router answers `method_not_found`,
         // modeling a released Mac.

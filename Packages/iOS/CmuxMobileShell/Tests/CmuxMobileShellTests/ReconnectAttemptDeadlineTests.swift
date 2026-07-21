@@ -12,6 +12,27 @@ import Testing
 // accepts new triggers (manual retry succeeds immediately).
 @MainActor
 extension ReconnectRouteSelectionTests {
+    @Test func deadlineRaceReturnsNilWhenOperationIgnoresCancellation() async {
+        // The race must not structurally await the losing side: an operation
+        // that never completes AND ignores cancellation (the wedged-FFI-dial
+        // shape) must still let the deadline resolve the race.
+        let outcome: Int? = await MobileShellComposite.raceAgainstDeadline(
+            nanoseconds: 50_000_000
+        ) {
+            await withCheckedContinuation { (_: CheckedContinuation<Int, Never>) in
+                // Parked forever; no cancellation handler on purpose.
+            }
+        }
+        #expect(outcome == nil)
+    }
+
+    @Test func deadlineRaceReturnsOperationValueWhenItWins() async {
+        let outcome: Int? = await MobileShellComposite.raceAgainstDeadline(
+            nanoseconds: 5_000_000_000
+        ) { 42 }
+        #expect(outcome == 42)
+    }
+
     @Test func hungRedialSettlesAtDeadlineAndUnfreezesRecovery() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

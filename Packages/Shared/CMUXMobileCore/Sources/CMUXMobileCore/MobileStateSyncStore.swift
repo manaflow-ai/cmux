@@ -40,9 +40,11 @@ public final class MobileSyncCollectionStore<Record: MobileSyncRecord> {
     public private(set) var headRev: UInt64 = 0
     private var stampedByID: [String: Stamped] = [:]
     private var tombstones: [Tombstone] = []
-    /// True once tombstones have been discarded to honor the bound; from then
-    /// on only cursors at or above the oldest retained tombstone are coverable.
-    private var droppedTombstones = false
+    /// The highest revision any discarded tombstone carried. Pruning by count
+    /// can split a batch of removals sharing one revision, so coverability
+    /// must be judged against the discarded revision bound, not against the
+    /// oldest retained tombstone (which may be a partial batch).
+    private var discardedTombstoneRevBound: UInt64 = 0
 
     public init(maximumTombstoneCount: Int = 1024) {
         self.maximumTombstoneCount = maximumTombstoneCount
@@ -80,8 +82,11 @@ public final class MobileSyncCollectionStore<Record: MobileSyncRecord> {
             tombstones.append(Tombstone(id: id, rev: headRev))
         }
         if tombstones.count > maximumTombstoneCount {
-            tombstones.removeFirst(tombstones.count - maximumTombstoneCount)
-            droppedTombstones = true
+            let discarded = tombstones.prefix(tombstones.count - maximumTombstoneCount)
+            if let highestDiscarded = discarded.last?.rev {
+                discardedTombstoneRevBound = max(discardedTombstoneRevBound, highestDiscarded)
+            }
+            tombstones.removeFirst(discarded.count)
         }
         return MobileSyncCollectionChange(
             fromRev: fromRev,
@@ -94,19 +99,12 @@ public final class MobileSyncCollectionStore<Record: MobileSyncRecord> {
     /// Whether a delta from `rev` can prove completeness. Coverable means every
     /// removal after `rev` is still retained; otherwise the client must
     /// snapshot. Upserts are always coverable because records store their full
-    /// current row.
+    /// current row. Tombstones with revisions at or below
+    /// ``discardedTombstoneRevBound`` may be missing (including part of a
+    /// same-revision batch), so only a cursor at or above that bound is safe.
     private func canCover(rev: UInt64) -> Bool {
         guard rev <= headRev else { return false }
-        guard droppedTombstones else { return true }
-        guard let oldestRetained = tombstones.first?.rev else {
-            // All tombstones were discarded; only a fully current cursor needs
-            // no removal history.
-            return rev == headRev
-        }
-        // A cursor at `rev` needs every removal with rev > `rev`. Retained
-        // tombstones start at `oldestRetained`, so anything at or after
-        // `oldestRetained - 1` is provably complete.
-        return rev >= oldestRetained - 1
+        return rev >= discardedTombstoneRevBound
     }
 
     /// Answers one fetch section for a client at `cursor`. `nil` cursor, an

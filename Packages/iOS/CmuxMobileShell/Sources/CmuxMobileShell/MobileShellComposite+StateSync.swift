@@ -157,10 +157,27 @@ extension MobileShellComposite {
             mobileStateSyncLog.error(
                 "state sync fetch failed: \(String(describing: error), privacy: .private)"
             )
+            fallBackToLegacyListAfterFetchFailure(client: client)
         } catch {
             mobileStateSyncLog.error(
                 "state sync fetch failed: \(String(describing: error), privacy: .private)"
             )
+            fallBackToLegacyListAfterFetchFailure(client: client)
+        }
+    }
+
+    /// A failed repair fetch must not strand the mirror: while
+    /// ``stateSyncActive`` suppresses the `workspace.updated` refetch loop,
+    /// the missed delta may have been the last event, so with no fallback the
+    /// list could stay stale indefinitely. Drop back to legacy semantics (the
+    /// availability floor) and converge with one authoritative reload; the
+    /// next event-listener generation re-negotiates v2.
+    private func fallBackToLegacyListAfterFetchFailure(client: MobileCoreRPCClient) {
+        guard remoteClient === client, connectionState == .connected else { return }
+        guard stateSyncActive else { return }
+        stateSyncActive = false
+        Task { @MainActor [weak self] in
+            _ = await self?.reloadWorkspaceListFromMac()
         }
     }
 
