@@ -30,13 +30,19 @@ extension MobileShellComposite {
     /// The caller already proved the event belongs to the current client and a
     /// connected session.
     func handleStateSyncDeltaEvent(_ event: MobileEventEnvelope) {
-        // Deltas are processed only while v2 is authoritative for the CURRENT
-        // client. Before activation the negotiation fetch covers them; after a
-        // legacy fallback the list has a legacy writer and mirror projections
-        // must stop until a new subscription generation renegotiates —
-        // otherwise legacy responses and v2 projections interleave as
-        // concurrent writers.
-        guard stateSyncActive else { return }
+        // Deltas apply only while v2 is authoritative for the CURRENT client
+        // (after a legacy fallback the list has a legacy writer, and mirror
+        // projections must stop until renegotiation). During NEGOTIATION —
+        // fetch runner in flight for this client — a delta may postdate the
+        // fetch's snapshot, so it requests one trailing sweep instead of
+        // being dropped or applied to a non-authoritative mirror.
+        guard stateSyncActive else {
+            if stateSyncFetchTask != nil, let client = remoteClient,
+               stateSyncFetchClientID == ObjectIdentifier(client) {
+                stateSyncFetchFollowUpRequested = true
+            }
+            return
+        }
         guard let payload = event.payloadJSON else {
             scheduleStateSyncRepairIfActive()
             return
@@ -103,29 +109,12 @@ extension MobileShellComposite {
         client: MobileCoreRPCClient,
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
-        var task = scheduleStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds)
-        var followedGeneration = stateSyncFetchGeneration
-        for _ in 0..<5 {
-            let applied = await task.value
-            if applied { return true }
-            if let replacement = stateSyncFetchTask, replacement != task {
-                followedGeneration = stateSyncFetchGeneration
-                task = replacement
-                continue
-            }
-            // A finished replacement can clear the shared handle before this
-            // waiter's superseded task settles false. If a NEWER generation
-            // settled successfully, that outcome is the authoritative answer;
-            // reporting false here would let a liveness caller tear down a
-            // healthy session.
-            if let settled = stateSyncLastSettledFetch,
-               settled.generation != followedGeneration,
-               settled.applied {
-                return true
-            }
-            return applied
-        }
-        return false
+        // Single-flight: same-client demand coalesces onto the in-flight
+        // runner, so awaiting the returned task IS awaiting the authoritative
+        // outcome (a trailing follow-up sweep runs inside the same task). The
+        // runner is cancelled only on client change or account teardown, where
+        // false is the correct answer for this client's gesture.
+        await scheduleStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds).value
     }
 
     /// Account-boundary teardown: wipes mirrored records (titles,
@@ -137,7 +126,8 @@ extension MobileShellComposite {
         stateSyncFetchTask = nil
         stateSyncFetchGeneration = UUID()
         stateSyncAuthorityClientID = nil
-        stateSyncLastSettledFetch = nil
+        stateSyncFetchClientID = nil
+        stateSyncFetchFollowUpRequested = false
         stateSyncMirror.reset()
     }
 
@@ -154,24 +144,41 @@ extension MobileShellComposite {
         client: MobileCoreRPCClient,
         timeoutNanoseconds: UInt64? = nil
     ) -> Task<Bool, Never> {
+        // Single-flight per client: new demand while a runner is in flight
+        // requests one trailing sweep and attaches to the runner. Cancelling
+        // in-flight repairs on every demand starves convergence under
+        // sustained 80ms churn (each gap-path delta would kill the repair it
+        // needs); only a DIFFERENT client's demand replaces the runner.
+        if let running = stateSyncFetchTask,
+           stateSyncFetchClientID == ObjectIdentifier(client) {
+            stateSyncFetchFollowUpRequested = true
+            return running
+        }
         stateSyncFetchTask?.cancel()
         let generation = UUID()
         stateSyncFetchGeneration = generation
+        stateSyncFetchClientID = ObjectIdentifier(client)
+        stateSyncFetchFollowUpRequested = false
         let task = Task { @MainActor [weak self] () -> Bool in
-            defer {
-                // Only the generation that still owns the handle may clear
-                // it: a cancelled predecessor's deferred cleanup must not
-                // erase the replacement's cancel handle.
-                if let self, self.stateSyncFetchGeneration == generation {
-                    self.stateSyncFetchTask = nil
-                }
+            var applied = false
+            while true {
+                guard let self, !Task.isCancelled,
+                      self.stateSyncFetchGeneration == generation else { return applied }
+                self.stateSyncFetchFollowUpRequested = false
+                applied = await self.runStateSyncFetch(
+                    client: client,
+                    generation: generation,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
+                // One trailing sweep per follow-up request; a failed fetch
+                // does not loop (the fallback path owns failure recovery).
+                guard applied, self.stateSyncFetchGeneration == generation,
+                      self.stateSyncFetchFollowUpRequested, !Task.isCancelled else { break }
             }
-            let applied = await self?.runStateSyncFetch(
-                client: client,
-                generation: generation,
-                timeoutNanoseconds: timeoutNanoseconds
-            ) ?? false
-            self?.stateSyncLastSettledFetch = (generation, applied)
+            if let self, self.stateSyncFetchGeneration == generation {
+                self.stateSyncFetchTask = nil
+                self.stateSyncFetchClientID = nil
+            }
             return applied
         }
         stateSyncFetchTask = task

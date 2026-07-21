@@ -786,10 +786,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let stateSyncAuthorityClientID, let remoteClient else { return false }
         return stateSyncAuthorityClientID == ObjectIdentifier(remoteClient)
     }
-    /// Outcome of the most recently settled fetch generation, so a waiter
-    /// whose superseded task lost the race to its finished replacement can
-    /// still observe that authoritative success.
-    var stateSyncLastSettledFetch: (generation: UUID, applied: Bool)?
+    /// Identity of the client the in-flight fetch runner serves; demand for
+    /// the same client coalesces onto the runner instead of cancelling it.
+    var stateSyncFetchClientID: ObjectIdentifier?
+    /// Set while a runner is in flight to request one trailing sweep after it
+    /// settles (a delta arrived that the current fetch's snapshot may miss).
+    var stateSyncFetchFollowUpRequested = false
     /// Single-flight handle for negotiation and gap-repair fetches, restart-on-
     /// newest like ``workspaceListRefreshTask``. Bool payload = fetch applied.
     var stateSyncFetchTask: Task<Bool, Never>?
