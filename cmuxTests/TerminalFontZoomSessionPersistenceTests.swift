@@ -79,6 +79,8 @@ struct TerminalFontZoomSessionPersistenceTests {
             configTemplate: restoredTemplate,
             runtimeSpawnPolicy: .pacedSessionRestore
         )
+        surface.surface = UnsafeMutableRawPointer(bitPattern: 0x7540)
+        surface.surface = nil
 
         let resetLineage = TerminalFontSizeLineage(
             basePoints: 12,
@@ -86,14 +88,15 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
         surface.recordCurrentFontSizeLineage(resetLineage)
 
+        #expect(surface.runtimeSurfaceGeneration == 2)
         #expect(surface.fontSizeLineageSnapshot() == resetLineage)
         #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == nil)
     }
 
-    @Test("cold non-explicit lineage follows current config before runtime creation")
-    func coldNonExplicitLineageDoesNotPinInheritedPoints() {
+    @Test("initial non-explicit template preserves its font size for first runtime creation")
+    func initialNonExplicitTemplateSeedsFirstRuntimeCreation() {
         var inheritedTemplate = CmuxSurfaceConfigTemplate()
-        inheritedTemplate.setFontSize(12, isExplicitOverride: false)
+        inheritedTemplate.fontSize = 12
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -101,8 +104,12 @@ struct TerminalFontZoomSessionPersistenceTests {
             runtimeSpawnPolicy: .pacedSessionRestore
         )
 
+        #expect(surface.runtimeSurfaceGeneration == 0)
         #expect(surface.fontSizeLineageSnapshot() == inheritedTemplate.fontSizeLineage)
-        #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == nil)
+        #expect(
+            surface.runtimeCreationConfigTemplate().fontSizeLineage
+                == inheritedTemplate.fontSizeLineage
+        )
     }
 
     @Test("mobile viewport fitting does not claim durable zoom ownership")
