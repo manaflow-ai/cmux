@@ -75,7 +75,7 @@ extension CMUXCLI {
             withJSONObject: settings,
             options: [.sortedKeys, .withoutEscapingSlashes]
         )
-        FileHandle.standardOutput.write(data)
+        try FileHandle.standardOutput.write(contentsOf: data)
     }
 
     private static func claudeDeferredHookGroup(
