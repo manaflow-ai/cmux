@@ -692,9 +692,27 @@ extension TerminalController {
                     }
                 }
                 let windowGrid = session.connection.windowsByID[windowId]
-                let publicationReady = !session.connection.hasPendingSizingSettlementWork(
-                    windowId: windowId
-                )
+                // `hasPendingSizingSettlementWork` is a GA-connection test-support probe,
+                // not a production source requirement. A multiplexer channel decorates the
+                // shared view stream, so consult THAT stream's pending work for this window
+                // rather than defaulting to ready — otherwise a channel could report settled
+                // while its shared connection still has queued list-windows/pane-rects/sizing
+                // work. A source this GA harness does not recognize fails closed.
+                let publicationReady: Bool
+                switch session.connection {
+                case let connection as RemoteTmuxControlConnection:
+                    publicationReady = !connection.hasPendingSizingSettlementWork(windowId: windowId)
+                case let channel as RemoteTmuxSessionChannel:
+                    // Fail closed here too: an underlying this harness can't query is
+                    // an unknown settlement state, not a settled one.
+                    if let shared = channel.underlying as? RemoteTmuxControlConnection {
+                        publicationReady = !shared.hasPendingSizingSettlementWork(windowId: windowId)
+                    } else {
+                        publicationReady = false
+                    }
+                default:
+                    publicationReady = false
+                }
                 let sizingReady = !mirror.sizingPassScheduled
                     && mirror.lastCompletedSizingInputs != nil
                     && nativeGeometryReady

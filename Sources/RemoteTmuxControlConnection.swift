@@ -85,6 +85,18 @@ final class RemoteTmuxControlConnection {
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    /// In-flight raw-line queries (see ``queryWithTimeout(_:timeout:reconnectOnTimeout:)``),
+    /// keyed by the token carried on their `.rawQuery` command. Flushed with nil on any
+    /// stream reset so an awaiting coordinator never hangs.
+    var rawQueryCompletions: [UUID: ([String]?) -> Void] = [:]
+    var rawQueryTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    /// `true` when this connection is the multiplexer's shared per-host view stream
+    /// (a hidden `cmux-view-*` session with other sessions' windows linked in), rather
+    /// than a dedicated per-session connection. Enables the host-wide session-digest
+    /// subscription and the extra topology notifications a shared stream needs.
+    var isSharedViewStream = false
+    /// Whether the ``sessionDigestSubscriptionName`` `refresh-client -B` is active.
+    var sessionDigestSubscribed = false
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
     /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
@@ -812,6 +824,11 @@ final class RemoteTmuxControlConnection {
         // rest of the connection's life.
         borderStatusSubscribedWindows.removeAll()
         borderStatusByWindow.removeAll()
+        // A `refresh-client -B` subscription belongs to the client too, so the
+        // session digest dies with it. The reconnect's attach drain calls
+        // `subscribeSessionDigest()` again, and it returns early unless this flag is
+        // cleared here — leaving the shared view blind to session create/kill/rename.
+        sessionDigestSubscribed = false
         pendingPostAttachAction = nil
         teardownProcessHandles()
         reconnectAttemptCount = 0
@@ -1057,6 +1074,12 @@ final class RemoteTmuxControlConnection {
                     #endif
                     requestWindows()
                 }
+            } else if name == Self.sessionDigestSubscriptionName, isSharedViewStream {
+                // Host-wide session create/kill/rename digest. GA per-session clients
+                // also see other sessions here, so only the shared view stream uses it
+                // to re-list and rebuild multiplexed mirrors (coalesced by the view
+                // coordinator's in-flight reconcile guard).
+                observers.notifyTopologyChanged()
             }
         case let .commandResult(_, lines, isError):
             // The first block on each control stream is the attach command's own —
@@ -1064,6 +1087,7 @@ final class RemoteTmuxControlConnection {
             // the positional FIFO (see ``attachBlockDrained``).
             if !attachBlockDrained {
                 attachBlockDrained = true
+                if isSharedViewStream { subscribeSessionDigest() }
                 requestWindows()
             } else {
                 handleCommandResult(lines: lines, isError: isError)

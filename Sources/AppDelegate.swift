@@ -7337,6 +7337,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
+        // On a remote-tmux mirror workspace, a new terminal workspace means "create
+        // a new tmux session on that workspace's host" — route it to the remote and
+        // mirror it back instead of creating a local workspace. Inert off a mirror
+        // (handleNewWorkspaceRequested returns false), so local/browser flows below
+        // are unaffected.
+        if initialSurface == .terminal,
+           let context,
+           remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
+            return true
+        }
+
         let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
         // The configured new-workspace action is the user's override for the
         // plain New Workspace behavior; the browser variant keeps its own
