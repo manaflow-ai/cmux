@@ -80,6 +80,9 @@ extension CMUXCLIErrorOutputRegressionTests {
                     "workspaceId": "workspace-root",
                     "surfaceId": "surface-root",
                     "runId": "  ",
+                    "parentRunId": "  ",
+                    "parentSessionId": "  ",
+                    "relationship": "  ",
                     "restoreAuthority": true,
                     "startedAt": 100.0,
                     "updatedAt": 200.0,
@@ -106,6 +109,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         let sessions = try #require(payload["sessions"] as? [[String: Any]])
         #expect(sessions.first?["run_id"] as? String == "root-session")
+        #expect(sessions.first?["parent_run_id"] is NSNull)
+        #expect(sessions.first?["parent_session_id"] is NSNull)
+        #expect(sessions.first?["relationship"] is NSNull)
     }
 
     @Test func agentsTreeBuildsRelationshipsFromSavedSessionMetadata() throws {
