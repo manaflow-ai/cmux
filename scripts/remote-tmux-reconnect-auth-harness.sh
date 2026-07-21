@@ -137,7 +137,12 @@ restore_auth() { [ -f "$AUTH.off" ] && mv "$AUTH.off" "$AUTH"; }
 # still retrying. Without this, "no login reappeared" is equally true of a stranded host that
 # is doing nothing at all — which is how a strand shipped once already.
 sshd_log_lines() { wc -l < "$SSHD_DIR/sshd.log" 2>/dev/null | tr -d ' '; }
-trap restore_auth EXIT
+# A private work dir rather than fixed /tmp paths: a hardcoded name is pre-creatable by anyone
+# on the box, so the stderr this harness reads back to explain a failure could be another
+# process's file, or a symlink pointing at something of mine. Also survives two runs at once.
+WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-reconnect-auth.XXXXXX")" || exit 1
+cleanup() { restore_auth; rm -rf "$WORKDIR"; }
+trap cleanup EXIT
 
 control_path() { ls "$HOME"/.cmux/ssh/tmux-*"$(printf '%s' "$HOST" | tr -c 'a-z0-9' '-')"*.sock 2>/dev/null | head -1; }
 
@@ -279,14 +284,14 @@ restore_auth
 # socket, so a master opened anywhere else would be invisible to it.
 master_open_attempt() {
   ssh -o ControlMaster=auto -o ControlPath="$CMUX_CP" \
-      -o ControlPersist=2m -n -T "$HOST" true 2>/tmp/harness-master-open.err
+      -o ControlPersist=2m -n -T "$HOST" true 2>"$WORKDIR/master-open.err"
   ssh -O check -o ControlPath="$CMUX_CP" "$HOST" >/dev/null 2>&1
 }
 # Retried, not one-shot: this runs immediately after auth is restored, and a single
 # attempt that loses its stderr turns any transient refusal into an unexplained failure.
 if ! await "a master at cmux's ControlPath (standing in for the user's login)" 30 master_open_attempt; then
   fail "could not open a master at cmux's ControlPath — the resume cannot be tested"
-  log "last ssh stderr: $(tr '\n' ' ' < /tmp/harness-master-open.err 2>/dev/null)"
+  log "last ssh stderr: $(tr '\n' ' ' < "$WORKDIR/master-open.err" 2>/dev/null)"
   exit "$FAILURES"
 fi
 
