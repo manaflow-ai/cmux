@@ -8681,6 +8681,40 @@
         }
       }
     },
+    "mobile.taskComposer.failure.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t start this task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタスクを開始できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.failure.titleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t start %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を開始できませんでした"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.failure.unsupported": {
       "extractionState": "manual",
       "localizations": {

@@ -14,6 +14,7 @@ struct TaskComposerPrimaryAction: View {
     let actionTitle: String
     let progressTitle: String
     let caption: String
+    let failureTitle: String
     let failureText: String?
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     let action: () -> Void
@@ -23,18 +24,7 @@ struct TaskComposerPrimaryAction: View {
     var body: some View {
         VStack(spacing: 10) {
             if let failureText {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .accessibilityHidden(true)
-                    Text(failureText)
-                        .font(.footnote.weight(.medium))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .accessibilityIdentifier("MobileTaskComposerFailure")
+                TaskComposerFailureBanner(title: failureTitle, message: failureText)
             }
             if let completedOperationRecovery {
                 HStack(spacing: 10) {

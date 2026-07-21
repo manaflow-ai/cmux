@@ -91,6 +91,23 @@ extension TaskComposerSheet {
         )
     }
 
+    static func failureTitle(templateName: String?) -> String {
+        guard let templateName = templateName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !templateName.isEmpty else {
+            return L10n.string(
+                "mobile.taskComposer.failure.title",
+                defaultValue: "Couldn’t start this task"
+            )
+        }
+        return String.localizedStringWithFormat(
+            L10n.string(
+                "mobile.taskComposer.failure.titleFormat",
+                defaultValue: "Couldn’t start %@"
+            ),
+            templateName
+        )
+    }
+
     static func failureMessage(_ failure: MobileWorkspaceMutationFailure) -> String {
         switch failure {
         case .notConnected:
