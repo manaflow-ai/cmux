@@ -186,22 +186,19 @@ _DURATION_COMPARE = re.compile(
     """
 )
 
-# Real-sleep call sites. Must be a genuine wall-clock sleep. These are all CALL
-# forms (`foo.sleep(`, `sleep(`) so a quoted shell command embedded in a string
-# literal (e.g. a terminal-parser fixture `consume("... sleep 5 ...")`) never
-# matches: `sleep 5` has no following `(` and is not a call.
+# High-confidence real-sleep call sites. Arbitrary `foo.sleep(...)` calls are
+# excluded because injected test clocks and enum constructors use that spelling
+# too. These are all CALL forms, so quoted `sleep 5` fixture data never matches.
 _SLEEP_CALL = re.compile(
     r"""(?x)
     \btime\.sleep\s*\(
-  | (?:
-        (?<!\.)\bsleep                       # unqualified sleep(...)
-      | (?:\b\w+|[)\]?!>])\.sleep           # receiver-qualified foo.sleep(...)
-    )\s*\(
+  | (?<!\.)\bsleep\s*\(                    # unqualified C-style sleep(...)
   | \busleep\s*\(
   | \bnanosleep\s*\(
   | Thread\.sleep\s*\(
   | Task\.sleep\s*\(
   | try\s+await\s+Task\.sleep
+  | \b(?:ContinuousClock|SuspendingClock)\s*\(\s*\)\.sleep\s*\(
   | \basyncio\.sleep\s*\(
   | \bsetTimeout\s*\(                       # JS, when used as a bare delay
     """
@@ -662,12 +659,6 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
-            "Tests/OptionalClockTests.swift",
-            "#expect(await clock?.sleep(for: .milliseconds(300)) == nil)\n"
-            "#expect(widget.isRendered)\n",
-            {RULE_SLEEP_THEN_ASSERT},
-        ),
-        (
             "cmuxUITests/f.swift",
             "try await Task.sleep(nanoseconds: 300_000_000)\nXCTAssertTrue(view.exists)\n",
             {RULE_SLEEP_THEN_ASSERT},
@@ -825,6 +816,13 @@ def _self_test() -> int:
             "#expect(await clockEvents.next() ==\n"
             "    .sleep(initialRefresh))\n"
             "#expect(await broker.requests() == 1)\n",
+        ),
+        # A fully qualified virtual-clock event constructor is also data, not a
+        # known real clock API, even when an assertion follows immediately.
+        (
+            "Packages/CmuxClock/Tests/QualifiedVirtualClockTests.swift",
+            "let expected = TestRelayClock.Event.sleep(initialRefresh)\n"
+            "#expect(await clockEvents.next() == expected)\n",
         ),
     ]
 
