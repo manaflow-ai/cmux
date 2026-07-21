@@ -974,6 +974,9 @@ enum FilePreviewTextSaver {
         guard let data = content.data(using: encoding) else {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
         }
+        guard UInt64(data.count) <= FilePreviewTextLoader.maximumLoadedTextBytes else {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
 
         do {
             try FileManager.default.createDirectory(

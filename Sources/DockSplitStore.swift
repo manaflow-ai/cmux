@@ -25,6 +25,10 @@ final class DockSplitStore: BonsplitDelegate {
         _ environment: [String: String],
         _ tmuxStartCommand: String?
     ) -> Workspace.DetachedSurfaceTransfer?
+    typealias TerminalRestoreTransferProvider = (
+        _ panelId: UUID,
+        _ snapshot: SessionTerminalPanelSnapshot
+    ) -> Workspace.DetachedSurfaceTransfer?
     let workspaceId: UUID
     let bonsplitController: BonsplitController
 
@@ -48,6 +52,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
     private let terminalTransferProvider: TerminalTransferProvider?
+    let terminalRestoreTransferProvider: TerminalRestoreTransferProvider?
     let noteTextSaver: (@Sendable (
         String,
         URL,
@@ -136,6 +141,7 @@ final class DockSplitStore: BonsplitDelegate {
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
         terminalTransferProvider: TerminalTransferProvider? = nil,
+        terminalRestoreTransferProvider: TerminalRestoreTransferProvider? = nil,
         noteTextSaver: (@Sendable (
             String,
             URL,
@@ -157,6 +163,7 @@ final class DockSplitStore: BonsplitDelegate {
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
         self.terminalTransferProvider = terminalTransferProvider
+        self.terminalRestoreTransferProvider = terminalRestoreTransferProvider
         self.noteTextSaver = noteTextSaver
         self.noteTextSaverSynchronously = noteTextSaverSynchronously
         self.noteTextSaveSequenceProvider = noteTextSaveSequenceProvider
@@ -306,6 +313,14 @@ final class DockSplitStore: BonsplitDelegate {
         cancelConfigurationTasks()
         setVisibleInUI(false)
         removeAllPanels()
+    }
+
+    func flushPendingAutosavingNotesSynchronously() -> Bool {
+        for panel in panels.values {
+            guard let note = panel as? FilePreviewPanel else { continue }
+            guard note.flushPendingAutosaveSynchronously() else { return false }
+        }
+        return true
     }
 
     func resetForSessionRestore() {

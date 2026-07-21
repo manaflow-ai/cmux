@@ -272,6 +272,7 @@ extension DockSplitStore {
         bySplitting paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
+        initialDividerPosition: CGFloat? = nil,
         focus: Bool = true
     ) -> UUID? {
         guard bonsplitController.allPaneIds.contains(paneId), panels[detached.panelId] == nil else {
@@ -307,7 +308,8 @@ extension DockSplitStore {
                 paneId,
                 orientation: orientation,
                 withTab: tab,
-                insertFirst: insertFirst
+                insertFirst: insertFirst,
+                initialDividerPosition: initialDividerPosition
             )
         }
         guard let newPane else {

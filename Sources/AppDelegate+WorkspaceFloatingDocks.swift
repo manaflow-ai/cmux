@@ -266,7 +266,7 @@ extension AppDelegate {
                 return nil
             }
         }
-        let closedCount = workspace.closeAllFloatingDocks()
+        guard let closedCount = workspace.closeAllFloatingDocks() else { return nil }
         refreshWorkspaceFloatingDocks(for: tabManager)
         return closedCount
     }

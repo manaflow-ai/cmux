@@ -187,7 +187,8 @@ final class WorkspaceFloatingDock: Identifiable {
         configFrames: SessionConfigFrameRing = SessionConfigFrameRing(),
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings,
-        terminalTransferProvider: DockSplitStore.TerminalTransferProvider? = nil
+        terminalTransferProvider: DockSplitStore.TerminalTransferProvider? = nil,
+        terminalRestoreTransferProvider: DockSplitStore.TerminalRestoreTransferProvider? = nil
     ) {
         self.id = id
         self.workspaceId = workspaceId
@@ -210,6 +211,7 @@ final class WorkspaceFloatingDock: Identifiable {
             baseDirectoryProvider: baseDirectoryProvider,
             remoteBrowserSettingsProvider: remoteBrowserSettingsProvider,
             terminalTransferProvider: terminalTransferProvider,
+            terminalRestoreTransferProvider: terminalRestoreTransferProvider,
             noteTextSaver: { content, _, encoding, sequence in
                 let sequence = sequence ?? noteWriter.reserveSequence()
                 return await noteWriter.save(

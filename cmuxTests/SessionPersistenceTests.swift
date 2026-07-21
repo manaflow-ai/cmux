@@ -122,13 +122,31 @@ final class SessionPersistenceTests: XCTestCase {
             updatedAt: 1_777_777_777
         )
         workspace.setRestoredAgentSnapshotForTesting(agent, panelId: terminalId)
+        workspace.setRestoredAgentAutoResumePendingForTesting(true, panelId: terminalId)
         workspace.surfaceResumeBindingsByPanelId[terminalId] = binding
         workspace.updatePanelShellActivityState(panelId: terminalId, state: .commandRunning)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "floating-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-floating-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
         workspace.activeRemoteTerminalSurfaceIds.insert(terminalId)
         workspace.remotePTYSessionIDsByPanelId[terminalId] = "floating-remote-pty"
 
         let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
         let transfer = try XCTUnwrap(workspace.detachSurface(panelId: terminalId))
+        XCTAssertEqual(transfer.restorableAgent?.sessionId, agent.sessionId)
+        XCTAssertEqual(transfer.resumeBinding?.checkpointId, binding.checkpointId)
+        XCTAssertTrue(transfer.isRemoteTerminal)
+        XCTAssertEqual(transfer.remotePTYSessionID, "floating-remote-pty")
         let dockPane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
         _ = try XCTUnwrap(dock.store.attachDetachedSurface(transfer, inPane: dockPane, focus: false))
 

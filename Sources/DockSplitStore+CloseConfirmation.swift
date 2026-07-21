@@ -31,13 +31,19 @@ private struct DockPaneCloseConfirmationPrompt: Sendable {
 
 extension DockSplitStore {
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        let tabCloseButtonClose = tabCloseButtonCloseDockTabIds.remove(tab.id) != nil
+        guard let panel = panel(for: tab.id) else { return true }
+        if let note = panel as? FilePreviewPanel,
+           !note.flushPendingAutosaveSynchronously() {
+            forceCloseDockTabIds.remove(tab.id)
+            NSSound.beep()
+            return false
+        }
         if forceCloseDockTabIds.contains(tab.id) {
             return true
         }
 
-        let tabCloseButtonClose = tabCloseButtonCloseDockTabIds.remove(tab.id) != nil
         let closeSource: CloseTabCloseSource = tabCloseButtonClose ? .tabCloseButton : .shortcut
-        guard let panel = panel(for: tab.id) else { return true }
         guard CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
             requiresConfirmation: dockPanelNeedsConfirmClose(panel),
             source: closeSource
@@ -71,9 +77,18 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
+        let paneTabs = controller.tabs(inPane: pane)
+        for tab in paneTabs {
+            guard let note = panel(for: tab.id) as? FilePreviewPanel else { continue }
+            guard note.flushPendingAutosaveSynchronously() else {
+                forceCloseDockTabIds.subtract(paneTabs.map(\.id))
+                NSSound.beep()
+                return false
+            }
+        }
         var paneTitles: [String] = []
         var confirmableTabIds = Set<TabID>()
-        for tab in controller.tabs(inPane: pane) {
+        for tab in paneTabs {
             let panel = panel(for: tab.id)
             paneTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panel?.displayTitle ?? tab.title))
             guard !forceCloseDockTabIds.contains(tab.id), let panel else { continue }

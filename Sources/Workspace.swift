@@ -1138,6 +1138,41 @@ extension Workspace {
         return storedBinding
     }
 
+    func restoreFloatingDockTerminalTransfer(
+        panelId: UUID,
+        snapshot: SessionTerminalPanelSnapshot
+    ) -> DetachedSurfaceTransfer? {
+        guard let pane = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        let panelSnapshot = SessionPanelSnapshot(
+            id: panelId,
+            type: .terminal,
+            title: nil,
+            customTitle: nil,
+            directory: snapshot.workingDirectory,
+            directoryIsTrustedRemoteReport: snapshot.isRemoteTerminal,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: snapshot,
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        guard let restoredPanelId = createPanel(
+            from: panelSnapshot,
+            inPane: pane,
+            snapshotWorkspaceId: id,
+            shouldRestoreSingleDefaultCloudTerminal: false
+        ) else { return nil }
+        return detachSurface(panelId: restoredPanelId)
+    }
+
     private func createPanel(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
@@ -11595,6 +11630,16 @@ extension Workspace: BonsplitDelegate {
         let tabStripClose = tabCloseButtonClose != nil
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose
 
+        if let panelId = panelIdFromSurfaceId(tab.id),
+           let note = panels[panelId] as? FilePreviewPanel,
+           !note.flushPendingAutosaveSynchronously() {
+            forceCloseTabIds.remove(tab.id)
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
+            NSSound.beep()
+            return false
+        }
+
         // Remote tmux mirror tab closes route to tmux; tmux reports local removal.
         if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
@@ -12107,6 +12152,17 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
         // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
+        for tab in tabs {
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let note = panels[panelId] as? FilePreviewPanel else { continue }
+            guard note.flushPendingAutosaveSynchronously() else {
+                forceCloseTabIds.subtract(tabs.map(\.id))
+                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                NSSound.beep()
+                return false
+            }
+        }
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),

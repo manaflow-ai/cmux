@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxControlSocket
 import CmuxWorkspaces
@@ -132,6 +133,9 @@ extension Workspace {
                         allowTextBoxFocusDefault: false
                       ) else { return nil }
                 return self.detachSurface(panelId: terminal.id)
+            },
+            terminalRestoreTransferProvider: { [weak self] panelId, snapshot in
+                self?.restoreFloatingDockTerminalTransfer(panelId: panelId, snapshot: snapshot)
             }
         )
         guard sessionContent != nil || dock.initialContentWasCreated else {
@@ -168,17 +172,34 @@ extension Workspace {
     @discardableResult
     func closeFloatingDock(id: UUID) -> Bool {
         guard let index = floatingDocks.firstIndex(where: { $0.id == id }) else { return false }
+        guard floatingDocks[index].store.flushPendingAutosavingNotesSynchronously() else {
+            NSSound.beep()
+            return false
+        }
         let dock = floatingDocks.remove(at: index)
         dock.close()
         return true
     }
 
     @discardableResult
-    func closeAllFloatingDocks() -> Int {
+    func closeAllFloatingDocks() -> Int? {
+        guard floatingDocks.allSatisfy({ $0.store.flushPendingAutosavingNotesSynchronously() }) else {
+            NSSound.beep()
+            return nil
+        }
         let docks = floatingDocks
         floatingDocks.removeAll(keepingCapacity: true)
         docks.forEach { $0.close() }
         return docks.count
+    }
+
+    func flushPendingAutosavingNotesSynchronously() -> Bool {
+        for panel in panels.values {
+            guard let note = panel as? FilePreviewPanel else { continue }
+            guard note.flushPendingAutosaveSynchronously() else { return false }
+        }
+        guard _dockSplit?.flushPendingAutosavingNotesSynchronously() != false else { return false }
+        return floatingDocks.allSatisfy { $0.store.flushPendingAutosavingNotesSynchronously() }
     }
 
     func floatingDockSessionSnapshots() -> [SessionFloatingDockSnapshot]? {
@@ -544,13 +565,34 @@ extension DockSplitStore {
             )
         }
         if let terminal = panel as? TerminalPanel {
+            let transfer = detachedSurfaceTransfersByPanelId[panelId]
+            let agent = terminal.agentHibernationState?.agent ?? transfer?.restorableAgent
+            let shellActivity = terminal.shellActivity.state == .unknown
+                ? transfer?.shellActivityState
+                : terminal.shellActivity.state
+            let wasAgentRunning: Bool? = switch shellActivity {
+            case .some(.commandRunning): true
+            case .some(.promptIdle): false
+            case .some(.unknown), .none: nil
+            }
             return SessionFloatingDockSurfaceSnapshot(
                 id: panelId,
                 kind: .terminal,
                 terminal: SessionTerminalPanelSnapshot(
-                    workingDirectory: terminal.requestedWorkingDirectory,
-                    tmuxStartCommand: terminal.surface.debugTmuxStartCommand(),
-                    textBoxDraft: terminal.sessionTextBoxDraftSnapshot()
+                    workingDirectory: transfer?.directory ?? terminal.requestedWorkingDirectory,
+                    agent: agent,
+                    tmuxStartCommand: agent == nil ? terminal.surface.debugTmuxStartCommand() : nil,
+                    hibernation: terminal.agentHibernationState.map {
+                        SessionAgentHibernationSnapshot(
+                            hibernatedAt: $0.hibernatedAt.timeIntervalSince1970,
+                            lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
+                        )
+                    },
+                    resumeBinding: transfer?.resumeBinding,
+                    textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
+                    isRemoteTerminal: transfer?.isRemoteTerminal,
+                    remotePTYSessionID: transfer?.remotePTYSessionID,
+                    wasAgentRunning: agent == nil ? nil : wasAgentRunning
                 )
             )
         }
@@ -666,6 +708,36 @@ extension DockSplitStore {
     ) -> UUID? {
         if let filePreview = snapshot.filePreview {
             return restoreFloatingDockFilePreview(filePreview, placement: placement)
+        }
+        if snapshot.kind == .terminal,
+           let terminalSnapshot = snapshot.terminal,
+           let terminalRestoreTransferProvider {
+            guard let transfer = terminalRestoreTransferProvider(snapshot.id, terminalSnapshot) else {
+                return nil
+            }
+            let restoredPanelId: UUID?
+            switch placement {
+            case .tab(let pane):
+                restoredPanelId = attachDetachedSurface(transfer, inPane: pane, focus: false)
+            case .split(let sourcePanelId, let orientation, let dividerPosition):
+                guard let sourcePane = paneId(forPanelId: sourcePanelId) else {
+                    transfer.panel.close()
+                    return nil
+                }
+                restoredPanelId = attachDetachedSurface(
+                    transfer,
+                    bySplitting: sourcePane,
+                    orientation: orientation,
+                    insertFirst: false,
+                    initialDividerPosition: dividerPosition,
+                    focus: false
+                )
+            }
+            guard let restoredPanelId else {
+                transfer.panel.close()
+                return nil
+            }
+            return restoredPanelId
         }
         let workingDirectory = snapshot.terminal?.workingDirectory
         let panelId: UUID?
