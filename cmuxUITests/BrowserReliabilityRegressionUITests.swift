@@ -14,7 +14,8 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
     func testGotoWaitsForRecoveredDocumentCommitAfterConnectionRefusal() throws {
         try launchApp()
         let sid = try openBrowserSurface()
-        let server = try BrowserRecoveryHTTPServer(responseDelay: 2)
+        let responseDelay = 6.0
+        let server = try BrowserRecoveryHTTPServer(responseDelay: responseDelay)
         let failedURL = "http://127.0.0.1:\(server.port)/unavailable"
         let recoveredURL = "http://127.0.0.1:\(server.port)/recovered"
 
@@ -39,10 +40,16 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
         try server.start()
         defer { server.stop() }
 
+        let navigationStartedAt = Date()
         try socketResult(
             method: "browser.navigate",
             params: ["surface_id": sid, "url": recoveredURL],
             responseTimeout: 15
+        )
+        XCTAssertGreaterThanOrEqual(
+            Date().timeIntervalSince(navigationStartedAt),
+            responseDelay * 0.9,
+            "browser.navigate returned before the delayed recovered response could commit"
         )
         XCTAssertEqual(
             try evalString(
