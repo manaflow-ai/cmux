@@ -92,11 +92,17 @@ function normalizedLaunchArgv(): string[] {
 }
 
 function detectedPiVersion(): string | null {
-  const testVersion = firstString(process.env.CMUX_TEST_PI_VERSION);
-  if (testVersion) return testVersion;
-  const script = process.argv.slice(0, 2).find((value) => looksLikePiScript(String(value)));
+  const script = process.argv.slice(0, 2).find((value) => {
+    const candidate = String(value);
+    return looksLikePiScript(candidate) || looksLikePiExecutable(candidate);
+  });
   if (!script) return null;
-  let directory = path.dirname(path.resolve(String(script)));
+  let scriptPath = path.resolve(String(script));
+  try {
+    // npm launches through bin symlinks, so inspect the package containing the resolved script.
+    scriptPath = fs.realpathSync(scriptPath);
+  } catch (_) {}
+  let directory = path.dirname(scriptPath);
   for (let depth = 0; depth < 8; depth += 1) {
     try {
       const packageJSON = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
