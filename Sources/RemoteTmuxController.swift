@@ -267,7 +267,13 @@ final class RemoteTmuxController {
 
     /// Hosts with an authentication wait already running, so folding a repeat
     /// auth-required into an existing offer does not start a second poll loop.
+    /// Hosts with a login waiter running, and the task doing the waiting.
+    ///
+    /// The task is held rather than fire-and-forget so it can be cancelled: a waiter that
+    /// outlives the offer it was created for keeps probing a master nobody is waiting on, and
+    /// nothing else could stop it.
     var hostsWaitingForAuth: Set<String> = []
+    var authWaitTasks: [String: Task<Void, Never>] = [:]
 
     /// In-flight attach guards and kill-on-close markers for remote tmux mirrors.
     let windowRegistry = RemoteTmuxWindowRegistry()
@@ -782,6 +788,8 @@ final class RemoteTmuxController {
     /// CLI's `ssh -f` left them persistent). Does NOT kill any remote tmux
     /// server/session — only the local control clients and masters.
     func detachAll() {
+        // No waiter may outlive the mirrors it was waiting for.
+        for key in authWaitTasks.keys { cancelAuthWait(host: key) }
         let connections = Array(connectionsByHostSession.keys).compactMap { removeCachedConnection(forKey: $0) }
         for connection in connections { connection.stop() }
         // Fire-and-forget `ssh -O exit` per endpoint: it hits the local control

@@ -177,6 +177,51 @@ import Testing
         #expect(consecutive(args, "-i", "/keys/id"))
     }
 
+    /// The close path knows only which workspace closed, so an offer has to be findable by its
+    /// workspace. Without this the dismissal edge cannot resolve a host and a closed login tab
+    /// goes unnoticed — which is what the removed poll had been quietly covering.
+    @Test func anOpenLoginIsFindableByItsWorkspace() {
+        var offers = RemoteTmuxLoginOffers()
+        let workspace = UUID()
+        guard case .present(let generation) = offers.claim(host: "h1", isOpen: { _ in false }) else {
+            Issue.record("expected a fresh claim to be presentable")
+            return
+        }
+        offers.recordOpened(host: "h1", workspace: workspace, generation: generation)
+
+        #expect(offers.host(forOpenedWorkspace: workspace) == "h1")
+        #expect(offers.host(forOpenedWorkspace: UUID()) == nil, "an unrelated workspace matches nothing")
+    }
+
+    /// A claimed-but-not-yet-opened offer has no workspace, so it must not be matched by one. The
+    /// lookup runs on every workspace close, and a false match would decline the wrong host's login.
+    @Test func aClaimedOfferWithNoWorkspaceMatchesNothing() {
+        var offers = RemoteTmuxLoginOffers()
+        _ = offers.claim(host: "h1", isOpen: { _ in false })
+        #expect(offers.host(forOpenedWorkspace: UUID()) == nil)
+    }
+
+    /// Declining is per host and per generation: a closed tab must not silence a *newer* offer that
+    /// replaced it, or one flap would stop the host ever offering a login again.
+    @Test func decliningAnOldGenerationDoesNotSilenceANewerOffer() {
+        var offers = RemoteTmuxLoginOffers()
+        let first = UUID()
+        guard case .present(let g1) = offers.claim(host: "h1", isOpen: { _ in false }) else { return }
+        offers.recordOpened(host: "h1", workspace: first, generation: g1)
+        offers.noteConnected(host: "h1")
+
+        guard case .present(let g2) = offers.claim(host: "h1", isOpen: { _ in false }) else {
+            Issue.record("a reconnected host must be able to offer again")
+            return
+        }
+        let second = UUID()
+        offers.recordOpened(host: "h1", workspace: second, generation: g2)
+        // The stale close arrives late, naming the first generation.
+        offers.noteDeclined(host: "h1", generation: g1)
+        #expect(offers.host(forOpenedWorkspace: second) == "h1", "the newer offer must survive a stale decline")
+        #expect(!offers.isDeclined(host: "h1"))
+    }
+
     @Test func connectionHashVariesByPortAndIdentity() {
         // The controller keys transports / connections / windows / persistence by
         // connectionHash, so distinct endpoints must produce distinct hashes (and
