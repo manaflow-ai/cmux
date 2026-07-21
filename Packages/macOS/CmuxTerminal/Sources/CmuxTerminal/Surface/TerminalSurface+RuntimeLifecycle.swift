@@ -617,7 +617,8 @@ extension TerminalSurface {
         // paths preserve zoom from the source terminal. Explicit lineage is
         // always applied so Ghostty retains surface-local ownership; otherwise
         // Cmd+0 could not clear the restored override for the next snapshot.
-        if let inheritedFontSizeLineage = lastKnownFontSizeLineage,
+        if !lastKnownFontSizeFollowsCurrentConfig,
+           let inheritedFontSizeLineage = lastKnownFontSizeLineage,
            inheritedFontSizeLineage.basePoints > 0 {
             let inheritedBaseFontPoints = inheritedFontSizeLineage.basePoints
             let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())

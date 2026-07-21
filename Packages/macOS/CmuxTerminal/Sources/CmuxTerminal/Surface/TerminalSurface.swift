@@ -156,6 +156,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
     var lastKnownFontSizeLineage: TerminalFontSizeLineage?
+    var lastKnownFontSizeFollowsCurrentConfig = false
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.

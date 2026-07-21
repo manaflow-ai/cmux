@@ -28,16 +28,35 @@ extension TerminalSurface {
             ),
             isExplicitOverride: ghostty_surface_font_size_adjusted(runtimeSurface)
         )
-        if lineage.isExplicitOverride || configTemplate?.fontSizeLineage?.isExplicitOverride == true {
-            // Keep an unadjusted value only as a tombstone for a restored or
-            // inherited explicit override that Cmd+0 cleared. Ordinary
-            // unzoomed surfaces should keep following current config when a
-            // hibernated runtime is recreated.
-            lastKnownFontSizeLineage = lineage
-        } else {
-            lastKnownFontSizeLineage = nil
-        }
+        recordCurrentFontSizeLineage(lineage)
         return lineage
+    }
+
+    /// Records live font-size lineage for hibernation and split inheritance.
+    ///
+    /// A non-explicit value is retained as the last known split-inheritance
+    /// value, while separately recording that this surface must follow current
+    /// config when its own runtime is recreated.
+    @MainActor
+    func recordCurrentFontSizeLineage(_ lineage: TerminalFontSizeLineage) {
+        lastKnownFontSizeLineage = lineage
+        lastKnownFontSizeFollowsCurrentConfig = !lineage.isExplicitOverride
+    }
+
+    /// Resolves the Swift-owned template used to create this surface's runtime.
+    ///
+    /// Live non-explicit lineage remains available to descendants, but must not
+    /// seed this surface after hibernation because Cmd+0 and ordinary unzoomed
+    /// terminals follow the then-current terminal config.
+    @MainActor
+    func runtimeCreationConfigTemplate() -> CmuxSurfaceConfigTemplate {
+        var template = configTemplate ?? CmuxSurfaceConfigTemplate()
+        if lastKnownFontSizeFollowsCurrentConfig {
+            template.fontSizeLineage = nil
+        } else if let lastKnownFontSizeLineage {
+            template.fontSizeLineage = lastKnownFontSizeLineage
+        }
+        return template
     }
 
     /// Returns the explicit unscaled font override to persist in a session snapshot.

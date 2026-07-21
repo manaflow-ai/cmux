@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import CmuxTerminalCore
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -64,6 +66,62 @@ struct TerminalFontZoomSessionPersistenceTests {
 
         #expect(
             try optionalTerminalFontSize(panelID: restoredPanelID, in: recapturedSnapshot) == nil
+        )
+    }
+
+    @Test("cleared zoom follows current config when the runtime is recreated")
+    func clearedZoomDoesNotSeedRuntimeRecreation() {
+        var restoredTemplate = CmuxSurfaceConfigTemplate()
+        restoredTemplate.setFontSize(5.5, isExplicitOverride: true)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: restoredTemplate,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+
+        let resetLineage = TerminalFontSizeLineage(
+            basePoints: 12,
+            isExplicitOverride: false
+        )
+        surface.recordCurrentFontSizeLineage(resetLineage)
+
+        #expect(surface.fontSizeLineageSnapshot() == resetLineage)
+        #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == nil)
+    }
+
+    @Test("closing the remembered zoom source discards its explicit lineage")
+    func closingZoomSourceClearsWorkspaceFallback() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let snapshot = try snapshotBySettingTerminalFontSize(
+            5.5,
+            panelID: panelID,
+            in: workspace.sessionSnapshot(includeScrollback: false)
+        )
+        let restoredWorkspace = Workspace()
+        let restoredPanelIDs = restoredWorkspace.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = restoredPanelIDs[panelID] ?? panelID
+        let paneID = try #require(restoredWorkspace.bonsplitController.focusedPaneId)
+        _ = try #require(
+            restoredWorkspace.newBrowserSurface(
+                inPane: paneID,
+                url: URL(string: "about:blank"),
+                focus: false,
+                creationPolicy: .restoration
+            )
+        )
+
+        #expect(
+            TabManager().inheritedTerminalConfigForNewWorkspace(
+                workspace: restoredWorkspace
+            )?.fontSizeLineage?.isExplicitOverride == true
+        )
+        #expect(restoredWorkspace.closePanel(restoredPanelID, force: true))
+        #expect(
+            TabManager().inheritedTerminalConfigForNewWorkspace(
+                workspace: restoredWorkspace
+            ) == nil
         )
     }
 

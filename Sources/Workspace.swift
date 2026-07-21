@@ -6548,6 +6548,16 @@ final class Workspace: Identifiable, ObservableObject {
         lastTerminalConfigInheritanceFontSizeLineage
     }
 
+    func removeTerminalConfigInheritanceSource(panelId: UUID) {
+        guard lastTerminalConfigInheritancePanelId == panelId else { return }
+        lastTerminalConfigInheritancePanelId = nil
+        lastTerminalConfigInheritanceFontSizeLineage = nil
+
+        if let replacement = terminalPanelForConfigInheritance() {
+            rememberTerminalConfigInheritanceSource(replacement)
+        }
+    }
+
     nonisolated private static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
         let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
