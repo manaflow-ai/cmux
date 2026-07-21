@@ -89,8 +89,8 @@
 //! The defaults intentionally match tmux where cmux has the same
 //! capability. `x` closes the active pane and `X` closes the active tab;
 //! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
-//! cmux defaults. Screens are visibly numbered from 0, so each
-//! `select-screen-N` action selects the screen labeled `N`. Zellij's modal
+//! cmux defaults. Screen positions are zero-based, so each
+//! `select-screen-N` action selects the screen at index `N`. Zellij's modal
 //! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
