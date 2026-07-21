@@ -19,6 +19,12 @@ struct RemoteTmuxSessionObservers {
     var onReconnectReady: (() -> Void)?
     var onExit: (() -> Void)?
     var onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)?
+    /// Fires when a reconnect stopped because the host wants interactive authentication the
+    /// pipe-backed reconnect cannot service. The payload is the `ssh` argv to run under a tty.
+    ///
+    /// Returns `true` only when a login was actually presented: returning `true` merely for being
+    /// subscribed suppresses the caller's retry fallback and strands the host.
+    var onAuthRequired: ((_ sshArgv: [String]) -> Bool)?
 
     init(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
@@ -29,7 +35,8 @@ struct RemoteTmuxSessionObservers {
         onTopologyChanged: (() -> Void)? = nil,
         onReconnectReady: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
-        onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)? = nil
+        onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)? = nil,
+        onAuthRequired: ((_ sshArgv: [String]) -> Bool)? = nil
     ) {
         self.onPaneOutput = onPaneOutput
         self.onPaneCwd = onPaneCwd
@@ -40,6 +47,7 @@ struct RemoteTmuxSessionObservers {
         self.onReconnectReady = onReconnectReady
         self.onExit = onExit
         self.onConnectionStateChanged = onConnectionStateChanged
+        self.onAuthRequired = onAuthRequired
     }
 }
 
@@ -91,6 +99,16 @@ protocol RemoteTmuxSessionSource: AnyObject {
 
     /// Releases this mirror's hold on its transport (observer slots, cached process
     /// ownership). This never touches sibling sessions that share the same transport.
+    /// Resumes a stream parked waiting for the user to authenticate.
+    ///
+    /// On the protocol because a login unblocks whatever carries the session, and for a
+    /// multiplexed host that is the shared view stream rather than this session's own. Resolving
+    /// this by downcasting to the concrete connection at the call site would have left multiplexed
+    /// hosts silently never resuming after a successful login.
+    ///
+    /// A no-op unless the stream is actually parked, so it cannot disturb a healthy one.
+    func resumeAfterInteractiveAuth()
+
     func releaseMirror()
     /// Ends the remote session (`kill == true`) or just this mirror's attachment
     /// (`kill == false`) using only channels the concrete transport itself can use.
@@ -157,7 +175,8 @@ extension RemoteTmuxControlConnection: RemoteTmuxSessionSource {
             onTopologyChanged: observers.onTopologyChanged,
             onReconnectReady: observers.onReconnectReady,
             onExit: observers.onExit,
-            onConnectionStateChanged: observers.onConnectionStateChanged
+            onConnectionStateChanged: observers.onConnectionStateChanged,
+            onAuthRequired: observers.onAuthRequired
         )
     }
 }
