@@ -226,6 +226,80 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(!result.stdout.contains("root codex child-session"))
     }
 
+    @Test func agentsTreeRejectsAmbiguousRunParentsAndNormalizesBlankRelationships() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-tree-ambiguous-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func record(
+            sessionID: String,
+            runID: String,
+            parentRunID: String? = nil,
+            relationship: String? = nil,
+            startedAt: Double
+        ) -> [String: Any] {
+            var value: [String: Any] = [
+                "sessionId": sessionID,
+                "workspaceId": "workspace-root",
+                "surfaceId": "surface-\(sessionID)",
+                "runId": runID,
+                "restoreAuthority": true,
+                "startedAt": startedAt,
+                "updatedAt": startedAt,
+            ]
+            if let parentRunID { value["parentRunId"] = parentRunID }
+            if let relationship { value["relationship"] = relationship }
+            return value
+        }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "parent-a": record(sessionID: "parent-a", runID: "duplicate-run", startedAt: 100),
+                "parent-b": record(sessionID: "parent-b", runID: "duplicate-run", startedAt: 110),
+                "ambiguous-child": record(
+                    sessionID: "ambiguous-child",
+                    runID: "ambiguous-child-run",
+                    parentRunID: "duplicate-run",
+                    startedAt: 120
+                ),
+                "unique-parent": record(sessionID: "unique-parent", runID: "unique-run", startedAt: 130),
+                "unique-child": record(
+                    sessionID: "unique-child",
+                    runID: "unique-child-run",
+                    parentRunID: "unique-run",
+                    relationship: "  ",
+                    startedAt: 140
+                ),
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--agent", "codex", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let edges = try #require(payload["edges"] as? [[String: Any]])
+        #expect(!edges.contains { $0["to_session_id"] as? String == "ambiguous-child" })
+        let uniqueEdge = try #require(edges.first { $0["to_session_id"] as? String == "unique-child" })
+        #expect(uniqueEdge["relationship"] as? String == "spawned")
+    }
+
     @Test func testSessionsListDefaultOmitsStaleCodexRowsWithoutTranscript() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
