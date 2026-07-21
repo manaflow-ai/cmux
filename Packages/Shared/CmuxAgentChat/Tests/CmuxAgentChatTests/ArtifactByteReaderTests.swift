@@ -118,6 +118,22 @@ struct ArtifactByteReaderTests {
         }
     }
 
+    @Test("FIFO metadata ignores an image extension without opening the pipe")
+    func imageExtensionFifoStat() throws {
+        try withTemporaryDirectory { directory in
+            let fifo = directory.appendingPathComponent("preview.png")
+            try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+            let clock = ContinuousClock()
+            let start = clock.now
+
+            let stat = try ArtifactByteReader().stat(path: fifo.path)
+
+            #expect(!stat.isDirectory)
+            #expect(stat.kind == .binary)
+            #expect(clock.now - start < .seconds(1))
+        }
+    }
+
     @Test("FIFO bytes are rejected without opening the pipe")
     func fifoFetch() throws {
         try withTemporaryDirectory { directory in
@@ -131,6 +147,27 @@ struct ArtifactByteReaderTests {
                 Issue.record("fetching a FIFO should fail")
             } catch ArtifactByteReader.Error.unsupportedMedia {
                 // Expected: opening a FIFO for reading could block indefinitely.
+            } catch {
+                Issue.record("unexpected error: \(error)")
+            }
+
+            #expect(clock.now - start < .seconds(1))
+        }
+    }
+
+    @Test("FIFO thumbnails ignore an image extension without opening the pipe")
+    func imageExtensionFifoThumbnail() throws {
+        try withTemporaryDirectory { directory in
+            let fifo = directory.appendingPathComponent("preview.png")
+            try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+            let clock = ContinuousClock()
+            let start = clock.now
+
+            do {
+                _ = try ArtifactByteReader().thumbnail(path: fifo.path, maxDimension: 128)
+                Issue.record("thumbnailing a FIFO should fail")
+            } catch ArtifactByteReader.Error.unsupportedMedia {
+                // Expected: ImageIO must never open an unverified FIFO path.
             } catch {
                 Issue.record("unexpected error: \(error)")
             }
