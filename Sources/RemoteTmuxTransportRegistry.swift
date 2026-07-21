@@ -116,12 +116,19 @@ enum RemoteTmuxStreamEndDisposition: Sendable, Equatable {
     /// The transport owned recovery, so its exit is terminal.
     case sessionOver
 
-    /// What EOF on the control stream means, for every transport: reconnect and find out.
+    /// What EOF on the control stream means.
     ///
-    /// Deliberately takes no argument. It used to branch on who owns reconnection, and that branch
-    /// was wrong (see this type's documentation) — a parameter that no longer decides anything
-    /// would just invite the same inference back.
-    static func forStreamEnd() -> RemoteTmuxStreamEndDisposition { .reconnect }
+    /// It used to branch on who owns reconnection, and that branch was wrong (see this type's
+    /// documentation). The distinction that does hold is whether the stream ever worked:
+    ///
+    /// - reached control mode, then ended: something was there and may still be. Reconnect, and let
+    ///   the reattach report whether the session is gone.
+    /// - never reached control mode: the transport failed to *start*. There is no session behind it
+    ///   to preserve, and retrying only hides the reason — measured, it turned "tmux control stream
+    ///   ended before attach" into an opaque 60-second attach timeout.
+    static func forStreamEnd(hasReachedControlMode: Bool) -> RemoteTmuxStreamEndDisposition {
+        hasReachedControlMode ? .reconnect : .sessionOver
+    }
 }
 
 /// A command to run before opening a connection to a host.
