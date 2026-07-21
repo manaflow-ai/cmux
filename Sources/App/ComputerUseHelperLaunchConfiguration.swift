@@ -11,6 +11,8 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
             "--socket",
             paths.daemonSocketURL.path,
             "--no-permissions-gate",
+            "--cursor-shape",
+            "cmux",
         ]
         environment = [
             "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "1",

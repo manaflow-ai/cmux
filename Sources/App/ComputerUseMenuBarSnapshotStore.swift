@@ -185,14 +185,14 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             }
 
             guard let self, let result, !Task.isCancelled, generation == self.refreshGeneration else { return }
-            let rows = result.rows.map { row in
-                let identity = result.scan.newestStateByScopeID[row.id].flatMap { state -> ComputerUseTargetIdentity? in
-                    guard let pid = pid_t(exactly: state.targetPID),
-                          let application = NSRunningApplication(processIdentifier: pid)
-                    else {
-                        return nil
-                    }
-                    return ComputerUseTargetIdentity(state: state, runningApplication: application)
+            let rows = result.rows.compactMap { row -> ComputerUseMenuBarRow? in
+                guard
+                    let state = result.scan.newestStateByScopeID[row.id],
+                    let pid = pid_t(exactly: state.targetPID),
+                    let application = NSRunningApplication(processIdentifier: pid),
+                    let identity = ComputerUseTargetIdentity(state: state, runningApplication: application)
+                else {
+                    return nil
                 }
                 return row.withTargetIdentity(identity)
             }

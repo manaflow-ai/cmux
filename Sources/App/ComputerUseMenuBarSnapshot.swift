@@ -15,6 +15,6 @@ struct ComputerUseMenuBarSnapshot: Equatable, Sendable {
     let featureEnabled: Bool
 
     var shouldShowStatusItem: Bool {
-        featureEnabled && showInMenuBar && (!rows.isEmpty || hasRecentStateFiles)
+        featureEnabled && showInMenuBar && !rows.isEmpty
     }
 }
