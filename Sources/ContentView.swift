@@ -11478,10 +11478,6 @@ struct VerticalTabsSidebar: View, Equatable {
             currentDropIndicatorScope: {
                 dragState.dropIndicatorScope
             },
-            setWorkspaceDropTargetCollectionActive: { isActive in
-                guard isWorkspaceReorderDropTargetCollectionActive != isActive else { return }
-                isWorkspaceReorderDropTargetCollectionActive = isActive
-            },
             canPerformBonsplitAction: { action, transfer in
                 guard let app = AppDelegate.shared else { return false }
                 switch action {

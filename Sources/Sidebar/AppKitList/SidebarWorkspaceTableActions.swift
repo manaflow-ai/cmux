@@ -18,7 +18,6 @@ struct SidebarWorkspaceTableActions {
     let clearWorkspaceDropIndicator: () -> Void
     let currentDropIndicator: () -> SidebarDropIndicator?
     let currentDropIndicatorScope: () -> SidebarWorkspaceReorderDropIndicatorScope
-    let setWorkspaceDropTargetCollectionActive: (Bool) -> Void
     let canPerformBonsplitAction: (SidebarDropPlanner.WorkspaceDropAction, BonsplitTabDragPayload.Transfer) -> Bool
     let moveBonsplitToExistingWorkspace: (UUID, BonsplitTabDragPayload.Transfer) -> Bool
     let moveBonsplitToNewWorkspace: (Int, BonsplitTabDragPayload.Transfer) -> UUID?

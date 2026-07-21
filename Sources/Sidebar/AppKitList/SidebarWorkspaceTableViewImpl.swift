@@ -66,6 +66,19 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         return workspaceController?.emptyAreaMenu()
     }
 
+    // The data-source drop callbacks have no exit/cancel counterpart, and a
+    // reorder drag that leaves the sidebar (or is cancelled with Escape while
+    // over it) would otherwise strand the custom drop indicator.
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        super.draggingExited(sender)
+        workspaceController?.reorderDropDragExited()
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        super.draggingEnded(sender)
+        workspaceController?.reorderDropSessionEnded()
+    }
+
     private func updatePointer(with event: NSEvent) {
         setPointerWindowLocation(event.locationInWindow)
     }

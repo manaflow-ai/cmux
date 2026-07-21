@@ -77,6 +77,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.doubleAction = #selector(didDoubleClickTableRow)
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask(.move, forLocal: false)
+        table.registerForDraggedTypes([
+            NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier),
+        ])
+        // The row cells and the container's empty-indicator bar own all drop
+        // visuals; the built-in gap/highlight feedback must never draw.
+        table.draggingDestinationFeedbackStyle = .none
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("workspace"))
         column.resizingMask = .autoresizingMask
@@ -99,9 +105,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         )
         scrollView.applySidebarOverlayScrollerConfiguration()
 
-        container.reorderDropView.registerForDraggedTypes([
-            NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier),
-        ])
         dropTargetGeometry.attach(containerView: container)
         container.bonsplitDropView.targetBridge = dropTargetGeometry.bonsplitTargetBridge
 
@@ -312,6 +315,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         recomputeHoveredRow()
         enforceHoverOnVisibleCells()
         updateDropTargets()
+        replanReorderDragIfActive()
     }
 
     /// Row clicks route through the table's action (NSTableView owns the
@@ -471,14 +475,124 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         restoreVisibleCellPaint()
-        if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
-            positionAppKitDropIndicator()
-        }
     }
 
     func workspaceDragSessionDidEnd() {
-        dropTargetGeometry.setWorkspaceDragSessionActive(false, rows: rows)
-        dropTargetGeometry.setReorderTargetCollectionActive(false, rows: rows)
+        reorderDragWindowPoint = nil
+    }
+
+    // MARK: Workspace reorder drop (native NSTableView destination)
+
+    /// Window-space location of the live reorder drag. Present only between
+    /// an accepted validateDrop and the drop/exit/end that retires it; while
+    /// present, every viewport change re-plans against it so the indicator
+    /// tracks rows sliding under a stationary pointer during edge autoscroll.
+    private var reorderDragWindowPoint: NSPoint?
+
+    func tableView(
+        _ tableView: NSTableView,
+        validateDrop info: any NSDraggingInfo,
+        proposedRow row: Int,
+        proposedDropOperation dropOperation: NSTableView.DropOperation
+    ) -> NSDragOperation {
+        guard pasteboardCarriesReorderPayload(info) else { return [] }
+        return updateReorderDrag(windowPoint: info.draggingLocation) ? .move : []
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        acceptDrop info: any NSDraggingInfo,
+        row: Int,
+        dropOperation: NSTableView.DropOperation
+    ) -> Bool {
+        reorderDragWindowPoint = nil
+        guard pasteboardCarriesReorderPayload(info),
+              let actions,
+              actions.isValidWorkspaceDrag(),
+              let table = containerView?.tableView else { return false }
+        let point = table.convert(info.draggingLocation, from: nil)
+        let targets = reorderDropTargets()
+        let performed = actions.performWorkspaceDrop(point, targets)
+#if DEBUG
+        // Every silent "the workspace I dragged didn't move" report needs
+        // this line: where the drop landed, how many targets existed, and
+        // whether the shared planner accepted it.
+        cmuxDebugLog(
+            "sidebar.drop.perform point=(\(Int(point.x)),\(Int(point.y))) " +
+            "targets=\(targets.count) performed=\(performed ? 1 : 0)"
+        )
+#endif
+        setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+        return performed
+    }
+
+    func reorderDropDragExited() {
+        guard reorderDragWindowPoint != nil else { return }
+        reorderDragWindowPoint = nil
+        actions?.clearWorkspaceDropIndicator()
+        setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+    }
+
+    func reorderDropSessionEnded() {
+        reorderDropDragExited()
+    }
+
+    /// Runs the shared reorder planner for a drag hovering at `windowPoint`
+    /// and paints the resulting indicator. An accepted position is remembered
+    /// (window space) so viewport changes can re-plan it; a rejected one
+    /// stops the re-plan loop until the pointer produces a new validateDrop.
+    @discardableResult
+    func updateReorderDrag(windowPoint: NSPoint) -> Bool {
+        guard let actions, actions.isValidWorkspaceDrag(),
+              let table = containerView?.tableView else {
+            reorderDragWindowPoint = nil
+            return false
+        }
+        let targets = reorderDropTargets()
+        guard !targets.isEmpty else {
+            reorderDragWindowPoint = nil
+            actions.clearWorkspaceDropIndicator()
+            setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+            return false
+        }
+        let accepted = actions.updateWorkspaceDrag(
+            table.convert(windowPoint, from: nil),
+            targets
+        )
+        setAppKitDropIndicator(
+            actions.currentDropIndicator(),
+            scope: actions.currentDropIndicatorScope(),
+            includeRowTargets: false
+        )
+        reorderDragWindowPoint = accepted ? windowPoint : nil
+        return accepted
+    }
+
+    /// Visible-row drop targets in table coordinates, built synchronously at
+    /// hit-test time. The drag point is converted into the same space, so the
+    /// planner's point/frame comparisons stay coherent.
+    private func reorderDropTargets() -> [SidebarWorkspaceReorderDropOverlay.Target] {
+        guard let table = containerView?.tableView else { return [] }
+        let visibleRange = table.rows(in: table.visibleRect)
+        guard visibleRange.location != NSNotFound, visibleRange.length > 0 else { return [] }
+        let lower = max(0, visibleRange.location)
+        let upper = min(rows.count, visibleRange.location + visibleRange.length)
+        guard lower < upper else { return [] }
+        return (lower..<upper).map { row in
+            let configuration = rows[row]
+            return SidebarWorkspaceReorderDropOverlay.Target(
+                workspaceId: configuration.workspaceId,
+                groupId: configuration.groupId,
+                isGroupHeader: configuration.isGroupHeader,
+                frame: table.rect(ofRow: row)
+            )
+        }
+    }
+
+    private func pasteboardCarriesReorderPayload(_ info: any NSDraggingInfo) -> Bool {
+        info.draggingPasteboard.types?.contains(
+            NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        ) == true
     }
 
     /// Optimistic press highlight: paints the clicked workspace cell as
@@ -663,6 +777,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         recomputeHoveredRow()
         enforceHoverOnVisibleCells()
         updateDropTargets()
+        replanReorderDragIfActive()
+    }
+
+    /// Edge autoscroll moves rows under a stationary pointer, and AppKit only
+    /// re-validates the drop when the pointer itself moves. Re-running the
+    /// planner from the stored window point on every viewport change keeps
+    /// the drop target (not just the indicator's pixels) tracking the rows.
+    private func replanReorderDragIfActive() {
+        guard let windowPoint = reorderDragWindowPoint else { return }
+        updateReorderDrag(windowPoint: windowPoint)
     }
 
     private let selectionCoalescer = SidebarSelectionCoalescer<ContinuousClock>()
@@ -937,43 +1061,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         in container: SidebarWorkspaceTableContainerView,
         actions: SidebarWorkspaceTableActions
     ) {
-        let reorder = container.reorderDropView
-        reorder.isValidDrag = actions.isValidWorkspaceDrag
-        reorder.updateDrag = { [weak self] point, targets in
-            let accepted = actions.updateWorkspaceDrag(point, targets)
-            self?.setAppKitDropIndicator(
-                actions.currentDropIndicator(),
-                scope: actions.currentDropIndicatorScope(),
-                includeRowTargets: false
-            )
-            return accepted
-        }
-        reorder.performDropAtPoint = { [weak self] point, targets in
-            let performed = actions.performWorkspaceDrop(point, targets)
-#if DEBUG
-            // Every silent "the workspace I dragged didn't move" report needs
-            // this line: where the drop landed, how many targets existed, and
-            // whether the shared planner accepted it.
-            cmuxDebugLog(
-                "sidebar.drop.perform point=(\(Int(point.x)),\(Int(point.y))) " +
-                "targets=\(targets.count) performed=\(performed ? 1 : 0)"
-            )
-#endif
-            self?.setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
-            return performed
-        }
-        reorder.clearDropIndicator = { [weak self] in
-            actions.clearWorkspaceDropIndicator()
-            self?.setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
-        }
-        reorder.setWorkspaceDropTargetCollectionActive = { [weak self] isActive in
-            actions.setWorkspaceDropTargetCollectionActive(isActive)
-            guard let self else { return }
-            if self.dropTargetGeometry.setReorderTargetCollectionActive(isActive, rows: self.rows) {
-                self.positionAppKitDropIndicator()
-            }
-        }
-
         let bonsplit = container.bonsplitDropView
         bonsplit.canPerformAction = actions.canPerformBonsplitAction
         bonsplit.updateAutoscroll = actions.updateDragAutoscroll
