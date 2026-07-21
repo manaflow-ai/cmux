@@ -162,6 +162,22 @@ extension GhosttySurfaceRepresentable.Coordinator {
             artifactChipController = nil
         }
 
+        private func revalidatedTapPath(
+            in surfaceView: GhosttySurfaceView,
+            col: Int,
+            row: Int
+        ) async -> String? {
+            guard let snapshot = await surfaceView.visibleTextForArtifactHitTesting() else {
+                return nil
+            }
+            return TerminalArtifactTapHitTester().path(
+                in: snapshot.text,
+                col: col,
+                row: row,
+                columns: snapshot.columns
+            )
+        }
+
         // MARK: - GhosttySurfaceViewDelegate
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
@@ -290,39 +306,27 @@ extension GhosttySurfaceRepresentable.Coordinator {
                         return try await source.terminalArtifactStat(
                             workspaceID: self.workspaceID,
                             surfaceID: self.surfaceID,
-                            path: path,
-                            visibleOnly: true
+                            path: path
                         ).kind
                     }
                     guard decision == .openArtifact else {
                         // Forward only against revalidated content; stale coordinates
                         // are dropped instead of clicking a changed TUI cell.
                         guard self.surfaceView === surfaceView else { return .ignored }
-                        let currentSnapshot = await surfaceView.visibleTextForArtifactHitTesting()
+                        let currentPath = await revalidatedTapPath(in: surfaceView, col: col, row: row)
                         guard self.surfaceView === surfaceView else { return .ignored }
-                        guard let currentSnapshot,
-                              currentSnapshot.text == snapshot.text,
-                              currentSnapshot.columns == snapshot.columns else {
-                            return .focusTerminal
-                        }
-                        Task { @MainActor [weak self, surfaceID = self.surfaceID, col, row] in
-                            guard let self else { return }
-                            await self.store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
+                        if currentPath == path {
+                            Task { @MainActor [weak self, surfaceID = self.surfaceID, col, row] in
+                                guard let self else { return }
+                                await self.store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
+                            }
                         }
                         return .focusTerminal
                     }
-                    guard self.surfaceView === surfaceView else {
-                        return .ignored
-                    }
-                    let currentSnapshot = await surfaceView.visibleTextForArtifactHitTesting()
+                    guard self.surfaceView === surfaceView else { return .ignored }
+                    let currentPath = await revalidatedTapPath(in: surfaceView, col: col, row: row)
                     guard self.surfaceView === surfaceView,
-                          let currentSnapshot,
-                          TerminalArtifactTapHitTester().path(
-                            in: currentSnapshot.text,
-                            col: col,
-                            row: row,
-                            columns: currentSnapshot.columns
-                          ) == path else {
+                          currentPath == path else {
                         return .ignored
                     }
                     onArtifactPathTapped(path)
