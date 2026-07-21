@@ -161,4 +161,62 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.focusMainWindow(windowId: windowCId))
     }
+
+    @Test("Retained closed window cannot respawn its context or terminal")
+    func retainedClosedWindowCannotRespawnItsContextOrTerminal() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let sidebarState = SidebarState()
+        let sidebarSelectionState = SidebarSelectionState()
+        let fileExplorerState = FileExplorerState()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: fileExplorerState
+        )
+        window.makeKeyAndOrderFront(nil)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+
+        // Keep the NSWindow and SwiftUI-owned models alive across close, then
+        // reproduce the late window-accessor registration from issue #8349.
+        window.close()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: fileExplorerState
+        )
+
+        // A second AppKit close emits no notification for an already-closed
+        // NSWindow. The socket/API path must still converge on final teardown.
+        _ = app.closeMainWindow(windowId: windowId)
+
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+    }
 }
