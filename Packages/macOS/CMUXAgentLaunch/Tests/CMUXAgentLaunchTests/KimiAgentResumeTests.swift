@@ -47,6 +47,13 @@ struct KimiAgentResumeTests {
         )
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["kimi", "-c", "initial prompt", "--model", "kimi-k2"],
+                launcher: "kimi",
+                fallbackKind: "kimi"
+            ) == ["kimi", "--model", "kimi-k2"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
                     "kimi",
                     "--add-dir", "/tmp/extra-a",
@@ -71,6 +78,20 @@ struct KimiAgentResumeTests {
                 launcher: "kimi",
                 fallbackKind: "kimi"
             ) == nil
+        )
+    }
+
+    @Test(
+        "Drops stale Kimi auto-approval modes while preserving following options",
+        arguments: ["--yolo", "--yes", "--auto-approve", "-y", "--afk"]
+    )
+    func dropsStaleAutoApprovalMode(_ option: String) {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["kimi", option, "--model", "kimi-k2"],
+                launcher: "kimi",
+                fallbackKind: "kimi"
+            ) == ["kimi", "--model", "kimi-k2"]
         )
     }
 
