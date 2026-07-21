@@ -85,6 +85,9 @@ final class MobileHostIrohRuntime {
     let customRelayCredentials: CmxIrohCustomRelayCredentialStore
     let relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot?
     let lanPublisher: CmxIrohLANHostPublisher
+    /// Release-safe, bounded host-side connection timeline. Event payloads are
+    /// fixed numeric categories, never peer identities, addresses, or tokens.
+    let diagnosticLog: DiagnosticLog
     let authObserver = MobileHostIrohAuthObserver()
     let bindingPersistenceQueue = MobileHostIrohPersistenceQueue()
 
@@ -114,6 +117,10 @@ final class MobileHostIrohRuntime {
     var lifecycleRevision: UInt64 = 0
 
     private init() {
+        diagnosticLog = DiagnosticLog(
+            buildStamp: Self.diagnosticBuildStamp,
+            role: .macHost
+        )
         appInstances = CmxIrohAppInstanceRepository()
         #if DEBUG
         identities = CmxIrohIdentityRepository(
@@ -180,6 +187,14 @@ final class MobileHostIrohRuntime {
         lanPublisher = CmxIrohLANHostPublisher()
     }
 
+    private static var diagnosticBuildStamp: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let name = info["CFBundleName"] as? String ?? "cmux"
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "\(name) \(version) (\(build))"
+    }
+
     @discardableResult
     func scheduleReconcile(
         eraseAccountState: Bool,
@@ -227,6 +242,12 @@ final class MobileHostIrohRuntime {
             activeAccountID = nil
             activeAppInstanceID = nil
             await previousRuntime?.stop()
+            if previousRuntime != nil {
+                diagnosticLog.record(DiagnosticEvent(
+                    .endpointStopped,
+                    a: DiagnosticTransportKind.iroh.rawValue
+                ))
+            }
             await lanPublisher.stop()
             clearRelayPolicyRuntimeState()
         }
@@ -238,14 +259,29 @@ final class MobileHostIrohRuntime {
               let targetAccountID,
               runtime == nil else { return }
 
+        diagnosticLog.record(DiagnosticEvent(
+            .endpointStarting,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
         do {
             try await activate(accountID: targetAccountID, revision: revision)
         } catch is CancellationError {
             return
         } catch {
+            diagnosticLog.record(DiagnosticEvent(
+                .endpointFailed,
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: Self.diagnosticFailureKind(for: error).rawValue
+            ))
             mobileHostIrohLog.error(
                 "Iroh host activation failed: \(String(describing: error), privacy: .private)"
             )
         }
+    }
+
+    nonisolated static func diagnosticFailureKind(
+        for error: any Error
+    ) -> DiagnosticFailureKind {
+        DiagnosticFailureKind.classify(error)
     }
 }

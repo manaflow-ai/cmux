@@ -37,6 +37,12 @@ struct SidebarWorkspaceRowModel: Equatable {
     let globalFontMagnificationPercent: Int
     let isChecklistExpanded: Bool
     let checklistAddFieldActivationToken: Int
+    /// Parity with legacy SidebarMetadataRows / markdown blocks: collapsed
+    /// shows 3 entries / 1 block with a Show more toggle; expansion state is
+    /// container-owned so the toggle re-measures heights through the normal
+    /// apply pass.
+    let isMetadataExpanded: Bool
+    let isMarkdownExpanded: Bool
 
     var fontScale: CGFloat { settings.sidebarFontScale }
 
@@ -49,9 +55,12 @@ struct SidebarWorkspaceRowModel: Equatable {
 @MainActor
 struct SidebarAppKitRowActions {
     let commands: SidebarWorkspaceRowCommands
+    let onOpenStatusURL: (URL) -> Void
     let onOpenPullRequest: (URL) -> Void
     let onOpenPort: (Int) -> Void
     let onToggleChecklistExpansion: () -> Void
+    let onToggleMetadataExpansion: () -> Void
+    let onToggleMarkdownExpansion: () -> Void
     let onConsumeChecklistAddFieldActivation: () -> Void
     let checklistSetItemState: (UUID, WorkspaceChecklistItem.State) -> Void
     let checklistRemoveItem: (UUID) -> Void

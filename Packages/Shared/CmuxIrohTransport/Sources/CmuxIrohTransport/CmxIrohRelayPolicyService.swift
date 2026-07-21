@@ -475,7 +475,7 @@ public actor CmxIrohRelayPolicyService {
                 policyExpiresAt: nil,
                 preferenceRevision: nil,
                 selectedRelayIDs: [],
-                selectedRelayURLs: [],
+                selectedRelayCount: 0,
                 staleRelayIDs: [],
                 missingCredentialRelayIDs: [],
                 failure: failure

@@ -12,14 +12,44 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
-`b4b6d69c8` through the already-merged theme, render-grid, and wrap-aware URL
-updates, then preserves authoritative sprite-font shaping runs. The commit is
-reachable from fork `main` through the merged
-https://github.com/manaflow-ai/ghostty/pull/120.
+Current cmux pinned fork head: `24284c3ba`. It merges fork `main` at
+`bb30526cd` into the tokened renderer-presentation branch. The commit is
+reachable from `feat/ios-render-present-token-main` through
+https://github.com/manaflow-ai/ghostty/pull/116.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-bb30526cdab8f5fb08ae43e404e3aacc40d3ffc3-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-24284c3ba4ebe79860d2b4e8d5d710fde2e1ebd3-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Tokened renderer presentation callbacks
+
+- Commits:
+  - `d303f9c89` (add tokened render presentation callbacks)
+  - `a9d462403` (preserve presentation tokens across render backends)
+  - `24284c3ba` (merge fork `main` at `bb30526cd`)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer.zig`
+  - `src/renderer/Metal.zig`
+  - `src/renderer/OpenGL.zig`
+  - `src/renderer/Thread.zig`
+  - `src/renderer/generic.zig`
+  - `src/renderer/metal/Frame.zig`
+  - `src/renderer/metal/IOSurfaceLayer.zig`
+  - `src/renderer/opengl/Frame.zig`
+- Summary:
+  - Adds an explicit render token to the embedded render request and returns
+    that token only after the selected target is assigned to the host layer.
+  - Preserves the token through Metal, OpenGL, and the generic renderer path so
+    a stale command-buffer completion cannot acknowledge a newer iOS replay.
+  - Keeps the existing layer-size guard authoritative. A target discarded after
+    geometry changes emits no false presentation callback.
+  - Conflict note: future renderer refactors must carry the token through every
+    backend and invoke the callback only after the exact target assignment.
+
+The previous `bb30526cd` pin contains the merged theme, render-grid,
+wrap-aware URL, and authoritative sprite-font shaping changes.
 
 ### Authoritative sprite-font shaping runs
 

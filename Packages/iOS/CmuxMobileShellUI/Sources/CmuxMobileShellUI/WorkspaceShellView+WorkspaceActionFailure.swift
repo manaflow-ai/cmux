@@ -29,8 +29,8 @@ extension WorkspaceShellView {
     ) {
         guard case let .failure(failure) = result else { return }
         toasts.present(.failure(
-            workspaceActionFailureReasonText(failure),
-            title: workspaceActionFailureTitle(action: action),
+            Self.workspaceActionFailureReasonText(failure),
+            title: Self.workspaceActionFailureTitle(action: action),
             // One key per action: a repeat of the same failed action re-bumps
             // the visible toast (even if the reason changed) instead of
             // queueing near-duplicates.
@@ -38,7 +38,9 @@ extension WorkspaceShellView {
         ))
     }
 
-    private func workspaceActionFailureTitle(action: WorkspaceActionToastAction) -> String {
+    /// The toast's bold first line ("Couldn't rename workspace"). Static so
+    /// message-composition tests exercise it without building the view.
+    static func workspaceActionFailureTitle(action: WorkspaceActionToastAction) -> String {
         String.localizedStringWithFormat(
             L10n.string(
                 "mobile.workspaceAction.failure.titleFormat",
@@ -48,7 +50,7 @@ extension WorkspaceShellView {
         )
     }
 
-    private func workspaceActionFailureActionText(_ action: WorkspaceActionToastAction) -> String {
+    private static func workspaceActionFailureActionText(_ action: WorkspaceActionToastAction) -> String {
         switch action {
         case .createWorkspace:
             return L10n.string("mobile.workspaceAction.failure.action.createWorkspace", defaultValue: "create workspace")
@@ -83,7 +85,8 @@ extension WorkspaceShellView {
         }
     }
 
-    private func workspaceActionFailureReasonText(_ failure: MobileWorkspaceMutationFailure) -> String {
+    /// The toast's secondary line: the failure reason as a standalone sentence.
+    static func workspaceActionFailureReasonText(_ failure: MobileWorkspaceMutationFailure) -> String {
         switch failure {
         case let .notConnected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
@@ -155,6 +158,21 @@ extension WorkspaceShellView {
                 "mobile.workspaceAction.failure.reason.rejected.generic",
                 defaultValue: "Your Mac rejected the request."
             )
+        case .invalidWorkingDirectory:
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.invalidWorkingDirectory",
+                defaultValue: "The working directory isn't available on your Mac; choose another directory."
+            )
+        case .persistenceUnavailable:
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.persistence",
+                defaultValue: "Your Mac could not safely reserve the request."
+            )
+        case .alreadyCompleted:
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.alreadyCompleted",
+                defaultValue: "Your Mac already accepted the request; refresh workspaces before trying again."
+            )
         case let .unsupported(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
@@ -172,7 +190,7 @@ extension WorkspaceShellView {
         }
     }
 
-    private func trimmedWorkspaceActionHostDisplayName(_ hostDisplayName: String?) -> String? {
+    private static func trimmedWorkspaceActionHostDisplayName(_ hostDisplayName: String?) -> String? {
         guard let hostDisplayName = hostDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !hostDisplayName.isEmpty else {
             return nil

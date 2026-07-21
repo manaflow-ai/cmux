@@ -3,6 +3,40 @@ import CmuxMobileShellModel
 import Foundation
 
 extension WorkspaceShellView {
+    #if os(iOS)
+    var submitTaskComposerFromShell: @MainActor (
+        String,
+        MobileWorkspaceCreateSpec,
+        @escaping @MainActor () -> Void
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let store = store
+        return { macDeviceID, spec, composerWillStartCreate in
+            pendingCompactCreateNavigationWorkspaceIDs = nil
+            var existingWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
+            let result = await store.submitTaskComposer(
+                macDeviceID: macDeviceID,
+                spec: spec,
+                willStartCreate: {
+                    composerWillStartCreate()
+                    guard usesCompactStack else { return }
+                    let targetWorkspaceIDs = Set(store.workspaces.map(\.id))
+                    existingWorkspaceIDs = targetWorkspaceIDs
+                    pendingCompactCreateNavigationWorkspaceIDs = targetWorkspaceIDs
+                }
+            )
+            if usesCompactStack, let existingWorkspaceIDs {
+                settlePendingCompactCreateNavigation(
+                    result: result,
+                    existingWorkspaceIDs: existingWorkspaceIDs
+                )
+            } else {
+                pendingCompactCreateNavigationWorkspaceIDs = nil
+            }
+            return result
+        }
+    }
+    #endif
+
     /// Workspace action closures, always present for the real store. Row and
     /// detail affordances gate themselves on each workspace's owning-Mac
     /// capability snapshot, so a secondary Mac is not hidden behind the
@@ -158,7 +192,10 @@ extension WorkspaceShellView {
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         if store.usesLocalWorkspaceCreationFallback {
             store.createWorkspace(inGroup: groupID)
-            clearPendingCompactCreateNavigationIfSettled(existingWorkspaceIDs: existingWorkspaceIDs)
+            settlePendingCompactCreateNavigation(
+                result: .success(()),
+                existingWorkspaceIDs: existingWorkspaceIDs
+            )
             return
         }
         Task { @MainActor in
@@ -167,11 +204,10 @@ extension WorkspaceShellView {
                 result,
                 action: groupID == nil ? .createWorkspace : .createWorkspaceInGroup
             )
-            if case .failure = result {
-                pendingCompactCreateNavigationWorkspaceIDs = nil
-                return
-            }
-            clearPendingCompactCreateNavigationIfSettled(existingWorkspaceIDs: existingWorkspaceIDs)
+            settlePendingCompactCreateNavigation(
+                result: result,
+                existingWorkspaceIDs: existingWorkspaceIDs
+            )
         }
     }
 
@@ -202,13 +238,16 @@ extension WorkspaceShellView {
         }
     }
 
-    private func clearPendingCompactCreateNavigationIfSettled(
+    func settlePendingCompactCreateNavigation(
+        result: Result<Void, MobileWorkspaceMutationFailure>,
         existingWorkspaceIDs: Set<MobileWorkspacePreview.ID>
     ) {
-        if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
+        let succeeded = if case .success = result { true } else { false }
+        if let createdPath = compactNavigationPolicy.pathForCompletedCreate(
             currentPath: compactNavigationPath,
             selectedWorkspaceID: store.selectedWorkspaceID,
-            existingWorkspaceIDs: existingWorkspaceIDs
+            existingWorkspaceIDs: existingWorkspaceIDs,
+            succeeded: succeeded
         ) {
             pendingCompactCreateNavigationWorkspaceIDs = nil
             compactNavigationPath = createdPath

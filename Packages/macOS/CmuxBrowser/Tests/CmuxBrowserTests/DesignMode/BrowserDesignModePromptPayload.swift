@@ -4,7 +4,7 @@ import Foundation
 /// Test-side mirror of the lean prompt payload: one ordered selections array
 /// (each entry a flattened selection plus its screenshot path), no duplicated
 /// selection objects, empty fields omitted.
-nonisolated struct BrowserDesignModePromptPayload: Decodable {
+struct BrowserDesignModePromptPayload: Decodable {
     struct SelectionEntry: Decodable {
         let selection: BrowserDesignModeSelection
         let screenshotPath: String?

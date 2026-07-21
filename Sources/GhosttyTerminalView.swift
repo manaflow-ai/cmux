@@ -7340,7 +7340,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // command either reaches the live stream, or the action reports false.
         if let controller = AppDelegate.shared?.remoteTmuxController,
            controller.isMirrorPaneSurface(surfaceId) {
-            return controller.handleMirrorSplitRequested(surfaceId: surfaceId, vertical: !direction.isHorizontal)
+            return controller.handleMirrorSplitRequested(surfaceId: surfaceId, vertical: !direction.isHorizontal, focusIntent: .focusCreatedPane)
         }
         guard let tabId,
               let app = AppDelegate.shared,
@@ -10045,7 +10045,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
+    func moveFocus(
+        from previous: GhosttySurfaceScrollView? = nil,
+        delay: TimeInterval? = nil,
+        respectForeignFirstResponder: Bool = false
+    ) {
 #if DEBUG
         let surfaceShort = String(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
         let searchActive = self.surfaceView.terminalSurface?.searchState != nil
@@ -10062,6 +10066,23 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             let before = String(describing: window.firstResponder)
 #endif
+            // Same contract as ensureFocus's default: reassert-style callers
+            // (tab-selection convergence) must not steal from a legitimate
+            // focus owner — the sidebar's inline-rename field editor was
+            // killed ~240ms into every double-click rename by the async
+            // selection pipeline landing through this path. Explicit
+            // focus-the-terminal callers (find escape, tmux mirror) keep the
+            // default and still take focus.
+            if respectForeignFirstResponder,
+               let firstResponder = window.firstResponder,
+               shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
+                   AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+               }) {
+#if DEBUG
+                cmuxDebugLog("find.moveFocus.skip to=\(surfaceShort) reason=foreignFirstResponder")
+#endif
+                return
+            }
             guard self.canRequestSurfaceFirstResponder(in: window, reason: "moveFocus") else { return }
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()

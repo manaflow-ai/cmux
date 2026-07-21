@@ -80,6 +80,9 @@ extension CmxIrohHostRuntime {
         let publicHints = Array(address.pathHints.compactMap {
             $0.publicDisclosure(at: now())
         }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
+        let directPorts = CmxIrohDirectPorts(
+            localDirectAddresses: await endpoint.localDirectAddresses()
+        )
         let payload = try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
@@ -91,6 +94,7 @@ extension CmxIrohHostRuntime {
             pairingEnabled: configuration.pairingEnabled,
             capabilities: configuration.capabilities,
             pathHints: publicHints,
+            directPorts: directPorts,
             now: now()
         )
         let signer = try CmxIrohRegistrationSigner(
@@ -407,17 +411,18 @@ extension CmxIrohHostRuntime {
             localBinding = policy.binding
             endpointAttestation = policy.attestation ?? endpointAttestation
             lanRendezvous = policy.lanRendezvous
-            await publishLANPolicy(
-                binding: policy.binding,
-                rendezvous: policy.lanRendezvous,
-                supervisor: supervisor
-            )
-            try requireCurrent(revision)
             guard let registration = policy.registration,
                   let discovery = policy.discovery else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
             await handleBinding(registration, discovery, policy.attestation)
+            try requireCurrent(revision)
+            scheduleLANPublication(
+                binding: policy.binding,
+                rendezvous: policy.lanRendezvous,
+                supervisor: supervisor,
+                revision: revision
+            )
             registrationRefreshFailureCount = 0
             completedSuccessfully = true
             scheduleRegistrationRenewal(

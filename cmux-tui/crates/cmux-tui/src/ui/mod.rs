@@ -8,7 +8,7 @@ pub mod graphics_writer;
 pub(crate) mod input;
 pub mod omnibar;
 mod overlay;
-mod pane;
+pub(crate) mod pane;
 mod scrollbar;
 mod sidebar;
 pub(crate) mod terminal_grid;
