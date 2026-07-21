@@ -5696,7 +5696,6 @@ extension TabManager {
             hasher.combine(false)
             return
         }
-
         hasher.combine(true)
         hasher.combine(snapshot.kind.rawValue)
         hasher.combine(snapshot.sessionId)
@@ -5765,6 +5764,7 @@ extension TabManager {
         hashOptionalString(snapshot.source, into: &hasher)
         hashStringMap(snapshot.environment, into: &hasher)
         hasher.combine(snapshot.allowsAutomaticResume)
+        hasher.combine(snapshot.launchFlavor)
         if snapshot.isProcessDetected {
             hasher.combine(false)
         } else {
@@ -5953,19 +5953,12 @@ extension TabManager {
         return (filtered, remappedSelection)
     }
 
-    private static func isCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
-        isManagedCloudVMSessionRestoreWorkspace(snapshot)
-    }
-
-    private static func isManagedCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
-        guard let managedCloudVMID = snapshot.remote?.managedCloudVMID else { return false }
-        return !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
-        remapClosedPanelHistory: Bool = true, excludingStableIdentities: Set<UUID> = []
+        remapClosedPanelHistory: Bool = true,
+        excludingStableIdentities: Set<UUID> = [],
+        workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil
     ) -> [[UUID: UUID]] {
         isRestoringSessionSnapshot = true
         defer { isRestoringSessionSnapshot = false }
@@ -6014,6 +6007,7 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
+            Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)

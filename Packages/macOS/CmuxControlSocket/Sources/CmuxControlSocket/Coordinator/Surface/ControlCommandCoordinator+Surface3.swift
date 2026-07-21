@@ -46,6 +46,17 @@ extension ControlCommandCoordinator {
         }
 
         let source = publicResumeSource(params)
+        let remoteWorkspaceID = uuid(params, "_cmux_remote_workspace_id")
+        if hasNonNull(params, "_cmux_remote_workspace_id"), remoteWorkspaceID == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surfaceSplitOff.error.invalidWorkspaceId",
+                    defaultValue: "Missing or invalid workspace_id"
+                ),
+                data: nil
+            )
+        }
         let inputs = ControlSurfaceResumeSetInputs(
             name: optionalTrimmedRawString(params, "name"),
             kind: optionalTrimmedRawString(params, "kind"),
@@ -55,7 +66,9 @@ extension ControlCommandCoordinator {
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             source: source,
             environment: stringMap(params, "environment"),
-            autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false
+            autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
+            remoteWorkspaceID: remoteWorkspaceID,
+            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(
@@ -160,6 +173,10 @@ extension ControlCommandCoordinator {
             "auto_resume": .bool(binding.autoResume),
             "approval_policy": orNull(binding.approvalPolicyRawValue),
             "approval_record_id": orNull(binding.approvalRecordID),
+            "execution_location": .string(binding.executionLocationRawValue),
+            "remote_workspace_id": orNull(binding.remoteWorkspaceID?.uuidString),
+            "remote_surface_id": orNull(binding.remoteSurfaceID?.uuidString),
+            "remote_pty_session_id": orNull(binding.remotePTYSessionID),
             "updated_at": .double(binding.updatedAt),
         ])
     }
@@ -362,7 +379,7 @@ extension ControlCommandCoordinator {
 
     /// The shared workspace/requested-surface field block the report/kick payloads
     /// echo (the legacy `v2OrNull` requested-surface shape).
-    private func surfaceReportSurfaceFields(
+    func surfaceReportSurfaceFields(
         workspaceID: UUID,
         requestedSurfaceID: UUID?
     ) -> [String: JSONValue] {
