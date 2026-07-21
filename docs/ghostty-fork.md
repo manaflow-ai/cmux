@@ -12,12 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `8eb1857c4`. It combines indented
+Current cmux pinned fork patch head: `fedd33703`. It combines indented
 hard-newline link continuations with the presentation-token runtime from
 `24284c3ba` and is published through
 https://github.com/manaflow-ai/ghostty/pull/124.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-8eb1857c40a403e42fe7bb51c46c1a64ad31edf9-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fedd33703c3c49641e4d8b18ca969b5274cd0a91-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Indented hard-newline link continuations
@@ -34,8 +34,13 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `ae379642e` (merge the presentation-token runtime)
   - `828bb0b73` (test: preserve wrapped-path trailing spaces)
   - `8eb1857c4` (fix: retain wrapped-path trailing spaces)
+  - `3288abc24` (test: cover inherited presentation callbacks)
+  - `fedd33703` (fix: inherit render presentation callbacks)
 - Files:
+  - `build.zig`
   - `src/Surface.zig`
+  - `src/apprt.zig`
+  - `src/apprt/embedded.zig`
   - `src/config/Config.zig`
   - `src/config/url.zig`
   - `src/input/Link.zig`
@@ -61,6 +66,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - Bounds cell, byte, candidate, and regex work; compressed pages stay cold.
     Regex work runs outside the terminal lock and stale snapshots are
     revalidated before results are applied.
+  - Preserves render-presentation callbacks and userdata when child surfaces
+    inherit options. macOS Zig tests select the embedded runtime so this
+    integration path remains covered.
   - Conflict note: future link matching or renderer string-map changes must
     keep click actions and highlighted cells on the shared exact resolver.
 
