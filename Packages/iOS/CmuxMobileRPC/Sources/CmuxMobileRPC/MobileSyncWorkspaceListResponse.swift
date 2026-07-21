@@ -56,6 +56,37 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case hasUnread = "has_unread"
             case terminals
         }
+
+        /// Memberwise construction for callers that assemble a row from an
+        /// already-synced local source (mobile state sync v2 projects its
+        /// record mirror through the same apply path as the wire response).
+        public init(
+            id: String,
+            windowID: String?,
+            title: String,
+            currentDirectory: String?,
+            isSelected: Bool,
+            isPinned: Bool?,
+            groupID: String?,
+            preview: String?,
+            previewAt: Double?,
+            lastActivityAt: Double?,
+            hasUnread: Bool?,
+            terminals: [Terminal]
+        ) {
+            self.id = id
+            self.windowID = windowID
+            self.title = title
+            self.currentDirectory = currentDirectory
+            self.isSelected = isSelected
+            self.isPinned = isPinned
+            self.groupID = groupID
+            self.preview = preview
+            self.previewAt = previewAt
+            self.lastActivityAt = lastActivityAt
+            self.hasUnread = hasUnread
+            self.terminals = terminals
+        }
     }
 
     /// A workspace group section in the list response. Mirrors the iOS-facing
@@ -86,6 +117,21 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case isPinned = "is_pinned"
             case anchorWorkspaceID = "anchor_workspace_id"
         }
+
+        /// Memberwise construction for locally-synced sources (state sync v2).
+        public init(
+            id: String,
+            name: String,
+            isCollapsed: Bool,
+            isPinned: Bool,
+            anchorWorkspaceID: String
+        ) {
+            self.id = id
+            self.name = name
+            self.isCollapsed = isCollapsed
+            self.isPinned = isPinned
+            self.anchorWorkspaceID = anchorWorkspaceID
+        }
     }
 
     /// A terminal entry within a workspace.
@@ -107,6 +153,21 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case currentDirectory = "current_directory"
             case isFocused = "is_focused"
             case isReady = "is_ready"
+        }
+
+        /// Memberwise construction for locally-synced sources (state sync v2).
+        public init(
+            id: String,
+            title: String,
+            currentDirectory: String?,
+            isFocused: Bool,
+            isReady: Bool?
+        ) {
+            self.id = id
+            self.title = title
+            self.currentDirectory = currentDirectory
+            self.isFocused = isFocused
+            self.isReady = isReady
         }
     }
 
@@ -148,3 +209,25 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         try JSONDecoder().decode(Self.self, from: data)
     }
 }
+
+// Memberwise construction for callers that assemble a list response from an
+// already-synced local source (mobile state sync v2 projects its record mirror
+// through the same apply path the decoded wire response uses).
+extension MobileSyncWorkspaceListResponse {
+    /// Memberwise construction for locally-synced sources (state sync v2
+    /// projects its record mirror through the same apply path).
+    public init(
+        workspaces: [Workspace],
+        groups: [Group],
+        createdWorkspaceID: String?,
+        createdTerminalID: String?
+    ) {
+        self.workspaces = workspaces
+        self.groups = groups
+        self.createdWorkspaceID = createdWorkspaceID
+        self.createdTerminalID = createdTerminalID
+    }
+}
+
+
+

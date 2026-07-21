@@ -35,6 +35,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// Ghostty config update without remounting or changing another scene.
     var configThemeGeneration: UInt64 = 0
     var artifactFilesEnabled: Bool = false
+    var terminalFolderTapEnabled: Bool = true
     var terminalFilesChipEnabled: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
@@ -49,6 +50,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: surfaceID,
             store: store,
             artifactFilesEnabled: artifactFilesEnabled,
+            terminalFolderTapEnabled: terminalFolderTapEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled,
             visibleArtifactCount: visibleArtifactCount,
@@ -83,6 +85,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.artifactFilesEnabled = artifactFilesEnabled
+        view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
+            ? .verifiedRenderGrid
+            : .legacyMirror
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
@@ -120,12 +125,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
         context.coordinator.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
+        context.coordinator.terminalFolderTapEnabled = terminalFolderTapEnabled
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
+        surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
+            ? .verifiedRenderGrid
+            : .legacyMirror
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
         }
@@ -155,6 +164,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         var artifactFilesEnabled: Bool
+        var terminalFolderTapEnabled: Bool
         var artifactChipGate: TerminalArtifactChipFeatureGate
         var sessionArtifactCountEnabled: Bool
         var visibleArtifactCount: Int
@@ -163,6 +173,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
+        var outputStartContinuation: AsyncStream<Void>.Continuation?
+        var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
         var artifactCountTask: Task<Void, Never>?
@@ -170,6 +182,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactCountState = TerminalArtifactChipCountState()
         var artifactCountNeedsRefresh: Bool
         var freshestLocalArtifactCount = 0
+        /// Taps must apply in user order, and stopping the live mount invalidates pending work.
+        /// Same-path taps intentionally classify independently so the newest coordinates
+        /// win; human tap rate and the two-second deadline bound concurrent stats.
+        var tapGeneration: UInt64 = 0
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
@@ -178,6 +194,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var lastArtifactChipRender: (count: Int, enabled: Bool)?
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
         /// scramble the send order AND let the echo of an old keyboard-up
@@ -197,6 +214,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: String,
             store: CMUXMobileShellStore,
             artifactFilesEnabled: Bool,
+            terminalFolderTapEnabled: Bool,
             terminalFilesChipEnabled: Bool,
             sessionArtifactCountEnabled: Bool,
             visibleArtifactCount: Int,
@@ -209,6 +227,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceID = surfaceID
             self.store = store
             self.artifactFilesEnabled = artifactFilesEnabled
+            self.terminalFolderTapEnabled = terminalFolderTapEnabled
             self.artifactChipGate = TerminalArtifactChipFeatureGate(
                 artifactsAvailable: artifactFilesEnabled,
                 preferenceEnabled: terminalFilesChipEnabled
@@ -227,11 +246,25 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
             updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
+            guard surfaceView.window != nil else { return }
+            startMountedTasks(surfaceView: surfaceView)
+        }
+
+        private func startMountedTasks(surfaceView: GhosttySurfaceView) {
+            guard outputTask == nil else { return }
             guard let store else { return }
             let surfaceID = surfaceID
+            let outputStartSignal = AsyncStream<Void> { [weak self] continuation in
+                self?.outputStartContinuation = continuation
+            }
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
+                    if let preparation = self.preparedViewportReportsByReportID.removeValue(
+                        forKey: report.id
+                    ) {
+                        return await store.updatePreparedTerminalViewport(preparation)
+                    }
                     return await store.updateTerminalViewport(
                         surfaceID: self.surfaceID,
                         columns: report.columns,
@@ -254,6 +287,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         return
                     }
                     surfaceView.markViewportReportConfirmed()
+                    if let renderEpoch = effectiveGrid.renderEpoch,
+                       let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
+                        self.verifiedReplayState.acknowledgeViewport(
+                            renderEpoch: renderEpoch,
+                            renderRevisionFloor: renderRevisionFloor
+                        )
+                    }
                     if case .remoteGrid = self.activeViewportPolicy {
                         surfaceView.applyConfirmedViewSize(
                             cols: effectiveGrid.columns,
@@ -267,11 +307,40 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
             outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
+                for await _ in outputStartSignal { break }
+                guard !Task.isCancelled else { return }
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
+                    switch terminalOutputApplicationPath(
+                        for: chunk,
+                        expectedSurfaceID: surfaceID
+                    ) {
+                    case .verifiedReplay:
+                        guard let frame = chunk.sourceRenderGridFrame else { return }
+                        await self.applyVerifiedRenderGrid(
+                            frame,
+                            chunk: chunk,
+                            surfaceView: surfaceView,
+                            store: store
+                        )
+                        continue
+                    case .rejectUnverified:
+                        let transactionID = self.verifiedReplayState.rejectUnverifiedOutput()
+                        _ = await surfaceView.freezeVerifiedReplayPresentation(
+                            transactionID: transactionID
+                        )
+                        guard !Task.isCancelled else { return }
+                        store.terminalOutputDidReset(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
+                    case .legacy:
+                        break
+                    }
                     switch chunk.viewportPolicy {
                     case .natural:
                         self.activeViewportPolicy = .natural
@@ -342,22 +411,180 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView.setLiveFontSize(points)
                 }
             }
+            surfaceView.requestViewportReportForMount()
+        }
+
+        private func stopMountedTasks() {
+            tapGeneration &+= 1
+            outputStartContinuation?.finish()
+            outputStartContinuation = nil
+            preparedViewportReportsByReportID.removeAll()
+            outputTask?.cancel()
+            outputTask = nil
+            verifiedReplayState.invalidate()
+            liveFontTask?.cancel()
+            liveFontTask = nil
+            viewportReportScheduler?.cancel()
+            viewportReportScheduler = nil
+            activeViewportPolicy = .natural
         }
 
         func detach() {
-            outputTask?.cancel()
-            outputTask = nil
-            liveFontTask?.cancel()
-            liveFontTask = nil
+            surfaceView = nil
+            stopMountedTasks()
             themeApplicationScheduler.cancel()
             artifactCountTask?.cancel()
             artifactCountTask = nil
             artifactCountTaskRequest = nil
             artifactCountState.reset()
-            viewportReportScheduler?.cancel()
-            viewportReportScheduler = nil
+            surfaceView = nil
         }
 
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didChangeWindowAttachment isAttached: Bool
+        ) {
+            guard self.surfaceView === surfaceView else { return }
+            if isAttached {
+                startMountedTasks(surfaceView: surfaceView)
+            } else {
+                stopMountedTasks()
+            }
+        }
+
+        private func applyVerifiedRenderGrid(
+            _ frame: MobileTerminalRenderGridFrame,
+            chunk: MobileTerminalOutputChunk,
+            surfaceView: GhosttySurfaceView,
+            store: CMUXMobileShellStore
+        ) async {
+            if let chunkConfigTheme = chunk.terminalConfigTheme,
+               chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+                store.terminalOutputDidReset(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
+                return
+            }
+            await applyThemeMatchedVerifiedRenderGrid(
+                frame,
+                chunk: chunk,
+                surfaceView: surfaceView,
+                store: store
+            )
+        }
+
+        private func applyThemeMatchedVerifiedRenderGrid(
+            _ frame: MobileTerminalRenderGridFrame,
+            chunk: MobileTerminalOutputChunk,
+            surfaceView: GhosttySurfaceView,
+            store: CMUXMobileShellStore
+        ) async {
+            guard case .apply(let transaction) = verifiedReplayState.begin(frame: frame) else {
+                _ = await surfaceView.freezeVerifiedReplayPresentation(
+                    transactionID: frame.renderRevision
+                )
+                guard !Task.isCancelled else { return }
+                requestVerifiedReplayReset(transactionID: nil, chunk: chunk, store: store)
+                return
+            }
+
+            let frozen = await surfaceView.freezeVerifiedReplayPresentation(
+                transactionID: transaction.id
+            )
+            guard !Task.isCancelled else { return }
+            guard frozen else {
+                requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
+                return
+            }
+            activeViewportPolicy = .remoteGrid(columns: frame.columns, rows: frame.rows)
+            let resized = await surfaceView.applyViewSizeAndWait(
+                cols: frame.columns,
+                rows: frame.rows
+            )
+            guard !Task.isCancelled else { return }
+            guard resized else {
+                requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
+                return
+            }
+
+            if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                let applied = await surfaceView.processOutputAndWait(
+                    chunk.data,
+                    terminalConfigTheme: chunk.terminalConfigTheme
+                )
+                guard !Task.isCancelled else { return }
+                guard applied else {
+                    requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
+                    return
+                }
+            }
+
+            let observed = await surfaceView.presentVerifiedReplayAndReadBack(
+                frame: frame,
+                configuredCursorColor: chunk.terminalConfigTheme?.cursor
+                    ?? surfaceView.terminalConfigTheme.cursor
+            )
+            guard !Task.isCancelled else { return }
+            finishVerifiedReplay(
+                transactionID: transaction.id,
+                observed: observed,
+                chunk: chunk,
+                surfaceView: surfaceView,
+                store: store
+            )
+        }
+
+        private func requestVerifiedReplayReset(
+            transactionID: UInt64?,
+            chunk: MobileTerminalOutputChunk,
+            store: CMUXMobileShellStore
+        ) {
+            if let transactionID {
+                _ = verifiedReplayState.complete(
+                    transactionID: transactionID,
+                    observedFrame: nil
+                )
+            }
+            store.terminalOutputDidReset(
+                surfaceID: surfaceID,
+                streamToken: chunk.streamToken
+            )
+        }
+
+        private func finishVerifiedReplay(
+            transactionID: UInt64,
+            observed: MobileTerminalRenderGridFrame?,
+            chunk: MobileTerminalOutputChunk,
+            surfaceView: GhosttySurfaceView,
+            store: CMUXMobileShellStore
+        ) {
+            switch verifiedReplayState.complete(
+                transactionID: transactionID,
+                observedFrame: observed
+            ) {
+            case .reveal:
+                guard surfaceView.revealVerifiedReplayPresentation(
+                    transactionID: transactionID
+                ) else {
+                    _ = verifiedReplayState.rejectUnverifiedOutput()
+                    store.terminalOutputDidReset(
+                        surfaceID: surfaceID,
+                        streamToken: chunk.streamToken
+                    )
+                    return
+                }
+                store.terminalOutputDidProcess(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
+            case .keepFrozenAndRequestReplay, .ignoreStaleCompletion:
+                store.terminalOutputDidReset(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
+            }
+        }
 
         // MARK: - Composer band hosting
 
