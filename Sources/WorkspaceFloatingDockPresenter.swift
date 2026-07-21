@@ -7,6 +7,7 @@ final class WorkspaceFloatingDockPresenter {
     private weak var tabManager: TabManager?
     private let minimizedShelfController: WorkspaceFloatingDockMinimizedShelfController
     private var controllers: [UUID: WorkspaceFloatingDockWindowController] = [:]
+    private var pendingRestoreAnimationFrames: [UUID: CGRect] = [:]
     private var lastActiveDockId: UUID?
 
     init(parentWindow: NSWindow, tabManager: TabManager) {
@@ -84,7 +85,10 @@ final class WorkspaceFloatingDockPresenter {
                         controller.cascade(relativeTo: sourceWindow)
                     }
                 }
-                controller.show(focus: focusDockId == dock.id)
+                controller.show(
+                    focus: focusDockId == dock.id,
+                    animatedFrom: pendingRestoreAnimationFrames.removeValue(forKey: dock.id)
+                )
             }
         }
 
@@ -113,6 +117,12 @@ final class WorkspaceFloatingDockPresenter {
         controllers.values.forEach { $0.teardown() }
         controllers.removeAll()
         minimizedShelfController.teardown()
+        pendingRestoreAnimationFrames.removeAll()
+    }
+
+    func prepareRestoreAnimation(for dockId: UUID) {
+        guard let sourceFrame = minimizedShelfController.animationSourceFrame() else { return }
+        pendingRestoreAnimationFrames[dockId] = sourceFrame
     }
 
     func beginScreenConfigurationChange() {

@@ -188,6 +188,10 @@ extension AppDelegate {
         focus: Bool
     ) -> Bool {
         guard workspace.floatingDocks.contains(where: { $0 === dock }) else { return false }
+        if presented, !dock.isPresented,
+           let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
+            context.workspaceFloatingDockPresenter?.prepareRestoreAnimation(for: dock.id)
+        }
         dock.isPresented = presented
         if focus, presented, tabManager.selectedTabId != workspace.id {
             tabManager.selectWorkspace(workspace)
@@ -217,6 +221,11 @@ extension AppDelegate {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         let minimized = workspace.floatingDocks.filter { !$0.isPresented }
         guard !minimized.isEmpty else { return 0 }
+        if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
+            minimized.forEach {
+                context.workspaceFloatingDockPresenter?.prepareRestoreAnimation(for: $0.id)
+            }
+        }
         minimized.forEach { $0.isPresented = true }
         refreshWorkspaceFloatingDocks(
             for: tabManager,

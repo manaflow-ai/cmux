@@ -256,6 +256,11 @@ extension WindowGlassEffect {
         override var isOpaque: Bool { false }
         override var mouseDownCanMoveWindow: Bool { false }
 
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            originalContentView?.acceptsFirstMouse(for: event)
+                ?? super.acceptsFirstMouse(for: event)
+        }
+
         init(
             frame: NSRect,
             topOffset: CGFloat,

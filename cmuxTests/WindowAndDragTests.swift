@@ -39,8 +39,30 @@ private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitReg
     }
 }
 
+private final class FirstMouseAcceptingGlassContentView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 @MainActor
 final class WindowGlassEffectTests: XCTestCase {
+    func testGlassPreservesOriginalContentFirstMousePolicy() throws {
+        _ = NSApplication.shared
+        let originalContentView = FirstMouseAcceptingGlassContentView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 200)
+        )
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+
+        WindowGlassEffect().apply(to: window, tintColor: .systemBlue)
+
+        XCTAssertTrue(try XCTUnwrap(window.contentView).acceptsFirstMouse(for: nil))
+    }
+
     func testGlassKeepsForegroundControlsAsMouseHitTargets() throws {
         _ = NSApplication.shared
         let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
@@ -3276,10 +3298,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(WorkspaceFloatingDockMinimizeDestination.allCases.count, 4)
+        XCTAssertEqual(WorkspaceFloatingDockMinimizeDestination.allCases.count, 5)
         XCTAssertEqual(
             WorkspaceFloatingDockMinimizeDebugSettings.currentDestination(defaults: defaults),
-            .bottomShelf
+            .bottomRightPill
         )
 
         defaults.set(
@@ -3295,6 +3317,14 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testWorkspaceFloatingDockMinimizedShelfLayoutAnchorsToWorkspaceWindow() throws {
         let parent = CGRect(x: 100, y: 100, width: 1_000, height: 700)
 
+        XCTAssertEqual(
+            try XCTUnwrap(WorkspaceFloatingDockMinimizedShelfLayout.frame(
+                parentFrame: parent,
+                itemCount: 2,
+                destination: .bottomRightPill
+            )),
+            CGRect(x: 992, y: 124, width: 84, height: 50)
+        )
         XCTAssertEqual(
             try XCTUnwrap(WorkspaceFloatingDockMinimizedShelfLayout.frame(
                 parentFrame: parent,
@@ -3324,6 +3354,14 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             itemCount: 2,
             destination: .paletteOnly
         ))
+        XCTAssertEqual(
+            WorkspaceFloatingDockMinimizedShelfLayout.animationTargetFrame(
+                parentFrame: parent,
+                itemCount: 2,
+                destination: .bottomRightPill
+            ),
+            CGRect(x: 1_033, y: 131, width: 36, height: 36)
+        )
     }
 
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {

@@ -4,6 +4,7 @@ import Observation
 import SwiftUI
 
 enum WorkspaceFloatingDockMinimizeDestination: String, CaseIterable, Identifiable {
+    case bottomRightPill
     case bottomShelf
     case topTray
     case leftRail
@@ -13,6 +14,8 @@ enum WorkspaceFloatingDockMinimizeDestination: String, CaseIterable, Identifiabl
 
     var title: LocalizedStringResource {
         switch self {
+        case .bottomRightPill:
+            "debug.floatingDockMinimize.destination.bottomRightPill"
         case .bottomShelf:
             "debug.floatingDockMinimize.destination.bottomShelf"
         case .topTray:
@@ -26,6 +29,8 @@ enum WorkspaceFloatingDockMinimizeDestination: String, CaseIterable, Identifiabl
 
     var detail: LocalizedStringResource {
         switch self {
+        case .bottomRightPill:
+            "debug.floatingDockMinimize.destination.bottomRightPill.detail"
         case .bottomShelf:
             "debug.floatingDockMinimize.destination.bottomShelf.detail"
         case .topTray:
@@ -38,11 +43,12 @@ enum WorkspaceFloatingDockMinimizeDestination: String, CaseIterable, Identifiabl
     }
 
     var usesVerticalLayout: Bool { self == .leftRail }
+    var usesCompactIconLayout: Bool { self == .bottomRightPill }
 }
 
 enum WorkspaceFloatingDockMinimizeDebugSettings {
     static let destinationKey = "debugWorkspaceFloatingDockMinimizeDestination"
-    static let defaultDestination = WorkspaceFloatingDockMinimizeDestination.bottomShelf
+    static let defaultDestination = WorkspaceFloatingDockMinimizeDestination.bottomRightPill
 
     static func currentDestination(
         defaults: UserDefaults = .standard
@@ -62,6 +68,16 @@ struct WorkspaceFloatingDockMinimizedShelfLayout {
         guard itemCount > 0, destination != .paletteOnly else { return nil }
 
         switch destination {
+        case .bottomRightPill:
+            let availableWidth = max(50, parentFrame.width - 48)
+            let width = min(max(50, CGFloat(itemCount) * 38 + 8), min(440, availableWidth))
+            let height: CGFloat = 50
+            return CGRect(
+                x: parentFrame.maxX - width - 24,
+                y: parentFrame.minY + 24,
+                width: width,
+                height: height
+            )
         case .bottomShelf, .topTray:
             let availableWidth = max(220, parentFrame.width - 48)
             let width = min(max(220, CGFloat(itemCount) * 164 + 20), min(760, availableWidth))
@@ -85,6 +101,46 @@ struct WorkspaceFloatingDockMinimizedShelfLayout {
             return nil
         }
     }
+
+    static func animationTargetFrame(
+        parentFrame: CGRect,
+        itemCount: Int,
+        destination: WorkspaceFloatingDockMinimizeDestination
+    ) -> CGRect {
+        if destination == .bottomRightPill,
+           let shelfFrame = frame(
+               parentFrame: parentFrame,
+               itemCount: max(1, itemCount),
+               destination: destination
+           ) {
+            return CGRect(
+                x: shelfFrame.maxX - 43,
+                y: shelfFrame.minY + 7,
+                width: 36,
+                height: 36
+            )
+        }
+
+        if let shelfFrame = frame(
+            parentFrame: parentFrame,
+            itemCount: max(1, itemCount),
+            destination: destination
+        ) {
+            return CGRect(
+                x: shelfFrame.midX - 18,
+                y: shelfFrame.midY - 18,
+                width: 36,
+                height: 36
+            )
+        }
+
+        return CGRect(
+            x: parentFrame.midX - 18,
+            y: parentFrame.minY + 31,
+            width: 36,
+            height: 36
+        )
+    }
 }
 
 struct WorkspaceFloatingDockMinimizedShelfItem: Identifiable, Equatable {
@@ -102,7 +158,7 @@ final class WorkspaceFloatingDockMinimizedShelfController: NSObject {
 
     init(parentWindow: NSWindow) {
         self.parentWindow = parentWindow
-        self.panel = NSPanel(
+        self.panel = WorkspaceFloatingDockMinimizedShelfPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -152,13 +208,20 @@ final class WorkspaceFloatingDockMinimizedShelfController: NSObject {
             return
         }
 
-        panel.contentView = WorkspaceFloatingDockMinimizedShelfHostingView(
-            rootView: AnyView(WorkspaceFloatingDockMinimizedShelfView(
+        if destination.usesCompactIconLayout {
+            panel.contentView = WorkspaceFloatingDockMinimizedPillView(
                 items: items,
-                destination: destination,
                 onRestore: onRestore
-            ))
-        )
+            )
+        } else {
+            panel.contentView = WorkspaceFloatingDockMinimizedShelfHostingView(
+                rootView: AnyView(WorkspaceFloatingDockMinimizedShelfView(
+                    items: items,
+                    destination: destination,
+                    onRestore: onRestore
+                ))
+            )
+        }
         applyGlassBackdrop()
         reposition()
 
@@ -173,6 +236,15 @@ final class WorkspaceFloatingDockMinimizedShelfController: NSObject {
         hide()
         glassEffect.remove(from: panel)
         panel.contentView = nil
+    }
+
+    func animationSourceFrame() -> CGRect? {
+        guard let parentWindow else { return nil }
+        return WorkspaceFloatingDockMinimizedShelfLayout.animationTargetFrame(
+            parentFrame: parentWindow.frame,
+            itemCount: itemCount,
+            destination: destination
+        )
     }
 
     @objc private func parentFrameDidChange(_ notification: Notification) {
@@ -211,8 +283,145 @@ final class WorkspaceFloatingDockMinimizedShelfController: NSObject {
     }
 }
 
+private final class WorkspaceFloatingDockMinimizedShelfPanel: NSPanel {
+    private weak var trackedFirstMouseButton: NSButton?
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        guard !isKeyWindow else {
+            super.sendEvent(event)
+            return
+        }
+
+        switch event.type {
+        case .leftMouseDown:
+            guard let button = button(at: event.locationInWindow) else {
+                super.sendEvent(event)
+                return
+            }
+            trackedFirstMouseButton = button
+        case .leftMouseDragged:
+            guard let trackedFirstMouseButton else {
+                super.sendEvent(event)
+                return
+            }
+            if button(at: event.locationInWindow) !== trackedFirstMouseButton {
+                self.trackedFirstMouseButton = nil
+            }
+        case .leftMouseUp:
+            guard let trackedFirstMouseButton else {
+                super.sendEvent(event)
+                return
+            }
+            self.trackedFirstMouseButton = nil
+            if button(at: event.locationInWindow) === trackedFirstMouseButton {
+                trackedFirstMouseButton.performClick(nil)
+            }
+        default:
+            super.sendEvent(event)
+        }
+    }
+
+    private func button(at locationInWindow: NSPoint) -> NSButton? {
+        guard let contentView else { return nil }
+        return contentView.descendants.compactMap { $0 as? NSButton }.first { button in
+            button.bounds.contains(button.convert(locationInWindow, from: nil))
+        }
+    }
+}
+
+private extension NSView {
+    var descendants: [NSView] {
+        subviews + subviews.flatMap(\.descendants)
+    }
+}
+
 private final class WorkspaceFloatingDockMinimizedShelfHostingView: NSHostingView<AnyView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+private final class WorkspaceFloatingDockMinimizedPillView: NSView {
+    init(
+        items: [WorkspaceFloatingDockMinimizedShelfItem],
+        onRestore: @escaping (UUID) -> Void
+    ) {
+        super.init(frame: .zero)
+
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 7, left: 7, bottom: 7, right: 7)
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+
+        for item in items {
+            let button = WorkspaceFloatingDockMinimizedPillButton(item: item) {
+                onRestore(item.id)
+            }
+            stack.addArrangedSubview(button)
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 32),
+                button.heightAnchor.constraint(equalToConstant: 32),
+            ])
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+private final class WorkspaceFloatingDockMinimizedPillButton: NSButton {
+    private let onPress: () -> Void
+
+    init(item: WorkspaceFloatingDockMinimizedShelfItem, onPress: @escaping () -> Void) {
+        self.onPress = onPress
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: item.title)
+        imagePosition = .imageOnly
+        isBordered = false
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        target = self
+        action = #selector(press(_:))
+        toolTip = String(
+            format: String(
+                localized: "floatingDock.minimizedShelf.restoreHelp",
+                defaultValue: "Restore %@"
+            ),
+            locale: .current,
+            item.title
+        )
+        identifier = NSUserInterfaceItemIdentifier(
+            "WorkspaceFloatingDockMinimizedShelfItem.\(item.id.uuidString)"
+        )
+        setAccessibilityLabel(item.title)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    @objc private func press(_ sender: Any?) {
+        onPress()
+    }
 }
 
 private struct WorkspaceFloatingDockMinimizedShelfView: View {
@@ -251,12 +460,20 @@ private struct WorkspaceFloatingDockMinimizedShelfView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "macwindow")
                         .font(.system(size: 11, weight: .medium))
-                    Text(item.title)
-                        .lineLimit(1)
+                    if !destination.usesCompactIconLayout {
+                        Text(item.title)
+                            .lineLimit(1)
+                    }
                 }
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .frame(maxWidth: destination.usesVerticalLayout ? .infinity : 154, alignment: .leading)
+                .padding(.horizontal, destination.usesCompactIconLayout ? 0 : 10)
+                .frame(
+                    width: destination.usesCompactIconLayout ? 32 : nil,
+                    height: 32
+                )
+                .frame(
+                    maxWidth: destination.usesVerticalLayout ? .infinity : 154,
+                    alignment: .leading
+                )
                 .background(Color.primary.opacity(0.08), in: Capsule())
                 .contentShape(Capsule())
             }
