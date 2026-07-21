@@ -12,9 +12,16 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 type HookExtra = Record<string, unknown>;
 
+interface PendingCompletion {
+  lastAssistantMessage?: string;
+  notificationType: string;
+  turnId: string;
+}
+
 interface SessionState {
   nextTurn: number;
   activeTurnId?: string;
+  pendingCompletion?: PendingCompletion;
   stopped: boolean;
 }
 
@@ -232,6 +239,7 @@ function beginTurn(sessionId: string, event: unknown): string {
   const turnId = eventTurnId(event) || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event)) state.nextTurn += 1;
   state.activeTurnId = turnId;
+  state.pendingCompletion = undefined;
   state.stopped = false;
   return turnId;
 }
@@ -248,8 +256,19 @@ function finishTurn(sessionId: string, event: unknown): string {
   const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
   state.activeTurnId = undefined;
+  state.pendingCompletion = undefined;
   state.stopped = true;
   return turnId;
+}
+
+function settleTurn(sessionId: string): PendingCompletion | undefined {
+  const state = sessionStates.get(sessionId);
+  const completion = state?.pendingCompletion;
+  if (!state || !completion || state.stopped) return undefined;
+  state.activeTurnId = undefined;
+  state.pendingCompletion = undefined;
+  state.stopped = true;
+  return completion;
 }
 
 function warn(ctx: ExtensionContext | null, message: string, details: Record<string, unknown> = {}): void {

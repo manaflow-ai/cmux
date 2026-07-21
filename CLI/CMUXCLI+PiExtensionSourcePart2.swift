@@ -228,7 +228,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
     const cwd = cwdFrom(ctx);
-    if (sessionId) stateFor(sessionId).stopped = false;
+    if (sessionId) {
+      const state = stateFor(sessionId);
+      state.pendingCompletion = undefined;
+      state.stopped = false;
+    }
     const ok = sendHook("session-start", ctx);
     if (ok && sessionId) ensureResumeBinding(ctx, sessionId, cwd);
   });
@@ -252,18 +256,31 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
   pi.on("agent_end", async (event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
-    const turnId = sessionId ? finishTurn(sessionId, event) : undefined;
+    if (!sessionId) return;
+    const state = stateFor(sessionId);
     const message = lastAssistantMessage(event);
+    // Preserve the latest low-level result until Pi confirms no automatic work remains.
+    state.pendingCompletion = {
+      lastAssistantMessage: message || state.pendingCompletion?.lastAssistantMessage,
+      notificationType: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
+      turnId: currentTurnId(sessionId, event),
+    };
+  });
+
+  pi.on("agent_settled", async (_event, ctx) => {
+    const sessionId = sessionIdFrom(ctx);
+    if (!sessionId) return;
+    // Consume pending completion before subprocess calls so duplicate settlement cannot notify twice.
+    const completion = settleTurn(sessionId);
+    if (!completion) return;
     const notificationRouted = sendHook("notification", ctx, {
-      message: message || "Task completed",
-      turn_id: turnId,
-      notification: {
-        type: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
-      },
+      message: completion.lastAssistantMessage || "Task completed",
+      turn_id: completion.turnId,
+      notification: { type: completion.notificationType },
     });
     const stopPayload: HookExtra = {
-      last_assistant_message: message,
-      turn_id: turnId,
+      last_assistant_message: completion.lastAssistantMessage,
+      turn_id: completion.turnId,
     };
     if (notificationRouted) stopPayload.cmux_notification_routed = true;
     sendHook("stop", ctx, stopPayload);
