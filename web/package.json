@@ -90,6 +90,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
     "pagefind": "^1.5.2",
+    "sharp": "0.34.5",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

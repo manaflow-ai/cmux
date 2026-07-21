@@ -138,6 +138,8 @@ import Testing
         #expect(workspace.terminals.first?.isReady == true)
         let mapped = MobileWorkspacePreview(remote: workspace)
         #expect(mapped.windowID == "window-1")
+        #expect(mapped.currentDirectory == "/Users/test/project")
+        #expect(mapped.terminals.first?.currentDirectory == "/Users/test/project")
     }
 
     /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest

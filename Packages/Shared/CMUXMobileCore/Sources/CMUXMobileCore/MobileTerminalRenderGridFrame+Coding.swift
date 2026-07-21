@@ -3,6 +3,8 @@ extension MobileTerminalRenderGridFrame {
         case format
         case surfaceID = "surface_id"
         case stateSeq = "state_seq"
+        case renderEpoch = "render_epoch"
+        case renderRevision = "render_revision"
         case columns
         case rows
         case cursor
