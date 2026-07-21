@@ -161,6 +161,17 @@ struct RemoteTmuxLoginOffers: Sendable, Equatable {
 
     /// Whether `host` has any offer outstanding (claimed or opened).
     func hasOffer(host: String) -> Bool { slots[host] != nil }
+
+    /// The host whose open login is `workspace`, if any.
+    ///
+    /// The close path knows only which workspace the user closed, so resolving it back to a host
+    /// is what lets a closed tab be treated as declining that host's login.
+    func host(forOpenedWorkspace workspace: UUID) -> String? {
+        for (host, slot) in slots {
+            if case .opened(let opened, _) = slot, opened == workspace { return host }
+        }
+        return nil
+    }
 }
 
 enum RemoteTmuxConnectionState: Sendable, Equatable {
