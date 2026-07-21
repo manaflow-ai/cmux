@@ -73,6 +73,67 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeCompactSessionStartReconcilesWithoutTranscriptShrinkAndRetriesAtNextStop() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-signal")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-signal-session"
+        let transcriptURL = context.root.appendingPathComponent("append-only-compact.jsonl")
+        try [
+            #"{"type":"user","message":{"content":"Fix the auth bug"}}"#,
+            #"{"type":"system","subtype":"compact_boundary"}"#,
+            #"{"type":"user","isCompactSummary":true,"message":{"content":"Authentication work continues"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let unchangedBaseline = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        let lastNamedAt = now - 60
+        let lastAttemptAt = now - 30
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: unchangedBaseline,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: lastNamedAt,
+            lastAttemptAt: lastAttemptAt,
+            inFlightAt: nil
+        )
+
+        let compact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameTitleReconciliationPending"] as? Bool, true)
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, unchangedBaseline)
+
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 1) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: true,
+                panelApplySkipped: true
+            )
+        }
+        let stop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationPending"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, unchangedBaseline)
+        XCTAssertEqual(record["autoNameLastNamedAt"] as? Double, lastNamedAt)
+        XCTAssertEqual(record["autoNameLastAttemptAt"] as? Double, lastAttemptAt)
+    }
+
     func testClaudeAutoNameCompactionDedupesWhileReconciliationIsInFlight() throws {
         let context = try makeClaudeHookContext(name: "claude-auto-name-inflight")
         defer { context.cleanup() }
@@ -961,6 +1022,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            case "workspace.set_auto_title":
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplySkipped: true
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
