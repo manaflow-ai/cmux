@@ -776,8 +776,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `mobile.sync.delta` events own the list.
     var stateSyncActive = false
     /// Single-flight handle for negotiation and gap-repair fetches, restart-on-
-    /// newest like ``workspaceListRefreshTask``.
-    var stateSyncFetchTask: Task<Void, Never>?
+    /// newest like ``workspaceListRefreshTask``. Bool payload = fetch applied.
+    var stateSyncFetchTask: Task<Bool, Never>?
     /// Identifies the fetch generation that owns ``stateSyncFetchTask``, so a
     /// cancelled predecessor's deferred cleanup cannot clear its replacement.
     var stateSyncFetchGeneration = UUID()
@@ -6727,12 +6727,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 topics: topics,
                 transport: outputTransport
             )
-            // Probe mobile state sync v2 concurrently with consumption, for the
-            // same reason as the subscribe handshake above: the fetch must not
-            // park the consumer loop. Subscribing before fetching means a delta
-            // racing the fetch either overlaps (idempotent) or gaps (repair
-            // fetch); no change can be silently lost in between.
-            self?.beginStateSyncNegotiation(client: client)
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
                 guard !Task.isCancelled else { return }
@@ -6813,6 +6807,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.recordSuccessfulTerminalSubscription()
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            // Negotiate state sync v2 only from the subscription
+            // ACKNOWLEDGEMENT: the ack proves the Mac registered this
+            // connection for `mobile.sync.delta`, so a fetch snapshot taken
+            // now cannot miss a change emitted between fetch and
+            // registration. (A fetch racing the handshake could snapshot rev
+            // N, miss N+1 emitted before the server registered us, and stay
+            // stale until the next unrelated change.)
+            self.beginStateSyncNegotiation(client: client)
             self.scheduleNotificationReconcile(client: client)
         }
     }
@@ -7851,7 +7853,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the `mobile.sync.delta` stream (the Mac emits both on the same tick
         // for old and new phones); the delta already carried the change, so the
         // full-list refetch this event used to trigger is pure amplification.
-        guard !stateSyncActive else { return }
+        // BUT callers also use this path for "events were missed" recovery
+        // (the watchdog's lost-registration branch): missed events include
+        // missed deltas, so under v2 the repair is a cursor fetch, never a
+        // silent no-op.
+        if stateSyncActive {
+            if let client = remoteClient {
+                requestStateSyncFetch(client: client)
+            }
+            return
+        }
         // Keep the event path's "latest event wins" semantics: a `workspace.updated`
         // arriving mid-fetch restarts the fetch so the applied list reflects the
         // change the Mac pushed *after* this fetch started. This cancels only the

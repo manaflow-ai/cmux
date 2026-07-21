@@ -80,9 +80,16 @@ extension MobileShellComposite {
     }
 
     /// Entry point for sibling composite extensions (liveness probe and
-    /// pull-to-refresh paths): re-base the mirror through its cursor.
+    /// event-driven repair paths): re-base the mirror through its cursor.
     func requestStateSyncFetch(client: MobileCoreRPCClient) {
         scheduleStateSyncFetch(client: client)
+    }
+
+    /// Awaitable variant for user-visible refresh gestures: the spinner must
+    /// not end before the authoritative fetch applied (or failed). Returns
+    /// whether the fetch applied cleanly.
+    func performStateSyncFetch(client: MobileCoreRPCClient) async -> Bool {
+        await scheduleStateSyncFetch(client: client).value
     }
 
     /// Repairs the mirror with a cursor fetch when the current client is v2.
@@ -93,11 +100,12 @@ extension MobileShellComposite {
 
     /// Single-flight, restart-on-newest cursor fetch (negotiation and gap
     /// repair share it, mirroring ``workspaceListRefreshTask`` semantics).
-    private func scheduleStateSyncFetch(client: MobileCoreRPCClient) {
+    @discardableResult
+    private func scheduleStateSyncFetch(client: MobileCoreRPCClient) -> Task<Bool, Never> {
         stateSyncFetchTask?.cancel()
         let generation = UUID()
         stateSyncFetchGeneration = generation
-        stateSyncFetchTask = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] () -> Bool in
             defer {
                 // Only the generation that still owns the handle may clear
                 // it: a cancelled predecessor's deferred cleanup must not
@@ -106,23 +114,29 @@ extension MobileShellComposite {
                     self.stateSyncFetchTask = nil
                 }
             }
-            await self?.runStateSyncFetch(client: client)
+            return await self?.runStateSyncFetch(client: client, generation: generation) ?? false
         }
+        stateSyncFetchTask = task
+        return task
     }
 
-    private func runStateSyncFetch(client: MobileCoreRPCClient) async {
+    @discardableResult
+    private func runStateSyncFetch(
+        client: MobileCoreRPCClient,
+        generation: UUID
+    ) async -> Bool {
         // Currency check BEFORE the send, not only after: a negotiation task
         // scheduled for a listener generation that has since been replaced
         // must not touch its stale client at all — `sendRequest` on a
         // torn-down session would redial that client's route underneath the
         // replacement connection (an extra transport dial the reconnect
         // paths never asked for).
-        guard remoteClient === client, connectionState == .connected, !Task.isCancelled else { return }
+        guard remoteClient === client, connectionState == .connected, !Task.isCancelled else { return false }
         let params: [String: Any]
         do {
             params = try MobileSyncFrameJSON.jsonObject(from: stateSyncMirror.fetchRequest)
         } catch {
-            return
+            return false
         }
         do {
             let request = try MobileCoreRPCClient.requestData(
@@ -133,7 +147,7 @@ extension MobileShellComposite {
                 request,
                 timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
             )
-            guard remoteClient === client, connectionState == .connected, !Task.isCancelled else { return }
+            guard remoteClient === client, connectionState == .connected, !Task.isCancelled else { return false }
             let response = try JSONDecoder().decode(MobileSyncFetchResponse.self, from: data)
             let result = stateSyncMirror.apply(response: response)
             stateSyncActive = true
@@ -147,22 +161,24 @@ extension MobileShellComposite {
                 // building the response's sections; one repair round covers it.
                 scheduleStateSyncFetch(client: client)
             }
-        } catch let error as MobileShellConnectionError {
-            if case .rpcError(let code, _) = error, code == "method_not_found" {
+            return true
+        } catch {
+            // Failure handling belongs to the OWNING generation only: a
+            // cancelled predecessor's send can surface as a timeout after its
+            // replacement already succeeded, and acting on it would disable
+            // v2 underneath authoritative state.
+            guard !Task.isCancelled, stateSyncFetchGeneration == generation else { return false }
+            if case MobileShellConnectionError.rpcError(let code, _) = error, code == "method_not_found" {
                 // Legacy Mac: stay on the workspace.updated refetch loop for
                 // this connection. Not an error.
                 stateSyncActive = false
-                return
+                return false
             }
             mobileStateSyncLog.error(
                 "state sync fetch failed: \(String(describing: error), privacy: .private)"
             )
             fallBackToLegacyListAfterFetchFailure(client: client)
-        } catch {
-            mobileStateSyncLog.error(
-                "state sync fetch failed: \(String(describing: error), privacy: .private)"
-            )
-            fallBackToLegacyListAfterFetchFailure(client: client)
+            return false
         }
     }
 
