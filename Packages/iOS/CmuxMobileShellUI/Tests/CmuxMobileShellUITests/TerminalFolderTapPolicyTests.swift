@@ -68,4 +68,33 @@ struct TerminalFolderTapPolicyTests {
 
         #expect(decision == .focusTerminal)
     }
+
+    @Test("disabled fails closed when classification exceeds its deadline")
+    func disabledClassificationDeadlineFocusesTerminal() async {
+        let decision = await TerminalFolderTapPolicy(
+            folderTapEnabled: false,
+            classificationDeadline: .milliseconds(50)
+        ).decision(
+            for: "/tmp/file",
+            stat: { _ in
+                try await Task.sleep(for: .milliseconds(250))
+                return .text
+            }
+        )
+
+        #expect(decision == .focusTerminal)
+    }
+
+    @Test("disabled still accepts a fast classification before the deadline")
+    func disabledFastClassificationOpensArtifact() async {
+        let decision = await TerminalFolderTapPolicy(
+            folderTapEnabled: false,
+            classificationDeadline: .milliseconds(50)
+        ).decision(
+            for: "/tmp/file",
+            stat: { _ in .text }
+        )
+
+        #expect(decision == .openArtifact)
+    }
 }

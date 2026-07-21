@@ -77,9 +77,9 @@ struct TerminalArtifactPathDetectorTests {
 
     @Test("extracts a path glued to a BEL-terminated OSC sequence")
     func belTerminatedOSCBeforePath() {
-        let text = "\u{1B}]0;terminal title\u{07}/tmp/osc-bel/file.txt"
+        let text = "\u{1B}]0;t\u{07}/tmp/first"
 
-        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/osc-bel/file.txt"])
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/first"])
     }
 
     @Test(
@@ -92,11 +92,14 @@ struct TerminalArtifactPathDetectorTests {
         #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/visible.txt"])
     }
 
-    @Test("accepts BEL as a lenient string-control terminator")
-    func belTerminatedStringControlBeforePath() {
-        let text = "\u{1B}P/tmp/hidden\u{07}/tmp/visible.txt"
+    @Test(
+        "keeps BEL inside DCS and APC payloads",
+        arguments: ["P", "_"]
+    )
+    func belDoesNotTerminateNonOSCStringControls(_ introducer: String) {
+        let text = "\u{1B}\(introducer) before \u{07}/tmp/hidden\u{1B}\\ /tmp/vis.txt"
 
-        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/visible.txt"])
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/vis.txt"])
     }
 
     @Test("consumes C1 OSC through C1 ST")
@@ -106,9 +109,23 @@ struct TerminalArtifactPathDetectorTests {
         #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/first"])
     }
 
+    @Test("accepts BEL as a C1 OSC terminator")
+    func c1OSCBelBeforePath() {
+        let text = "\u{9D}0;title\u{07}/tmp/first"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/first"])
+    }
+
     @Test("drops paths inside C1 DCS")
     func c1DCSPayloadIsNotDetectable() {
         let text = "\u{90}/tmp/hidden\u{9C}/tmp/vis.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/vis.txt"])
+    }
+
+    @Test("keeps BEL inside a C1 DCS payload")
+    func c1DCSBelPayloadIsNotDetectable() {
+        let text = "\u{90}before \u{07}/tmp/hidden\u{9C} /tmp/vis.txt"
 
         #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/vis.txt"])
     }

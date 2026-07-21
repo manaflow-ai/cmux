@@ -5,6 +5,9 @@ struct TerminalFolderTapPolicy: Sendable {
     /// Whether detected directory paths should open in the artifact viewer.
     let folderTapEnabled: Bool
 
+    /// Bounds classification so taps never wait on the full RPC deadline for focus.
+    let classificationDeadline: Duration = .seconds(2)
+
     /// The action the terminal tap handler should take for a detected path.
     enum Decision: Sendable, Equatable {
         case openArtifact
