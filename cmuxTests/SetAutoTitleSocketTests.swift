@@ -298,10 +298,12 @@ import Testing
             try withManager { _, workspace in
                 let pane = try #require(workspace.bonsplitController.allPaneIds.first)
                 let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
                 let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
                 let params: [String: Any] = [
                     "workspace_id": workspace.id.uuidString,
                     "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
                     "title": "Fix auth bug"
                 ]
 

@@ -220,6 +220,22 @@ extension CMUXCLI {
             now: Date(),
             engine: engine
         ) else { return }
+        if case .reseedBaseline = outcome.decision {
+            if let lastTitle = outcome.lastTitle {
+                _ = applyAutoNamingTitle(
+                    lastTitle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    previousTitle: lastTitle,
+                    client: client,
+                    telemetryKey: "\(telemetryKey).reconcile",
+                    telemetry: telemetry
+                )
+            } else {
+                telemetry.breadcrumb("\(telemetryKey).throttled")
+            }
+            return
+        }
         guard case .proceed(let baseline) = outcome.decision else {
             telemetry.breadcrumb("\(telemetryKey).throttled")
             return
@@ -255,29 +271,4 @@ extension CMUXCLI {
         }
     }
 
-    func applyAutoNamingTitle(
-        _ title: String,
-        workspaceId: String,
-        surfaceId: String,
-        previousTitle: String?,
-        client: SocketClient,
-        telemetryKey: String,
-        telemetry: CLISocketSentryTelemetry
-    ) -> String? {
-        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
-            "workspace_id": workspaceId,
-            "panel_id": surfaceId,
-            "panel_only_if_multiple": true,
-            "title": title
-        ]) else {
-            telemetry.breadcrumb("\(telemetryKey).socket-failed")
-            return nil
-        }
-        if payload["workspace_applied"] as? Bool == true {
-            telemetry.breadcrumb("\(telemetryKey).applied")
-            return title
-        }
-        telemetry.breadcrumb("\(telemetryKey).rejected")
-        return previousTitle
-    }
 }

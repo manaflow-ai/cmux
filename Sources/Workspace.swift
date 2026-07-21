@@ -4081,14 +4081,14 @@ final class Workspace: Identifiable, ObservableObject {
             panelCustomTitles.removeValue(forKey: panelId)
             panelCustomTitleSources.removeValue(forKey: panelId)
         } else {
-            guard previous != trimmed else {
-                // Same text: a user write still claims ownership so a later
-                // auto write cannot replace a title the user re-confirmed.
+            if previous == trimmed {
+                // A user write still claims ownership. Keep going so an
+                // idempotent write also repairs derived tab chrome.
                 if source == .user { panelCustomTitleSources[panelId] = .user }
-                return true
+            } else {
+                panelCustomTitles[panelId] = trimmed
+                panelCustomTitleSources[panelId] = source
             }
-            panelCustomTitles[panelId] = trimmed
-            panelCustomTitleSources[panelId] = source
         }
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
@@ -4099,7 +4099,7 @@ final class Workspace: Identifiable, ObservableObject {
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
-        if isRemoteTmuxMirror {
+        if isRemoteTmuxMirror, previous != trimmed {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
             )

@@ -47,63 +47,35 @@ extension CMUXCLI {
             return
         }
         let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
-        let engine = AutoNamingEngine()
-        guard let outcome = try? sessionStore.beginAutoNaming(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            transcriptLineCount: lineCount,
-            now: Date(),
-            engine: engine
-        ) else { return }
-        guard case .proceed(let baseline) = outcome.decision else {
-            telemetry.breadcrumb("claude-hook.auto-name.throttled")
-            return
-        }
-
-        var confirmedTitle: String?
-        defer {
-            try? sessionStore.finishAutoNaming(
-                sessionId: sessionId,
-                appliedTitle: confirmedTitle,
-                baselineLineCount: confirmedTitle != nil ? baseline : nil,
-                now: Date()
-            )
-        }
-
-        let messages = engine.extractMessages(fromTranscriptLines: lines)
-        guard let context = engine.buildContext(from: messages) else { return }
-        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
-
         let resolution = resolvedSummarizerAgent(
             probe: probe, sessionAgent: "claude", env: env, telemetry: telemetry
         )
-        guard let rawResponse = summarize(
-            summarizerAgent: resolution.agent,
-            prompt: prompt,
-            env: env,
-            timeout: engine.config.llmTimeout,
-            telemetry: telemetry
-        ) else {
-            telemetry.breadcrumb("claude-hook.auto-name.llm-failed")
-            reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
-            return
-        }
-
-        guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else { return }
-        confirmedTitle = applyAutoNamingTitle(
-            sanitized,
+        runFileBackedAutoName(
+            sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            previousTitle: outcome.lastTitle,
+            lines: lines,
+            lineCount: lineCount,
+            sessionStore: sessionStore,
             client: client,
+            missingOverride: resolution.missingOverride,
             telemetryKey: "claude-hook.auto-name",
             telemetry: telemetry
-        )
-        // Re-report a missing override only after the fallback apply, so the
-        // app's clear-on-apply doesn't immediately wipe the Settings note.
-        if confirmedTitle != nil, let missing = resolution.missingOverride {
-            reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
+        ) { engine, outcome in
+            let messages = engine.extractMessages(fromTranscriptLines: lines)
+            guard let context = engine.buildContext(from: messages) else { return nil }
+            let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+            guard let rawResponse = summarize(
+                summarizerAgent: resolution.agent,
+                prompt: prompt,
+                env: env,
+                timeout: engine.config.llmTimeout,
+                telemetry: telemetry
+            ) else {
+                reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
+                return nil
+            }
+            return rawResponse
         }
     }
 
@@ -231,5 +203,31 @@ extension CMUXCLI {
             }
             return raw
         }
+    }
+
+    func applyAutoNamingTitle(
+        _ title: String,
+        workspaceId: String,
+        surfaceId: String,
+        previousTitle: String?,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> String? {
+        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
+            "workspace_id": workspaceId,
+            "panel_id": surfaceId,
+            "panel_only_if_multiple": true,
+            "title": title
+        ]) else {
+            telemetry.breadcrumb("\(telemetryKey).socket-failed")
+            return nil
+        }
+        if payload["workspace_applied"] as? Bool == true {
+            telemetry.breadcrumb("\(telemetryKey).applied")
+            return title
+        }
+        telemetry.breadcrumb("\(telemetryKey).rejected")
+        return previousTitle
     }
 }
