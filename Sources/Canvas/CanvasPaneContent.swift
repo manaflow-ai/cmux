@@ -35,11 +35,13 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     ///   - container: The pane view's content container.
     ///   - onFocusPanel: Invoked when the content reports keyboard focus
     ///     (terminal surfaces report via their `onFocus` hook).
+    ///   - makeTerminalVisible: Applies terminal visibility during the mount.
     init(
         content: CanvasPaneContent,
         panelId: UUID,
         container: NSView,
-        onFocusPanel: @escaping (UUID) -> Void
+        onFocusPanel: @escaping (UUID) -> Void,
+        makeTerminalVisible: (GhosttySurfaceScrollView) -> Void = { $0.setVisibleInUI(true) }
     ) {
         self.content = content
         self.panelId = panelId
@@ -55,7 +57,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             // terminal at the viewport edge. Detach and parent directly so
             // the clip view crops instead.
             TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-            hostedView.setVisibleInUI(true)
+            makeTerminalVisible(hostedView)
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setFocusHandler { [weak self] in
                 guard let self else { return }
