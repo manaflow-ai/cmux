@@ -980,6 +980,14 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/MultilineNamedClockTests.swift",
+            "let clock =\n"
+            "    ContinuousClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/InjectedRealClockTests.swift",
             "func verify(clock: ContinuousClock) async {\n"
             "    try await clock.sleep(for: .milliseconds(300))\n"
@@ -1349,6 +1357,26 @@ def _self_test() -> int:
             "static func verifyVirtual(clock: TestRelayClock) async {\n"
             "    try await clock.sleep(until: deadline)\n"
             "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/FailableInitializerVirtualClockTests.swift",
+            "struct Fixture {\n"
+            "    let clock = ContinuousClock()\n"
+            "    init?(clock: TestRelayClock) async {\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await clockEvents.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/IUOInitializerVirtualClockTests.swift",
+            "struct Fixture {\n"
+            "    let clock = ContinuousClock()\n"
+            "    init!(clock: TestRelayClock) async {\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await clockEvents.next() == expected)\n"
+            "    }\n"
             "}\n",
         ),
         # A binding inside a completed sibling closure or nested block is not
