@@ -177,6 +177,7 @@ extension GhosttySurfaceView {
               surface != nil else {
             return false
         }
+        clearVerifiedReplayPresentation()
         guard !renderPipelineRecoveryPaused else {
             return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
         }
@@ -194,7 +195,6 @@ extension GhosttySurfaceView {
         MobileDebugLog.anchormux(
             "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration) pendingFrees=\(pendingSurfaceFreeCount)"
         )
-        clearVerifiedReplayPresentation()
         let completedFailedOperation = completePendingSurfaceOperations(returning: false)
 
         stopDisplayLink()
