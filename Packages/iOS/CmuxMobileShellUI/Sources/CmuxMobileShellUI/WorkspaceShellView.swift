@@ -143,6 +143,7 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
+    var showPairingScanner: (() -> Void)?
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -244,6 +245,7 @@ struct WorkspaceShellView: View {
                     connectedHostName: store.connectedHostName,
                     rescanQR: { store.disconnectAndForgetActiveMac() },
                     startPairing: showAddDevice,
+                    startPairingScanner: showPairingScanner,
                     signOut: signOut,
                     store: store
                 )
@@ -470,6 +472,7 @@ struct WorkspaceShellView: View {
             signOut: signOut,
             reconnect: reconnectClosure,
             showAddDevice: showAddDevice,
+            showPairingScanner: showPairingScanner,
             store: store,
             renameWorkspace: renameWorkspaceClosure,
             setPinned: setWorkspacePinnedClosure,

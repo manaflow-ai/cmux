@@ -14,6 +14,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// setup from reconnect guidance.
     let hasKnownPairedMac: Bool
     let showAddDevice: () -> Void
+    let showPairingScanner: () -> Void
     let signOut: () -> Void
     /// The setup gate to highlight in the "Trouble connecting?" help (iOS only).
     /// The root passes `.macUnreachable` for a returning device whose stored Mac
@@ -109,6 +110,7 @@ struct DisconnectedWorkspaceShellView: View {
                 connectedHostName: "",
                 rescanQR: nil,
                 startPairing: showAddDevice,
+                startPairingScanner: showPairingScanner,
                 signOut: signOut,
                 store: store
             )

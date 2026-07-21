@@ -264,6 +264,7 @@ struct CMUXMobileRootView: View {
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
+                showPairingScanner: showPairingScanner,
                 signOut: signOut,
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
                 store: store
@@ -275,7 +276,12 @@ struct CMUXMobileRootView: View {
             // whatever workspaces have aggregated (foreground + live secondary
             // subscriptions); the foreground connection is established without any
             // tap. Opening a workspace attaches its Mac on demand.
-            WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
+            WorkspaceShellView(
+                store: store,
+                signOut: signOut,
+                showAddDevice: showAddDevice,
+                showPairingScanner: showPairingScanner
+            )
         }
     }
 
@@ -507,6 +513,9 @@ struct CMUXMobileRootView: View {
                 showAddDevice()
             }
             clearAttachTicketAuthentication(after: result)
+            if store.connectionState != .connected {
+                reconnectStoredMacIfNeeded()
+            }
         }
     }
 
@@ -523,6 +532,9 @@ struct CMUXMobileRootView: View {
         pendingAttachURL = nil
         Task {
             await store.connectPairingURL(rawURL)
+            if store.connectionState != .connected {
+                reconnectStoredMacIfNeeded()
+            }
         }
         return true
     }

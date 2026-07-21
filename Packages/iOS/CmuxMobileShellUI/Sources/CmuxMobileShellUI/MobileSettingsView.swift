@@ -21,6 +21,7 @@ struct MobileSettingsView: View {
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let startPairing: (() -> Void)?
+    let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
     /// where the "Switch Mac" entry is hidden.
@@ -410,7 +411,7 @@ struct MobileSettingsView: View {
         .onDisappear {
             guard startsPairingAfterDismiss else { return }
             startsPairingAfterDismiss = false
-            startPairing?()
+            startPairingScanner?()
         }
     }
 

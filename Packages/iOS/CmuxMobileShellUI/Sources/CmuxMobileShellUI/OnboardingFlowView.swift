@@ -61,10 +61,6 @@ struct OnboardingFlowView: View {
             guard stage == .connect else { return }
             captureSceneViewed()
         }
-        .onChange(of: connectionPhase) { _, _ in
-            guard stage == .connect else { return }
-            captureSceneViewed()
-        }
     }
 
     private var chrome: OnboardingSceneChrome {
