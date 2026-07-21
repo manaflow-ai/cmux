@@ -20,12 +20,14 @@ static uint64_t cmux_test_foreground_pid = 0;
 static const char* cmux_test_tty_name = NULL;
 static bool cmux_test_renderer_realized_calls[16];
 static uint32_t cmux_test_renderer_realized_call_count = 0;
+static bool cmux_test_renderer_realized_result = true;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
     cmux_test_renderer_realized_call_count = 0;
+    cmux_test_renderer_realized_result = true;
 }
 
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name) {
@@ -41,6 +43,10 @@ uint32_t cmux_test_ghostty_renderer_realized_call_count(void) {
 bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index) {
     if (index >= cmux_test_renderer_realized_call_count) return false;
     return cmux_test_renderer_realized_calls[index];
+}
+
+void cmux_test_ghostty_renderer_realized_set_result(bool result) {
+    cmux_test_renderer_realized_result = result;
 }
 
 bool ghostty_surface_clear_selection(void *surface) {
@@ -141,7 +147,7 @@ bool ghostty_surface_set_renderer_realized(void *surface, bool realized) {
         cmux_test_renderer_realized_calls[cmux_test_renderer_realized_call_count] = realized;
         cmux_test_renderer_realized_call_count++;
     }
-    return true;
+    return cmux_test_renderer_realized_result;
 }
 void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}

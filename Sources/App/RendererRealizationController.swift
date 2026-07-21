@@ -35,6 +35,7 @@ final class RendererRealizationController {
     private let systemMemoryPressureRetryPasses = 2
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
+    private var immediatePassTask: Task<Void, Never>?
     private var systemMemoryPressureRetryTask: Task<Void, Never>?
 
     private init() {}
@@ -61,6 +62,8 @@ final class RendererRealizationController {
     func stop() {
         timer?.cancel()
         timer = nil
+        immediatePassTask?.cancel()
+        immediatePassTask = nil
         systemMemoryPressureRetryTask?.cancel()
         systemMemoryPressureRetryTask = nil
         if let settingsObserver {
@@ -96,8 +99,11 @@ final class RendererRealizationController {
     /// periodic tick. Async (not re-entrant): the caller is already mid
     /// `ensureRendererPresented`.
     func scheduleImmediatePass() {
-        Task { @MainActor in
-            RendererRealizationController.shared.evaluate(now: Date())
+        guard immediatePassTask == nil else { return }
+        immediatePassTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            self.evaluate(now: Date())
+            self.immediatePassTask = nil
         }
     }
 

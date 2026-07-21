@@ -67,5 +67,6 @@ void cmux_test_ghostty_runtime_stubs_reset(void);
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
 uint32_t cmux_test_ghostty_renderer_realized_call_count(void);
 bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
+void cmux_test_ghostty_renderer_realized_set_result(bool result);
 
 #endif

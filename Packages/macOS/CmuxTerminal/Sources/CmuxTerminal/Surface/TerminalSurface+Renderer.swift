@@ -77,9 +77,14 @@ extension TerminalSurface {
     @MainActor
     public func setRendererPortalVisible(_ visible: Bool) {
         let wasVisible = rendererPortalVisible
+        if !visible {
+            rendererPresentationRetryScheduled = false
+        }
         // This is the single presentation transition for both a renderer that
         // was reclaimed and one that was born hidden and never got a drawable.
-        // Ensure native realization is enqueued before the portal can draw.
+        // The AppKit host makes the portal presentable first, then calls here
+        // while Ghostty is still occluded; occlusion is lifted only after the
+        // native realization enqueue below.
         if visible {
             ensureRendererPresented()
         }
@@ -108,6 +113,7 @@ extension TerminalSurface {
     @MainActor
     func rendererRuntimeSurfaceDidCreate() {
         rendererPresentationPhase = .awaitingFirstPresentation
+        rendererPresentationRetryScheduled = false
         guard surface != nil else { return }
         if rendererPortalVisible {
             rendererPresentationPhase = .presented
@@ -139,6 +145,7 @@ extension TerminalSurface {
         // controller retries rather than desyncing from Ghostty's live renderer.
         if ghostty_surface_set_renderer_realized(surface, false) {
             rendererPresentationPhase = .released
+            rendererPresentationRetryScheduled = false
             return true
         }
         return false
@@ -165,7 +172,7 @@ extension TerminalSurface {
             // hidden. Release it once so first presentation can take the exact
             // same proven restore path as a renderer reclaimed later.
             guard ghostty_surface_set_renderer_realized(surface, false) else {
-                rendererRealization.scheduleImmediatePass()
+                scheduleRendererPresentationRetryIfNeeded()
                 return
             }
             rendererPresentationPhase = .released
@@ -180,14 +187,25 @@ extension TerminalSurface {
         // never block the main actor waiting on the renderer thread.
         if ghostty_surface_set_renderer_realized(surface, true) {
             rendererPresentationPhase = .presented
+            rendererPresentationRetryScheduled = false
         } else {
             // Enqueue dropped (full mailbox, i.e. the renderer thread is not
             // draining). Kick an immediate reclamation pass so the controller
             // re-realizes this now-visible surface on the next runloop turn
             // instead of waiting for the periodic tick, minimizing how long a
             // re-shown terminal could draw against a defunct swap chain.
-            rendererRealization.scheduleImmediatePass()
+            scheduleRendererPresentationRetryIfNeeded()
         }
 #endif
+    }
+
+    /// Requests at most one next-turn repair for an unresolved presentation.
+    /// A failed repair remains eligible for the controller's periodic pass, but
+    /// cannot recursively enqueue main-actor work while the mailbox stays full.
+    @MainActor
+    private func scheduleRendererPresentationRetryIfNeeded() {
+        guard !rendererPresentationRetryScheduled else { return }
+        rendererPresentationRetryScheduled = true
+        rendererRealization.scheduleImmediatePass()
     }
 }

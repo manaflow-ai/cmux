@@ -96,6 +96,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// window, while preserving strict native unrealize/realize alternation.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
 
+    /// Whether this visibility epoch already requested its one immediate repair
+    /// pass after a renderer mailbox enqueue dropped.
+    var rendererPresentationRetryScheduled = false
+
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.

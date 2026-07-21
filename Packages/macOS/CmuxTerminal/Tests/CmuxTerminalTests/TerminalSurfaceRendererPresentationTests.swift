@@ -12,6 +12,9 @@ private func rendererRealizedCallCount() -> UInt32
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_value")
 private func rendererRealizedCallValue(_ index: UInt32) -> Bool
 
+@_silgen_name("cmux_test_ghostty_renderer_realized_set_result")
+private func setRendererRealizedResult(_ result: Bool)
+
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererPresentationTests {
     @Test func hiddenRuntimeIsReleasedThenRealizedOnFirstVisibility() {
@@ -93,11 +96,83 @@ private func rendererRealizedCallValue(_ index: UInt32) -> Bool
         #expect(rendererRealizedCalls() == [false, true])
     }
 
+    @Test func hiddenBirthReleaseFailureSchedulesOneRepairUntilRecovery() {
+        let registry = TerminalSurfaceRegistry()
+        let scheduler = FakeRendererRealizationScheduler()
+        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        resetGhosttyRuntimeStubs()
+        setRendererRealizedResult(false)
+        surface.setRendererPortalVisible(false)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetGhosttyRuntimeStubs()
+        }
+
+        resetGhosttyRuntimeStubs()
+        setRendererRealizedResult(false)
+        surface.setRendererPortalVisible(true)
+        surface.ensureRendererPresented()
+
+        #expect(!surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [false, false])
+        #expect(scheduler.scheduledPassCount == 1)
+
+        setRendererRealizedResult(true)
+        surface.ensureRendererPresented()
+
+        #expect(surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [false, false, false, true])
+        #expect(scheduler.scheduledPassCount == 1)
+    }
+
+    @Test func persistentRealizeFailureSchedulesOncePerVisibilityEpoch() {
+        let registry = TerminalSurfaceRegistry()
+        let scheduler = FakeRendererRealizationScheduler()
+        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        resetGhosttyRuntimeStubs()
+        surface.setRendererPortalVisible(false)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetGhosttyRuntimeStubs()
+        }
+
+        resetGhosttyRuntimeStubs()
+        setRendererRealizedResult(false)
+        surface.setRendererPortalVisible(true)
+        surface.ensureRendererPresented()
+
+        #expect(!surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [true, true])
+        #expect(scheduler.scheduledPassCount == 1)
+
+        surface.setRendererPortalVisible(false)
+        surface.setRendererPortalVisible(true)
+
+        #expect(scheduler.scheduledPassCount == 2)
+
+        setRendererRealizedResult(true)
+        surface.ensureRendererPresented()
+
+        #expect(surface.isRendererPresented)
+        #expect(scheduler.scheduledPassCount == 2)
+    }
+
     private func rendererRealizedCalls() -> [Bool] {
         (0..<rendererRealizedCallCount()).map(rendererRealizedCallValue)
     }
 
-    private func makeSurface(registry: TerminalSurfaceRegistry) -> TerminalSurface {
+    private func makeSurface(
+        registry: TerminalSurfaceRegistry,
+        rendererRealization: any TerminalRendererRealizationScheduling = FakeRendererRealizationScheduler()
+    ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
@@ -115,7 +190,7 @@ private func rendererRealizedCallValue(_ index: UInt32) -> Bool
                 ),
                 spawnPolicy: FakeSpawnPolicyProvider(),
                 byteTee: FakeTerminalByteTee(),
-                rendererRealization: FakeRendererRealizationScheduler(),
+                rendererRealization: rendererRealization,
                 hibernationRecorder: FakeHibernationRecorder(),
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),

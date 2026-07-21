@@ -1,6 +1,10 @@
 @testable import CmuxTerminal
 
+@MainActor
 final class FakeRendererRealizationScheduler: TerminalRendererRealizationScheduling {
-    @MainActor
-    func scheduleImmediatePass() {}
+    private(set) var scheduledPassCount = 0
+
+    func scheduleImmediatePass() {
+        scheduledPassCount += 1
+    }
 }
