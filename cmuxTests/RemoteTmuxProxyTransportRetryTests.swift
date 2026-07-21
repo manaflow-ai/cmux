@@ -193,8 +193,8 @@ import Testing
     /// reasoning that such a transport does not end for a network drop. Measured against
     /// et 6.2.11+7: restarting only `etserver` ends the stream while `tmux has-session` still
     /// succeeds, so that reasoning discarded live, reattachable sessions.
-    @Test func endOfStreamAlwaysMeansReconnectAndLetTheReattachDecide() {
-        #expect(RemoteTmuxStreamEndDisposition.forStreamEnd() == .reconnect)
+    @Test func endOfStreamOnAnEstablishedStreamMeansReconnectAndLetTheReattachDecide() {
+        #expect(RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: true) == .reconnect)
     }
 
     // MARK: - Seam 3: the pre-connect hook
@@ -451,6 +451,22 @@ import Testing
         #expect(reported == false)
         #expect(connection.snapshot().recentEvents.contains("liveness-unanswered"))
         #expect(connection.snapshot().recentEvents.contains("liveness-stalled"))
+    }
+
+    /// A stream that never reached control mode is a failed start, not a lost session.
+    ///
+    /// Reconnecting there is what made a real error — "tmux control stream ended before attach" —
+    /// surface as an opaque 60-second attach timeout, which cost most of a debugging session.
+    /// Reconnecting is right only once a stream has actually worked.
+    @Test func endOfStreamBeforeControlModeIsTerminalRatherThanRetried() {
+        #expect(
+            RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: false) == .sessionOver,
+            "a transport that never started has nothing to reconnect to"
+        )
+        #expect(
+            RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: true) == .reconnect,
+            "an established stream may have a session still there — reattach decides"
+        )
     }
 
     /// ssh must be untouched by all of this: it gets an EOF, `handleStreamEnd` already recovers,
@@ -863,7 +879,9 @@ private struct SplitMix64 {
                 // not exit for a mere network drop — measured against et 6.2.11+7, restarting only
                 // `etserver` exits while `tmux has-session` still succeeds, so ending here threw
                 // away a live session. Reconnect, and let the reattach report whether it is gone.
-                let disposition = RemoteTmuxStreamEndDisposition.forStreamEnd()
+                // The model's stream has reached control mode by this point, which is the case
+                // where an exit may still have a live session behind it.
+                let disposition = RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: true)
                 #expect(disposition == .reconnect, "an exit did not lead to a reattach — \(context)")
                 model.spawnCount += 1
 
