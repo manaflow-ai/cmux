@@ -574,7 +574,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             } else {
                 entryColor = explicitColor ?? .secondaryLabelColor
             }
-            metadataRows[index].configureMetadataEntry(entry, model: model, color: entryColor)
+            metadataRows[index].configureMetadataEntry(
+                entry,
+                model: model,
+                color: entryColor
+            ) { [weak self] url in
+                self?.actions?.commands.updateSelection()
+                self?.actions?.onOpenStatusURL(url)
+            }
         }
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         let toggleColor = model.isActive
