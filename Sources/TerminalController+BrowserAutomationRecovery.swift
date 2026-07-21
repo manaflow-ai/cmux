@@ -27,8 +27,15 @@ extension TerminalController {
         switch outcome {
         case .committed, .downloaded:
             return nil
-        case .failed(let message):
-            return .err(code: "navigation_failed", message: message, data: data)
+        case .failed:
+            return .err(
+                code: "navigation_failed",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: data
+            )
         case .cancelled:
             return .err(
                 code: "navigation_cancelled",
