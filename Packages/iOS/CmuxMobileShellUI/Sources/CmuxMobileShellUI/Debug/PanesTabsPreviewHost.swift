@@ -112,30 +112,45 @@ struct PanesTabsPreviewHost: View {
     ]
 
     var body: some View {
-        terminalTheme.terminalBackgroundColor
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                SurfaceDeckBar(value: deckValue, actions: deckActions, terminalTheme: terminalTheme)
-                    .equatable()
+        ZStack(alignment: .topTrailing) {
+            terminalTheme.terminalBackgroundColor
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            WorkspaceUtilitiesMenu(
+                showsViewAsText: false,
+                showsPaneMap: true,
+                terminalTheme: terminalTheme,
+                presentPaneMap: presentPaneMap,
+                openTextSheet: {},
+                copyDebugLogs: {},
+                sendFeedback: {}
+            )
+            .frame(width: 44, height: 44)
+            .padding()
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            SurfaceDeckBar(value: deckValue, actions: deckActions, terminalTheme: terminalTheme)
+                .equatable()
+        }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .fullScreenCover(isPresented: $isPaneMapPresented) {
+            if let layout = workspace.layout {
+                PaneMapOverlay(
+                    value: PaneMapValue(
+                        workspaceName: workspace.name,
+                        layout: layout,
+                        phoneSelectedSurfaceID: selectedSurfaceID,
+                        agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
+                    ),
+                    terminalTheme: terminalTheme,
+                    fetchPreviews: Self.fetchFixturePreviews,
+                    selectTerminal: { selectedSurfaceID = $0.rawValue },
+                    dismiss: { isPaneMapPresented = false }
+                )
             }
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-            .fullScreenCover(isPresented: $isPaneMapPresented) {
-                if let layout = workspace.layout {
-                    PaneMapOverlay(
-                        value: PaneMapValue(
-                            workspaceName: workspace.name,
-                            layout: layout,
-                            phoneSelectedSurfaceID: selectedSurfaceID,
-                            agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
-                        ),
-                        terminalTheme: terminalTheme,
-                        fetchPreviews: Self.fetchFixturePreviews,
-                        selectTerminal: { selectedSurfaceID = $0.rawValue },
-                        dismiss: { isPaneMapPresented = false }
-                    )
-                }
-            }
-            .accessibilityIdentifier("PanesTabsPreviewHost")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("PanesTabsPreviewHost")
     }
 
     private var deckValue: SurfaceDeckValue {
@@ -150,11 +165,15 @@ struct PanesTabsPreviewHost: View {
     private var deckActions: SurfaceDeckActions {
         SurfaceDeckActions(
             selectTerminal: { selectedSurfaceID = $0.rawValue },
-            presentPaneMap: { isPaneMapPresented = true },
+            presentPaneMap: presentPaneMap,
             createTerminal: {},
             openBrowser: {},
             createWorkspace: {}
         )
+    }
+
+    private func presentPaneMap() {
+        isPaneMapPresented = true
     }
 
     private static func fetchFixturePreviews(

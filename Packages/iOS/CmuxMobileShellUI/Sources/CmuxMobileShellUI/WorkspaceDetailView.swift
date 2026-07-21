@@ -142,6 +142,11 @@ struct WorkspaceDetailView: View {
             .onChange(of: store.supportsChatArtifactGallery) { _, _ in
                 visibleArtifactCount = 0
             }
+            .onChange(of: workspace.layout == nil) { _, layoutIsMissing in
+                if layoutIsMissing {
+                    isPaneMapPresented = false
+                }
+            }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
@@ -471,7 +476,9 @@ struct WorkspaceDetailView: View {
     var workspaceUtilitiesToolbarButton: some View {
         WorkspaceUtilitiesMenu(
             showsViewAsText: activeBrowser == nil && !isChatMode,
+            showsPaneMap: workspace.layout != nil,
             terminalTheme: store.activeTerminalTheme,
+            presentPaneMap: presentPaneMap,
             openTextSheet: openTextSheetFromMenu,
             copyDebugLogs: {
                 #if DEBUG
@@ -494,7 +501,7 @@ struct WorkspaceDetailView: View {
     private var surfaceDeckActions: SurfaceDeckActions {
         SurfaceDeckActions(
             selectTerminal: selectTerminalFromDeck,
-            presentPaneMap: { isPaneMapPresented = true },
+            presentPaneMap: presentPaneMap,
             createTerminal: createTerminalFromToolbar,
             openBrowser: openBrowserFromToolbar,
             createWorkspace: createWorkspaceFromToolbar
@@ -515,6 +522,11 @@ struct WorkspaceDetailView: View {
             }
         }
         return result
+    }
+
+    private func presentPaneMap() {
+        guard workspace.layout != nil else { return }
+        isPaneMapPresented = true
     }
 
     #if canImport(UIKit)

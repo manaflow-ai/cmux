@@ -6961,6 +6961,20 @@
         }
       }
     },
+    "mobile.agent.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent needs input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが入力を待っています" } }
+      }
+    },
+    "mobile.agent.status.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent working" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが作業中です" } }
+      }
+    },
     "mobile.altScreenNotice.explanation": {
       "extractionState": "manual",
       "localizations": {
@@ -7030,6 +7044,27 @@
         "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
       }
     },
+    "mobile.paneMap.focusedOnMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Focused on Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでフォーカス中" } }
+      }
+    },
+    "mobile.paneMap.focusedOnMac.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac" } }
+      }
+    },
+    "mobile.paneMap.panePosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pane %d of %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペイン%d/%d" } }
+      }
+    },
     "mobile.paneMap.refresh": {
       "extractionState": "manual",
       "localizations": {
@@ -7051,11 +7086,25 @@
         "ja": { "stringUnit": { "state": "translated", "value": "%@、ターミナル" } }
       }
     },
+    "mobile.surfaceDeck.chip.terminalInPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, terminal, pane %d of %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、ターミナル、ペイン%d/%d" } }
+      }
+    },
     "mobile.surfaceDeck.chip.unavailable": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "%@, unavailable on iPhone" } },
         "ja": { "stringUnit": { "state": "translated", "value": "%@、iPhoneでは利用できません" } }
+      }
+    },
+    "mobile.surfaceDeck.chip.unavailableInPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, unavailable on iPhone, pane %d of %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、iPhoneでは利用できません、ペイン%d/%d" } }
       }
     },
     "mobile.surfaceDeck.label": {

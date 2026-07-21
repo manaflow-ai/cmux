@@ -92,6 +92,8 @@ import Testing
         let deck = value(workspace: workspace, selectedSurfaceID: "terminal-1")
 
         #expect(deck.groups.map(\.id) == ["pane-1", "pane-2"])
+        #expect(deck.groups.map(\.number) == [1, 2])
+        #expect(deck.groups.map(\.totalCount) == [2, 2])
         #expect(deck.groups[0].chips.map(\.id) == ["terminal-1", "browser-1"])
         #expect(deck.groups[0].chips[0].isTerminal)
         #expect(deck.groups[0].chips[1].isTerminal == false)
@@ -123,6 +125,40 @@ import Testing
         #expect(deck.agentStateKindsBySurfaceID["terminal-1"] == .working)
         #expect(deck.agentStateKindsBySurfaceID["terminal-2"] == .needsInput)
         #expect(deck.canCreateWorkspace == false)
+    }
+
+    @Test func paneMapSelectionReconcilesRemovedSurfacesAndPanes() {
+        let layout = MobilePaneLayout(
+            version: 4,
+            focusedPaneID: "pane-1",
+            root: .pane(
+                MobilePaneNode(
+                    id: "pane-1",
+                    selectedSurfaceID: "terminal-new",
+                    surfaces: [
+                        MobilePaneSurface(id: "terminal-keep", type: .terminal, title: "Keep"),
+                        MobilePaneSurface(id: "terminal-new", type: .terminal, title: "New"),
+                    ]
+                )
+            )
+        )
+        let paneMap = PaneMapValue(
+            workspaceName: "Workspace",
+            layout: layout,
+            phoneSelectedSurfaceID: "terminal-new",
+            agentStateKindsBySurfaceID: [:]
+        )
+
+        #expect(
+            paneMap.reconciledSurfaceIDs(current: [
+                "pane-1": "terminal-removed",
+                "pane-removed": "terminal-old",
+            ]) == ["pane-1": "terminal-new"]
+        )
+        #expect(
+            paneMap.reconciledSurfaceIDs(current: ["pane-1": "terminal-keep"])
+                == ["pane-1": "terminal-keep"]
+        )
     }
 
     private func value(

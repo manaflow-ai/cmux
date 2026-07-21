@@ -5,6 +5,8 @@ struct SurfaceDeckValue: Equatable {
     /// One pane's ordered surface chips.
     struct PaneGroup: Identifiable, Equatable {
         let id: String
+        let number: Int
+        let totalCount: Int
         let chips: [Chip]
     }
 
@@ -30,9 +32,12 @@ struct SurfaceDeckValue: Equatable {
         canCreateWorkspace: Bool
     ) {
         if let layout = workspace.layout {
-            groups = layout.orderedPanes.map { pane in
+            let panes = layout.orderedPanes
+            groups = panes.enumerated().map { index, pane in
                 PaneGroup(
                     id: pane.id,
+                    number: index + 1,
+                    totalCount: panes.count,
                     chips: pane.surfaces.map { surface in
                         Chip(id: surface.id, title: surface.title, type: surface.type)
                     }
@@ -42,6 +47,8 @@ struct SurfaceDeckValue: Equatable {
             groups = [
                 PaneGroup(
                     id: workspace.id.rawValue,
+                    number: 1,
+                    totalCount: 1,
                     chips: workspace.terminals.map { terminal in
                         Chip(id: terminal.id.rawValue, title: terminal.name, type: .terminal)
                     }
@@ -54,10 +61,9 @@ struct SurfaceDeckValue: Equatable {
         showsPaneMap = workspace.layout != nil
     }
 
+    /// The deck owns the only in-workspace creation controls, so it remains
+    /// visible even when the workspace has zero or one terminal.
     var shouldShow: Bool {
-        let surfaceCount = groups.reduce(into: 0) { count, group in
-            count += group.chips.count
-        }
-        return surfaceCount > 1 || groups.count > 1
+        true
     }
 }

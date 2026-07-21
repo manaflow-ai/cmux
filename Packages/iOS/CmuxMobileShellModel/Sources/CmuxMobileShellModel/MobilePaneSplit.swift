@@ -4,7 +4,7 @@ public struct MobilePaneSplit: Sendable, Equatable {
     public let id: String
     /// The axis along which this split divides its rectangle.
     public let orientation: MobilePaneSplitOrientation
-    /// The first child's proportional share, clamped to `0.05...0.95` by RPC mapping.
+    /// The first child's proportional share, clamped to `0.05...0.95`.
     public let ratio: Double
     /// The first child in depth-first layout order.
     public let first: MobilePaneLayout.Node
@@ -27,7 +27,7 @@ public struct MobilePaneSplit: Sendable, Equatable {
     ) {
         self.id = id
         self.orientation = orientation
-        self.ratio = ratio
+        self.ratio = ratio.isFinite ? min(max(ratio, 0.05), 0.95) : 0.5
         self.first = first
         self.second = second
     }

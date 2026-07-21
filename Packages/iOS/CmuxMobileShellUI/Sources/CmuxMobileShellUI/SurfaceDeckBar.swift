@@ -94,16 +94,38 @@ struct SurfaceDeckBar: View, Equatable {
 
     private func paneGroup(_ group: SurfaceDeckValue.PaneGroup) -> some View {
         HStack(spacing: 2) {
+            Text(group.number, format: .number)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(terminalTheme.terminalChromeForegroundColor.opacity(0.8))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule().fill(terminalTheme.terminalChromeForegroundColor.opacity(0.10))
+                )
+                .accessibilityLabel(
+                    paneAccessibilityLabel(number: group.number, totalCount: group.totalCount)
+                )
+                .accessibilityIdentifier("MobileSurfaceDeckPaneNumber-\(group.id)")
+
             ForEach(group.chips) { chip in
-                surfaceChip(chip)
+                surfaceChip(chip, paneNumber: group.number, paneCount: group.totalCount)
             }
         }
         .padding(2)
         .frame(height: 36)
         .mobileGlassPill()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(
+            paneAccessibilityLabel(number: group.number, totalCount: group.totalCount)
+        )
+        .accessibilityIdentifier("MobileSurfaceDeckPane-\(group.id)")
     }
 
-    private func surfaceChip(_ chip: SurfaceDeckValue.Chip) -> some View {
+    private func surfaceChip(
+        _ chip: SurfaceDeckValue.Chip,
+        paneNumber: Int,
+        paneCount: Int
+    ) -> some View {
         let isSelected = chip.id == value.selectedSurfaceID
         let statusKind = value.agentStateKindsBySurfaceID[chip.id]
         return Button {
@@ -123,10 +145,10 @@ struct SurfaceDeckBar: View, Equatable {
                 }
 
                 Image(systemName: systemImage(for: chip.type))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.caption.weight(.medium))
 
                 Text(chip.title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .lineLimit(1)
                     .frame(maxWidth: 96)
             }
@@ -147,7 +169,14 @@ struct SurfaceDeckBar: View, Equatable {
         .buttonStyle(.plain)
         .opacity(chip.isTerminal ? 1 : 0.5)
         .id(chip.id)
-        .accessibilityLabel(chipAccessibilityLabel(chip))
+        .accessibilityLabel(
+            chipAccessibilityLabel(
+                chip,
+                paneNumber: paneNumber,
+                paneCount: paneCount
+            )
+        )
+        .accessibilityValue(statusAccessibilityValue(statusKind))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("MobileSurfaceDeckChip-\(chip.id)")
     }
@@ -239,22 +268,58 @@ struct SurfaceDeckBar: View, Equatable {
         }
     }
 
-    private func chipAccessibilityLabel(_ chip: SurfaceDeckValue.Chip) -> String {
+    private func chipAccessibilityLabel(
+        _ chip: SurfaceDeckValue.Chip,
+        paneNumber: Int,
+        paneCount: Int
+    ) -> String {
         if chip.isTerminal {
             return String.localizedStringWithFormat(
                 L10n.string(
-                    "mobile.surfaceDeck.chip.terminal",
-                    defaultValue: "%@, terminal"
+                    "mobile.surfaceDeck.chip.terminalInPane",
+                    defaultValue: "%@, terminal, pane %d of %d"
                 ),
-                chip.title
+                chip.title,
+                paneNumber,
+                paneCount
             )
         }
         return String.localizedStringWithFormat(
             L10n.string(
-                "mobile.surfaceDeck.chip.unavailable",
-                defaultValue: "%@, unavailable on iPhone"
+                "mobile.surfaceDeck.chip.unavailableInPane",
+                defaultValue: "%@, unavailable on iPhone, pane %d of %d"
             ),
-            chip.title
+            chip.title,
+            paneNumber,
+            paneCount
         )
+    }
+
+    private func paneAccessibilityLabel(number: Int, totalCount: Int) -> String {
+        String.localizedStringWithFormat(
+            L10n.string(
+                "mobile.paneMap.panePosition",
+                defaultValue: "Pane %d of %d"
+            ),
+            number,
+            totalCount
+        )
+    }
+
+    private func statusAccessibilityValue(_ kind: ChatAgentStateKind?) -> String {
+        switch kind {
+        case .working:
+            return L10n.string(
+                "mobile.agent.status.working",
+                defaultValue: "Agent working"
+            )
+        case .needsInput:
+            return L10n.string(
+                "mobile.agent.status.needsInput",
+                defaultValue: "Agent needs input"
+            )
+        case nil:
+            return ""
+        }
     }
 }

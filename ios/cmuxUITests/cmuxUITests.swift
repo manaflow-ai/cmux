@@ -1393,6 +1393,72 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testPanesPreviewCorrelatesDeckGroupsWithMapRegionsAndSwitchesTabs() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_PANES_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.otherElements["MobileSurfaceDeck"].waitForExistence(timeout: 4))
+
+        let leftDeckGroup = app.descendants(matching: .any)[
+            "MobileSurfaceDeckPane-preview-pane-left"
+        ]
+        let testsDeckGroup = app.descendants(matching: .any)[
+            "MobileSurfaceDeckPane-preview-pane-tests"
+        ]
+        let serverDeckGroup = app.descendants(matching: .any)[
+            "MobileSurfaceDeckPane-preview-pane-server"
+        ]
+        XCTAssertTrue(leftDeckGroup.exists)
+        XCTAssertTrue(testsDeckGroup.exists)
+        XCTAssertTrue(serverDeckGroup.exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobileSurfaceDeckPaneNumber-preview-pane-left"
+            ].exists
+        )
+        XCTAssertEqual(
+            app.buttons["MobileSurfaceDeckChip-preview-claude"].value as? String,
+            "Agent working"
+        )
+
+        tap(app.buttons["MobileWorkspaceUtilitiesMenu"], in: app)
+        tapMenuItem(app.buttons["MobilePaneMapMenuItem"], in: app)
+
+        let overlay = app.otherElements["MobilePaneMapOverlay"]
+        XCTAssertTrue(overlay.waitForExistence(timeout: 4))
+        let leftPane = app.descendants(matching: .any)["MobilePaneMapPane-preview-pane-left"]
+        let testsPane = app.descendants(matching: .any)["MobilePaneMapPane-preview-pane-tests"]
+        let serverPane = app.descendants(matching: .any)["MobilePaneMapPane-preview-pane-server"]
+        XCTAssertTrue(leftPane.waitForExistence(timeout: 2))
+        XCTAssertTrue(testsPane.exists)
+        XCTAssertTrue(serverPane.exists)
+        XCTAssertLessThan(leftPane.frame.midX, testsPane.frame.midX)
+        XCTAssertLessThan(testsPane.frame.midY, serverPane.frame.midY)
+        XCTAssertEqual(leftPane.value as? String, "Focused on Mac")
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobilePaneMapPaneNumber-preview-pane-left"
+            ].exists
+        )
+
+        tap(app.buttons["MobilePaneMapDone"], in: app)
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 4))
+
+        tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
+        XCTAssertTrue(overlay.waitForExistence(timeout: 4))
+        tap(app.buttons["MobilePaneMapTab-preview-zsh"], in: app)
+        let zshTile = app.buttons["MobilePaneMapTile-preview-zsh"]
+        XCTAssertTrue(zshTile.waitForExistence(timeout: 2))
+        tap(zshTile, in: app)
+
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-preview-zsh"].isSelected)
+    }
+
+    @MainActor
     func testBottomScrollStaysPinnedAcrossComposerViewportShrink() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_BOTTOM_SCROLL_STRESS": "1",
@@ -1463,7 +1529,8 @@ final class cmuxUITests: XCTestCase {
             in: app,
             context: "fresh single-terminal workspace after create"
         )
-        XCTAssertFalse(app.otherElements["MobileSurfaceDeck"].exists)
+        XCTAssertTrue(app.otherElements["MobileSurfaceDeck"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileSurfaceDeckAdd"].exists)
         assertToolbarOverflowButtonDoesNotExist(in: app)
     }
 
@@ -1496,7 +1563,8 @@ final class cmuxUITests: XCTestCase {
         assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
 
-        XCTAssertFalse(app.otherElements["MobileSurfaceDeck"].exists)
+        XCTAssertTrue(app.otherElements["MobileSurfaceDeck"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileSurfaceDeckAdd"].exists)
     }
 
     @MainActor
@@ -1579,7 +1647,8 @@ final class cmuxUITests: XCTestCase {
         assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
 
-        XCTAssertFalse(app.otherElements["MobileSurfaceDeck"].exists)
+        XCTAssertTrue(app.otherElements["MobileSurfaceDeck"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileSurfaceDeckAdd"].exists)
     }
 
     @MainActor

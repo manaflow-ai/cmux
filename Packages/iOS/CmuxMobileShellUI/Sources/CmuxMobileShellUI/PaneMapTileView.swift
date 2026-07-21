@@ -6,6 +6,9 @@ import SwiftUI
 /// One proportional pane tile rendered from immutable layout and preview snapshots.
 struct PaneMapTileView: View {
     let pane: MobilePaneNode
+    let paneNumber: Int
+    let paneCount: Int
+    let isFocusedOnMac: Bool
     let terminalTheme: TerminalTheme
     let selectedSurfaceID: String?
     let phoneSelectedSurfaceID: String?
@@ -17,7 +20,7 @@ struct PaneMapTileView: View {
 
     private var selectedSurface: MobilePaneSurface? {
         guard let selectedSurfaceID else { return pane.surfaces.first }
-        return pane.surfaces.first { $0.id == selectedSurfaceID } ?? pane.surfaces.first
+        return pane.surfaces.first { $0.id == selectedSurfaceID }
     }
 
     private var isPhoneSelected: Bool {
@@ -45,6 +48,13 @@ struct PaneMapTileView: View {
         }
         .clipShape(shape)
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(paneAccessibilityLabel)
+        .accessibilityValue(
+            isFocusedOnMac
+                ? L10n.string("mobile.paneMap.focusedOnMac", defaultValue: "Focused on Mac")
+                : ""
+        )
+        .accessibilityIdentifier("MobilePaneMapPane-\(pane.id)")
     }
 
     private func tileContent(for surface: MobilePaneSurface) -> some View {
@@ -61,20 +71,49 @@ struct PaneMapTileView: View {
 
     private func header(for surface: MobilePaneSurface) -> some View {
         HStack(spacing: 4) {
+            Text(paneNumber, format: .number)
+                .font(.caption2.weight(.bold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule().fill(terminalTheme.terminalChromeForegroundColor.opacity(0.12))
+                )
+                .accessibilityLabel(paneAccessibilityLabel)
+                .accessibilityIdentifier("MobilePaneMapPaneNumber-\(pane.id)")
+
             Image(systemName: systemImage(for: surface.type))
-                .font(.system(size: 10, weight: .medium))
+                .font(.caption2.weight(.medium))
 
             Text(surface.title)
-                .font(.system(size: 11, weight: .medium))
+                .font(.caption.weight(.medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
             Spacer(minLength: 2)
 
+            if isFocusedOnMac {
+                Label(
+                    L10n.string("mobile.paneMap.focusedOnMac.short", defaultValue: "Mac"),
+                    systemImage: "macwindow"
+                )
+                .font(.caption2.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule().fill(terminalTheme.terminalChromeForegroundColor.opacity(0.12))
+                )
+                .accessibilityLabel(
+                    L10n.string("mobile.paneMap.focusedOnMac", defaultValue: "Focused on Mac")
+                )
+            }
+
             if let agentStateKind {
                 Circle()
                     .fill(statusColor(agentStateKind))
                     .frame(width: 6, height: 6)
+                    .accessibilityLabel(statusAccessibilityValue(agentStateKind))
             }
         }
         .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
@@ -90,7 +129,7 @@ struct PaneMapTileView: View {
                         selectPreviewSurface(surface.id)
                     } label: {
                         Text(surface.title)
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.caption2.weight(.semibold))
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .foregroundStyle(
@@ -98,9 +137,9 @@ struct PaneMapTileView: View {
                                     ? terminalTheme.terminalBackgroundColor
                                     : terminalTheme.terminalChromeForegroundColor.opacity(0.85)
                             )
-                            .padding(.horizontal, 7)
-                            .frame(height: 14)
-                            .frame(minWidth: 22, maxWidth: 88)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .frame(minWidth: 44, maxWidth: 96)
                             .background(
                                 Capsule().fill(
                                     isSelectedTab
@@ -111,7 +150,9 @@ struct PaneMapTileView: View {
                             .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(surface.title)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel(surfaceAccessibilityLabel(surface))
                     .accessibilityAddTraits(isSelectedTab ? .isSelected : [])
                     .accessibilityIdentifier("MobilePaneMapTab-\(surface.id)")
                 }
@@ -119,7 +160,6 @@ struct PaneMapTileView: View {
             .padding(.horizontal, 6)
         }
         .scrollIndicators(.hidden)
-        .frame(height: 16)
         .padding(.bottom, 2)
     }
 
@@ -134,14 +174,9 @@ struct PaneMapTileView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
-                String.localizedStringWithFormat(
-                    L10n.string(
-                        "mobile.surfaceDeck.chip.terminal",
-                        defaultValue: "%@, terminal"
-                    ),
-                    surface.title
-                )
+                surfaceAccessibilityLabel(surface)
             )
+            .accessibilityValue(statusAccessibilityValue(agentStateKind))
             .accessibilityIdentifier("MobilePaneMapTile-\(surface.id)")
         } else {
             VStack(spacing: 5) {
@@ -162,7 +197,7 @@ struct PaneMapTileView: View {
     private func terminalPreview(surfaceID: String) -> some View {
         if let previewGrid, previewGrid.surfaceID == surfaceID {
             GeometryReader { geometry in
-                let lines = PaneMapPreviewRenderer.rows(in: previewGrid)
+                let lines = previewGrid.paneMapPreviewRows()
                 let fontSize = previewFontSize(
                     availableSize: geometry.size,
                     columns: previewGrid.columns,
@@ -233,6 +268,57 @@ struct PaneMapTileView: View {
             return "folder"
         case .rightSidebarTool, .customSidebar, .extensionBrowser, .cloudVMLoading, .other:
             return "rectangle"
+        }
+    }
+
+    private var paneAccessibilityLabel: String {
+        String.localizedStringWithFormat(
+            L10n.string(
+                "mobile.paneMap.panePosition",
+                defaultValue: "Pane %d of %d"
+            ),
+            paneNumber,
+            paneCount
+        )
+    }
+
+    private func surfaceAccessibilityLabel(_ surface: MobilePaneSurface) -> String {
+        if surface.type.isTerminal {
+            return String.localizedStringWithFormat(
+                L10n.string(
+                    "mobile.surfaceDeck.chip.terminalInPane",
+                    defaultValue: "%@, terminal, pane %d of %d"
+                ),
+                surface.title,
+                paneNumber,
+                paneCount
+            )
+        }
+        return String.localizedStringWithFormat(
+            L10n.string(
+                "mobile.surfaceDeck.chip.unavailableInPane",
+                defaultValue: "%@, unavailable on iPhone, pane %d of %d"
+            ),
+            surface.title,
+            paneNumber,
+            paneCount
+        )
+    }
+
+    private func statusAccessibilityValue(_ kind: ChatAgentStateKind?) -> String {
+        switch kind {
+        case .working:
+            return L10n.string(
+                "mobile.agent.status.working",
+                defaultValue: "Agent working"
+            )
+        case .needsInput:
+            return L10n.string(
+                "mobile.agent.status.needsInput",
+                defaultValue: "Agent needs input"
+            )
+        case nil:
+            return ""
         }
     }
 }

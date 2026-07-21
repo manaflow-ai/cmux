@@ -5,13 +5,25 @@ import SwiftUI
 /// Workspace-level utilities that remain in the top-right toolbar.
 struct WorkspaceUtilitiesMenu: View {
     let showsViewAsText: Bool
+    let showsPaneMap: Bool
     let terminalTheme: TerminalTheme
+    let presentPaneMap: () -> Void
     let openTextSheet: () -> Void
     let copyDebugLogs: () -> Void
     let sendFeedback: () -> Void
 
     var body: some View {
         Menu {
+            if showsPaneMap {
+                Button(action: presentPaneMap) {
+                    Label(
+                        L10n.string("mobile.surfaceDeck.paneMap", defaultValue: "Pane Map"),
+                        systemImage: "rectangle.split.2x2"
+                    )
+                }
+                .accessibilityIdentifier("MobilePaneMapMenuItem")
+            }
+
             if showsViewAsText {
                 Button(action: openTextSheet) {
                     Label(

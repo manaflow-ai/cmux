@@ -14,6 +14,8 @@ struct PaneMapOverlay: View {
     @State private var selectedSurfaceIDsByPaneID: [String: String]
     @State private var previewGridsBySurfaceID: [String: MobileTerminalRenderGridFrame] = [:]
     @State private var isRefreshing = false
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var refreshGeneration: UUID?
 
     init(
         value: PaneMapValue,
@@ -37,8 +39,16 @@ struct PaneMapOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(terminalTheme.terminalBackgroundColor.ignoresSafeArea())
-        .task {
-            await refreshAllPreviews()
+        .onAppear {
+            startPreviewRefresh()
+        }
+        .onDisappear {
+            cancelPreviewRefresh()
+        }
+        .onChange(of: value.layout) { _, _ in
+            selectedSurfaceIDsByPaneID = value.reconciledSurfaceIDs(
+                current: selectedSurfaceIDsByPaneID
+            )
         }
         .accessibilityIdentifier("MobilePaneMapOverlay")
     }
@@ -59,9 +69,7 @@ struct PaneMapOverlay: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                Task { await refreshAllPreviews() }
-            } label: {
+            Button(action: startPreviewRefresh) {
                 HStack(spacing: 5) {
                     if isRefreshing {
                         ProgressView()
@@ -83,7 +91,7 @@ struct PaneMapOverlay: View {
             .accessibilityLabel(L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh"))
             .accessibilityIdentifier("MobilePaneMapRefresh")
 
-            Button(action: dismiss) {
+            Button(action: dismissPaneMap) {
                 Text(L10n.string("mobile.paneMap.done", defaultValue: "Done"))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
@@ -104,13 +112,16 @@ struct PaneMapOverlay: View {
             let normalizedRects = value.layout.normalizedRects()
 
             ZStack(alignment: .topLeading) {
-                ForEach(value.panes, id: \.id) { pane in
+                ForEach(value.panes.enumerated(), id: \.element.id) { index, pane in
                     if let normalizedRect = normalizedRects[pane.id] {
                         let tileRect = scaledTileRect(normalizedRect, in: canvasRect)
                         let surfaceID = selectedSurfaceIDsByPaneID[pane.id]
 
                         PaneMapTileView(
                             pane: pane,
+                            paneNumber: index + 1,
+                            paneCount: value.panes.count,
+                            isFocusedOnMac: value.layout.focusedPaneID == pane.id,
                             terminalTheme: terminalTheme,
                             selectedSurfaceID: surfaceID,
                             phoneSelectedSurfaceID: value.phoneSelectedSurfaceID,
@@ -139,24 +150,24 @@ struct PaneMapOverlay: View {
                 defaultValue: "1 pane · 1 tab"
             )
         case (true, false):
-            return String(
-                format: L10n.string(
+            return String.localizedStringWithFormat(
+                L10n.string(
                     "mobile.paneMap.count.onePane.otherTabs",
                     defaultValue: "1 pane · %d tabs"
                 ),
                 tabCount
             )
         case (false, true):
-            return String(
-                format: L10n.string(
+            return String.localizedStringWithFormat(
+                L10n.string(
                     "mobile.paneMap.count.otherPanes.oneTab",
                     defaultValue: "%d panes · 1 tab"
                 ),
                 paneCount
             )
         case (false, false):
-            return String(
-                format: L10n.string(
+            return String.localizedStringWithFormat(
+                L10n.string(
                     "mobile.paneMap.count.otherPanes.otherTabs",
                     defaultValue: "%d panes · %d tabs"
                 ),
@@ -191,13 +202,40 @@ struct PaneMapOverlay: View {
 
     private func jumpToTerminal(_ surfaceID: String) {
         selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
+        dismissPaneMap()
+    }
+
+    private func dismissPaneMap() {
+        cancelPreviewRefresh()
         dismiss()
     }
 
-    private func refreshAllPreviews() async {
+    private func startPreviewRefresh() {
+        guard refreshTask == nil else { return }
+        let generation = UUID()
+        refreshGeneration = generation
+        refreshTask = Task {
+            await refreshAllPreviews(generation: generation)
+            guard refreshGeneration == generation else { return }
+            refreshTask = nil
+        }
+    }
+
+    private func cancelPreviewRefresh() {
+        refreshGeneration = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        isRefreshing = false
+    }
+
+    private func refreshAllPreviews(generation: UUID) async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            if refreshGeneration == generation {
+                isRefreshing = false
+            }
+        }
 
         let selectedTerminalSurfaceIDs = value.panes.compactMap { pane -> String? in
             guard let surfaceID = selectedSurfaceIDsByPaneID[pane.id],
@@ -210,9 +248,11 @@ struct PaneMapOverlay: View {
         let remainingTerminalSurfaceIDs = value.panes.flatMap(\.surfaces).compactMap { surface in
             surface.type.isTerminal && !selectedSet.contains(surface.id) ? surface.id : nil
         }
-        previewGridsBySurfaceID = await fetchPreviews(
+        let previews = await fetchPreviews(
             selectedTerminalSurfaceIDs,
             remainingTerminalSurfaceIDs
         )
+        guard !Task.isCancelled, refreshGeneration == generation else { return }
+        previewGridsBySurfaceID = previews
     }
 }
