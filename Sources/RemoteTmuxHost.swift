@@ -46,10 +46,34 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// ``RemoteTmuxController`` keys its per-endpoint state.
     var id: String { connectionHash }
 
-    init(destination: String, port: Int? = nil, identityFile: String? = nil) {
+    /// Which transport carries this host's control stream.
+    ///
+    /// Part of the host rather than a global setting, because it is a property of the
+    /// endpoint: one host may be reachable over a session-preserving transport while
+    /// another is plain ssh. Defaults to ssh, so an unspecified host behaves exactly as
+    /// before.
+    let transport: RemoteTmuxTransportKind
+
+    /// The port of a non-ssh transport, when it differs from ssh's.
+    ///
+    /// Separate from ``port`` because the two are genuinely different endpoints on the same
+    /// host: one-shot discovery and mutation commands keep riding ssh even when the control
+    /// stream does not, so folding both into one field points ssh at the other transport's
+    /// port and every one-shot fails with `kex_exchange_identification`.
+    let transportPort: Int?
+
+    init(
+        destination: String,
+        port: Int? = nil,
+        identityFile: String? = nil,
+        transport: RemoteTmuxTransportKind = .ssh,
+        transportPort: Int? = nil
+    ) {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
+        self.transport = transport
+        self.transportPort = transportPort
     }
 
     /// A human-readable (but lossy) slug for the destination, used only for
