@@ -196,6 +196,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-tui-core",
+ "cmux-tui-machine-protocol",
  "crossterm",
  "ghostty-vt",
  "libc",
@@ -233,6 +234,14 @@ dependencies = [
  "serde_json",
  "tungstenite",
  "uds_windows",
+]
+
+[[package]]
+name = "cmux-tui-machine-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

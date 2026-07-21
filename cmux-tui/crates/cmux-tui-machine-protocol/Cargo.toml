@@ -1,0 +1,17 @@
+[package]
+name = "cmux-tui-machine-protocol"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Versioned provider protocol for cmux machine catalogs and remote sessions"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
