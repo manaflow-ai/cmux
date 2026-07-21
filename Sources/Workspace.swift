@@ -3621,7 +3621,7 @@ final class Workspace: Identifiable, ObservableObject {
         _ terminalPanel: TerminalPanel,
         allowTextBoxFocusDefault: Bool = true
     ) {
-        lastTerminalConfigInheritanceFontSizeLineage = terminalPanel.surface.fontSizeLineageSnapshot()
+        rememberTerminalConfigInheritanceSource(terminalPanel)
         // Record the workspace env this freshly-created panel inherited, so a later
         // respawn (which reuses this panel even after a move to another workspace)
         // can drop it and re-apply the current workspace's env instead of leaking

@@ -173,6 +173,13 @@ struct TerminalFontZoomSessionPersistenceTests {
 
         #expect(restoredPanel.surface.fontSizeLineageSnapshot() == nil)
         #expect(restoredPanel.surface.sessionFontSizeOverrideBasePoints() == nil)
+        #expect(
+            workspace.lastRememberedTerminalPanelForConfigInheritance()?.id == restoredPanel.id
+        )
+        #expect(workspace.closePanel(sourcePanelID, force: true))
+        #expect(
+            TabManager().inheritedTerminalConfigForNewWorkspace(workspace: workspace) == nil
+        )
     }
 
     @Test("closing the remembered zoom source discards its explicit lineage")

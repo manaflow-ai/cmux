@@ -623,15 +623,8 @@ extension TerminalSurface {
            inheritedFontSizeLineage.basePoints > 0 {
             let inheritedBaseFontPoints = inheritedFontSizeLineage.basePoints
             let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())
-            let currentFontPoints = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface)
-            let shouldReapply = inheritedFontSizeLineage.isExplicitOverride || {
-                guard let currentFontPoints else { return true }
-                return abs(currentFontPoints - inheritedRuntimeFontPoints) > 0.05
-            }()
-            if shouldReapply {
-                let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
-                _ = performInternalBindingAction(action)
-            }
+            let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
+            _ = performInternalBindingAction(action)
         }
 
         // Re-apply the desired focus state after creation so the live runtime
