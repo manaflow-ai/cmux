@@ -2893,6 +2893,20 @@ struct ContentView: View {
             toggleCommandPalette()
         })
 
+#if DEBUG
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteQuerySetRequested)) { notification in
+            guard isCommandPalettePresented, case .commands = commandPaletteMode else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ), let query = notification.userInfo?["query"] as? String else { return }
+            commandPaletteQuery = query
+        })
+#endif
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(

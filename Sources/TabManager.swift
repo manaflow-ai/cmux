@@ -6180,6 +6180,9 @@ extension Notification.Name {
     // The sidebar multi-selection sync events moved to CmuxSidebar as typed
     // SidebarMultiSelectionShouldCollapseEvent / DidHideEvent (same names).
     static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
+#if DEBUG
+    static let commandPaletteQuerySetRequested = Notification.Name("cmux.commandPaletteQuerySetRequested")
+#endif
     static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
     static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
     static let commandPaletteSubmitRequested = Notification.Name("cmux.commandPaletteSubmitRequested")

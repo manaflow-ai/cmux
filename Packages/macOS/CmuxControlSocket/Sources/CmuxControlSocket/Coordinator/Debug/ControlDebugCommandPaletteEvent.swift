@@ -4,6 +4,11 @@
 public enum ControlDebugCommandPaletteEvent: Sendable, Equatable {
     /// `debug.command_palette.toggle` (`commandPaletteToggleRequested`).
     case toggle
+    /// `debug.command_palette.query.set`
+    /// (`commandPaletteQuerySetRequested`).
+    case setQuery(String)
+    /// `debug.command_palette.submit` (`commandPaletteSubmitRequested`).
+    case submit
     /// `debug.command_palette.rename_tab.open`
     /// (`commandPaletteRenameTabRequested`).
     case renameTabOpen
