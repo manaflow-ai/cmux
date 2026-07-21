@@ -959,9 +959,19 @@ enum FilePreviewTextSaver {
         case failed(fileExists: Bool)
     }
 
-    static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
+    static func save(
+        content: String,
+        to url: URL,
+        encoding: String.Encoding,
+        maximumBytes: UInt64? = nil
+    ) async -> Result {
         await Task.detached(priority: .userInitiated) {
-            saveSynchronously(content: content, to: url, encoding: encoding)
+            saveSynchronously(
+                content: content,
+                to: url,
+                encoding: encoding,
+                maximumBytes: maximumBytes
+            )
         }.value
     }
 
@@ -969,12 +979,13 @@ enum FilePreviewTextSaver {
         content: String,
         to url: URL,
         encoding: String.Encoding,
+        maximumBytes: UInt64? = nil,
         options: Data.WritingOptions = []
     ) -> Result {
         guard let data = content.data(using: encoding) else {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
         }
-        guard UInt64(data.count) <= FilePreviewTextLoader.maximumLoadedTextBytes else {
+        if let maximumBytes, UInt64(data.count) > maximumBytes {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
         }
 

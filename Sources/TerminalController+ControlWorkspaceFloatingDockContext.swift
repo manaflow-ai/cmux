@@ -238,6 +238,9 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             guard let initialContent = floatingDockInitialContent(kindRaw) else {
                 return .invalidInitialContent(kindRaw)
             }
+            guard workspace.canCreateFloatingDockPanel else {
+                return .operationFailed(Workspace.floatingDockSurfaceLimitErrorMessage)
+            }
             let normalizedColor = WorkspaceFloatingDockBackgroundColor.normalized(backgroundTintHex)
             if let backgroundTintHex, normalizedColor == nil {
                 return .invalidColor(backgroundTintHex)
@@ -348,6 +351,9 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         case .surfaceCreate(let selector, let paneID, let kindRaw, let urlRaw, let focus):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             guard let kind = floatingDockSurfaceKind(kindRaw) else { return .invalidSurfaceKind(kindRaw) }
+            guard workspace.canCreateFloatingDockPanel else {
+                return .operationFailed(Workspace.floatingDockSurfaceLimitErrorMessage)
+            }
             guard let pane = dock.store.resolvePane(requestedPaneID: paneID) else { return .paneNotFound }
             guard let panelID = dock.store.newSurface(
                 kind: kind,
@@ -363,6 +369,9 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             guard let kind = floatingDockSurfaceKind(kindRaw) else { return .invalidSurfaceKind(kindRaw) }
             guard let direction = floatingDockSplitDirection(directionRaw) else { return .invalidDirection(directionRaw) }
+            guard workspace.canCreateFloatingDockPanel else {
+                return .operationFailed(Workspace.floatingDockSurfaceLimitErrorMessage)
+            }
             if let sourceSurfaceID, !dock.store.containsPanel(sourceSurfaceID) { return .surfaceNotFound }
             guard let panelID = dock.store.newSplit(
                 kind: kind,

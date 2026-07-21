@@ -237,7 +237,10 @@ extension Workspace {
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
-        restoreFloatingDocks(from: snapshot.floatingDocks)
+        restoreFloatingDocks(
+            from: snapshot.floatingDocks,
+            snapshotWorkspaceId: snapshot.workspaceId
+        )
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -1140,7 +1143,8 @@ extension Workspace {
 
     func restoreFloatingDockTerminalTransfer(
         panelId: UUID,
-        snapshot: SessionTerminalPanelSnapshot
+        snapshot: SessionTerminalPanelSnapshot,
+        snapshotWorkspaceId: UUID?
     ) -> DetachedSurfaceTransfer? {
         guard let pane = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
             return nil
@@ -1167,7 +1171,7 @@ extension Workspace {
         guard let restoredPanelId = createPanel(
             from: panelSnapshot,
             inPane: pane,
-            snapshotWorkspaceId: id,
+            snapshotWorkspaceId: snapshotWorkspaceId,
             shouldRestoreSingleDefaultCloudTerminal: false
         ) else { return nil }
         return detachSurface(panelId: restoredPanelId)

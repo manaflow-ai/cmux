@@ -438,7 +438,7 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
     private let sidebarResizerOcclusionResolver = SidebarResizerOcclusionResolver()
-    private struct CommandPaletteRestoreFocusTarget {
+    struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
         let intent: PanelFocusIntent
@@ -8782,6 +8782,21 @@ struct ContentView: View {
     }
 
     private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {
+        let targetDockStore = commandPaletteTargetDockStore
+        let sourceWindow: NSWindow?
+        if let restoreTarget = commandPaletteRestoreFocusTarget,
+           restoreTarget.dockStore === targetDockStore {
+            sourceWindow = restoreTarget.sourceWindow
+        } else {
+            sourceWindow = commandPalettePendingRequestFocusTarget?.sourceWindow
+        }
+        if let dockTarget = Self.commandPalettePostRunDockFocusTarget(
+            forCommandId: command.id,
+            dockStore: targetDockStore,
+            sourceWindow: sourceWindow
+        ) {
+            return dockTarget
+        }
         guard let intent = Self.commandPalettePostRunRestoreFocusIntent(forCommandId: command.id),
               let panelContext = focusedPanelContext else {
             return nil
@@ -8790,6 +8805,26 @@ struct ContentView: View {
             workspaceId: panelContext.workspace.id,
             panelId: panelContext.panelId,
             intent: intent
+        )
+    }
+
+    @MainActor
+    static func commandPalettePostRunDockFocusTarget(
+        forCommandId commandId: String,
+        dockStore: DockSplitStore?,
+        sourceWindow: NSWindow?
+    ) -> CommandPaletteRestoreFocusTarget? {
+        guard let intent = commandPalettePostRunRestoreFocusIntent(forCommandId: commandId),
+              let dockStore,
+              let panelId = dockStore.focusedPanelId else {
+            return nil
+        }
+        return CommandPaletteRestoreFocusTarget(
+            workspaceId: dockStore.workspaceId,
+            panelId: panelId,
+            intent: intent,
+            dockStore: dockStore,
+            sourceWindow: sourceWindow
         )
     }
 

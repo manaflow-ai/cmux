@@ -39,9 +39,23 @@ extension AppDelegate {
 
     /// Whether a live surface can leave its current owner and be driven from
     /// `destinationDock`.
-    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock _: DockSplitStore) -> Bool {
+    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock: DockSplitStore) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-        return canMoveSurfaceIntoDock(source)
+        return canMoveSurfaceIntoDock(source) &&
+            floatingDockHasCapacityForMove(source, destinationDock: destinationDock)
+    }
+
+    private func floatingDockHasCapacityForMove(
+        _ source: ContainerSurfaceLocation,
+        destinationDock: DockSplitStore
+    ) -> Bool {
+        guard let destination = workspaceFloatingDock(owning: destinationDock) else { return true }
+        if case .dock(let sourceDock, _) = source,
+           let sourceFloatingDock = workspaceFloatingDock(owning: sourceDock),
+           sourceFloatingDock.workspace === destination.workspace {
+            return true
+        }
+        return destination.workspace.canCreateFloatingDockPanel
     }
 
     /// Whether the right sidebar (Files / Find / Dock) currently owns input
@@ -85,7 +99,10 @@ extension AppDelegate {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-        guard canMoveSurfaceIntoDock(source) else { return false }
+        guard canMoveSurfaceIntoDock(source),
+              floatingDockHasCapacityForMove(source, destinationDock: destinationDock) else {
+            return false
+        }
         let shouldPreserveSourceWorkspace = shouldPreserveSourceWorkspaceAfterDockMove(
             source,
             destinationDock: destinationDock

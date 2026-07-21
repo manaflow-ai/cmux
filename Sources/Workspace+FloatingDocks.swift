@@ -91,9 +91,11 @@ extension Workspace {
         sessionContent: SessionFloatingDockContentSnapshot? = nil,
         screenFrame: CGRect? = nil,
         displaySnapshot: SessionDisplaySnapshot? = nil,
-        configFrames: [SessionConfigFrameEntry]? = nil
+        configFrames: [SessionConfigFrameEntry]? = nil,
+        snapshotWorkspaceId: UUID? = nil
     ) -> WorkspaceFloatingDock? {
-        guard floatingDocks.count < SessionPersistencePolicy.maxFloatingDocksPerWorkspace else {
+        guard floatingDocks.count < SessionPersistencePolicy.maxFloatingDocksPerWorkspace,
+              canCreateFloatingDockPanel else {
             return nil
         }
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -118,6 +120,9 @@ extension Workspace {
             remoteBrowserSettingsProvider: { [weak self] in
                 self?.dockRemoteBrowserSettingsSnapshot() ?? .local
             },
+            surfaceCreationAllowedProvider: { [weak self] in
+                self?.canCreateFloatingDockPanel ?? false
+            },
             terminalTransferProvider: { [weak self] command, workingDirectory, environment, tmuxStartCommand in
                 guard let self,
                       let pane = self.bonsplitController.focusedPaneId
@@ -135,7 +140,11 @@ extension Workspace {
                 return self.detachSurface(panelId: terminal.id)
             },
             terminalRestoreTransferProvider: { [weak self] panelId, snapshot in
-                self?.restoreFloatingDockTerminalTransfer(panelId: panelId, snapshot: snapshot)
+                self?.restoreFloatingDockTerminalTransfer(
+                    panelId: panelId,
+                    snapshot: snapshot,
+                    snapshotWorkspaceId: snapshotWorkspaceId
+                )
             }
         )
         guard sessionContent != nil || dock.initialContentWasCreated else {
@@ -147,6 +156,26 @@ extension Workspace {
         }
         floatingDocks.append(dock)
         return dock
+    }
+
+    var floatingDockPanelCount: Int {
+        floatingDocks.reduce(0) { $0 + $1.store.panels.count }
+    }
+
+    var canCreateFloatingDockPanel: Bool {
+        floatingDockPanelCount < SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
+    }
+
+    static var floatingDockSurfaceLimitErrorMessage: String {
+        let format = String(
+            localized: "floatingDock.error.surfaceLimit",
+            defaultValue: "Floating windows can contain at most %lld tabs per workspace."
+        )
+        return String(
+            format: format,
+            locale: .current,
+            Int64(SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace)
+        )
     }
 
     func floatingDock(id: UUID) -> WorkspaceFloatingDock? {
@@ -243,7 +272,10 @@ extension Workspace {
         }
     }
 
-    func restoreFloatingDocks(from snapshots: [SessionFloatingDockSnapshot]?) {
+    func restoreFloatingDocks(
+        from snapshots: [SessionFloatingDockSnapshot]?,
+        snapshotWorkspaceId: UUID? = nil
+    ) {
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
         var remainingPanelBudget = SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
@@ -268,7 +300,8 @@ extension Workspace {
                 sessionContent: content,
                 screenFrame: snapshot.screenFrame?.cgRect,
                 displaySnapshot: snapshot.display,
-                configFrames: snapshot.configFrames
+                configFrames: snapshot.configFrames,
+                snapshotWorkspaceId: snapshotWorkspaceId
             ) != nil else { continue }
             remainingPanelBudget -= restoredPanelCost
         }

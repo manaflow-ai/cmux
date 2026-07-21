@@ -40,6 +40,7 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
                 content: content,
                 to: fileURL,
                 encoding: encoding,
+                maximumBytes: FilePreviewTextLoader.maximumLoadedTextBytes,
                 options: .atomic
             )
             if case .saved = result {
@@ -187,6 +188,7 @@ final class WorkspaceFloatingDock: Identifiable {
         configFrames: SessionConfigFrameRing = SessionConfigFrameRing(),
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings,
+        surfaceCreationAllowedProvider: @escaping () -> Bool = { true },
         terminalTransferProvider: DockSplitStore.TerminalTransferProvider? = nil,
         terminalRestoreTransferProvider: DockSplitStore.TerminalRestoreTransferProvider? = nil
     ) {
@@ -210,6 +212,7 @@ final class WorkspaceFloatingDock: Identifiable {
             loadsConfiguration: false,
             baseDirectoryProvider: baseDirectoryProvider,
             remoteBrowserSettingsProvider: remoteBrowserSettingsProvider,
+            surfaceCreationAllowedProvider: surfaceCreationAllowedProvider,
             terminalTransferProvider: terminalTransferProvider,
             terminalRestoreTransferProvider: terminalRestoreTransferProvider,
             noteTextSaver: { content, _, encoding, sequence in

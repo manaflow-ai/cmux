@@ -51,6 +51,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    private let surfaceCreationAllowedProvider: () -> Bool
     private let terminalTransferProvider: TerminalTransferProvider?
     let terminalRestoreTransferProvider: TerminalRestoreTransferProvider?
     let noteTextSaver: (@Sendable (
@@ -140,6 +141,7 @@ final class DockSplitStore: BonsplitDelegate {
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
+        surfaceCreationAllowedProvider: @escaping () -> Bool = { true },
         terminalTransferProvider: TerminalTransferProvider? = nil,
         terminalRestoreTransferProvider: TerminalRestoreTransferProvider? = nil,
         noteTextSaver: (@Sendable (
@@ -162,6 +164,7 @@ final class DockSplitStore: BonsplitDelegate {
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.surfaceCreationAllowedProvider = surfaceCreationAllowedProvider
         self.terminalTransferProvider = terminalTransferProvider
         self.terminalRestoreTransferProvider = terminalRestoreTransferProvider
         self.noteTextSaver = noteTextSaver
@@ -367,6 +370,7 @@ final class DockSplitStore: BonsplitDelegate {
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> UUID? {
         ensureLoaded()
+        guard surfaceCreationAllowedProvider() else { return nil }
         if kind == .terminal, let terminalTransferProvider {
             guard let transfer = terminalTransferProvider(
                 command,
@@ -429,6 +433,7 @@ final class DockSplitStore: BonsplitDelegate {
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
+        guard surfaceCreationAllowedProvider() else { return nil }
         if kind == .terminal, let terminalTransferProvider {
             guard let transfer = terminalTransferProvider(
                 command,
@@ -622,10 +627,20 @@ final class DockSplitStore: BonsplitDelegate {
                     title: noteTitle ?? String(localized: "floatingDock.note.title", defaultValue: "Notes")
                 ),
                 textSaver: noteTextSaver ?? { content, url, encoding, _ in
-                    await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
+                    await FilePreviewTextSaver.save(
+                        content: content,
+                        to: url,
+                        encoding: encoding,
+                        maximumBytes: FilePreviewTextLoader.maximumLoadedTextBytes
+                    )
                 },
                 textSaverSynchronously: noteTextSaverSynchronously ?? { content, url, encoding, _ in
-                    FilePreviewTextSaver.saveSynchronously(content: content, to: url, encoding: encoding)
+                    FilePreviewTextSaver.saveSynchronously(
+                        content: content,
+                        to: url,
+                        encoding: encoding,
+                        maximumBytes: FilePreviewTextLoader.maximumLoadedTextBytes
+                    )
                 },
                 textSaveSequenceProvider: noteTextSaveSequenceProvider
             )
