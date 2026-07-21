@@ -30,6 +30,8 @@ enum SessionPersistencePolicy {
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
+    static let maxFloatingDocksPerWorkspace: Int = 32
+    static let maxFloatingDockPanelsPerWorkspace: Int = 128
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 

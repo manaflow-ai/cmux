@@ -18,6 +18,9 @@ extension Workspace {
         displaySnapshot: SessionDisplaySnapshot? = nil,
         configFrames: [SessionConfigFrameEntry]? = nil
     ) -> WorkspaceFloatingDock? {
+        guard floatingDocks.count < SessionPersistencePolicy.maxFloatingDocksPerWorkspace else {
+            return nil
+        }
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = resolvedTitle?.isEmpty == false
             ? resolvedTitle!
@@ -101,8 +104,16 @@ extension Workspace {
     }
 
     func floatingDockSessionSnapshots() -> [SessionFloatingDockSnapshot]? {
-        let snapshots = floatingDocks.map { dock in
-            SessionFloatingDockSnapshot(
+        var remainingPanelBudget = SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
+        var snapshots: [SessionFloatingDockSnapshot] = []
+        for dock in floatingDocks.prefix(SessionPersistencePolicy.maxFloatingDocksPerWorkspace) {
+            guard remainingPanelBudget > 0 else { break }
+            let content = dock.sessionContentSnapshot().flatMap {
+                Self.boundedFloatingDockContent($0, maximumPanels: remainingPanelBudget)
+            }
+            let restoredPanelCost = max(1, content?.surfaces.count ?? 0)
+            guard restoredPanelCost <= remainingPanelBudget else { break }
+            snapshots.append(SessionFloatingDockSnapshot(
                 id: dock.id,
                 title: dock.title,
                 x: dock.frame.origin.x,
@@ -111,11 +122,12 @@ extension Workspace {
                 height: dock.frame.height,
                 isPresented: dock.isPresented,
                 backgroundTintHex: dock.backgroundTintHex,
-                content: dock.sessionContentSnapshot(),
+                content: content,
                 screenFrame: dock.screenFrame.map(SessionRectSnapshot.init),
                 display: dock.displaySnapshot,
                 configFrames: dock.configFrames.entries.isEmpty ? nil : dock.configFrames.entries
-            )
+            ))
+            remainingPanelBudget -= restoredPanelCost
         }
         return snapshots.isEmpty ? nil : snapshots
     }
@@ -123,8 +135,15 @@ extension Workspace {
     func restoreFloatingDocks(from snapshots: [SessionFloatingDockSnapshot]?) {
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
-        for snapshot in snapshots ?? [] {
-            _ = createFloatingDock(
+        var remainingPanelBudget = SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
+        for snapshot in (snapshots ?? []).prefix(SessionPersistencePolicy.maxFloatingDocksPerWorkspace) {
+            guard remainingPanelBudget > 0 else { break }
+            let content = snapshot.content.flatMap {
+                Self.boundedFloatingDockContent($0, maximumPanels: remainingPanelBudget)
+            }
+            let restoredPanelCost = max(1, content?.surfaces.count ?? 0)
+            guard restoredPanelCost <= remainingPanelBudget else { break }
+            guard createFloatingDock(
                 id: snapshot.id,
                 title: snapshot.title,
                 frame: CGRect(
@@ -135,12 +154,43 @@ extension Workspace {
                 ),
                 isPresented: snapshot.isPresented,
                 backgroundTintHex: snapshot.backgroundTintHex,
-                sessionContent: snapshot.content,
+                sessionContent: content,
                 screenFrame: snapshot.screenFrame?.cgRect,
                 displaySnapshot: snapshot.display,
                 configFrames: snapshot.configFrames
-            )
+            ) != nil else { continue }
+            remainingPanelBudget -= restoredPanelCost
         }
+    }
+
+    private static func boundedFloatingDockContent(
+        _ snapshot: SessionFloatingDockContentSnapshot,
+        maximumPanels: Int
+    ) -> SessionFloatingDockContentSnapshot? {
+        guard maximumPanels > 0 else { return nil }
+        var surfacesById: [UUID: SessionFloatingDockSurfaceSnapshot] = [:]
+        for surface in snapshot.surfaces where surfacesById[surface.id] == nil {
+            surfacesById[surface.id] = surface
+        }
+        var seenPanelIds: Set<UUID> = []
+        let panelIds = Array(
+            BonsplitSessionLayoutCodec.orderedPanelIds(in: snapshot.layout)
+                .filter { surfacesById[$0] != nil && seenPanelIds.insert($0).inserted }
+                .prefix(maximumPanels)
+        )
+        let persistedPanelIds = Set(panelIds)
+        guard !persistedPanelIds.isEmpty,
+              let layout = BonsplitSessionLayoutCodec.pruning(
+                snapshot.layout,
+                keeping: persistedPanelIds
+              ) else { return nil }
+        return SessionFloatingDockContentSnapshot(
+            layout: layout,
+            surfaces: panelIds.compactMap { surfacesById[$0] },
+            focusedPanelId: snapshot.focusedPanelId.flatMap {
+                persistedPanelIds.contains($0) ? $0 : nil
+            }
+        )
     }
 
     private func floatingDockNoteFileURL(dockId: UUID) -> URL {

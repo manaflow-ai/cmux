@@ -179,10 +179,8 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 if let notePanel {
                     try notePanel.replaceAutosavedTextContent(text)
                 } else {
-                    dock.setNoteTextSnapshot(text)
-                    let url = URL(fileURLWithPath: dock.noteFilePath)
-                    Task {
-                        _ = await FilePreviewTextSaver.save(content: text, to: url, encoding: .utf8)
+                    guard dock.persistNoteTextSnapshot(text) else {
+                        return .operationFailed("note mutation failed")
                     }
                 }
             } catch {

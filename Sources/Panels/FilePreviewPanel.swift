@@ -961,21 +961,29 @@ enum FilePreviewTextSaver {
 
     static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
         await Task.detached(priority: .userInitiated) {
-            guard let data = content.data(using: encoding) else {
-                return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-            }
-
-            do {
-                try FileManager.default.createDirectory(
-                    at: url.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try data.write(to: url, options: [])
-                return .saved
-            } catch {
-                return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-            }
+            saveSynchronously(content: content, to: url, encoding: encoding)
         }.value
+    }
+
+    static func saveSynchronously(
+        content: String,
+        to url: URL,
+        encoding: String.Encoding
+    ) -> Result {
+        guard let data = content.data(using: encoding) else {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: url, options: .atomic)
+            return .saved
+        } catch {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
     }
 }
 

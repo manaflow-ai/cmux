@@ -22,6 +22,7 @@ final class WorkspaceFloatingDock: Identifiable {
     @ObservationIgnored private(set) var notePanelId: UUID?
     @ObservationIgnored private(set) var noteTextSnapshot = ""
     @ObservationIgnored private var noteTextGeneration = 0
+    @ObservationIgnored private let notePersistenceQueue: DispatchQueue
 
     init(
         id: UUID,
@@ -50,6 +51,9 @@ final class WorkspaceFloatingDock: Identifiable {
         self.displaySnapshot = displaySnapshot
         self.configFrames = configFrames
         self.noteFilePath = noteFilePath
+        self.notePersistenceQueue = DispatchQueue(
+            label: "com.cmuxterm.floating-dock-note.\(id.uuidString.lowercased())"
+        )
         self.store = DockSplitStore(
             workspaceId: workspaceId,
             scope: .workspace,
@@ -112,6 +116,16 @@ final class WorkspaceFloatingDock: Identifiable {
         noteTextSnapshot = text
     }
 
+    func persistNoteTextSnapshot(_ text: String) -> Bool {
+        let url = URL(fileURLWithPath: noteFilePath)
+        let result = notePersistenceQueue.sync {
+            FilePreviewTextSaver.saveSynchronously(content: text, to: url, encoding: .utf8)
+        }
+        guard case .saved = result else { return false }
+        setNoteTextSnapshot(text)
+        return true
+    }
+
     private func bindNotePanel() {
         guard let panel = notePanel else { return }
         setNoteTextSnapshot(panel.textContent)
@@ -123,12 +137,11 @@ final class WorkspaceFloatingDock: Identifiable {
     private func loadPersistedNoteSnapshot() {
         let path = noteFilePath
         let generation = noteTextGeneration
-        Task.detached(priority: .utility) { [weak self, path, generation] in
-            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
-            await MainActor.run {
-                guard let self, self.noteTextGeneration == generation else { return }
-                self.noteTextSnapshot = text
-            }
+        Task { [weak self, path, generation] in
+            guard case .loaded(let text, _) = await FilePreviewTextLoader.load(
+                url: URL(fileURLWithPath: path)
+            ), let self, self.noteTextGeneration == generation else { return }
+            self.noteTextSnapshot = text
         }
     }
 
