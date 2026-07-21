@@ -4613,6 +4613,32 @@
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },
+  "workspaceShare": {
+    "metaTitle": "共有 cmux ワークスペース",
+    "verifiedEmailTitle": "アクセスをリクエストするにはメールを確認してください",
+    "verifiedEmailDescription": "Stack Auth のメール確認を完了してから、この共有リンクをもう一度開いてください。",
+    "connecting": "共有ワークスペースに接続しています…",
+    "reconnecting": "共有ワークスペースに再接続しています…",
+    "pendingTitle": "アクセス許可を待っています",
+    "pendingDescription": "ワークスペースの所有者が確認済みメールアドレスを確認し、このセッションを許可するまで、cmux はワークスペースのデータを送信しません。",
+    "deniedTitle": "アクセスが拒否されました",
+    "deniedDescription": "ワークスペースの所有者がこのリクエストを拒否しました。",
+    "endedTitle": "共有が終了しました",
+    "endedDescription": "所有者がワークスペースの共有を終了しました。",
+    "errorTitle": "接続できません",
+    "errorDescription": "共有の有効期限が切れている可能性があります。所有者に新しいリンクを依頼してください。",
+    "workspaceWaiting": "ワークスペースのスナップショットを待っています…",
+    "chatTitle": "ワークスペースチャット",
+    "chatPlaceholder": "全員にメッセージ",
+    "send": "送信",
+    "participants": "ワークスペースの参加者",
+    "terminalWaiting": "ターミナルデータを待っています…",
+    "terminalInputLabel": "共有ターミナル入力",
+    "browserWaiting": "ブラウザプレビューを待っています…",
+    "unsupportedPanel": "このパネルのウェブ表示はまだ利用できません。",
+    "textBoxLabel": "共同編集 TextBox",
+    "privacy": "非公開共有 · 認証済みアクセス"
+  },
   "appProWelcome": {
     "eyebrow": "cmux Pro が有効です",
     "title": "cmux Pro へようこそ",

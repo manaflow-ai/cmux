@@ -124,6 +124,67 @@ struct CanvasShortcutContextTests {
     }
 }
 
+@Suite("Workspace share canvas topology")
+struct WorkspaceShareCanvasTopologyTests {
+    @Test func normalizesCanvasUnionWithoutLosingZOrderOrPaneIdentity() throws {
+        let backPaneID = UUID()
+        let frontPaneID = UUID()
+        let backTab = UUID()
+        let selectedBackTab = UUID()
+        let frontTab = UUID()
+        let topology = try #require(WorkspaceShareTopology.canvas(panes: [
+            WorkspaceShareTopology.Pane(
+                paneID: backPaneID,
+                frame: WorkspaceShareTopology.Frame(x: -120, y: 80, width: 300, height: 200),
+                surfaceIDs: [backTab, selectedBackTab],
+                selectedSurfaceID: selectedBackTab
+            ),
+            WorkspaceShareTopology.Pane(
+                paneID: frontPaneID,
+                frame: WorkspaceShareTopology.Frame(x: 100, y: -40, width: 200, height: 160),
+                surfaceIDs: [frontTab],
+                selectedSurfaceID: frontTab
+            ),
+        ]))
+
+        #expect(topology.width == 420)
+        #expect(topology.height == 320)
+        #expect(topology.canvasBounds == WorkspaceShareTopology.Frame(
+            x: -120,
+            y: -40,
+            width: 420,
+            height: 320
+        ))
+        #expect(topology.panes.map(\.paneID) == [backPaneID, frontPaneID])
+        #expect(topology.panes[0].frame == WorkspaceShareTopology.Frame(
+            x: 0,
+            y: 120,
+            width: 300,
+            height: 200
+        ))
+        #expect(topology.panes[0].surfaceIDs == [backTab, selectedBackTab])
+        #expect(topology.panes[0].selectedSurfaceID == selectedBackTab)
+        #expect(topology.panes[1].frame == WorkspaceShareTopology.Frame(
+            x: 220,
+            y: 0,
+            width: 200,
+            height: 160
+        ))
+        #expect(frontPaneID != frontTab)
+        #expect(topology.containsSelectedSurface(selectedBackTab))
+        #expect(topology.containsSelectedSurface(frontTab))
+        #expect(!topology.containsSelectedSurface(backTab))
+        #expect(!topology.containsSelectedSurface(UUID()))
+    }
+
+    @Test func convertsPointerYIntoTopDownCoordinatesForFlippedAndUnflippedViews() {
+        #expect(WorkspaceShareExporter.topDownY(pointY: 0, height: 100, isFlipped: true) == 0)
+        #expect(WorkspaceShareExporter.topDownY(pointY: 100, height: 100, isFlipped: true) == 100)
+        #expect(WorkspaceShareExporter.topDownY(pointY: 0, height: 100, isFlipped: false) == 100)
+        #expect(WorkspaceShareExporter.topDownY(pointY: 100, height: 100, isFlipped: false) == 0)
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 struct CanvasShortcutRoutingFeedbackTests {

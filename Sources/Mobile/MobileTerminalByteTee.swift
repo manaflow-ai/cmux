@@ -52,6 +52,7 @@ final class MobileTerminalByteTee {
     private var laneContinuationsBySurfaceID: [
         UUID: [UUID: AsyncStream<OutputChunk>.Continuation]
     ] = [:]
+    private var sequenceTrackingDemandIDs: Set<UUID> = []
     nonisolated private let laneSubscriberCount = OSAllocatedUnfairLock(initialState: 0)
     nonisolated private let laneDemand = AtomicBooleanGate(false)
     private let replayBudget: Int = 256 * 1024
@@ -110,6 +111,20 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID]?.seq
     }
 
+    /// Keeps byte-sequence tracking active for a renderer that does not consume
+    /// the raw byte stream, such as a workspace-share VT snapshot producer.
+    func retainSequenceTracking() -> UUID {
+        let id = UUID()
+        sequenceTrackingDemandIDs.insert(id)
+        laneDemand.storeRelease(true)
+        return id
+    }
+
+    func releaseSequenceTracking(_ id: UUID) {
+        guard sequenceTrackingDemandIDs.remove(id) != nil else { return }
+        refreshCaptureDemand()
+    }
+
     /// Opens a bounded raw-output subscription for one authenticated Iroh
     /// terminal lane. If a slow consumer drops a chunk, the stream ends so the
     /// phone must reopen with its last byte cursor instead of rendering a gap.
@@ -137,7 +152,7 @@ final class MobileTerminalByteTee {
                 count = max(0, count - continuations.count)
                 return count
             }
-            laneDemand.storeRelease(remainingCount > 0)
+            laneDemand.storeRelease(remainingCount > 0 || !sequenceTrackingDemandIDs.isEmpty)
             for continuation in continuations {
                 continuation.finish()
             }
@@ -201,6 +216,11 @@ final class MobileTerminalByteTee {
             count = max(0, count - 1)
             return count
         }
-        laneDemand.storeRelease(remainingCount > 0)
+        laneDemand.storeRelease(remainingCount > 0 || !sequenceTrackingDemandIDs.isEmpty)
+    }
+
+    private func refreshCaptureDemand() {
+        let laneCount = laneSubscriberCount.withLock { $0 }
+        laneDemand.storeRelease(laneCount > 0 || !sequenceTrackingDemandIDs.isEmpty)
     }
 }

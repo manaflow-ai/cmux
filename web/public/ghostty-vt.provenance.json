@@ -1,0 +1,25 @@
+{
+  "source": "https://github.com/manaflow-ai/ghostty",
+  "commit": "0d515313aea4ae358f22a4c7e462423a6ea4bbdd",
+  "license": "MIT",
+  "notices": "ghostty-vt.NOTICES",
+  "components": [
+    {
+      "name": "uucode",
+      "version": "0.2.0",
+      "source": "https://github.com/jacobsandlund/uucode/tree/54d650cf37948552f0c3d8168903e5e8a16901b8",
+      "packageHash": "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9"
+    },
+    {
+      "name": "Unicode Character Database",
+      "version": "17.0.0",
+      "source": "https://www.unicode.org/license.txt"
+    },
+    {
+      "name": "Bjoern Hoehrmann UTF-8 decoder",
+      "source": "https://bjoern.hoehrmann.de/utf-8/decoder/dfa/"
+    }
+  ],
+  "build": "zig build -Demit-lib-vt -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall",
+  "sha256": "8d56baad2c353299d1ec1dec38b69bc3915c7fe816f58b2b5365bbb6dbb3cdab"
+}

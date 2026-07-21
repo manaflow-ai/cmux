@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Bonsplit
 import CmuxCore
 import CmuxFoundation
 import CmuxWorkspaces
@@ -31,6 +32,87 @@ final class SessionPersistenceTests: XCTestCase {
             schemaVersion: SessionSnapshotSchema.currentVersion,
             bundleIdentifier: bundleIdentifier,
             appSupportDirectory: appSupportDirectory
+        )
+    }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotSkipsTransientFixedFloatingDock() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(
+            title: "Workspace chat",
+            isPresented: true,
+            persistence: .transient,
+            closeBehavior: .hide,
+            contentPolicy: .fixed,
+            seedsDefaultNote: false
+        ))
+        let model = WorkspaceShareChatModel(
+            shareURL: URL(string: "https://cmux.com/share/test")!,
+            decisionSender: { _, _ in },
+            onSendChat: { _ in },
+            onStopSharing: {}
+        )
+        let panel = WorkspaceShareChatPanel(model: model)
+
+        XCTAssertEqual(
+            dock.store.installRuntimePanel(
+                panel,
+                surfaceKind: SurfaceKind.workspaceShareChat.rawValue,
+                focus: false
+            ),
+            panel.id
+        )
+        XCTAssertNil(dock.notePanel)
+        XCTAssertEqual(dock.store.panels.count, 1)
+        XCTAssertNil(dock.store.newSurface(
+            kind: .terminal,
+            inPane: try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first),
+            focus: false
+        ))
+        XCTAssertNil(workspace.floatingDockSessionSnapshots())
+    }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresFloatingDockContentsAndLayout() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(
+            title: "Scratch",
+            frame: CGRect(x: 72, y: 96, width: 640, height: 420),
+            isPresented: false
+        ))
+        let rootPane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        let terminal = try XCTUnwrap(dock.store.newSurface(
+            kind: .terminal,
+            inPane: rootPane,
+            workingDirectory: "/tmp",
+            focus: false
+        ))
+        _ = try XCTUnwrap(dock.store.newSplit(
+            kind: .terminal,
+            orientation: .horizontal,
+            insertFirst: false,
+            sourcePanelId: terminal,
+            workingDirectory: "/private/tmp",
+            initialDividerPosition: 0.42,
+            focus: false
+        ))
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        XCTAssertEqual(restoredDock.title, "Scratch")
+        XCTAssertEqual(restoredDock.frame, CGRect(x: 72, y: 96, width: 640, height: 420))
+        XCTAssertFalse(restoredDock.isPresented)
+        XCTAssertEqual(restoredDock.store.panels.count, 3)
+        XCTAssertEqual(restoredDock.store.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(
+            restoredDock.store.panels.values.compactMap { ($0 as? TerminalPanel)?.requestedWorkingDirectory }.sorted(),
+            ["/private/tmp", "/tmp"]
         )
     }
 

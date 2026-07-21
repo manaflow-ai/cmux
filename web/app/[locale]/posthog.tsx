@@ -4,6 +4,7 @@ import posthog from "posthog-js";
 import { PostHogProvider as PHProvider } from "posthog-js/react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, Suspense } from "react";
+import { isPrivateSharePath, isPrivateShareURL } from "../../services/share/privacy";
 
 if (typeof window !== "undefined") {
   posthog.init("phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP", {
@@ -13,6 +14,11 @@ if (typeof window !== "undefined") {
     capture_pageview: false,
     capture_pageleave: true,
     advanced_disable_feature_flags: true,
+    before_send: (event) => {
+      if (!event || isPrivateSharePath(window.location.pathname) ||
+          isPrivateShareURL(event.properties?.$current_url)) return null;
+      return event;
+    },
   });
 }
 
@@ -21,7 +27,7 @@ function PageviewTracker() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (pathname && posthog) {
+    if (pathname && !isPrivateSharePath(pathname) && posthog) {
       let url = window.origin + pathname;
       const search = searchParams.toString();
       if (search) url += "?" + search;

@@ -4703,6 +4703,32 @@
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
   },
+  "workspaceShare": {
+    "metaTitle": "Shared cmux workspace",
+    "verifiedEmailTitle": "Verify your email to request access",
+    "verifiedEmailDescription": "Complete Stack Auth email verification, then reopen this share link.",
+    "connecting": "Connecting to the shared workspace…",
+    "reconnecting": "Reconnecting to the shared workspace…",
+    "pendingTitle": "Waiting for access",
+    "pendingDescription": "The workspace owner can see your verified email and must allow this session before cmux sends any workspace data.",
+    "deniedTitle": "Access denied",
+    "deniedDescription": "The workspace owner denied this request.",
+    "endedTitle": "Share ended",
+    "endedDescription": "The owner ended this workspace share.",
+    "errorTitle": "Unable to connect",
+    "errorDescription": "This share may have expired. Ask the owner for a new link.",
+    "workspaceWaiting": "Waiting for the workspace snapshot…",
+    "chatTitle": "Workspace chat",
+    "chatPlaceholder": "Message everyone",
+    "send": "Send",
+    "participants": "Workspace participants",
+    "terminalWaiting": "Waiting for terminal data…",
+    "terminalInputLabel": "Shared terminal input",
+    "browserWaiting": "Waiting for the browser preview…",
+    "unsupportedPanel": "This panel does not have a web renderer yet.",
+    "textBoxLabel": "Collaborative TextBox",
+    "privacy": "Private share · authenticated access"
+  },
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",

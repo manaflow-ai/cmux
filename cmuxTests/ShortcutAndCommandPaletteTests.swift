@@ -873,6 +873,22 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
     }
 }
 
+final class CommandPaletteWorkspaceShareCommandTests: XCTestCase {
+    func testWorkspaceShareRemainsVisibleWhileAuthBootstraps() throws {
+        let contribution = try XCTUnwrap(
+            ContentView.commandPaletteWorkspaceShareCommandContributions().first
+        )
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.hasWorkspace, true)
+        context.setBool(CommandPaletteContextKeys.authWorking, true)
+
+        XCTAssertTrue(contribution.when(context))
+
+        context.setBool(CommandPaletteContextKeys.hasWorkspace, false)
+        XCTAssertFalse(contribution.when(context))
+    }
+}
+
 final class CommandPaletteCloudCommandTests: XCTestCase {
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
         let commandIds = Set(ContentView.commandPaletteCloudCommandContributions().map(\.commandId))
@@ -2129,5 +2145,31 @@ private final class UpdateChoiceRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return choices
+    }
+}
+
+final class WorkspaceShareAccessRequestSafetyTests: XCTestCase {
+    func testRejectsMultilineAndBidirectionalDisplayName() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "userId": "user-1",
+            "email": "person@example.com",
+            "displayName": "Trusted Person\nVerified email: attacker@example.com\u{202E}\u{2066}",
+            "color": 1,
+            "requestedAt": 1,
+        ])
+        XCTAssertThrowsError(try JSONDecoder().decode(WorkspaceShareAccessRequest.self, from: data))
+    }
+
+    func testAcceptsSingleLineUnicodeDisplayName() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "userId": "user-1",
+            "email": "person@example.com",
+            "displayName": "山田 太郎",
+            "color": 1,
+            "requestedAt": 1,
+        ])
+        let request = try JSONDecoder().decode(WorkspaceShareAccessRequest.self, from: data)
+        XCTAssertEqual(request.displayName, "山田 太郎")
+        XCTAssertEqual(request.email, "person@example.com")
     }
 }

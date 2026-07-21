@@ -11,6 +11,11 @@ import SwiftUI
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate {
+    enum ContentPolicy: Equatable, Sendable {
+        case flexible
+        case fixed
+    }
+
     let workspaceId: UUID
     let bonsplitController: BonsplitController
 
@@ -19,6 +24,7 @@ final class DockSplitStore: BonsplitDelegate {
     /// the global `~/.config/cmux/dock.json`, owner id == window id). Drives
     /// config resolution and how cross-container moves resolve a reference window.
     let scope: DockScope
+    let contentPolicy: ContentPolicy
 
     private(set) var sourceLabel: String = ""
     private(set) var errorMessage: String?
@@ -33,6 +39,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    private let loadsConfiguration: Bool
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
@@ -74,16 +81,28 @@ final class DockSplitStore: BonsplitDelegate {
     init(
         workspaceId: UUID,
         scope: DockScope = .workspace,
+        loadsConfiguration: Bool = true,
+        contentPolicy: ContentPolicy = .flexible,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
+        self.contentPolicy = contentPolicy
+        self.loadsConfiguration = loadsConfiguration
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
-        self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
+        var configuration = Self.makeConfiguration()
+        if contentPolicy == .fixed {
+            configuration.allowSplits = false
+            configuration.allowCloseTabs = false
+            configuration.allowTabReordering = false
+            configuration.allowCrossPaneTabMove = false
+            configuration.allowsTabContextMenu = false
+        }
+        self.bonsplitController = BonsplitController(configuration: configuration)
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
@@ -97,7 +116,7 @@ final class DockSplitStore: BonsplitDelegate {
         // drag that started in a different controller is "external" to this one,
         // so Bonsplit routes it here; the live panel is moved (not copied).
         self.bonsplitController.onExternalTabDrop = { [weak self] request in
-            guard let self else { return false }
+            guard let self, self.contentPolicy == .flexible else { return false }
             return AppDelegate.shared?.moveSurfaceIntoDock(
                 sourceTabId: request.tabId.uuid,
                 destinationDock: self,
@@ -108,7 +127,8 @@ final class DockSplitStore: BonsplitDelegate {
         // workspaces + New Workspace), so a Dock tab can leave the Dock via its
         // context menu, not only by dragging.
         self.bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
-            self?.dockTabMoveDestinations(for: tabId) ?? []
+            guard let self, self.contentPolicy == .flexible else { return [] }
+            return self.dockTabMoveDestinations(for: tabId)
         }
         // Drop the controller's default welcome tab so the root pane starts
         // empty and renders the in-app create affordance until config seeds it.
@@ -117,6 +137,9 @@ final class DockSplitStore: BonsplitDelegate {
         }
         focusHistoryNavigation.attach(host: self)
         Self.liveStoresTable.add(self)
+        if !loadsConfiguration {
+            hasLoadedConfiguration = true
+        }
     }
 
     // MARK: - Lookups
@@ -180,7 +203,7 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     private func reloadIfBaseDirectoryChanged() {
-        guard hasLoadedConfiguration else { return }
+        guard loadsConfiguration, hasLoadedConfiguration else { return }
         let rootDirectory = currentBaseDirectory()
         if configurationLoadTask != nil, rootDirectory != configurationLoadRootDirectory { reload(); return }
         guard configurationLoadTask == nil else { return }
@@ -224,9 +247,16 @@ final class DockSplitStore: BonsplitDelegate {
         removeAllPanels()
     }
 
+    func resetForSessionRestore() {
+        removeAllPanels()
+        hasLoadedConfiguration = true
+        hasAppliedConfigurationSeed = true
+    }
+
     func ensureLoaded() {
         guard !hasLoadedConfiguration else { return }
         hasLoadedConfiguration = true
+        guard loadsConfiguration else { return }
         startConfigurationLoad(replacingPanels: false)
     }
 
@@ -254,10 +284,13 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> UUID? {
+        guard contentPolicy == .flexible else { return nil }
         ensureLoaded()
         guard let panel = makePanel(
             kind: kind,
@@ -267,6 +300,8 @@ final class DockSplitStore: BonsplitDelegate {
             environment: environment,
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
             tmuxStartCommand: tmuxStartCommand,
+            noteFilePath: noteFilePath,
+            noteTitle: noteTitle,
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else { return nil }
@@ -274,6 +309,42 @@ final class DockSplitStore: BonsplitDelegate {
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
             return nil
         }
+        recordExplicitPanelCreation()
+        if focus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(tabId)
+            panel.focus()
+        } else {
+            restoreDockPaneSelection(previousFocus)
+        }
+        return panel.id
+    }
+
+    /// Installs one caller-owned, runtime-only panel without routing through the
+    /// terminal/browser/note factory. Fixed stores use this once to seed their
+    /// sole panel while keeping every user-driven content mutation disabled.
+    @discardableResult
+    func installRuntimePanel(
+        _ panel: any Panel,
+        surfaceKind: String,
+        focus: Bool
+    ) -> UUID? {
+        let normalizedSurfaceKind = surfaceKind.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSurfaceKind.isEmpty,
+              panels[panel.id] == nil,
+              contentPolicy != .fixed || panels.isEmpty else { return nil }
+        ensureLoaded()
+        guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        let previousFocus = focus ? nil : focusedDockPaneSelection()
+        guard let tabId = attachPanelAsTab(
+            panel,
+            surfaceKind: normalizedSurfaceKind,
+            title: panel.displayTitle,
+            inPane: paneId,
+            tracksTerminalTitle: true
+        ) else { return nil }
         recordExplicitPanelCreation()
         if focus {
             bonsplitController.focusPane(paneId)
@@ -299,9 +370,13 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
+        preferredProfileID: UUID? = nil,
         initialDividerPosition: CGFloat? = nil,
         focus: Bool = true
     ) -> UUID? {
+        guard contentPolicy == .flexible else { return nil }
         ensureLoaded()
         guard let panel = makePanel(
             kind: kind,
@@ -309,7 +384,10 @@ final class DockSplitStore: BonsplitDelegate {
             url: url,
             environment: environment,
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            noteFilePath: noteFilePath,
+            noteTitle: noteTitle,
+            preferredProfileID: preferredProfileID
         ) else { return nil }
 
         guard let source = resolveSourcePanelId(sourcePanelId), let sourcePaneId = paneId(forPanelId: source) else {
@@ -420,6 +498,10 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
 #if DEBUG
+    var hasPendingConfigurationWorkForTesting: Bool {
+        configurationLoadTask != nil || configurationIdentityTask != nil
+    }
+
     func markConfigurationLoadInFlightForTesting(rootDirectory: String?) -> Int {
         hasLoadedConfiguration = true; configurationLoadGeneration += 1
         configurationLoadRootDirectory = rootDirectory; configurationLoadTask = Task {}
@@ -437,6 +519,8 @@ final class DockSplitStore: BonsplitDelegate {
         environment: [String: String],
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> (any Panel)? {
@@ -462,6 +546,15 @@ final class DockSplitStore: BonsplitDelegate {
                 preferredProfileID: preferredProfileID,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
             )
+        case .note:
+            guard let noteFilePath else { return nil }
+            return FilePreviewPanel(
+                workspaceId: workspaceId,
+                filePath: noteFilePath,
+                presentation: .note(
+                    title: noteTitle ?? String(localized: "floatingDock.note.title", defaultValue: "Notes")
+                )
+            )
         }
     }
 
@@ -480,6 +573,8 @@ final class DockSplitStore: BonsplitDelegate {
         case .browser:
             guard browserAvailabilityProvider() else { return nil }
             return makeBrowserPanel(url: def.url.flatMap { URL(string: $0) })
+        case .note:
+            return nil
         }
     }
 
@@ -520,6 +615,7 @@ final class DockSplitStore: BonsplitDelegate {
         switch kind {
         case .terminal: return "terminal"
         case .browser: return "browser"
+        case .note: return "filepreview"
         }
     }
 
@@ -531,11 +627,28 @@ final class DockSplitStore: BonsplitDelegate {
         inPane paneId: PaneID?,
         tracksTerminalTitle: Bool
     ) -> TabID? {
+        attachPanelAsTab(
+            panel,
+            surfaceKind: tabKindRaw(kind),
+            title: title,
+            inPane: paneId,
+            tracksTerminalTitle: tracksTerminalTitle
+        )
+    }
+
+    @discardableResult
+    private func attachPanelAsTab(
+        _ panel: any Panel,
+        surfaceKind: String,
+        title: String,
+        inPane paneId: PaneID?,
+        tracksTerminalTitle: Bool
+    ) -> TabID? {
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
             title: title,
             icon: panel.displayIcon,
-            kind: tabKindRaw(kind),
+            kind: surfaceKind,
             isDirty: panel.isDirty,
             isPinned: false,
             inPane: paneId

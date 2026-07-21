@@ -18,6 +18,7 @@ struct PanelContentView: View {
     let isSplit: Bool
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
+    var usesTransparentContainer = false
     let customSidebarTabManager: TabManager?
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
@@ -72,6 +73,7 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     paneOwnershipOverride: paneOwnershipOverride,
+                    usesTransparentContainer: usesTransparentContainer,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                 // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
@@ -161,6 +163,14 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .workspaceShareChat:
+            if let workspaceShareChatPanel = panel as? WorkspaceShareChatPanel {
+                WorkspaceShareChatPanelView(
+                    panel: workspaceShareChatPanel,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .cloudVMLoading:
             if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
@@ -185,7 +195,7 @@ struct PanelContentView: View {
         switch panel.panelType {
         case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
             return true
-        case .terminal, .browser:
+        case .terminal, .browser, .workspaceShareChat:
             return false
         }
     }

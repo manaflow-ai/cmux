@@ -17,6 +17,7 @@ export type AuthedUser = {
   id: string;
   displayName: string | null;
   primaryEmail: string | null;
+  primaryEmailVerified?: boolean;
   billingCustomerType: "team" | "user";
   billingTeamId: string;
   selectedTeamId: string | null;
@@ -112,6 +113,7 @@ async function authedUserFromStackUser(
     id: user.id,
     displayName: user.displayName,
     primaryEmail: user.primaryEmail,
+    primaryEmailVerified: user.primaryEmailVerified === true,
     billingCustomerType: billingTeam ? "team" : "user",
     billingTeamId: billingTeam?.id ?? user.id,
     selectedTeamId: selectedTeam?.id ?? null,
@@ -153,6 +155,7 @@ type StackUserLike = {
   readonly id: string;
   readonly displayName: string | null;
   readonly primaryEmail: string | null;
+  readonly primaryEmailVerified?: boolean;
   readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: unknown;
   readonly listTeams?: () => Promise<readonly unknown[]>;

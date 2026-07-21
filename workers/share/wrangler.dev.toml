@@ -1,0 +1,23 @@
+name = "cmux-share-dev"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+[vars]
+SHARE_WEB_ORIGIN = "http://localhost:3000"
+SHARE_ALLOWED_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+
+[[durable_objects.bindings]]
+name = "SHARE_ROOM"
+class_name = "ShareRoom"
+
+[[durable_objects.bindings]]
+name = "SHARE_OWNER_INDEX"
+class_name = "ShareOwnerIndex"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ShareRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["ShareOwnerIndex"]

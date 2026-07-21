@@ -375,7 +375,7 @@ extension MobileHostAuthorizationTests {
             "move_up", "move-down", "move_top",
             "close_others", "close_above", "close_below",
             "set_color", "clear_color", "set_description", "clear_description",
-            "clear_name", "close", "self_destruct", "",
+            "clear_name", "share", "close", "self_destruct", "",
         ] {
             #expect(
                 !TerminalController.mobileAllowsWorkspaceAction(action),

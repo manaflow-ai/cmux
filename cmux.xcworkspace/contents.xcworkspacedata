@@ -198,6 +198,9 @@
       <FileRef
          location = "group:CmuxWorkspaces">
       </FileRef>
+      <FileRef
+         location = "group:CmuxWorkspaceShare">
+      </FileRef>
    </Group>
    <Group
       location = "container:Examples"

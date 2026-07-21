@@ -4392,7 +4392,8 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color"
+            "set_color", "clear_color",
+            "share"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4552,6 +4553,14 @@ class TerminalController {
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)
                 finish(["color": NSNull()])
+
+            case "share":
+                guard let coordinator = AppDelegate.shared?.workspaceShareCoordinator else {
+                    result = .err(code: "unavailable", message: "Workspace sharing is unavailable", data: nil)
+                    return
+                }
+                coordinator.share(workspaceID: workspace.id, tabManager: tabManager)
+                finish(["requested": true])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -5299,7 +5308,7 @@ class TerminalController {
             // routed TabManager otherwise — mirroring the coordinator
             // witnesses' post-#7144 shape.
             let resolvedWindowID: UUID?
-            if let dock = self.windowDockForRouting(routing, tabManager: tabManager) {
+            if let dock = self.containerDockForSurfaceRouting(routing, tabManager: tabManager) {
                 let target = self.terminalPanel(
                     in: dock,
                     explicitSurfaceID: explicitSurfaceID,
