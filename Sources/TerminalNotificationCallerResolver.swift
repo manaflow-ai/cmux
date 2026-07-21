@@ -1,42 +1,5 @@
 import Foundation
 
-struct TerminalCallerTTYBinding: Equatable, Hashable, Sendable {
-    let workspaceId: UUID
-    let surfaceId: UUID
-}
-
-struct TerminalCallerTTYCandidate: Equatable, Sendable {
-    let binding: TerminalCallerTTYBinding
-    let ttyName: String
-}
-
-nonisolated func normalizedTerminalCallerTTYName(_ raw: String?) -> String? {
-    guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !trimmed.isEmpty,
-          trimmed != "not a tty" else {
-        return nil
-    }
-    return trimmed.split(separator: "/").last.map(String.init) ?? trimmed
-}
-
-/// Returns a caller only when every matching live TTY candidate names the same
-/// surface. Reused or duplicated TTY claims fail closed instead of following
-/// the focused workspace.
-nonisolated func uniqueTerminalCallerTTYBinding(
-    callerTTY: String,
-    candidates: [TerminalCallerTTYCandidate]
-) -> TerminalCallerTTYBinding? {
-    guard let normalizedCallerTTY = normalizedTerminalCallerTTYName(callerTTY) else { return nil }
-    let matches = candidates.filter {
-        normalizedTerminalCallerTTYName($0.ttyName) == normalizedCallerTTY
-    }
-    guard let first = matches.first,
-          matches.allSatisfy({ $0.binding == first.binding }) else {
-        return nil
-    }
-    return first.binding
-}
-
 @MainActor
 private struct TerminalCallerTarget {
     let workspace: Workspace
@@ -242,38 +205,44 @@ extension TerminalController {
         return nil
     }
 
-    /// Resolve local callers from Ghostty's current runtime PTYs, not the
-    /// persisted/report-driven `surfaceTTYNames` cache. A restored surface can
-    /// retain a stale cached name even after its native PTY changes.
+    /// Resolve local callers from Ghostty's current runtime PTYs first. Shell-
+    /// reported TTYs are a unique-only fallback for nested multiplexers such as
+    /// tmux, where the pane TTY necessarily differs from Ghostty's outer PTY.
     private static func liveTargetForTTY(
         _ ttyName: String,
         tabManagers: [TabManager]
     ) -> TerminalCallerTarget? {
-        var candidates: [TerminalCallerTTYCandidate] = []
+        var liveCandidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
+        var reportedCandidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
         var targets: [TerminalCallerTTYBinding: TerminalCallerTarget] = [:]
         for manager in tabManagers {
             for workspace in manager.tabs {
+                guard !workspace.isRemoteWorkspace, !workspace.isRemoteTmuxMirror else { continue }
                 for (surfaceId, panel) in workspace.panels {
                     guard let terminalPanel = panel as? TerminalPanel,
-                          let liveTTYName = terminalPanel.surface.controllingTTYName() else {
-                        continue
-                    }
+                          !workspace.isRemoteTerminalSurface(surfaceId) else { continue }
                     let binding = TerminalCallerTTYBinding(
                         workspaceId: workspace.id,
                         surfaceId: surfaceId
                     )
-                    candidates.append(TerminalCallerTTYCandidate(binding: binding, ttyName: liveTTYName))
                     targets[binding] = TerminalCallerTarget(
                         workspace: workspace,
                         surfaceId: surfaceId
                     )
+                    if let liveTTYName = terminalPanel.surface.controllingTTYName() {
+                        liveCandidates.append((binding: binding, ttyName: liveTTYName))
+                    }
+                    if let reportedTTYName = workspace.surfaceTTYNames[surfaceId] {
+                        reportedCandidates.append((binding: binding, ttyName: reportedTTYName))
+                    }
                 }
             }
         }
-        guard let binding = uniqueTerminalCallerTTYBinding(
-            callerTTY: ttyName,
-            candidates: candidates
-        ) else {
+        let resolver = TerminalCallerTTYResolver(
+            liveCandidates: liveCandidates,
+            reportedCandidates: reportedCandidates
+        )
+        guard let binding = resolver.binding(for: ttyName) else {
             return nil
         }
         return targets[binding]
@@ -308,7 +277,7 @@ extension TerminalController {
     }
 
     private static func normalizedTTYName(_ raw: String?) -> String? {
-        normalizedTerminalCallerTTYName(raw)
+        TerminalCallerTTYResolver.normalizedName(raw)
     }
 
     private func runOnMain(_ body: @escaping () -> Void) {
