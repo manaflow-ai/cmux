@@ -3,6 +3,75 @@ import Foundation
 import WebKit
 
 extension TerminalController {
+    nonisolated func v2AwaitBrowserAutomationNavigation(
+        _ ticket: BrowserAutomationNavigationTicket,
+        targetURL: URL,
+        browserPanel: BrowserPanel
+    ) -> BrowserAutomationNavigationOutcome? {
+        var navigationTask: Task<Void, Never>?
+        let outcome: BrowserAutomationNavigationOutcome? = socketAwaitCallback(timeout: 17.5) { finish in
+            navigationTask = Task { @MainActor in
+                finish(await browserPanel.finishAutomationNavigation(ticket, retrying: targetURL))
+            }
+        }
+        if outcome == nil {
+            navigationTask?.cancel()
+            v2MainSync {
+                browserPanel.automationNavigationCoordinator.cancel(ticket)
+            }
+        }
+        return outcome
+    }
+
+    nonisolated func v2BrowserNavigationFailureResult(
+        _ outcome: BrowserAutomationNavigationOutcome?,
+        targetURL: URL
+    ) -> V2CallResult? {
+        let data: [String: Any] = ["url": targetURL.absoluteString]
+        switch outcome {
+        case .committed:
+            return nil
+        case .failed(let message):
+            return .err(code: "navigation_failed", message: message, data: data)
+        case .cancelled:
+            return .err(
+                code: "navigation_cancelled",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: data
+            )
+        case .superseded:
+            return .err(
+                code: "stale_state",
+                message: String(
+                    localized: "browser.automation.error.superseded",
+                    defaultValue: "The browser surface was already recovered. Retry the command."
+                ),
+                data: data
+            )
+        case .notStarted:
+            return .err(
+                code: "navigation_failed",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: data
+            )
+        case .timedOut, nil:
+            return .err(
+                code: "navigation_timeout",
+                message: String(
+                    localized: "browser.automation.error.documentReadinessTimedOut",
+                    defaultValue: "Timed out waiting for the browser document to become ready"
+                ),
+                data: data
+            )
+        }
+    }
+
     nonisolated func v2CaptureBrowserAutomationSnapshot(
         _ browserPanel: BrowserPanel,
         timeout: TimeInterval

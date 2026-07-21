@@ -2804,6 +2804,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
     let automationWatchdog = BrowserAutomationWatchdog()
     let automationDocumentReadiness = BrowserAutomationDocumentReadiness()
+    let automationNavigationCoordinator = BrowserAutomationNavigationCoordinator()
     var activeVisualAutomationCaptureCount: Int = 0
     private struct PendingInteractiveBrowserPrompt {
         let present: (NSWindow, @escaping () -> Void) -> Void
@@ -3725,6 +3726,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
         automationDocumentReadiness.bind(to: webViewInstanceID, hasCommittedDocument: webView.backForwardList.currentItem != nil)
+        automationNavigationCoordinator.bind(to: webViewInstanceID)
         webView.cmuxDownloadDelegate = downloadDelegate
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
@@ -3780,6 +3782,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
                 self.isMainFrameProvisionalNavigationActive = false
                 self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
+                self.automationNavigationCoordinator.didCommit(
+                    instanceID: boundWebViewInstanceID,
+                    navigationID: navigation.map { ObjectIdentifier($0) }
+                )
                 // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
@@ -3813,9 +3819,14 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
         }
-        navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failedNavigation in
+        navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failureMessage, failedNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
+                self.automationNavigationCoordinator.didFail(
+                    instanceID: boundWebViewInstanceID,
+                    navigationID: failedNavigation.map { ObjectIdentifier($0) },
+                    message: failureMessage
+                )
                 self.isMainFrameProvisionalNavigationActive = false
                 if let url = URL(string: failedURL) {
                     self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
@@ -3845,6 +3856,10 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCancel(cancelledNavigation)
+                self.automationNavigationCoordinator.didCancel(
+                    instanceID: boundWebViewInstanceID,
+                    navigationID: cancelledNavigation.map { ObjectIdentifier($0) }
+                )
                 let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
                 self.isMainFrameProvisionalNavigationActive = false
                 if isRestoreBookkeepingNavigation {
@@ -5352,6 +5367,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func close() {
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        automationNavigationCoordinator.invalidate()
         automationDocumentReadiness.invalidate()
         automationWatchdog.invalidate()
         refreshWebViewLifecycleState()
@@ -5739,35 +5755,38 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Navigation
 
     /// Navigate to a URL
-    func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+    @discardableResult
+    func navigate(to url: URL, recordTypedNavigation: Bool = false) -> WKNavigation? {
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
-            return
+            return nil
         }
-        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+        return navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
     }
 
+    @discardableResult
     func navigateWithoutInsecureHTTPPrompt(
         to url: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false,
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
-    ) {
+    ) -> WKNavigation? {
         let request = URLRequest(url: url, cachePolicy: cachePolicy)
-        navigateWithoutInsecureHTTPPrompt(
+        return navigateWithoutInsecureHTTPPrompt(
             request: request,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory
         )
     }
 
+    @discardableResult
     private func navigateWithoutInsecureHTTPPrompt(
         request: URLRequest,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false
-    ) {
-        guard let url = request.url else { return }
+    ) -> WKNavigation? {
+        guard let url = request.url else { return nil }
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation = PendingRemoteNavigation(
@@ -5780,9 +5799,9 @@ final class BrowserPanel: Panel, ObservableObject {
             navigationDelegate?.recordAttemptedRequest(request)
             refreshBackgroundAppearance()
             shouldRenderWebView = true
-            return
+            return nil
         }
-        performNavigation(
+        return performNavigation(
             request: request,
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
@@ -5811,12 +5830,13 @@ final class BrowserPanel: Panel, ObservableObject {
         pendingRemoteNavigation = nil
     }
 
+    @discardableResult
     private func performNavigation(
         request: URLRequest,
         originalURL: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool
-    ) {
+    ) -> WKNavigation? {
         cancelHiddenWebViewDiscard()
         clearWebContentTerminationRecovery()
         if !preserveRestoredSessionHistory {
@@ -5844,6 +5864,7 @@ final class BrowserPanel: Panel, ObservableObject {
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
             pendingDiscardRestoreNavigation = startedNavigation
         }
+        return startedNavigation
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
@@ -5897,18 +5918,28 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Navigate with smart URL/search detection
     /// - If input looks like a URL, navigate to it
     /// - Otherwise, perform a web search
-    func navigateSmart(_ input: String) {
+    @discardableResult
+    func navigateSmart(_ input: String) -> WKNavigation? {
+        guard let navigation = resolveSmartNavigation(from: input) else { return nil }
+        return navigate(
+            to: navigation.url,
+            recordTypedNavigation: navigation.recordTypedNavigation
+        )
+    }
+
+    func resolveSmartNavigation(
+        from input: String
+    ) -> (url: URL, recordTypedNavigation: Bool)? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return nil }
 
         if let url = resolveNavigableURL(from: trimmed) {
-            navigate(to: url, recordTypedNavigation: true)
-            return
+            return (url, true)
         }
 
         let searchConfiguration = BrowserSearchSettingsStore().currentConfiguration
-        guard let searchURL = searchConfiguration.searchURL(query: trimmed) else { return }
-        navigate(to: searchURL)
+        guard let searchURL = searchConfiguration.searchURL(query: trimmed) else { return nil }
+        return (searchURL, false)
     }
 
     func resolveNavigableURL(from input: String) -> URL? {
@@ -6439,6 +6470,15 @@ extension BrowserPanel {
 
     var bypassesRemoteWorkspaceProxyForTabDuplication: Bool {
         bypassesRemoteWorkspaceProxy
+    }
+
+    func automationReloadTargetURL() -> URL? {
+        restorableDisplayURLForCurrentErrorPage(liveURL: webView.url)
+            ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
+            ?? navigationDelegate?.lastAttemptedURL
+            ?? resolvedCurrentSessionHistoryURL()
+            ?? currentURL
+            ?? URL(string: "about:blank")
     }
 
     private func prepareForReload(reason: String, mode: BrowserPanelReloadMode) -> Bool {

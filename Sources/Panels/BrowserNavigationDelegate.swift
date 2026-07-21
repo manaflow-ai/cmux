@@ -9,7 +9,7 @@ import WebKit
     var didStartProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
     var didCommit: ((WKWebView, WKNavigation?) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
-    var didFailNavigation: ((WKWebView, String, WKNavigation?) -> Void)?
+    var didFailNavigation: ((WKWebView, String, String, WKNavigation?) -> Void)?
     var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
     var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
@@ -116,7 +116,7 @@ import WebKit
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
-        didFailNavigation?(webView, failedURL, navigation)
+        didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -140,7 +140,7 @@ import WebKit
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
-        didFailNavigation?(webView, failedURL, navigation)
+        didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
         loadErrorPage(
             in: webView,
             failedURL: failedURL,

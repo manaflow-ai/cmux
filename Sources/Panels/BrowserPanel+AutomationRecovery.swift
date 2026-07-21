@@ -3,6 +3,57 @@ import CmuxBrowser
 import WebKit
 
 extension BrowserPanel {
+    func beginAutomationNavigation(
+        to targetURL: URL,
+        recordTypedNavigation: Bool
+    ) -> BrowserAutomationNavigationTicket {
+        let ticket = automationNavigationCoordinator.begin(instanceID: webViewInstanceID)
+        let navigation = navigate(to: targetURL, recordTypedNavigation: recordTypedNavigation)
+        automationNavigationCoordinator.didStart(
+            ticket,
+            navigationID: navigation.map { ObjectIdentifier($0) }
+        )
+        return ticket
+    }
+
+    func beginAutomationReloadFromCLI() -> (
+        ticket: BrowserAutomationNavigationTicket,
+        targetURL: URL
+    )? {
+        guard let targetURL = automationReloadTargetURL() else { return nil }
+        return (beginAutomationNavigation(to: targetURL, recordTypedNavigation: false), targetURL)
+    }
+
+    func finishAutomationNavigation(
+        _ ticket: BrowserAutomationNavigationTicket,
+        retrying targetURL: URL
+    ) async -> BrowserAutomationNavigationOutcome {
+        let firstOutcome = await automationNavigationCoordinator.wait(for: ticket)
+        guard firstOutcome == .timedOut else { return firstOutcome }
+        guard replaceWebViewAfterAutomationNavigationTimeout(
+            expectedInstanceID: ticket.instanceID
+        ) else {
+            return .superseded
+        }
+
+        let retryTicket = beginAutomationNavigation(to: targetURL, recordTypedNavigation: false)
+        return await automationNavigationCoordinator.wait(for: retryTicket)
+    }
+
+    @discardableResult
+    private func replaceWebViewAfterAutomationNavigationTimeout(
+        expectedInstanceID: UUID
+    ) -> Bool {
+        guard webViewInstanceID == expectedInstanceID, canRecoverFromAutomationTimeout else { return false }
+        replaceWebViewPreservingState(
+            from: webView,
+            websiteDataStore: websiteDataStore,
+            reason: "automation_navigation_unresponsive",
+            waitForManualRecovery: true
+        )
+        return true
+    }
+
     func registerBrowserAutomationInitScript(_ userScript: WKUserScript) -> Int {
         browserAutomationUserScripts.append(userScript)
         browserAutomationInitScriptCount += 1
