@@ -4,5 +4,19 @@ enum PairingPresentation: Equatable {
     case manual
 
     /// The QR scanner, with the manual form still available after a scan error.
-    case scanner
+    case scanner(entry: PairingAnalyticsEntry)
+
+    var showsScanner: Bool {
+        if case .scanner = self { return true }
+        return false
+    }
+
+    var analyticsEntry: String {
+        switch self {
+        case .manual:
+            "post_sign_in"
+        case let .scanner(entry):
+            entry.rawValue
+        }
+    }
 }

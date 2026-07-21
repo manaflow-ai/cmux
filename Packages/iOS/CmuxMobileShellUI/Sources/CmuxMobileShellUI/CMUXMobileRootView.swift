@@ -346,7 +346,7 @@ struct CMUXMobileRootView: View {
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
-            onStartFallbackPairing: showPairingScanner,
+            onStartFallbackPairing: showOnboardingPairingScanner,
             onComplete: completeOnboarding
         )
         #else
@@ -367,7 +367,7 @@ struct CMUXMobileRootView: View {
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},
-            onStartFallbackPairing: showPairingScanner,
+            onStartFallbackPairing: showOnboardingPairingScanner,
             onComplete: completeOnboarding
         )
         #else
@@ -469,7 +469,11 @@ struct CMUXMobileRootView: View {
     }
 
     private func showPairingScanner() {
-        presentAddDevice(.scanner)
+        presentAddDevice(.scanner(entry: .settingsReplay))
+    }
+
+    private func showOnboardingPairingScanner() {
+        presentAddDevice(.scanner(entry: .onboardingFallback))
     }
 
     private func presentAddDevice(_ presentation: PairingPresentation) {

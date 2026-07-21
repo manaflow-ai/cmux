@@ -20,5 +20,13 @@ import Testing
 
         #expect(offsets == [0, -400, 0, -400])
     }
+
+    @Test func rightToLeftPagesMoveInTheMirroredDirection() {
+        let pageWidth = 400.0
+
+        #expect(OnboardingStage.agents.pageOffset(pageWidth: pageWidth, isRightToLeft: true) == 0)
+        #expect(OnboardingStage.notifications.pageOffset(pageWidth: pageWidth, isRightToLeft: true) == 400)
+        #expect(OnboardingStage.connect.pageOffset(pageWidth: pageWidth, isRightToLeft: true) == 800)
+    }
 }
 #endif

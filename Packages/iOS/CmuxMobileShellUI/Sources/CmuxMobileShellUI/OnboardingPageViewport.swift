@@ -6,6 +6,7 @@ struct OnboardingPageViewport<PageContent: View>: View {
     @ViewBuilder let pageContent: (OnboardingStage) -> PageContent
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
 
     var body: some View {
         GeometryReader { geometry in
@@ -25,7 +26,10 @@ struct OnboardingPageViewport<PageContent: View>: View {
                 width: geometry.size.width * CGFloat(OnboardingStage.allCases.count),
                 alignment: .leading
             )
-            .offset(x: stage.pageOffset(pageWidth: geometry.size.width))
+            .offset(x: stage.pageOffset(
+                pageWidth: geometry.size.width,
+                isRightToLeft: layoutDirection == .rightToLeft
+            ))
             .animation(reduceMotion ? nil : .smooth(duration: 0.32), value: stage)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -36,8 +40,9 @@ struct OnboardingPageViewport<PageContent: View>: View {
 }
 
 extension OnboardingStage {
-    func pageOffset(pageWidth: CGFloat) -> CGFloat {
-        -CGFloat(rawValue) * pageWidth
+    func pageOffset(pageWidth: CGFloat, isRightToLeft: Bool = false) -> CGFloat {
+        let direction = isRightToLeft ? 1.0 : -1.0
+        return direction * CGFloat(rawValue) * pageWidth
     }
 }
 #endif

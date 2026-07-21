@@ -61,7 +61,7 @@ struct PairingView: View {
         self.connectManualHost = connectManualHost
         self.cancelPairing = cancelPairing
         self.cancel = cancel
-        _isShowingScanner = State(initialValue: initialPresentation == .scanner)
+        _isShowingScanner = State(initialValue: initialPresentation.showsScanner)
     }
 
     var body: some View {
@@ -261,8 +261,10 @@ struct PairingView: View {
             scannerSheet
         }
         .onAppear {
-            let entry = initialPresentation == .scanner ? "onboarding_scanner" : "post_sign_in"
-            analytics.capture("ios_pairing_screen_viewed", ["entry": .string(entry)])
+            analytics.capture(
+                "ios_pairing_screen_viewed",
+                ["entry": .string(initialPresentation.analyticsEntry)]
+            )
         }
         #endif
     }
@@ -296,12 +298,12 @@ struct PairingView: View {
     }
 
     private var scannerCancelAction: (() -> Void)? {
-        guard initialPresentation == .scanner else { return nil }
+        guard initialPresentation.showsScanner else { return nil }
         return { cancelDirectScanner() }
     }
 
     private var scannerManualEntryAction: (() -> Void)? {
-        guard initialPresentation == .scanner else { return nil }
+        guard initialPresentation.showsScanner else { return nil }
         return { isShowingScanner = false }
     }
 
