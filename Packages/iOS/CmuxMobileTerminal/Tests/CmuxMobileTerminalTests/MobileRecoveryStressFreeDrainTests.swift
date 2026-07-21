@@ -49,6 +49,24 @@ struct MobileRecoveryStressFreeDrainTests {
         )
     }
 
+    @Test("forced recovery clears a frozen verified replay presentation")
+    func forcedRecoveryClearsVerifiedReplayPresentation() async throws {
+        let harness = try makeHarness()
+        defer { harness.tearDown() }
+
+        try await waitForMountedSurface(harness.view)
+        let frozenLayer = CALayer()
+        harness.view.layer.addSublayer(frozenLayer)
+        harness.view.verifiedReplayFrozenPresentationLayer = frozenLayer
+        harness.view.verifiedReplayRenderSuppressed = true
+
+        harness.view.forceRecoveryForStress()
+
+        #expect(harness.view.verifiedReplayFrozenPresentationLayer == nil)
+        #expect(!harness.view.verifiedReplayRenderSuppressed)
+        #expect(frozenLayer.superlayer == nil)
+    }
+
     private func makeHarness() throws -> Harness {
         let runtime = try GhosttyRuntime.shared()
         let delegate = Delegate()
