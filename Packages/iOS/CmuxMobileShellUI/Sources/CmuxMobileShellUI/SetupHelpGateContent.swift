@@ -59,7 +59,7 @@ struct SetupHelpGateContent {
                 title: L10n.string("mobile.setupHelp.mismatchTitle", defaultValue: "Match the account"),
                 body: L10n.string(
                     "mobile.setupHelp.mismatchBody",
-                    defaultValue: "The computer rejected this phone's sign-in, so the two are on different cmux accounts or this phone's session is stale. Sign both in to the same account and try again."
+                    defaultValue: "The computer rejected this phone's sign-in, so the two are on different cmux accounts or this phone's session is stale. Sign this phone out and back in with the computer's account, then try again."
                 ),
                 link: nil,
                 identifierSuffix: "accountMismatch",

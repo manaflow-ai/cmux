@@ -2733,7 +2733,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイスが操作するコンピュータを切り替えます。アカウントのコンピュータは、cmuxの実行中に自動的にここに追加されます。別のコンピュータをペアリングしても、今あるコンピュータはそのまま残ります。"
+            "value": "このデバイスが操作するコンピュータを切り替えます。アカウントのコンピュータは、cmuxの実行中に自動的にここに表示されます。別のコンピュータをペアリングしても、今あるコンピュータはそのまま残ります。"
           }
         }
       }
@@ -6015,13 +6015,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The computer rejected this phone's sign-in, so the two are on different cmux accounts or this phone's session is stale. Sign both in to the same account and try again."
+            "value": "The computer rejected this phone's sign-in, so the two are on different cmux accounts or this phone's session is stale. Sign this phone out and back in with the computer's account, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータがこの端末のサインインを拒否しました。両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。両方を同じアカウントでサインインし直して、もう一度お試しください。"
+            "value": "コンピュータがこの端末のサインインを拒否しました。両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。この端末でいったんサインアウトし、コンピュータと同じアカウントでサインインし直してから、もう一度お試しください。"
           }
         }
       }
