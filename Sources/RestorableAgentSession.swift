@@ -1012,15 +1012,25 @@ struct RestorableAgentSessionIndex: Sendable {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }
 
+    /// Fingerprints cache-visible agent identity and liveness, including entries without a live PID.
     func liveAgentProcessFingerprint() -> Set<String> {
-        Set(entriesByPanel.compactMap { key, entry in
+        Set(entriesByPanel.map { key, entry in
             let processIDs = entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
-            guard !processIDs.isEmpty else { return nil }
+            let liveness: String
+            switch entry.processLiveness {
+            case .running:
+                liveness = "running"
+            case .exited:
+                liveness = "exited"
+            case .unknown:
+                liveness = "unknown"
+            }
             return [
                 key.workspaceId.uuidString,
                 key.panelId.uuidString,
                 entry.snapshot.kind.rawValue,
                 entry.snapshot.sessionId,
+                liveness,
                 processIDs.sorted().map(String.init).joined(separator: ",")
             ].joined(separator: "|")
         })
@@ -1101,6 +1111,7 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager
         )
         let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
+        let cachedAgentProcessValidator = CachedAgentProcessIdentityValidator()
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
@@ -1168,20 +1179,31 @@ struct RestorableAgentSessionIndex: Sendable {
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
+                let observedProcessIdentity = effectiveRecord.pid.flatMap(processIdentityProvider)
                 let processObservation = RestorableAgentProcessObservation(
                     recordedProcessID: effectiveRecord.pid
                 ) { pid in
                     scopedProcessMatch(
-                        for: effectiveRecord,
-                        kind: kind,
+                        for: snapshot,
+                        recordUpdatedAt: effectiveRecord.updatedAt,
                         workspaceId: workspaceId,
                         panelId: panelId,
                         processID: pid,
+                        processIdentity: observedProcessIdentity,
                         processArgumentsProvider: processArgumentsProvider,
-                        processPresenceProvider: processPresenceProvider
+                        processPresenceProvider: processPresenceProvider,
+                        validator: cachedAgentProcessValidator
                     )
                 }
                 let liveProcessID = processObservation.processID
+                let liveProcessIdentities: [Int: AgentPIDProcessIdentity]
+                if let liveProcessID,
+                   let observedProcessIdentity,
+                   Int(observedProcessIdentity.pid) == liveProcessID {
+                    liveProcessIdentities = [liveProcessID: observedProcessIdentity]
+                } else {
+                    liveProcessIdentities = [:]
+                }
                 let entry = Entry(
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
@@ -1189,10 +1211,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     processLiveness: processObservation.liveness,
                     processIDs: liveProcessID.map { [$0] } ?? [],
                     agentProcessIDs: liveProcessID.map { [$0] } ?? [],
-                    agentProcessIdentities: agentProcessIdentities(
-                        for: liveProcessID.map { [$0] } ?? [],
-                        processIdentityProvider: processIdentityProvider
-                    )
+                    agentProcessIdentities: liveProcessIdentities
                 )
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesByPanelAndKind[panelKindKey],
@@ -2184,53 +2203,36 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private static func scopedProcessMatch(
-        for record: RestorableAgentHookSessionRecord,
-        kind: RestorableAgentKind,
+        for snapshot: SessionRestorableAgentSnapshot,
+        recordUpdatedAt: TimeInterval,
         workspaceId: UUID,
         panelId: UUID,
         processID: Int,
+        processIdentity: AgentPIDProcessIdentity?,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
-        processPresenceProvider: (Int) -> PIDPresence
+        processPresenceProvider: (Int) -> PIDPresence,
+        validator: CachedAgentProcessIdentityValidator
     ) -> RestorableAgentProcessMatch {
         guard let process = processArgumentsProvider(processID) else {
             // A present process may be temporarily uninspectable. Only ESRCH-grade
             // absence proves that the recorded generation exited.
             return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
         }
+        guard let processIdentity,
+              Int(processIdentity.pid) == processID else {
+            return .unknown
+        }
+        // A process that emitted this hook record necessarily started first. A later
+        // process start is deterministic evidence that the saved PID was reused.
+        let processStartedAt = TimeInterval(processIdentity.startSeconds) +
+            TimeInterval(processIdentity.startMicroseconds) / 1_000_000
+        guard recordUpdatedAt >= processStartedAt else {
+            return .mismatches
+        }
         guard process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
             return .mismatches
         }
-
-        if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
-           liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
-            return .mismatches
-        }
-
-        guard let recordedExecutable = recordedExecutableBasename(record),
-              let liveExecutable = process.arguments.first.map(executableBasename) else {
-            return .matches
-        }
-        return liveProcessExecutableMatchesRecordedAgent(
-            kind: kind,
-            liveExecutable: liveExecutable,
-            recordedExecutable: recordedExecutable,
-            arguments: process.arguments,
-            environment: process.environment
-        ) ? .matches : .mismatches
-    }
-
-    private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
-        let executable = normalizedProcessValue(record.launchCommand?.executablePath)
-            ?? normalizedProcessValue(record.launchCommand?.arguments.first)
-        return executable.map(executableBasename)
-    }
-
-    private static func executableBasename(_ value: String) -> String {
-        (value as NSString).lastPathComponent
-    }
-
-    private static func normalizedProcessValue(_ value: String?) -> String? {
-        normalizedNonEmptyValue(value)
+        return validator.currentProcess(process, matches: snapshot) ? .matches : .mismatches
     }
 
     private static func normalizedNonEmptyValue(_ value: String?) -> String? {
