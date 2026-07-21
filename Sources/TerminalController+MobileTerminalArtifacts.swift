@@ -100,18 +100,33 @@ extension TerminalController {
             return resolution.failureResult
         }
         do {
-            let stat = try await Task.detached(priority: .utility) {
-                try context.authorizedStat { reader, canonicalPath in
-                    try reader.stat(path: canonicalPath)
+            let outcome = try await Task.detached(priority: .utility) {
+                do {
+                    return TerminalArtifactStatOutcome.success(
+                        try context.authorizedStat { reader, canonicalPath in
+                            try reader.stat(path: canonicalPath)
+                        }
+                    )
+                } catch TerminalArtifactReadContext.Error.forbidden {
+                    #if DEBUG
+                    return TerminalArtifactStatOutcome.forbidden(
+                        diagnostics: context.authorizationDiagnostics()
+                    )
+                    #else
+                    return TerminalArtifactStatOutcome.forbidden(diagnostics: "")
+                    #endif
                 }
             }.value
-            return TerminalArtifactWire.result(stat)
-        } catch TerminalArtifactReadContext.Error.forbidden {
-            debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
-            #if DEBUG
-            cmuxDebugLog("mobile.terminal.artifact.stat.deny \(context.authorizationDiagnostics())")
-            #endif
-            return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
+            switch outcome {
+            case .success(let stat):
+                return TerminalArtifactWire.result(stat)
+            case .forbidden(let diagnostics):
+                debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
+                #if DEBUG
+                cmuxDebugLog("mobile.terminal.artifact.stat.deny \(diagnostics)")
+                #endif
+                return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
+            }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
         } catch ArtifactByteReader.Error.unsupportedMedia {
@@ -348,6 +363,11 @@ extension TerminalController {
             )
         }
     }
+}
+
+private enum TerminalArtifactStatOutcome: Sendable {
+    case success(ChatArtifactStat)
+    case forbidden(diagnostics: String)
 }
 
 private enum TerminalArtifactContextResolution {

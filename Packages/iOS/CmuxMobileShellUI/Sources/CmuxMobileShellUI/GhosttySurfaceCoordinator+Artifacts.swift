@@ -316,8 +316,9 @@ extension GhosttySurfaceRepresentable.Coordinator {
                         let currentPath = await revalidatedTapPath(in: surfaceView, col: col, row: row)
                         guard self.surfaceView === surfaceView else { return .ignored }
                         if currentPath == path {
-                            Task { @MainActor [weak self, surfaceID = self.surfaceID, col, row] in
-                                guard let self else { return }
+                            Task { @MainActor [weak self, weak surfaceView, surfaceID = self.surfaceID, col, row] in
+                                guard let self, let surfaceView,
+                                      self.surfaceView === surfaceView else { return }
                                 await self.store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
                             }
                         }

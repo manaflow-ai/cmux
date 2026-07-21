@@ -219,7 +219,8 @@ public struct ArtifactByteReader: Sendable {
 
     /// Opens `path` without blocking and validates the opened descriptor as a regular file.
     func openVerifiedRegularFile(path: String) throws -> (handle: FileHandle, size: Int64) {
-        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK)
+        // Set close-on-exec atomically at open; fcntl afterward cannot close the fork race.
+        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { throw Error.fileNotFound }
 
         var metadata = Darwin.stat()
