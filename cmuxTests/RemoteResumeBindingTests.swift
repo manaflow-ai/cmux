@@ -351,8 +351,12 @@ struct RemoteResumeBindingTests {
         )
         #expect(!hook.timedOut, Comment(rawValue: hook.stderr))
         #expect(hook.status == 0, Comment(rawValue: hook.stderr))
-        let resumeRequests = try hook.commands.compactMap { line -> [String: Any]? in
-            let request = try jsonRequest(Data(line.utf8))
+        let resumeRequests = hook.commands.compactMap { line -> [String: Any]? in
+            guard let data = line.data(using: .utf8),
+                  let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                return nil
+            }
             return request["method"] as? String == "surface.resume.set" ? request : nil
         }
         #expect(resumeRequests.count == 1, "\(hook.commands)")
@@ -588,9 +592,9 @@ struct RemoteResumeBindingTests {
         #expect(startupCommand.contains("ssh-pty-attach"), "\(startupCommand)")
         #expect(startupCommand.contains("--require-existing"), "\(startupCommand)")
         #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
-        let remoteCommand = try decodedRemoteCommand(from: startupCommand)
-        #expect(!remoteCommand.contains("session-remote-7989"), "\(remoteCommand)")
-        #expect(!remoteCommand.contains("REMOTE_FLAG"), "\(remoteCommand)")
+        #expect(!startupCommand.contains("--command-b64"), "\(startupCommand)")
+        #expect(!startupCommand.contains("session-remote-7989"), "\(startupCommand)")
+        #expect(!startupCommand.contains("REMOTE_FLAG"), "\(startupCommand)")
     }
 
     @Test
