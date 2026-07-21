@@ -50,6 +50,16 @@ public actor GitHubPullRequestRequestCoordinator {
     private var rateLimitRetryDateByAuthorizationFingerprint: [Data: Date] = [:]
     private var rateLimitAuthorizationFingerprintsInInsertionOrder: [Data] = []
 
+    /// Creates a coordinator with the default shared-transport configuration.
+    ///
+    /// Exposed so callers in other modules can supply their own instance to
+    /// `PullRequestProbeService(requestCoordinator:)`. The session and cache
+    /// tuning knobs stay internal (tests reach that initializer through
+    /// `@testable import`), keeping the public surface to a plain default.
+    public convenience init() {
+        self.init(session: nil)
+    }
+
     init(
         session: URLSession? = nil,
         maximumCachedResponseCount: Int = 128,
