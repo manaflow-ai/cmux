@@ -293,10 +293,11 @@ struct TaskComposerDirectoryPickerView: View {
                     )
                 }
             }
-            .padding(.vertical, 2)
         }
         .contentMargins(.horizontal, 16, for: .scrollContent)
+        .contentMargins(.vertical, 8, for: .scrollContent)
         .padding(.horizontal, -16)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     private var currentLocationCard: some View {
