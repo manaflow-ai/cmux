@@ -33,11 +33,11 @@ struct AgentArtifactCaptureCoordinatorTests {
             pid: nil
         )
         let older = snapshot(
-            generation: "older",
+            revision: 1,
             path: projectRoot.appendingPathComponent("older.md").path
         )
         let newer = snapshot(
-            generation: "newer",
+            revision: 2,
             path: projectRoot.appendingPathComponent("newer.md").path
         )
 
@@ -73,11 +73,12 @@ struct AgentArtifactCaptureCoordinatorTests {
         let snapshot = AgentChatArtifactIndex.Snapshot(
             referencedPaths: [],
             artifacts: [],
-            generation: "empty"
+            generation: "empty",
+            revision: 1
         )
 
         service.scheduleIndexedArtifactCapture(record: record, snapshot: snapshot)
-        let task = try #require(service.artifactCaptureTasks[record.sessionID])
+        let task = try #require(service.artifactCaptureTasks[record.sessionID]?.task)
         await task.value
 
         #expect(service.artifactCaptureTasks[record.sessionID] == nil)
@@ -106,11 +107,11 @@ struct AgentArtifactCaptureCoordinatorTests {
             pid: nil
         )
         let older = snapshot(
-            generation: "older",
+            revision: 1,
             path: projectRoot.appendingPathComponent("older.md").path
         )
         let newer = snapshot(
-            generation: "newer",
+            revision: 2,
             path: projectRoot.appendingPathComponent("newer.md").path
         )
 
@@ -129,7 +130,7 @@ struct AgentArtifactCaptureCoordinatorTests {
     }
 
     private func snapshot(
-        generation: String,
+        revision: UInt64,
         path: String
     ) -> AgentChatArtifactIndex.Snapshot {
         let artifact = ChatArtifactIndexedReference(
@@ -140,7 +141,8 @@ struct AgentArtifactCaptureCoordinatorTests {
         return AgentChatArtifactIndex.Snapshot(
             referencedPaths: [path],
             artifacts: [artifact],
-            generation: generation
+            generation: String(revision),
+            revision: revision
         )
     }
 }

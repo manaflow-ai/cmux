@@ -8,9 +8,15 @@ extension AgentChatTranscriptService {
         let resolver = self.resolver
         let artifactIndex = self.artifactIndex
         replaceArtifactCaptureTask(sessionID: record.sessionID) {
-            guard !Task.isCancelled,
-                  let transcriptPath = resolver.transcriptPath(for: record),
-                  !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return }
+            let transcriptPath: String
+            do {
+                guard let resolved = try resolver.transcriptPath(for: record) else { return }
+                transcriptPath = resolved
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             guard let snapshot = try? await artifactIndex.snapshot(
                 sessionID: record.sessionID,
                 agentKind: record.agentKind,
@@ -50,9 +56,23 @@ extension AgentChatTranscriptService {
         sessionID: String,
         operation: @escaping @Sendable () async -> Void
     ) {
-        artifactCaptureTasks.removeValue(forKey: sessionID)?.cancel()
-        artifactCaptureTasks[sessionID] = Task.detached(priority: .utility) {
+        artifactCaptureTasks.removeValue(forKey: sessionID)?.task?.cancel()
+        let token = UUID()
+        artifactCaptureTasks[sessionID] = (token: token, task: nil)
+        let task = Task.detached(priority: .utility) { [weak self] in
             await operation()
+            await self?.finishArtifactCaptureTask(sessionID: sessionID, token: token)
         }
+        if var entry = artifactCaptureTasks[sessionID], entry.token == token {
+            entry.task = task
+            artifactCaptureTasks[sessionID] = entry
+        } else {
+            task.cancel()
+        }
+    }
+
+    private func finishArtifactCaptureTask(sessionID: String, token: UUID) {
+        guard artifactCaptureTasks[sessionID]?.token == token else { return }
+        artifactCaptureTasks.removeValue(forKey: sessionID)
     }
 }

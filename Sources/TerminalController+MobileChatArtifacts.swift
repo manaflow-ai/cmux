@@ -72,10 +72,10 @@ extension TerminalController {
         sessionID: String
     ) async throws -> (sessionID: String, snapshot: AgentChatArtifactIndex.Snapshot)? {
         guard let service = agentChatTranscriptService,
-              let record = service.sessionRecord(sessionID: sessionID),
-              let transcriptPath = service.resolver.transcriptPath(for: record) else {
+              let record = service.sessionRecord(sessionID: sessionID) else {
             return nil
         }
+        guard let transcriptPath = try service.resolver.transcriptPath(for: record) else { return nil }
         let snapshot = try await service.artifactIndex.snapshot(
             sessionID: record.sessionID,
             agentKind: record.agentKind,
@@ -304,7 +304,13 @@ extension TerminalController {
         guard let record = service.sessionRecord(sessionID: sessionID) else {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
-        guard let transcriptPath = service.resolver.transcriptPath(for: record) else {
+        let transcriptPath: String
+        do {
+            guard let resolved = try service.resolver.transcriptPath(for: record) else {
+                return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
+            }
+            transcriptPath = resolved
+        } catch {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
         do {

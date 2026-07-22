@@ -6,8 +6,8 @@ import Foundation
 actor AgentArtifactCaptureCoordinator {
     private let captureService: ArtifactCaptureService
     private let fileManager: FileManager
-    private var completedGenerationBySession: [String: String] = [:]
-    private var inFlightGenerationBySession: [String: String] = [:]
+    private var completedRevisionBySession: [String: UInt64] = [:]
+    private var inFlightRevisionBySession: [String: UInt64] = [:]
 
     init(
         captureService: ArtifactCaptureService,
@@ -25,14 +25,14 @@ actor AgentArtifactCaptureCoordinator {
               !snapshot.artifacts.isEmpty,
               let workingDirectory = record.workingDirectory,
               !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              completedGenerationBySession[record.sessionID] != snapshot.generation,
-              inFlightGenerationBySession[record.sessionID] != snapshot.generation else {
+              completedRevisionBySession[record.sessionID].map({ snapshot.revision > $0 }) ?? true,
+              inFlightRevisionBySession[record.sessionID].map({ snapshot.revision > $0 }) ?? true else {
             return
         }
-        inFlightGenerationBySession[record.sessionID] = snapshot.generation
+        inFlightRevisionBySession[record.sessionID] = snapshot.revision
         defer {
-            if inFlightGenerationBySession[record.sessionID] == snapshot.generation {
-                inFlightGenerationBySession.removeValue(forKey: record.sessionID)
+            if inFlightRevisionBySession[record.sessionID] == snapshot.revision {
+                inFlightRevisionBySession.removeValue(forKey: record.sessionID)
             }
         }
 
@@ -69,10 +69,10 @@ actor AgentArtifactCaptureCoordinator {
             await Task.yield()
         }
         guard !Task.isCancelled,
-              inFlightGenerationBySession[record.sessionID] == snapshot.generation else {
+              inFlightRevisionBySession[record.sessionID] == snapshot.revision else {
             return
         }
-        completedGenerationBySession[record.sessionID] = snapshot.generation
+        completedRevisionBySession[record.sessionID] = snapshot.revision
     }
 
     func save(

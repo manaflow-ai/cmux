@@ -41,6 +41,11 @@ struct ArtifactProvenanceRecorder {
             size: size,
             events: []
         )
+        guard document.digest == digest, document.size == size else {
+            throw ArtifactStoreError.corruptProvenance(
+                metadataURL(paths: paths, digest: digest).path
+            )
+        }
         document.lastKnownRelativePath = relativePath
         document.events.append(event)
         if document.events.count > 100 {

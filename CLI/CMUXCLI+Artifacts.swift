@@ -18,7 +18,7 @@ extension CMUXCLI {
                     throw CLIError(message: artifactUsage(), exitCode: 2)
                 }
                 let snapshot = try await repository.snapshot(projectRoot: projectRoot)
-                let files = artifactFiles(in: snapshot.nodes)
+                let files = snapshot.nodes.flattenedArtifactNodes().filter { !$0.isDirectory }
                 if jsonOutput {
                     print(jsonString([
                         "project_root": projectRoot.path,
@@ -226,12 +226,6 @@ extension CMUXCLI {
             sessionID: codexSession ?? claudeSession ?? environment["CMUX_AGENT_SESSION_ID"],
             agentName: codexSession == nil ? (claudeSession == nil ? environment["CMUX_AGENT_NAME"] : "claude") : "codex"
         )
-    }
-
-    private func artifactFiles(in nodes: [ArtifactNode]) -> [ArtifactNode] {
-        nodes.flatMap { node in
-            node.isDirectory ? artifactFiles(in: node.children) : [node]
-        }
     }
 
     private func artifactPayload(_ node: ArtifactNode) -> [String: Any] {

@@ -15,7 +15,7 @@ final class AgentChatTranscriptService {
     let resolver: AgentChatTranscriptResolver
     let artifactIndex: AgentChatArtifactIndex
     let artifactCaptureCoordinator: AgentArtifactCaptureCoordinator?
-    var artifactCaptureTasks: [String: Task<Void, Never>] = [:]
+    var artifactCaptureTasks: [String: (token: UUID, task: Task<Void, Never>?)] = [:]
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
@@ -356,7 +356,15 @@ final class AgentChatTranscriptService {
             return existing
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
-        guard let path = resolver.transcriptPath(for: record) else {
+        let resolvedPath: String?
+        do {
+            resolvedPath = try resolver.transcriptPath(for: record)
+        } catch is CancellationError {
+            return nil
+        } catch {
+            resolvedPath = nil
+        }
+        guard let path = resolvedPath else {
             failedResolutions.insert(record.sessionID)
             #if DEBUG
             cmuxDebugLog(
@@ -465,7 +473,7 @@ final class AgentChatTranscriptService {
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         proseStreamer.turnEnded(sessionID: record.sessionID)
-        artifactCaptureTasks.removeValue(forKey: record.sessionID)?.cancel()
+        artifactCaptureTasks.removeValue(forKey: record.sessionID)?.task?.cancel()
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
         }

@@ -7,6 +7,7 @@ actor AgentChatArtifactIndex {
         let referencedPaths: Set<String>
         let artifacts: [ChatArtifactIndexedReference]
         let generation: String
+        let revision: UInt64
     }
 
     enum Operation: Sendable {
@@ -37,6 +38,7 @@ actor AgentChatArtifactIndex {
     }
 
     private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
+    private var nextSnapshotRevision: UInt64 = 0
 
     func snapshot(
         sessionID: String,
@@ -48,11 +50,13 @@ actor AgentChatArtifactIndex {
         if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
             return cached.snapshot
         }
+        nextSnapshotRevision &+= 1
         let snapshot = try Self.buildSnapshot(
             agentKind: agentKind,
             transcriptPath: transcriptPath,
             workingDirectory: workingDirectory,
-            generation: key.generation
+            generation: key.generation,
+            revision: nextSnapshotRevision
         )
         cacheBySessionID.insert(CacheEntry(key: key, snapshot: snapshot), forKey: sessionID)
         return snapshot
@@ -108,7 +112,8 @@ actor AgentChatArtifactIndex {
         agentKind: ChatAgentKind,
         transcriptPath: String,
         workingDirectory: String?,
-        generation: String
+        generation: String,
+        revision: UInt64
     ) throws -> Snapshot {
         let data = try Data(contentsOf: URL(fileURLWithPath: transcriptPath), options: .mappedIfSafe)
         let text = String(decoding: data, as: UTF8.self)
@@ -129,7 +134,8 @@ actor AgentChatArtifactIndex {
         return Snapshot(
             referencedPaths: referencedPaths,
             artifacts: artifacts,
-            generation: generation
+            generation: generation,
+            revision: revision
         )
     }
 }
