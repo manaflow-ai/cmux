@@ -1187,6 +1187,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // This test owns the window through ARC, so AppKit must not release it as well when the
+        // deferred performClose() below runs. Leaving the default on drops the last retain a
+        // runloop turn later while the delegate's window context and the focus-capture swizzle
+        // still hold weak references to that address, which aborts the whole test host instead
+        // of failing one test. Every other closed window in this file does the same.
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
 
         let tabManager = TabManager()
@@ -1665,7 +1671,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousAppDelegate }
+        defer {
+            AppDelegate.shared = previousAppDelegate
+            // AppDelegate.init() points the shared surface registry's route retirer at itself, and
+            // the registry holds that collaborator weakly. Restoring `shared` alone leaves the
+            // retirer nil once this temporary delegate dies, so every later test in this host runs
+            // against a registry that never sweeps retired main-window routes.
+            if let previousAppDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(previousAppDelegate)
+            }
+        }
 
         let orphanWindowId = UUID()
         let orphanManager = TabManager()
