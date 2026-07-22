@@ -1366,7 +1366,7 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
         assert!(matches!(&restored.payload[..4], [120, 0, 40, 0] | [160, 0, 50, 0]));
         let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
         assert_eq!(colors.kind, MessageKind::Colors);
-        if &restored.payload[..4] == [160, 0, 50, 0] {
+        if restored.payload[..4] == [160, 0, 50, 0] {
             break;
         }
     }
