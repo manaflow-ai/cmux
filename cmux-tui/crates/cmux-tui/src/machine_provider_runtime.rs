@@ -691,6 +691,13 @@ fn load_machine_lifecycle_snapshot(
     client: &ProviderClient,
     snapshot: &protocol::SnapshotResult,
 ) -> anyhow::Result<protocol::MachineLifecycleSnapshotResult> {
+    if !client.supports_capability(protocol::MACHINE_LIFECYCLE_CAPABILITY)? {
+        return Ok(protocol::MachineLifecycleSnapshotResult {
+            revision: snapshot.revision,
+            scope_id: snapshot.selected_scope_id.clone(),
+            machines: Vec::new(),
+        });
+    }
     client.machine_lifecycle_snapshot(snapshot.selected_scope_id.clone(), None).map_err(Into::into)
 }
 
@@ -698,6 +705,9 @@ fn load_workspace_snapshot(
     client: &ProviderClient,
     snapshot: &protocol::SnapshotResult,
 ) -> anyhow::Result<Option<protocol::WorkspaceSnapshotResult>> {
+    if !client.supports_capability(protocol::WORKSPACE_LIFECYCLE_CAPABILITY)? {
+        return Ok(None);
+    }
     let Some(machine_id) = snapshot.selected_machine_id.as_ref() else {
         return Ok(None);
     };
@@ -1019,7 +1029,11 @@ mod tests {
                     provider_name: "Test Provider".into(),
                     negotiated_version: protocol::Version,
                 },
-            ),
+            )
+            .with_capabilities([
+                protocol::MACHINE_LIFECYCLE_CAPABILITY,
+                protocol::WORKSPACE_LIFECYCLE_CAPABILITY,
+            ]),
         );
 
         let request: protocol::RequestEnvelope = read_frame(&mut reader);

@@ -30,13 +30,14 @@ use cmux_tui_machine_protocol::{
     ActionValue, BearerToken, ClientDescriptor, CloseMachineParams, CloseMachineResult,
     CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
     EventEnvelope, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
-    MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult, MachineMutationParams,
-    MachineMutationResult, OpaqueId, OpenMachineParams, OpenMachineResult, Protocol, ProviderError,
-    ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
-    RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams,
-    SnapshotResult, TransportDescriptor, TransportHandshake, TransportHandshakeResult,
-    TransportRole, Version, WorkspaceCreateMode, WorkspaceMutationParams, WorkspaceMutationResult,
-    WorkspaceSnapshotParams, WorkspaceSnapshotResult,
+    MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
+    MachineMutationParams, MachineMutationResult, OpaqueId, OpenMachineParams, OpenMachineResult,
+    Protocol, ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams,
+    RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
+    SnapshotParams, SnapshotResult, TransportDescriptor, TransportHandshake,
+    TransportHandshakeResult, TransportRole, Version, WORKSPACE_LIFECYCLE_CAPABILITY,
+    WorkspaceCreateMode, WorkspaceMutationParams, WorkspaceMutationResult, WorkspaceSnapshotParams,
+    WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
 use serde::Serialize;
@@ -88,6 +89,7 @@ pub(crate) enum ProviderClientError {
     Timeout,
     NotAuthenticated,
     AlreadyAuthenticated,
+    UnsupportedCapability(&'static str),
     Protocol(String),
     StatePoisoned(&'static str),
     TransportRejected,
@@ -115,6 +117,9 @@ impl fmt::Display for ProviderClientError {
             }
             Self::AlreadyAuthenticated => {
                 formatter.write_str("machine provider authentication was already attempted")
+            }
+            Self::UnsupportedCapability(capability) => {
+                write!(formatter, "machine provider does not advertise {capability}")
             }
             Self::Protocol(message) => {
                 write!(formatter, "machine provider protocol error: {message}")
@@ -194,6 +199,7 @@ struct ProviderClientInner {
     hello_started: AtomicBool,
     authenticated: AtomicBool,
     token: Mutex<Option<BearerToken>>,
+    provider_capabilities: Mutex<Vec<String>>,
 }
 
 #[cfg(unix)]
@@ -280,6 +286,7 @@ impl ProviderClient {
             hello_started: AtomicBool::new(false),
             authenticated: AtomicBool::new(false),
             token: Mutex::new(None),
+            provider_capabilities: Mutex::new(Vec::new()),
         });
         let weak = Arc::downgrade(&inner);
         std::thread::Builder::new()
@@ -327,12 +334,18 @@ impl ProviderClient {
 
         // Keep the original private and move only a temporary clone into the
         // one hello frame. Failed authentication is not retried implicitly.
-        let result = self.request_unchecked(
+        let result = self.request_unchecked_with_metadata(
             ProviderRequest::Hello(HelloParams { token: token.clone(), client }),
             PROVIDER_REQUEST_TIMEOUT,
         );
         match result {
-            Ok(hello) => {
+            Ok((hello, capabilities)) => {
+                *self
+                    .inner
+                    .provider_capabilities
+                    .lock()
+                    .map_err(|_| ProviderClientError::StatePoisoned("capabilities"))? =
+                    capabilities;
                 *self
                     .inner
                     .token
@@ -366,6 +379,7 @@ impl ProviderClient {
         scope_id: OpaqueId,
         known_revision: Option<u64>,
     ) -> ProviderResult<MachineLifecycleSnapshotResult> {
+        self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::MachineLifecycleSnapshot(MachineLifecycleSnapshotParams {
             scope_id,
             known_revision,
@@ -376,6 +390,7 @@ impl ProviderClient {
         &self,
         params: RenameMachineParams,
     ) -> ProviderResult<MachineMutationResult> {
+        self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::RenameMachine(params))
     }
 
@@ -383,6 +398,7 @@ impl ProviderClient {
         &self,
         params: MachineMutationParams,
     ) -> ProviderResult<MachineMutationResult> {
+        self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::DeleteMachine(params))
     }
 
@@ -390,6 +406,7 @@ impl ProviderClient {
         &self,
         params: MachineMutationParams,
     ) -> ProviderResult<MachineMutationResult> {
+        self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::RestoreMachine(params))
     }
 
@@ -397,6 +414,7 @@ impl ProviderClient {
         &self,
         params: MachineMutationParams,
     ) -> ProviderResult<MachineMutationResult> {
+        self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::PurgeMachine(params))
     }
 
@@ -422,6 +440,7 @@ impl ProviderClient {
         machine_id: OpaqueId,
         known_revision: Option<u64>,
     ) -> ProviderResult<WorkspaceSnapshotResult> {
+        self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::WorkspaceSnapshot(WorkspaceSnapshotParams {
             machine_id,
             known_revision,
@@ -432,6 +451,7 @@ impl ProviderClient {
         &self,
         params: RenameWorkspaceParams,
     ) -> ProviderResult<WorkspaceMutationResult> {
+        self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::RenameWorkspace(params))
     }
 
@@ -439,6 +459,7 @@ impl ProviderClient {
         &self,
         params: WorkspaceMutationParams,
     ) -> ProviderResult<WorkspaceMutationResult> {
+        self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::DeleteWorkspace(params))
     }
 
@@ -446,6 +467,7 @@ impl ProviderClient {
         &self,
         params: WorkspaceMutationParams,
     ) -> ProviderResult<WorkspaceMutationResult> {
+        self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::RestoreWorkspace(params))
     }
 
@@ -453,6 +475,7 @@ impl ProviderClient {
         &self,
         params: WorkspaceMutationParams,
     ) -> ProviderResult<WorkspaceMutationResult> {
+        self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
         self.request(ProviderRequest::PurgeWorkspace(params))
     }
 
@@ -564,7 +587,34 @@ impl ProviderClient {
         self.request_unchecked(request, timeout)
     }
 
+    pub(crate) fn supports_capability(&self, capability: &str) -> ProviderResult<bool> {
+        self.ensure_authenticated()?;
+        let capabilities = self
+            .inner
+            .provider_capabilities
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("capabilities"))?;
+        Ok(capabilities.iter().any(|candidate| candidate == capability))
+    }
+
+    fn require_capability(&self, capability: &'static str) -> ProviderResult<()> {
+        self.supports_capability(capability)?
+            .then_some(())
+            .ok_or(ProviderClientError::UnsupportedCapability(capability))
+    }
+
     fn request_unchecked<T>(&self, request: ProviderRequest, timeout: Duration) -> ProviderResult<T>
+    where
+        T: DeserializeOwned,
+    {
+        self.request_unchecked_with_metadata(request, timeout).map(|(result, _)| result)
+    }
+
+    fn request_unchecked_with_metadata<T>(
+        &self,
+        request: ProviderRequest,
+        timeout: Duration,
+    ) -> ProviderResult<(T, Vec<String>)>
     where
         T: DeserializeOwned,
     {
@@ -618,7 +668,7 @@ impl ProviderClient {
             ));
         }
         match response.response {
-            ProviderResponse::Success(result) => Ok(result),
+            ProviderResponse::Success(result) => Ok((result, response.capabilities)),
             ProviderResponse::Failure(error) => Err(ProviderClientError::Provider(error)),
         }
     }
@@ -989,6 +1039,15 @@ mod tests {
         reader: &mut BufReader<UnixStream>,
         expected_token: &str,
     ) {
+        accept_hello_with_capabilities(stream, reader, expected_token, &[]);
+    }
+
+    fn accept_hello_with_capabilities(
+        stream: &mut UnixStream,
+        reader: &mut BufReader<UnixStream>,
+        expected_token: &str,
+        capabilities: &[&str],
+    ) {
         let request: RequestEnvelope = read_test_frame(reader);
         let ProviderRequest::Hello(params) = request.request else {
             panic!("first request was not hello");
@@ -1004,8 +1063,77 @@ mod tests {
                     provider_name: "Fake Provider".to_string(),
                     negotiated_version: Version,
                 },
-            ),
+            )
+            .with_capabilities(capabilities.iter().copied()),
         );
+    }
+
+    #[test]
+    fn hello_capabilities_enable_only_advertised_lifecycle_requests() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello_with_capabilities(
+                &mut stream,
+                &mut reader,
+                "provider-secret",
+                &[MACHINE_LIFECYCLE_CAPABILITY],
+            );
+
+            let request: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(
+                &request.request,
+                ProviderRequest::MachineLifecycleSnapshot(params)
+                    if params.scope_id == id("personal")
+            ));
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(
+                    request.id,
+                    MachineLifecycleSnapshotResult {
+                        revision: 1,
+                        scope_id: id("personal"),
+                        machines: Vec::new(),
+                    },
+                ),
+            );
+
+            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let mut unexpected = String::new();
+            match reader.read_line(&mut unexpected) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) => {}
+                Ok(0) => panic!("provider client disconnected while authenticated"),
+                Ok(_) => panic!("provider received an unadvertised request: {unexpected}"),
+                Err(error) => panic!("provider read failed: {error}"),
+            }
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        assert!(provider.supports_capability(MACHINE_LIFECYCLE_CAPABILITY).unwrap());
+        assert!(!provider.supports_capability(WORKSPACE_LIFECYCLE_CAPABILITY).unwrap());
+        provider
+            .machine_lifecycle_snapshot(id("personal"), None)
+            .expect("advertised machine lifecycle request");
+        let error = provider
+            .workspace_snapshot(id("machine-1"), None)
+            .expect_err("unadvertised workspace lifecycle must be rejected locally");
+        assert!(matches!(
+            error,
+            ProviderClientError::UnsupportedCapability(WORKSPACE_LIFECYCLE_CAPABILITY)
+        ));
+
+        server.join().expect("join fake provider");
     }
 
     #[test]

@@ -15,6 +15,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
 pub const PROTOCOL_VERSION: u16 = 1;
+pub const MACHINE_LIFECYCLE_CAPABILITY: &str = "machine-lifecycle-v1";
+pub const WORKSPACE_LIFECYCLE_CAPABILITY: &str = "workspace-lifecycle-v1";
 
 const MAX_OPAQUE_ID_BYTES: usize = 512;
 const MAX_ERROR_CODE_BYTES: usize = 64;
@@ -221,6 +223,11 @@ pub struct ResponseEnvelope<T> {
     pub protocol: Protocol,
     pub version: Version,
     pub id: OpaqueId,
+    /// Additive provider features available for this authenticated generation.
+    ///
+    /// Providers advertise these on the successful `hello` response. Unknown
+    /// names are retained so future capabilities remain forward compatible.
+    pub capabilities: Vec<String>,
     pub response: ProviderResponse<T>,
 }
 
@@ -230,6 +237,7 @@ impl<T> ResponseEnvelope<T> {
             protocol: Protocol,
             version: Version,
             id,
+            capabilities: Vec::new(),
             response: ProviderResponse::Success(result),
         }
     }
@@ -239,8 +247,18 @@ impl<T> ResponseEnvelope<T> {
             protocol: Protocol,
             version: Version,
             id,
+            capabilities: Vec::new(),
             response: ProviderResponse::Failure(error),
         }
+    }
+
+    pub fn with_capabilities<I, S>(mut self, capabilities: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.capabilities = capabilities.into_iter().map(Into::into).collect();
+        self
     }
 }
 
@@ -252,10 +270,14 @@ where
     where
         S: Serializer,
     {
-        let mut map = serializer.serialize_map(Some(4))?;
+        let mut map =
+            serializer.serialize_map(Some(4 + usize::from(!self.capabilities.is_empty())))?;
         map.serialize_entry("protocol", &self.protocol)?;
         map.serialize_entry("version", &self.version)?;
         map.serialize_entry("id", &self.id)?;
+        if !self.capabilities.is_empty() {
+            map.serialize_entry("capabilities", &self.capabilities)?;
+        }
         match &self.response {
             ProviderResponse::Success(result) => map.serialize_entry("result", result)?,
             ProviderResponse::Failure(error) => map.serialize_entry("error", error)?,
@@ -285,7 +307,13 @@ where
                 ));
             }
         };
-        Ok(Self { protocol: raw.protocol, version: raw.version, id: raw.id, response })
+        Ok(Self {
+            protocol: raw.protocol,
+            version: raw.version,
+            id: raw.id,
+            capabilities: raw.capabilities,
+            response,
+        })
     }
 }
 
@@ -295,6 +323,8 @@ struct RawResponseEnvelope<T> {
     protocol: Protocol,
     version: Version,
     id: OpaqueId,
+    #[serde(default)]
+    capabilities: Vec<String>,
     #[serde(default)]
     result: Option<T>,
     #[serde(default)]
@@ -916,6 +946,53 @@ mod tests {
         let encoded = serde_json::to_value(&response).unwrap();
         let decoded: ResponseEnvelope<T> = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded, response);
+    }
+
+    #[test]
+    fn response_capabilities_are_additive_and_legacy_compatible() {
+        #[derive(Debug, Deserialize, PartialEq, Eq)]
+        struct LegacyHelloResponse {
+            protocol: Protocol,
+            version: Version,
+            id: OpaqueId,
+            result: HelloResult,
+        }
+
+        let hello = HelloResult {
+            provider_id: id("cmux-cloud"),
+            provider_name: "cmux Cloud".into(),
+            negotiated_version: Version,
+        };
+        let response = ResponseEnvelope::success(id("hello-response"), hello.clone())
+            .with_capabilities([
+                MACHINE_LIFECYCLE_CAPABILITY,
+                WORKSPACE_LIFECYCLE_CAPABILITY,
+                "future-provider-feature-v1",
+            ]);
+        let encoded = serde_json::to_value(&response).unwrap();
+        assert_eq!(
+            encoded["capabilities"],
+            json!(["machine-lifecycle-v1", "workspace-lifecycle-v1", "future-provider-feature-v1"])
+        );
+
+        let decoded: ResponseEnvelope<HelloResult> =
+            serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(decoded, response);
+
+        let legacy: LegacyHelloResponse = serde_json::from_value(encoded).unwrap();
+        assert_eq!(legacy.protocol, Protocol);
+        assert_eq!(legacy.version, Version);
+        assert_eq!(legacy.id, id("hello-response"));
+        assert_eq!(legacy.result, hello);
+
+        let legacy_wire = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "id": "hello-response",
+            "result": hello
+        });
+        let decoded: ResponseEnvelope<HelloResult> = serde_json::from_value(legacy_wire).unwrap();
+        assert!(decoded.capabilities.is_empty());
     }
 
     #[test]

@@ -52,6 +52,8 @@ The modes are mutually exclusive. The direct-command form preserves the supplied
 
 The connector generates a fresh cryptographically random bearer for every control generation. It is absent from process arguments and environment variables, and diagnostics redact it. The first control request must be `hello`. It carries that bearer, client name and version, and supported provider versions. A provider accepts the bearer for that authenticated transport generation and requires it on later ticket handshakes. The provider rejects any other first request, a second `hello`, or an unsupported version. After authentication, the control transport carries bounded JSON-lines request, response, and event envelopes identified by `cmux.machine-provider` and version `1`.
 
+The successful `hello` response envelope may advertise additive string capabilities. `machine-lifecycle-v1` enables `machine_lifecycle_snapshot`, `rename_machine`, `delete_machine`, `restore_machine`, and `purge_machine`. `workspace-lifecycle-v1` enables `workspace_snapshot`, `rename_workspace`, `delete_workspace`, `restore_workspace`, and `purge_workspace`. Missing or unknown capabilities are safe: a client must not send a gated request unless the matching capability was advertised for that control generation. A client connected to a legacy or rolled-back v1 provider therefore uses the base snapshot and hides managed lifecycle actions. Response-envelope metadata accepts unknown fields, so legacy clients ignore capabilities advertised by a newer provider.
+
 The Unix connector opens the configured socket for control and each machine stream. The command connector starts one control process and a new stream process per ticket. The SSH connector starts its control process with `ControlMaster=yes` and each stream with `ControlMaster=no`, all using one unpredictable socket path inside a mode-0700 directory. A new provider generation receives a new bearer and SSH master path. Closing a connection terminates its child process; releasing the generation removes the private directory.
 
 V1 implements these requests:
@@ -63,7 +65,11 @@ V1 implements these requests:
 | `open_machine` | Provider connection id and an expiring one-use transport ticket |
 | `select_scope` | A replacement snapshot for one personal or team scope |
 | `create_machine` | New machine id, revision, and optional notice |
+| `machine_lifecycle_snapshot` | Active and recoverable machines when `machine-lifecycle-v1` is advertised |
+| `rename_machine`, `delete_machine`, `restore_machine`, `purge_machine` | Version-fenced machine lifecycle mutations when `machine-lifecycle-v1` is advertised |
 | `create_workspace` | Revision and optional notice for isolated or host mode |
+| `workspace_snapshot` | Active and recoverable workspaces when `workspace-lifecycle-v1` is advertised |
+| `rename_workspace`, `delete_workspace`, `restore_workspace`, `purge_workspace` | Version-fenced workspace lifecycle mutations when `workspace-lifecycle-v1` is advertised |
 | `invoke_action` | Revision plus optional notice, URL, and selected scope or machine |
 | `close_machine` | Revision after idempotently closing one provider connection |
 
