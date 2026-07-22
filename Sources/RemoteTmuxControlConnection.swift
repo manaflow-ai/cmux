@@ -157,12 +157,30 @@ final class RemoteTmuxControlConnection {
     /// ``checkLivenessAndRecoverIfStalled(completion:)``). Nil for ssh, which gets an EOF instead.
     private var livenessTask: Task<Void, Never>?
     /// Whether a liveness probe is still waiting for its answer. The next probe's due time is the
-    /// previous one's deadline, so this is what turns "no answer" into a detected stall.
+    /// previous one's deadline, so this is what turns "no answer" into a suspected stall.
     var livenessProbeOutstanding = false
+    /// Whether an out-of-band reachability query is still running. One at a time: the query rides
+    /// ssh, which bounds itself with `ConnectTimeout`/`ServerAlive*` rather than a deadline of its
+    /// own, so on a dead network it can outlast a tick. A second query would answer about the same
+    /// outage and could recover twice for one stall, so a tick that lands on top of one in flight
+    /// does nothing and lets the query it is waiting on decide.
+    var livenessReachabilityQueryInFlight = false
+    /// Consecutive ticks that found the stream silent AND the host unreachable. Reset when a probe
+    /// is answered and when the connection reconnects, so only an unbroken run counts.
+    var livenessDeferralCount = 0
     /// How often to ask a self-reconnecting transport whether it is still carrying the protocol.
     /// Long enough that an ordinary reconnect finishes untouched, short enough that a wedged
     /// mirror is not left silently frozen.
     static var livenessProbeIntervalSeconds: UInt64 = 30
+    /// How many consecutive unreachable ticks may be deferred before the stream is recovered
+    /// anyway. At the 30-second interval that is about two minutes of outage.
+    ///
+    /// The cap is what keeps deferral honest. A transport that is mid-reconnect deserves to be
+    /// left alone, but "unreachable" cannot be trusted forever: if the host is both unreachable
+    /// and the stream is wedged, deferring without a limit leaves a frozen mirror that never
+    /// retries — the exact failure this monitor was added to prevent. Recovering after the cap
+    /// costs a reconnect that the backoff would have performed anyway.
+    static let maxConsecutiveLivenessDeferrals = 4
     /// Number of reconnect attempts since the last successful connect, driving the
     /// capped exponential backoff. Reset to 0 on a successful connect.
     private var reconnectAttemptCount = 0
@@ -322,15 +340,44 @@ final class RemoteTmuxControlConnection {
     /// overrides it (which tests do, to assert argv without spawning anything).
     let transportProfile: RemoteTmuxTransportProfile
 
+    /// Asks whether the session is still reachable, on a channel that does not run through this
+    /// connection's control stream — the one question that separates a wedged stream from a
+    /// transport that is busy reconnecting underneath. Supplied by the caller the same way
+    /// ``transportProfile`` is, defaulting to ``oneShotSessionReachability`` (which tests replace,
+    /// to decide the answer without a host).
+    let sessionReachability: @Sendable (RemoteTmuxHost, String) async -> Bool
+
+    /// The production reachability check: one `tmux has-session` over ssh's shared control master.
+    ///
+    /// Independent of the wedged stream by construction. Even for an et connection, one-shot
+    /// commands ride ssh (see ``RemoteTmuxETTransportProfile/oneShotArgv(host:remoteCommand:)``),
+    /// so this asks over a different transport entirely — and against et 6.2.11+7 that difference
+    /// is measurable: restarting `etserver` closes the control stream while `has-session` keeps
+    /// succeeding. The master is already open and single-flighted, so the question costs a
+    /// round-trip and no authentication.
+    ///
+    /// Anything other than a clean exit counts as unreachable, including a session tmux says is
+    /// gone. That is deliberately coarse: a gone session normally arrives as `%exit` on the
+    /// control stream, and if it somehow does not, the deferral cap recovers within about two
+    /// minutes and the reattach classifies the end the way it always does.
+    static let oneShotSessionReachability: @Sendable (RemoteTmuxHost, String) async -> Bool = {
+        host, sessionName in
+        let transport = RemoteTmuxSSHTransport(host: host)
+        let result = try? await transport.runTmux(["has-session", "-t", sessionName])
+        return result?.succeeded == true
+    }
+
     init(
         host: RemoteTmuxHost,
         sessionName: String,
         createIfMissing: Bool = false,
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
-        transportProfile: RemoteTmuxTransportProfile? = nil
+        transportProfile: RemoteTmuxTransportProfile? = nil,
+        sessionReachability: (@Sendable (RemoteTmuxHost, String) async -> Bool)? = nil
     ) {
         self.transportProfile = transportProfile
             ?? host.transport.profile(port: host.transportPort, terminalPath: host.transportTerminalPath)
+        self.sessionReachability = sessionReachability ?? Self.oneShotSessionReachability
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
@@ -559,7 +606,7 @@ final class RemoteTmuxControlConnection {
         reconnectTask = nil
         livenessTask?.cancel()
         livenessTask = nil
-        livenessProbeOutstanding = false
+        resetLivenessProbeState()
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
@@ -776,6 +823,11 @@ final class RemoteTmuxControlConnection {
 
     /// Starts the stall monitor for a transport that owns its own reconnection.
     ///
+    /// Each tick asks the stream a question and reads the previous tick's answer; a probe still
+    /// unanswered when the next one is due makes the stream a suspect, not a casualty. What
+    /// separates a wedged stream from one whose transport is busy reconnecting is asked out of
+    /// band — see ``checkLivenessAndRecoverIfStalled(completion:)``.
+    ///
     /// ssh is deliberately excluded: its stream ends on transport loss, `handleStreamEnd` already
     /// recovers from that, and probing an idle ssh stream would add traffic and a failure mode
     /// where today there is none.
@@ -800,6 +852,9 @@ final class RemoteTmuxControlConnection {
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingCommandTransactions()
+        // The reconnect this starts is the recovery the deferral was waiting for, so the run of
+        // deferred ticks ends here rather than carrying into the next stream's accounting.
+        resetLivenessProbeState()
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         // Subscriptions belong to the dying client, so forget them HERE, not in
