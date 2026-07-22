@@ -1,7 +1,6 @@
 import CmuxWorkspaces
 import Darwin
 import CmuxCore
-import CmuxSettings
 import XCTest
 import CmuxTerminal
 
