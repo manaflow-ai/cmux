@@ -1150,7 +1150,6 @@ struct BrowserPanelView: View {
                         onToggle: { await panel.toggleDesignMode(reason: "toolbar") }
                     )
                     screenshotPageButton
-                    // reactGrabButton  // Hidden for now; design mode covers element grabbing.
                     browserExtensionsButton
                     browserProfileButton
                     browserThemeModeButton

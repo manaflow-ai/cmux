@@ -7998,11 +7998,10 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func openBrowserExtensionsManager(from sourcePanelId: UUID) -> BrowserPanel? {
         let sourceProfileID = (panels[sourcePanelId] as? BrowserPanel)?.profileID
-        if let existing = panels.values
-            .compactMap({ $0 as? BrowserPanel })
-            .first(where: {
-                $0.internalPage == .extensions && $0.profileID == sourceProfileID
-            }) {
+        if let existing = panels.values.first(where: {
+            guard let browser = $0 as? BrowserPanel else { return false }
+            return browser.internalPage == .extensions && browser.profileID == sourceProfileID
+        }) as? BrowserPanel {
             clearSplitZoom()
             focusPanel(existing.id)
             return existing

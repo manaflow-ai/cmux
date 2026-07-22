@@ -13605,7 +13605,7 @@ struct CMUXCLI {
                 }
                 let rawPath = positional.dropFirst().joined(separator: " ")
                 params["path"] = URL(
-                    fileURLWithPath: (rawPath as NSString).expandingTildeInPath
+                    fileURLWithPath: resolvePath(rawPath)
                 ).standardizedFileURL.path
                 method = "browser.extensions.add"
             case "action", "run":

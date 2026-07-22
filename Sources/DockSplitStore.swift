@@ -316,11 +316,10 @@ final class DockSplitStore: BonsplitDelegate {
               let paneId = paneId(forPanelId: sourcePanelId) else {
             return nil
         }
-        if let existing = panels.values
-            .compactMap({ $0 as? BrowserPanel })
-            .first(where: {
-                $0.internalPage == .extensions && $0.profileID == source.profileID
-            }) {
+        if let existing = panels.values.first(where: {
+            guard let browser = $0 as? BrowserPanel else { return false }
+            return browser.internalPage == .extensions && browser.profileID == source.profileID
+        }) as? BrowserPanel {
             focusPanel(existing.id)
             return existing
         }

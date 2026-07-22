@@ -6026,7 +6026,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if internalPage != nil {
             internalPage = nil
             browserServices?.browserPanelInternalPageDidChange(self)
-            isOmnibarVisible = true
+            setOmnibarVisible(true)
         }
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
