@@ -392,3 +392,30 @@ def test_parser_reports_independent_resources_and_authoritative_full_totals() ->
     assert _field(coverage, "discovered_count") == len(discovered)
     assert _field(coverage, "sampled_count") == len(sampled)
     assert _field(coverage, "missing_count") == 1
+
+
+def test_parser_reports_disappeared_webkit_roots_as_missing_instead_of_aborting() -> None:
+    payload = _payload()
+
+    def remove_content_tree(process: dict[str, Any]) -> None:
+        process["children"] = [
+            child for child in process["children"] if child["pid"] != 300
+        ]
+        for child in process["children"]:
+            remove_content_tree(child)
+
+    remove_content_tree(payload["windows"][0]["processes"][0])
+    surface = payload["windows"][0]["workspaces"][0]["panes"][0]["surfaces"][0]
+    remove_content_tree(surface["processes"][0])
+    surface["webviews"][0]["processes"] = []
+    payload["totals"]["process_count"] = len(FULL_PIDS) - 2
+    payload["totals"]["missing_pids"] = []
+
+    accounting = perf_top_payload.parse_system_top_payload(payload)
+
+    assert set(accounting.webkit_root_pids) == {300, 400, 500}
+    assert accounting.webkit_role_pids["content"] == ()
+    assert set(accounting.full_tree.pids) == set(FULL_PIDS) - {300, 301}
+    assert set(accounting.coverage.discovered_pids) == set(FULL_PIDS)
+    assert set(accounting.coverage.sampled_pids) == set(FULL_PIDS) - {300, 301}
+    assert set(accounting.coverage.missing_pids) == {300, 301}

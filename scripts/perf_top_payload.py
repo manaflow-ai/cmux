@@ -247,15 +247,20 @@ def _walk_topology_node(
             )
 
 
-def _authoritative_totals(totals_raw: Any) -> tuple[Any, Any]:
+def _authoritative_totals(
+    totals_raw: Any,
+    *,
+    recorded_pids: set[int],
+    topology_pids: set[int],
+) -> tuple[Any, Any]:
     totals = _mapping(totals_raw, "payload.totals")
     cpu_percent, resident_bytes, physical_footprint_bytes = _resource_fields(
         totals, "payload.totals"
     )
     try:
-        pids = _pid_array(totals["pids"], "payload.totals.pids")
-        missing_pids = _pid_array(
-            totals["missing_pids"], "payload.totals.missing_pids"
+        requested_pids = set(_pid_array(totals["pids"], "payload.totals.pids"))
+        producer_missing_pids = set(
+            _pid_array(totals["missing_pids"], "payload.totals.missing_pids")
         )
         process_count = _integer(
             totals["process_count"], "payload.totals.process_count"
@@ -263,21 +268,26 @@ def _authoritative_totals(totals_raw: Any) -> tuple[Any, Any]:
     except KeyError as error:
         raise ValueError(f"payload.totals is missing {error.args[0]}") from None
 
-    if process_count != len(pids):
-        raise ValueError("payload.totals.process_count must equal the number of pids")
-    if set(pids) & set(missing_pids):
-        raise ValueError("payload.totals.pids and missing_pids must be disjoint")
+    sampled_pids = (requested_pids & recorded_pids) - producer_missing_pids
+    if process_count != len(sampled_pids):
+        raise ValueError(
+            "payload.totals.process_count must equal recorded sampled pids"
+        )
+    discovered_pids = (
+        requested_pids | producer_missing_pids | topology_pids | recorded_pids
+    )
+    missing_pids = discovered_pids - sampled_pids
 
     full_tree = ProcessSubtotal(
-        pids=pids,
+        pids=tuple(sampled_pids),
         cpu_percent=cpu_percent,
         resident_bytes=resident_bytes,
         physical_footprint_bytes=physical_footprint_bytes,
     )
     coverage = ProcessCoverage(
-        discovered_pids=tuple(set(pids) | set(missing_pids)),
-        sampled_pids=pids,
-        missing_pids=missing_pids,
+        discovered_pids=tuple(discovered_pids),
+        sampled_pids=tuple(sampled_pids),
+        missing_pids=tuple(missing_pids),
     )
     return full_tree, coverage
 
@@ -296,6 +306,8 @@ def _webkit_roles(
             for pid in descendants
             if (role := classify_webkit_role(records_by_pid[pid])) is not None
         }
+        if not descendants:
+            continue
         if not classified:
             raise ValueError(f"cannot classify WebKit root PID {root_pid}")
         if len(classified) != 1:
@@ -368,7 +380,11 @@ def parse_system_top_payload(
         webkit_root_pids=webkit_root_pids,
     )
     role_pids = _webkit_roles(records, webkit_root_pids)
-    full_tree, coverage = _authoritative_totals(totals_raw)
+    full_tree, coverage = _authoritative_totals(
+        totals_raw,
+        recorded_pids=set(records_by_pid),
+        topology_pids=app_pid_candidates | surface_root_pids,
+    )
 
     return TopPayloadAccounting(
         app_pid=resolved_app_pid,
