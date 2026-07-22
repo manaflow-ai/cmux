@@ -56,7 +56,8 @@ struct SidebarAppKitRowCellTests {
         isActive: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
-        metadataEntries: [SidebarStatusEntry] = []
+        metadataEntries: [SidebarStatusEntry] = [],
+        shortcutHintText: String? = nil
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -78,8 +79,8 @@ struct SidebarAppKitRowCellTests {
             bottomDropIndicatorVisible: false,
             isGrouped: false,
             isFirstRow: true,
-            shortcutHintText: nil,
-            showsShortcutHints: false,
+            shortcutHintText: shortcutHintText,
+            showsShortcutHints: shortcutHintText != nil,
             colorSchemeIsDark: true,
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: false,
@@ -309,6 +310,25 @@ struct SidebarAppKitRowCellTests {
         pill.configure(text: nil, fontSize: 9, emphasis: 1)
         #expect(pill.isHidden)
         #expect(pill.layer?.opacity == 0)
+        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+    }
+
+    @Test
+    func reusedWorkspaceCellClearsPreviousShortcutHintImmediately() throws {
+        let first = Self.makeModel(shortcutHintText: "⌘1")
+        let cell = Self.configuredCell(model: first)
+        let pill = try #require(Self.descendants(of: cell).compactMap { $0 as? SidebarShortcutHintPillView }.first)
+
+        let replacement = Self.makeModel()
+        cell.configure(
+            model: replacement,
+            actions: Self.makeActions(model: replacement),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+
+        #expect(pill.isHidden)
         #expect((pill.layer?.animationKeys() ?? []).isEmpty)
     }
 
