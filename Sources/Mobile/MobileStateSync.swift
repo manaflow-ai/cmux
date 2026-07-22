@@ -170,6 +170,8 @@ final class MobileStateSyncHost {
             id: workspace.id.uuidString,
             windowID: windowID.uuidString,
             title: workspace.title,
+            customDescription: workspace.customDescription,
+            customColorHex: workspace.customColor,
             currentDirectory: workspace.presentedCurrentDirectory,
             isSelected: isSelected,
             isPinned: workspace.isPinned,

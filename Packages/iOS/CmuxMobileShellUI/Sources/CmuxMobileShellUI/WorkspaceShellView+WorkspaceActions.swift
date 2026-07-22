@@ -51,6 +51,42 @@ extension WorkspaceShellView {
         }
     }
 
+    /// One shared action path for customization sheets opened from the sidebar
+    /// row or workspace title. The Mac protocol applies one field per request,
+    /// so changed fields are sent in a stable order and stop at the first error.
+    var customizeWorkspaceClosure: ((MobileWorkspacePreview.ID, WorkspaceCustomizationDraft) -> Void)? {
+        let store = store
+        return { id, draft in
+            Task { @MainActor in
+                guard let workspace = store.workspaces.first(where: { $0.id == id }) else { return }
+                let current = WorkspaceCustomizationDraft(workspace: workspace)
+
+                if current.name != draft.name {
+                    let result = await store.renameWorkspace(id: id, title: draft.name)
+                    handleWorkspaceActionResult(result, action: .renameWorkspace)
+                    guard case .success = result else { return }
+                }
+                if current.customDescription != draft.customDescription {
+                    let result = await store.setWorkspaceDescription(id: id, draft.customDescription)
+                    handleWorkspaceActionResult(result, action: .updateWorkspaceDescription)
+                    guard case .success = result else { return }
+                }
+                if current.customColorHex != draft.customColorHex {
+                    let result = await store.setWorkspaceColor(id: id, draft.customColorHex)
+                    handleWorkspaceActionResult(result, action: .updateWorkspaceColor)
+                    guard case .success = result else { return }
+                }
+                if current.isPinned != draft.isPinned {
+                    let result = await store.setWorkspacePinned(id: id, draft.isPinned)
+                    handleWorkspaceActionResult(
+                        result,
+                        action: draft.isPinned ? .pinWorkspace : .unpinWorkspace
+                    )
+                }
+            }
+        }
+    }
+
     var setWorkspacePinnedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
         let store = store
         return { id, pinned in

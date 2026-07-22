@@ -102,6 +102,7 @@ extension WorkspaceListView {
             setUnread: setUnread,
             setPinned: setPinned,
             renameRequest: requestWorkspaceRename,
+            customizeRequest: requestWorkspaceCustomization,
             createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
             renameWorkspaceGroup: renameWorkspaceGroup,
             setGroupPinned: setGroupPinned,

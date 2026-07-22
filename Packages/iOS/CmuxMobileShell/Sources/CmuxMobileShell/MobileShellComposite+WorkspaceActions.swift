@@ -74,6 +74,71 @@ extension MobileShellComposite {
         )
     }
 
+    /// Set or clear a workspace's custom description on the Mac.
+    /// - Parameters:
+    ///   - id: The workspace to update.
+    ///   - description: The description, or `nil`/whitespace to clear it.
+    /// - Returns: `success` when the Mac accepted the request, otherwise the
+    ///   failure the UI should surface.
+    @discardableResult
+    public func setWorkspaceDescription(
+        id: MobileWorkspacePreview.ID,
+        _ description: String?
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        guard workspaceActionCapabilities(for: id).supportsWorkspaceMetadata else {
+            return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
+        }
+        let normalized = description?
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let hasDescription = normalized?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false
+        var params = workspaceMutationParams(id: id)
+        if let normalized, hasDescription {
+            params["action"] = "set_description"
+            params["description"] = normalized
+        } else {
+            params["action"] = "clear_description"
+        }
+        return await sendWorkspaceMutation(
+            method: "workspace.action",
+            params: params,
+            id: id,
+            actionName: hasDescription ? "set_description" : "clear_description"
+        )
+    }
+
+    /// Set or clear a workspace's custom color on the Mac.
+    /// - Parameters:
+    ///   - id: The workspace to update.
+    ///   - colorHex: A `#RRGGBB` color, or `nil`/whitespace to clear it.
+    /// - Returns: `success` when the Mac accepted the request, otherwise the
+    ///   failure the UI should surface.
+    @discardableResult
+    public func setWorkspaceColor(
+        id: MobileWorkspacePreview.ID,
+        _ colorHex: String?
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        guard workspaceActionCapabilities(for: id).supportsWorkspaceMetadata else {
+            return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
+        }
+        let normalized = colorHex?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var params = workspaceMutationParams(id: id)
+        if let normalized, !normalized.isEmpty {
+            params["action"] = "set_color"
+            params["color"] = normalized
+        } else {
+            params["action"] = "clear_color"
+        }
+        return await sendWorkspaceMutation(
+            method: "workspace.action",
+            params: params,
+            id: id,
+            actionName: normalized?.isEmpty == false ? "set_color" : "clear_color"
+        )
+    }
+
     /// Mark a workspace read or unread on the Mac, then re-sync the authoritative
     /// list so the swipe label flips even if the push event is delayed.
     /// - Parameters:

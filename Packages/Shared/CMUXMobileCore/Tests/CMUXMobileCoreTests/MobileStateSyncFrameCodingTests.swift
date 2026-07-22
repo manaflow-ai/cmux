@@ -9,6 +9,8 @@ struct MobileStateSyncFrameCodingTests {
             id: "ws-1",
             windowID: "win-1",
             title: "build",
+            customDescription: "Release validation",
+            customColorHex: "#1565C0",
             currentDirectory: "/repo",
             isSelected: true,
             isPinned: false,
@@ -34,6 +36,8 @@ struct MobileStateSyncFrameCodingTests {
         let object = try MobileSyncFrameCoder().jsonObject(from: workspace)
         #expect(object["id"] as? String == "ws-1")
         #expect(object["window_id"] as? String == "win-1")
+        #expect(object["description"] as? String == "Release validation")
+        #expect(object["custom_color"] as? String == "#1565C0")
         #expect(object["current_directory"] as? String == "/repo")
         #expect(object["is_selected"] as? Bool == true)
         #expect(object["is_pinned"] as? Bool == false)

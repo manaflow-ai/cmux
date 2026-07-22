@@ -216,6 +216,10 @@ extension TerminalController {
             "id": workspace.id.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
+            // Durable workspace identity stays separate from the live activity
+            // preview below so the phone can display both at once.
+            "description": v2OrNull(workspace.customDescription),
+            "custom_color": v2OrNull(workspace.customColor),
             "current_directory": v2OrNull(workspace.presentedCurrentDirectory),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,

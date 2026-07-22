@@ -317,6 +317,8 @@ extension MobileShellComposite {
                 id: record.id,
                 windowID: record.windowID,
                 title: record.title,
+                customDescription: record.customDescription,
+                customColorHex: record.customColorHex,
                 currentDirectory: record.currentDirectory,
                 isSelected: record.isSelected,
                 isPinned: record.isPinned,

@@ -21,6 +21,7 @@ struct WorkspaceRow: View {
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
 
     var body: some View {
+        let selectedAccent = workspace.workspaceAccentColor ?? Color.accentColor
         HStack(alignment: .top, spacing: 0) {
             // Unread is JUST this dot, left of the icon like iMessage. The
             // gutter is always present (hidden dot when read) so read and
@@ -47,7 +48,7 @@ struct WorkspaceRow: View {
 
                     Text(workspace.name)
                         .font(.headline)
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                        .foregroundStyle(isSelected ? selectedAccent : Color.primary)
                         .lineLimit(wrapWorkspaceTitles ? nil : 1)
 
                     Spacer(minLength: 8)
@@ -56,6 +57,14 @@ struct WorkspaceRow: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                }
+
+                if let description = workspace.displayDescription {
+                    Text(description)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2, reservesSpace: true)
+                        .accessibilityIdentifier("MobileWorkspaceDescription-\(workspace.id.rawValue)")
                 }
 
                 Text(workspace.previewLine)
@@ -70,7 +79,16 @@ struct WorkspaceRow: View {
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.14))
+                    .fill(selectedAccent.opacity(0.14))
+            }
+        }
+        .overlay(alignment: .leading) {
+            if let workspaceAccentColor = workspace.workspaceAccentColor {
+                Capsule()
+                    .fill(workspaceAccentColor)
+                    .frame(width: 3)
+                    .padding(.vertical, 6)
+                    .accessibilityIdentifier("MobileWorkspaceColorAccent-\(workspace.id.rawValue)")
             }
         }
         .contentShape(Rectangle())

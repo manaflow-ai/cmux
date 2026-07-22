@@ -89,6 +89,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
     static let workspaceActionsCapability = "workspace.actions.v1"
+    static let workspaceMetadataCapability = "workspace.metadata.v1"
     static let workspaceReadStateCapability = "workspace.read_state.v1"
     static let workspaceCloseCapability = "workspace.close.v1"
     static let workspaceMoveCapability = "workspace.move.v1"

@@ -77,12 +77,28 @@ extension WorkspaceListView {
         return { workspacePendingRenameID = $0 }
     }
 
+    var requestWorkspaceCustomization: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
+        guard customizeWorkspace != nil else { return nil }
+        return { workspacePendingCustomizationID = $0 }
+    }
+
     var workspaceRenameIsPresented: Binding<Bool> {
         Binding(
             get: { workspacePendingRenameID != nil },
             set: { isPresented in
                 if !isPresented {
                     workspacePendingRenameID = nil
+                }
+            }
+        )
+    }
+
+    var workspaceCustomizationIsPresented: Binding<Bool> {
+        Binding(
+            get: { workspacePendingCustomizationID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    workspacePendingCustomizationID = nil
                 }
             }
         )

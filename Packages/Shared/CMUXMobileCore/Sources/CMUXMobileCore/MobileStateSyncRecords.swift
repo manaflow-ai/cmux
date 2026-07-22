@@ -78,6 +78,10 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let windowID: String?
     /// User-facing workspace title.
     public let title: String
+    /// Custom workspace description, when one is set.
+    public let customDescription: String?
+    /// Custom workspace accent color as `#RRGGBB`, when one is set.
+    public let customColorHex: String?
     /// The workspace's presented working directory, when reported.
     public let currentDirectory: String?
     /// Whether the Mac currently has this workspace selected.
@@ -109,6 +113,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         id: String,
         windowID: String?,
         title: String,
+        customDescription: String? = nil,
+        customColorHex: String? = nil,
         currentDirectory: String?,
         isSelected: Bool,
         isPinned: Bool,
@@ -123,6 +129,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.id = id
         self.windowID = windowID
         self.title = title
+        self.customDescription = customDescription
+        self.customColorHex = customColorHex
         self.currentDirectory = currentDirectory
         self.isSelected = isSelected
         self.isPinned = isPinned
@@ -139,6 +147,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case id
         case windowID = "window_id"
         case title
+        case customDescription = "description"
+        case customColorHex = "custom_color"
         case currentDirectory = "current_directory"
         case isSelected = "is_selected"
         case isPinned = "is_pinned"

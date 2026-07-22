@@ -15,12 +15,16 @@ import Testing
 private func workspaceRecord(
     id: String,
     title: String,
+    customDescription: String? = nil,
+    customColorHex: String? = nil,
     sortIndex: Int
 ) -> WorkspaceSyncRecord {
     WorkspaceSyncRecord(
         id: id,
         windowID: "win-1",
         title: title,
+        customDescription: customDescription,
+        customColorHex: customColorHex,
         currentDirectory: nil,
         isSelected: false,
         isPinned: false,
@@ -94,13 +98,20 @@ private func workspaceUpdatedEventFrame() throws -> Data {
 @MainActor
 struct MobileShellStateSyncTests {
     @Test func negotiationAppliesSnapshotAndSuppressesLegacyRefetch() async throws {
+        let firstWorkspaceID = UUID().uuidString
         let router = LivenessHostRouter()
         await router.scriptSyncFetchResult(
             jsonData: try syncSnapshotResultData(
                 epoch: "epoch-1",
                 rev: 3,
                 records: [
-                    workspaceRecord(id: UUID().uuidString, title: "synced-alpha", sortIndex: 0),
+                    workspaceRecord(
+                        id: firstWorkspaceID,
+                        title: "synced-alpha",
+                        customDescription: "Release validation",
+                        customColorHex: "#1565C0",
+                        sortIndex: 0
+                    ),
                     workspaceRecord(id: UUID().uuidString, title: "synced-beta", sortIndex: 1),
                 ]
             )
@@ -115,6 +126,11 @@ struct MobileShellStateSyncTests {
             store.workspaces.map(\.name).contains("synced-alpha")
         }
         #expect(projected, "snapshot projection must reach the published workspace list")
+        let customizedWorkspace = try #require(
+            store.workspaces.first(where: { $0.rpcWorkspaceID.rawValue == firstWorkspaceID })
+        )
+        #expect(customizedWorkspace.customDescription == "Release validation")
+        #expect(customizedWorkspace.customColorHex == "#1565C0")
 
         // A workspace.updated push must no longer trigger the legacy full-list
         // refetch while v2 owns the list.
@@ -127,12 +143,31 @@ struct MobileShellStateSyncTests {
             epoch: "epoch-1",
             fromRev: 3,
             toRev: 4,
-            records: [workspaceRecord(id: UUID().uuidString, title: "synced-gamma", sortIndex: 2)]
+            records: [
+                workspaceRecord(
+                    id: firstWorkspaceID,
+                    title: "synced-alpha",
+                    customDescription: "Ready for launch",
+                    customColorHex: "#E91E63",
+                    sortIndex: 0
+                ),
+                workspaceRecord(id: UUID().uuidString, title: "synced-gamma", sortIndex: 2),
+            ]
         ))
         let deltaApplied = try await pollUntil {
-            store.workspaces.map(\.name).contains("synced-gamma")
+            let updatedWorkspace = store.workspaces.first {
+                $0.rpcWorkspaceID.rawValue == firstWorkspaceID
+            }
+            return store.workspaces.map(\.name).contains("synced-gamma")
+                && updatedWorkspace?.customDescription == "Ready for launch"
+                && updatedWorkspace?.customColorHex == "#E91E63"
         }
-        #expect(deltaApplied, "contiguous delta must extend the mirrored list")
+        #expect(deltaApplied, "contiguous delta must update workspace metadata and extend the mirrored list")
+        let updatedWorkspace = try #require(
+            store.workspaces.first(where: { $0.rpcWorkspaceID.rawValue == firstWorkspaceID })
+        )
+        #expect(updatedWorkspace.customDescription == "Ready for launch")
+        #expect(updatedWorkspace.customColorHex == "#E91E63")
         let listCallsAfter = await router.count(of: "mobile.workspace.list")
         #expect(
             listCallsAfter == listCallsBefore,

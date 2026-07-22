@@ -6,6 +6,18 @@ import SwiftUI
 /// Display-only derivations of ``MobileWorkspacePreview`` used by the workspace
 /// list rows (preview line, status color, avatar, timestamp/detail summaries).
 extension MobileWorkspacePreview {
+    /// Non-empty custom description displayed above live activity in a row.
+    var displayDescription: String? {
+        guard let customDescription else { return nil }
+        let trimmed = customDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Workspace-specific accent, kept separate from the owning Mac's avatar color.
+    var workspaceAccentColor: Color? {
+        customColorHex.flatMap { Color(hexString: $0) }
+    }
+
     var previewLine: String {
         // Prefer the Mac's last-activity preview (latest notification text). Fall
         // back to the first terminal's name (or the workspace name) when the Mac
@@ -89,6 +101,9 @@ extension MobileWorkspacePreview {
         // state here instead, leading like Messages does.
         if hasUnread {
             parts.append(L10n.string("mobile.workspace.unread", defaultValue: "Unread"))
+        }
+        if let displayDescription {
+            parts.append(displayDescription)
         }
         parts.append(previewLine)
         // A healthy connection contributes no status text anywhere, including VoiceOver.

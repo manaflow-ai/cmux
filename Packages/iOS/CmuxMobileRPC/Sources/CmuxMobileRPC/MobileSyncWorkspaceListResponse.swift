@@ -13,6 +13,10 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let windowID: String?
         /// User-facing workspace title.
         public let title: String
+        /// Custom workspace description, when reported by the Mac.
+        public let customDescription: String?
+        /// Custom workspace accent color as `#RRGGBB`, when reported by the Mac.
+        public let customColorHex: String?
         /// The workspace's current working directory, if reported.
         public let currentDirectory: String?
         /// Whether the Mac currently has this workspace selected.
@@ -46,6 +50,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case id
             case windowID = "window_id"
             case title
+            case customDescription = "description"
+            case customColorHex = "custom_color"
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
             case isPinned = "is_pinned"
@@ -64,6 +70,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             id: String,
             windowID: String?,
             title: String,
+            customDescription: String? = nil,
+            customColorHex: String? = nil,
             currentDirectory: String?,
             isSelected: Bool,
             isPinned: Bool?,
@@ -77,6 +85,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.id = id
             self.windowID = windowID
             self.title = title
+            self.customDescription = customDescription
+            self.customColorHex = customColorHex
             self.currentDirectory = currentDirectory
             self.isSelected = isSelected
             self.isPinned = isPinned
@@ -228,6 +238,5 @@ extension MobileSyncWorkspaceListResponse {
         self.createdTerminalID = createdTerminalID
     }
 }
-
 
 

@@ -24,6 +24,7 @@ struct WorkspaceDetailView: View {
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    let customizeWorkspace: ((MobileWorkspacePreview.ID, WorkspaceCustomizationDraft) -> Void)?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Close this workspace on the Mac. When `nil`, the close affordance is
     /// hidden from the top-bar menu, matching the workspace list's gating.
@@ -49,6 +50,8 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
+    /// Drives the shared workspace identity editor from the title menu.
+    @State var isCustomizationPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
@@ -134,6 +137,11 @@ struct WorkspaceDetailView: View {
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
+            .sheet(isPresented: $isCustomizationPresented) {
+                WorkspaceCustomizationSheet(workspace: workspace) { draft in
+                    customizeWorkspace?(workspace.id, draft)
+                }
+            }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
@@ -403,9 +411,11 @@ struct WorkspaceDetailView: View {
     var titleMenuContent: some View {
         WorkspaceTitleMenuContent(
             workspace: workspace,
+            canCustomizeWorkspace: customizeWorkspace != nil,
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
+            presentCustomization: presentCustomizationFromMenu,
             presentRename: presentRenameFromMenu,
             toggleReadState: toggleWorkspaceReadStateFromMenu,
             requestClose: requestCloseWorkspaceFromMenu
@@ -655,6 +665,11 @@ struct WorkspaceDetailView: View {
         // Seed the dialog field with the current name each time it opens.
         renameText = workspace.name
         isRenamePresented = true
+    }
+
+    private func presentCustomizationFromMenu() {
+        dismissTerminalKeyboardForChrome()
+        isCustomizationPresented = true
     }
 
     /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes

@@ -353,6 +353,7 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
         #expect(capabilities.contains("workspace.actions.v1"))
+        #expect(capabilities.contains("workspace.metadata.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))
         #expect(capabilities.contains("workspace.move.v1"))
@@ -364,8 +365,13 @@ extension MobileHostAuthorizationTests {
         ]))
     }
     // MARK: - Mobile workspace.action sub-action gate
-    @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
-        for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {
+    @Test func testMobileWorkspaceActionGateAllowsIdentityAndReadStateActions() {
+        for action in [
+            "pin", "unpin", "rename",
+            "set_description", "clear_description", "set_color", "clear_color",
+            "mark_read", "mark_unread",
+            "PIN", "UnPin", "RENAME", "SET_DESCRIPTION", "CLEAR_COLOR", "MARK_READ", "Mark_Unread",
+        ] {
             #expect(
                 TerminalController.mobileAllowsWorkspaceAction(action),
                 "mobile workspace.action '\(action)' should be allowed"
@@ -374,7 +380,6 @@ extension MobileHostAuthorizationTests {
         for action in [
             "move_up", "move-down", "move_top",
             "close_others", "close_above", "close_below",
-            "set_color", "clear_color", "set_description", "clear_description",
             "clear_name", "close", "self_destruct", "",
         ] {
             #expect(

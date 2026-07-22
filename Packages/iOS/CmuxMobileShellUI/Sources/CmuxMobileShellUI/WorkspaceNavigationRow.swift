@@ -18,6 +18,8 @@ struct WorkspaceNavigationRow: View {
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)? = nil
+    /// Customize the workspace's name, description, color, and pin state on the Mac.
+    var customizeWorkspace: ((MobileWorkspacePreview.ID, WorkspaceCustomizationDraft) -> Void)? = nil
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
@@ -36,6 +38,7 @@ struct WorkspaceNavigationRow: View {
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
+    @State private var isCustomizing = false
 
     var body: some View {
         rowTarget
@@ -70,6 +73,11 @@ struct WorkspaceNavigationRow: View {
         .sheet(isPresented: $isRenaming) {
             WorkspaceRenameSheet(currentName: workspace.name) { newName in
                 renameWorkspace?(workspace.id, newName)
+            }
+        }
+        .sheet(isPresented: $isCustomizing) {
+            WorkspaceCustomizationSheet(workspace: workspace) { draft in
+                customizeWorkspace?(workspace.id, draft)
             }
         }
         .confirmationDialog(
@@ -138,7 +146,17 @@ struct WorkspaceNavigationRow: View {
             }
             .accessibilityIdentifier("MobileWorkspacePinButton-\(workspace.id.rawValue)")
         }
-        if renameWorkspace != nil {
+        if customizeWorkspace != nil {
+            Button {
+                isCustomizing = true
+            } label: {
+                Label(
+                    L10n.string("mobile.workspace.customize.action", defaultValue: "Customize"),
+                    systemImage: "slider.horizontal.3"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceCustomizeButton-\(workspace.id.rawValue)")
+        } else if renameWorkspace != nil {
             Button {
                 isRenaming = true
             } label: {

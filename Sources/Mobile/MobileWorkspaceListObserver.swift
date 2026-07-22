@@ -236,6 +236,10 @@ final class MobileWorkspaceListObserver {
                 // so without this a terminal rename never re-emits to the phone.
                 workspace.$panelCustomTitles.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$title.map { _ in () }.eraseToAnyPublisher(),
+                // Description and color are durable workspace identity shown in
+                // the phone sidebar. Mac-side edits must invalidate mobile rows.
+                workspace.$customDescription.map { _ in () }.eraseToAnyPublisher(),
+                workspace.$customColor.map { _ in () }.eraseToAnyPublisher(),
                 // Pin/unpin is iOS-facing (the phone shows a Pinned section), and
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
@@ -338,6 +342,8 @@ final class MobileWorkspaceListObserver {
         for workspace in tabs {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
+            hasher.combine(workspace.customDescription)
+            hasher.combine(workspace.customColor)
             hasher.combine(workspace.isPinned)
             // Group membership is iOS-facing (the phone nests members under the
             // group header), and a pure move-into/out-of-group need not change the

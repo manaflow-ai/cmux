@@ -10,10 +10,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
     private enum HeightKind: Hashable {
-        case workspaceUniform
+        case workspaceUniform(hasDescription: Bool)
         case workspaceWrapped(
             id: MobileWorkspacePreview.ID,
             name: String,
+            hasDescription: Bool,
             isSelected: Bool,
             isIndented: Bool
         )
@@ -553,12 +554,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 kind = .workspaceWrapped(
                     id: id,
                     name: workspace.name,
+                    hasDescription: workspace.displayDescription != nil,
                     isSelected: configuration.navigationStyle == .sidebar
                         && configuration.selectedWorkspaceID == id,
                     isIndented: item.isIndentedWorkspace
                 )
             } else {
-                kind = .workspaceUniform
+                kind = .workspaceUniform(
+                    hasDescription: configuration.workspacesByID[id]?.displayDescription != nil
+                )
             }
         case .groupHeader:
             kind = .groupHeader
@@ -671,6 +675,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || (previous.setUnread != nil) != (next.setUnread != nil)
             || (previous.setPinned != nil) != (next.setPinned != nil)
             || (previous.renameRequest != nil) != (next.renameRequest != nil)
+            || (previous.customizeRequest != nil) != (next.customizeRequest != nil)
     }
 
     private func groupActionAvailabilityChanged(
