@@ -7842,7 +7842,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func openDirectoryInInlineVSCode(
         _ directoryURL: URL,
-        tabManager preferredTabManager: TabManager? = nil
+        tabManager preferredTabManager: TabManager? = nil,
+        workspaceID preferredWorkspaceID: UUID? = nil
     ) -> Bool {
         guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
@@ -7854,9 +7855,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
-            ?? targetTabManager.tabs.first?.id
-            ?? targetTabManager.addWorkspace(select: true).id
+        let targetWorkspaceId: UUID
+        if let preferredWorkspaceID {
+            guard targetTabManager.tabs.contains(where: { $0.id == preferredWorkspaceID }) else {
+                return false
+            }
+            targetWorkspaceId = preferredWorkspaceID
+        } else {
+            targetWorkspaceId = targetTabManager.selectedWorkspace?.id
+                ?? targetTabManager.tabs.first?.id
+                ?? targetTabManager.addWorkspace(select: true).id
+        }
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in

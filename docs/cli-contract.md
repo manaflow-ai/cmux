@@ -69,6 +69,9 @@ Environment:
 | `agent-hibernation` | Enable or disable Agent Hibernation. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `open` | Open files, directories, or URLs in cmux. |
+| `palette list` | List the exact Cmd+Shift+P actions available in the target window's current context, including their stable command IDs. Supports `--json`. |
+| `palette run <command-id>`, `palette <command-id>` | Invoke the same live action handler used by Cmd+Shift+P. Actions hidden or disabled in the current context are rejected. |
+| `vscode open [path]`, `vscode [path]` | Open a directory in a cmux VS Code (Inline) browser pane. The path defaults to the current directory and supports workspace and window targeting. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
 | `feed` | Open the keyboard-first Feed TUI or manage persisted Feed workstream history. |
 | `themes` | List, set, clear, or interactively pick Ghostty themes. |
@@ -671,6 +674,8 @@ the expected text without connecting to a cmux socket.
 - `cmux focus-webview --help` -> `Legacy alias for 'cmux browser focus-webview'`
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
+- `cmux palette --help` -> `Usage: cmux palette [list]`
+- `cmux vscode --help` -> `Usage: cmux vscode open [path]`
 <!-- cli-contract-help-probes:end -->
 
 ## No-Socket Negative Help Probes

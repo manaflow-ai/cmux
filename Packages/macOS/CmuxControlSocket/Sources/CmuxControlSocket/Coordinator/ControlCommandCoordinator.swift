@@ -81,6 +81,8 @@ public final class ControlCommandCoordinator {
         if let result = handleSurface(request) { return result }
         if let result = handleSystem(request) { return result }
         if let result = handleProject(request) { return result }
+        if let result = handleCommandPalette(request) { return result }
+        if let result = handleInlineVSCode(request) { return result }
         if let result = handleDebug(request) { return result }
         // The v2 browser.* domain stays app-side: PR 5778 moved its
         // JS-evaluating methods onto the socket-worker lane (nonisolated

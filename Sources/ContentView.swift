@@ -2914,6 +2914,19 @@ struct ContentView: View {
             openCommandPaletteCommands()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteControlRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ),
+            let request = notification.userInfo?[CommandPaletteControlRequest.notificationUserInfoKey]
+                as? CommandPaletteControlRequest else { return }
+            handleCommandPaletteControlRequest(request)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
             if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
                 presentSavedLayoutSavePrompt()
@@ -6624,6 +6637,37 @@ struct ContentView: View {
         return commands
     }
 
+    private func handleCommandPaletteControlRequest(_ request: CommandPaletteControlRequest) {
+        let terminalOpenTargets = resolveCommandPaletteTerminalOpenTargets(for: .commands)
+        let commands = commandPaletteCommands(
+            commandsContext: commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
+        )
+        switch request.operation {
+        case .list:
+            request.complete(.listed(commands.map(commandPaletteControlItem)))
+        case .run(let commandID):
+            guard let command = commands.first(where: { $0.id == commandID }) else {
+                request.complete(.commandNotFound)
+                return
+            }
+            request.complete(.ran(commandPaletteControlItem(command)))
+            runCommandPaletteCommand(command)
+        }
+    }
+
+    private func commandPaletteControlItem(
+        _ command: CommandPaletteCommand
+    ) -> CommandPaletteControlRequest.Item {
+        CommandPaletteControlRequest.Item(
+            id: command.id,
+            title: command.title,
+            subtitle: command.subtitle,
+            shortcutHint: command.shortcutHint,
+            keywords: command.keywords,
+            dismissOnRun: command.dismissOnRun
+        )
+    }
+
     private func commandPaletteShortcutHint(
         for contribution: CommandPaletteCommandContribution,
         context: CommandPaletteContextSnapshot
@@ -9083,6 +9127,10 @@ struct ContentView: View {
 #endif
         let postRunFocusTarget = commandPalettePostRunFocusTarget(for: command)
         recordCommandPaletteUsage(command.id)
+        guard isCommandPalettePresented else {
+            command.action()
+            return
+        }
         if command.dismissOnRun,
            Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id) {
             if let postRunFocusTarget {

@@ -3162,6 +3162,9 @@ struct CMUXCLI {
         if normalizedCommand == "surface-resume" {
             return false
         }
+        if normalizedCommand == "palette" || normalizedCommand == "vscode" {
+            return false
+        }
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }
@@ -5396,6 +5399,26 @@ struct CMUXCLI {
         // Project pane
         case "project":
             try runProjectCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        // Live Cmd+Shift+P actions
+        case "palette":
+            try runCommandPaletteCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
+        // Parameterized VS Code inline pane
+        case "vscode":
+            try runInlineVSCodeCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         // Legacy aliases shimmed onto the v2 browser command surface.
         case "open-browser":
@@ -16920,6 +16943,32 @@ struct CMUXCLI {
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
             """
+        case "palette":
+            return String(localized: "cli.palette.usage", defaultValue: """
+            Usage: cmux palette [list] [--window <id|ref|index>]
+                   cmux palette run <command-id> [--window <id|ref|index>]
+                   cmux palette <command-id>       (shorthand for 'run')
+
+            List or invoke the exact actions available through Cmd+Shift+P in
+            the target window's current context.
+
+            Examples:
+              cmux palette list
+              cmux palette run palette.newTerminalTab
+              cmux palette palette.terminalOpenDirectory.vscodeInline
+            """)
+        case "vscode":
+            return String(localized: "cli.vscode.usage", defaultValue: """
+            Usage: cmux vscode open [path] [--workspace <id|ref|index>] [--window <id|ref|index>]
+                   cmux vscode [path]       (shorthand for 'open')
+
+            Open a directory in a cmux VS Code (Inline) browser pane. The path
+            defaults to the current directory.
+
+            Examples:
+              cmux vscode .
+              cmux vscode open ~/project --workspace workspace:2
+            """)
         default:
             return nil
         }
@@ -35127,6 +35176,8 @@ export default CMUXSessionRestore;
           agent-hibernation <on|off>
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          palette [list|run <command-id>] [--window <id|ref|index>]
+          vscode open [path] [--workspace <id|ref|index>] [--window <id|ref|index>]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
