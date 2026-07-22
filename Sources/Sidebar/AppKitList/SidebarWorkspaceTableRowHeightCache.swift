@@ -30,7 +30,13 @@ final class SidebarWorkspaceTableRowHeightCache {
     private var preparedColumnWidth: CGFloat?
 
     func clearRetainedPayloads() {
-        entries.removeAll(keepingCapacity: true)
+        entries = entries.mapValues { entry in
+            Entry(
+                row: entry.row.presentationSnapshot(),
+                columnWidth: entry.columnWidth,
+                height: entry.height
+            )
+        }
         preparedColumnWidth = nil
         prototypeRowView.suspendPresentation()
         prototypeView.rootView = AnyView(EmptyView())
