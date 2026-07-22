@@ -84,12 +84,18 @@ extension CMUXCLI {
         let fractionalFormatter = ISO8601DateFormatter()
         fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = fractionalFormatter.date(from: value) {
-            return date.timeIntervalSince1970
+            let timestamp = date.timeIntervalSince1970
+            return timestamp.isFinite && timestamp > 0 ? timestamp : nil
         }
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)?.timeIntervalSince1970
+        guard let timestamp = formatter.date(from: value)?.timeIntervalSince1970,
+              timestamp.isFinite,
+              timestamp > 0 else {
+            return nil
+        }
+        return timestamp
     }
 
     private func compactClaudeHookObject(_ object: [String: Any]) -> [String: Any] {

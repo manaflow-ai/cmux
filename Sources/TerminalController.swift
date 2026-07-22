@@ -575,6 +575,46 @@ class TerminalController {
     }
 #endif
 
+    enum SidebarStatusEntryReplacementDecision: Equatable {
+        case replace
+        case unchanged
+        case stale
+    }
+
+    nonisolated static func statusEntryReplacementDecision(
+        current: SidebarStatusEntry?,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: SidebarMetadataFormat,
+        agentEventTime: TimeInterval? = nil
+    ) -> SidebarStatusEntryReplacementDecision {
+        guard let current else { return .replace }
+        let payloadMatches = current.key == key &&
+            current.value == value &&
+            current.icon == icon &&
+            current.color == color &&
+            current.url == url &&
+            current.priority == priority &&
+            current.format == format
+        if let currentAgentEventTime = current.agentEventTime {
+            guard let agentEventTime else { return .stale }
+            if agentEventTime < currentAgentEventTime {
+                return .stale
+            }
+            if agentEventTime == currentAgentEventTime, !payloadMatches {
+                return .stale
+            }
+        }
+        if payloadMatches, current.agentEventTime == agentEventTime {
+            return .unchanged
+        }
+        return .replace
+    }
+
     nonisolated static func shouldReplaceStatusEntry(
         current: SidebarStatusEntry?,
         key: String,
@@ -586,20 +626,17 @@ class TerminalController {
         format: SidebarMetadataFormat,
         agentEventTime: TimeInterval? = nil
     ) -> Bool {
-        guard let current else { return true }
-        if let agentEventTime,
-           let currentAgentEventTime = current.agentEventTime,
-           agentEventTime < currentAgentEventTime {
-            return false
-        }
-        return current.key != key ||
-            current.value != value ||
-            current.icon != icon ||
-            current.color != color ||
-            current.url != url ||
-            current.priority != priority ||
-            current.format != format ||
-            current.agentEventTime != agentEventTime
+        statusEntryReplacementDecision(
+            current: current,
+            key: key,
+            value: value,
+            icon: icon,
+            color: color,
+            url: url,
+            priority: priority,
+            format: format,
+            agentEventTime: agentEventTime
+        ) == .replace
     }
 
     nonisolated static func shouldReplaceMetadataBlock(
@@ -13766,13 +13803,22 @@ class TerminalController {
             }
             return nil
         }()
-        let agentEventTime = parseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTimeResult = parseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return "ERROR: Invalid agent event time '\(raw)' — must be a positive finite number"
+        }
 
         scheduleSidebarMutation(target: target) { _, tab in
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            guard Self.shouldReplaceStatusEntry(
+            let replacementDecision = Self.statusEntryReplacementDecision(
                 current: tab.statusEntries[key],
                 key: key,
                 value: value,
@@ -13782,11 +13828,16 @@ class TerminalController {
                 priority: priority,
                 format: format,
                 agentEventTime: agentEventTime
-            ) else {
-                // Still update PID tracking even if the status display hasn't changed.
+            )
+            switch replacementDecision {
+            case .replace:
+                break
+            case .unchanged:
                 if let pidValue {
                     tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
                 }
+                return
+            case .stale:
                 return
             }
             tab.statusEntries[key] = SidebarStatusEntry(
@@ -13807,14 +13858,20 @@ class TerminalController {
         return "OK"
     }
 
-    private func parseAgentEventTime(_ raw: String?) -> TimeInterval? {
-        guard let normalized = normalizedOptionValue(raw),
-              let value = TimeInterval(normalized),
-              value.isFinite,
-              value > 0 else {
-            return nil
+    private enum AgentEventTimeParseResult {
+        case absent
+        case valid(TimeInterval)
+        case invalid(String)
+    }
+
+    private func parseAgentEventTime(_ raw: String?) -> AgentEventTimeParseResult {
+        guard let normalized = normalizedOptionValue(raw) else {
+            return .absent
         }
-        return value
+        guard let value = TimeInterval(normalized), value.isFinite, value > 0 else {
+            return .invalid(normalized)
+        }
+        return .valid(value)
     }
 
     private func clearSidebarMetadata(_ args: String, usage: String) -> String {

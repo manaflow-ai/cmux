@@ -1127,6 +1127,81 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         )
     }
 
+    func testShouldReplaceStatusEntryRejectsMissingEventTimeAfterTimestampedEntry() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "Running",
+            icon: "bolt",
+            color: "#ffffff",
+            timestamp: Date(timeIntervalSince1970: 123),
+            agentEventTime: 20
+        )
+
+        XCTAssertFalse(
+            TerminalController.shouldReplaceStatusEntry(
+                current: current,
+                key: "agent",
+                value: "Idle",
+                icon: "pause",
+                color: "#8E8E93",
+                url: nil,
+                priority: 0,
+                format: .plain
+            )
+        )
+    }
+
+    func testShouldReplaceStatusEntryRejectsEqualEventTimeWhenPayloadChanges() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "Idle",
+            icon: "pause",
+            color: "#8E8E93",
+            timestamp: Date(timeIntervalSince1970: 123),
+            agentEventTime: 20
+        )
+
+        XCTAssertFalse(
+            TerminalController.shouldReplaceStatusEntry(
+                current: current,
+                key: "agent",
+                value: "Running",
+                icon: "bolt",
+                color: "#ffffff",
+                url: nil,
+                priority: 0,
+                format: .plain,
+                agentEventTime: 20
+            )
+        )
+    }
+
+    func testStatusEntryReplacementDecisionTreatsUnchangedTimestampAsAcceptedDuplicate() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "Idle",
+            icon: "pause",
+            color: "#8E8E93",
+            timestamp: Date(timeIntervalSince1970: 123),
+            agentEventTime: 20
+        )
+
+        XCTAssertEqual(
+            TerminalController.statusEntryReplacementDecision(
+                current: current,
+                key: "agent",
+                value: "Idle",
+                icon: "pause",
+                color: "#8E8E93",
+                url: nil,
+                priority: 0,
+                format: .plain,
+                agentEventTime: 20
+            ),
+            .unchanged
+        )
+    }
+
     func testShouldReplaceProgressReturnsFalseForUnchangedPayload() {
         XCTAssertFalse(
             TerminalController.shouldReplaceProgress(

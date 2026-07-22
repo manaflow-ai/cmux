@@ -82,6 +82,7 @@ struct CLICodexHookTimeoutRegressionTests {
             "#!/bin/sh",
             "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
             "printf '%s\\n' \"$CMUX_CODEX_PID\" > \"$CMUX_TEST_PID\"",
+            "printf '%s\\n' \"$CMUX_AGENT_HOOK_CAPTURED_AT\" > \"$CMUX_TEST_CAPTURED_AT\"",
             "cat > \"$CMUX_TEST_STDIN\"",
             "sleep 4",
             "printf done > \"$CMUX_TEST_DONE\"",
@@ -114,6 +115,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_TEST_STDIN": capturedStdin.path,
                 "CMUX_TEST_ARGS": capturedArgs.path,
                 "CMUX_TEST_PID": capturedPID.path,
+                "CMUX_TEST_CAPTURED_AT": root.appendingPathComponent("hook-captured-at.txt").path,
                 "CMUX_TEST_DONE": doneFile.path,
             ],
             standardInput: payload,
@@ -126,6 +128,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(capturedStdin, containing: payload, timeout: 3))
         #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit", timeout: 3))
         #expect(waitForFile(capturedPID, containing: "4242", timeout: 3))
+        #expect(waitForFile(root.appendingPathComponent("hook-captured-at.txt"), containing: ".", timeout: 3))
         #expect(waitForFile(doneFile, containing: "done", timeout: 8))
     }
 

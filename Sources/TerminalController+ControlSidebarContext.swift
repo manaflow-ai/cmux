@@ -31,7 +31,7 @@ extension TerminalController: ControlSidebarContext {
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
-            guard Self.shouldReplaceStatusEntry(
+            let replacementDecision = Self.statusEntryReplacementDecision(
                 current: tab.statusEntries[key],
                 key: key,
                 value: value,
@@ -41,11 +41,16 @@ extension TerminalController: ControlSidebarContext {
                 priority: priority,
                 format: appFormat,
                 agentEventTime: agentEventTime
-            ) else {
-                // Still update PID tracking even if the status display hasn't changed.
+            )
+            switch replacementDecision {
+            case .replace:
+                break
+            case .unchanged:
                 if let pid {
                     tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
                 }
+                return
+            case .stale:
                 return
             }
             tab.statusEntries[key] = SidebarStatusEntry(

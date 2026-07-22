@@ -79,7 +79,16 @@ extension ControlCommandCoordinator {
             }
             return nil
         }()
-        let agentEventTime = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTimeResult = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return "ERROR: Invalid agent event time '\(raw)' — must be a positive finite number"
+        }
 
         context?.controlSidebarScheduleStatusUpsert(
             target: target,
@@ -97,14 +106,20 @@ extension ControlCommandCoordinator {
         return "OK"
     }
 
-    private nonisolated func sidebarParseAgentEventTime(_ raw: String?) -> TimeInterval? {
-        guard let normalized = sidebarNormalizedOptionValue(raw),
-              let value = TimeInterval(normalized),
-              value.isFinite,
-              value > 0 else {
-            return nil
+    private enum SidebarAgentEventTimeParseResult {
+        case absent
+        case valid(TimeInterval)
+        case invalid(String)
+    }
+
+    private nonisolated func sidebarParseAgentEventTime(_ raw: String?) -> SidebarAgentEventTimeParseResult {
+        guard let normalized = sidebarNormalizedOptionValue(raw) else {
+            return .absent
         }
-        return value
+        guard let value = TimeInterval(normalized), value.isFinite, value > 0 else {
+            return .invalid(normalized)
+        }
+        return .valid(value)
     }
 
     /// The shared `clear_status`/`clear_meta` body (parse + bus enqueue; zero
@@ -373,7 +388,16 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
-        let agentEventTime = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTimeResult = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return "ERROR: Invalid agent event time '\(raw)' — must be a positive finite number"
+        }
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,
             target: target,

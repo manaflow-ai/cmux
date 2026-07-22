@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import CmuxCore
+import CmuxSidebar
 import Darwin
 import Foundation
 import Testing
@@ -337,6 +338,39 @@ extension AgentNotificationRegressionTests {
         #expect(
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .running
         )
+    }
+
+    @Test("A stale status update cannot rebind PID tracking")
+    func staleStatusUpdateDoesNotRecordPID() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        fixture.source.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Idle",
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            agentEventTime: 200
+        )
+
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: "claude_code",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: 43_210,
+            agentEventTime: 100
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.statusEntries["claude_code"]?.value == "Idle")
+        #expect(fixture.source.agentPIDs["claude_code"] == nil)
     }
 
     @Test("An authorized-workspace clear cancels a confined in-flight relay delivery")

@@ -45,8 +45,23 @@ extension Workspace {
             return
         }
         let eventTime = observation.updatedAt
-        setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .idle, agentEventTime: eventTime)
+        guard setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .idle, agentEventTime: eventTime) else {
+            return
+        }
         guard let current = statusEntries[statusKey] else { return }
+        guard TerminalController.shouldReplaceStatusEntry(
+            current: current,
+            key: statusKey,
+            value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            url: current.url,
+            priority: current.priority,
+            format: current.format,
+            agentEventTime: eventTime
+        ) else {
+            return
+        }
         statusEntries[statusKey] = SidebarStatusEntry(
             key: statusKey,
             value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
@@ -202,18 +217,24 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
     }
 
+    @discardableResult
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
         lifecycle: AgentHibernationLifecycleState,
         agentEventTime: TimeInterval? = nil
-    ) {
+    ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
-        guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        if let agentEventTime,
-           let currentEventTime = agentLifecycleEventTimesByPanelId[targetPanelId]?[key],
-           agentEventTime < currentEventTime {
-            return
+        guard let targetPanelId, panels[targetPanelId] != nil else { return false }
+        if let currentEventTime = agentLifecycleEventTimesByPanelId[targetPanelId]?[key] {
+            guard let agentEventTime else { return false }
+            if agentEventTime < currentEventTime {
+                return false
+            }
+            if agentEventTime == currentEventTime,
+               agentLifecycleStatesByPanelId[targetPanelId]?[key] != lifecycle {
+                return false
+            }
         }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         if let agentEventTime {
@@ -222,6 +243,7 @@ extension Workspace {
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
+        return true
     }
 
     @discardableResult

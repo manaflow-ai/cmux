@@ -1007,7 +1007,7 @@ final class ClaudeHookSessionStore {
         eventTime: TimeInterval?
     ) -> Bool {
         guard let eventTime, let existingEventTime = record.runtimeStatusEventTime else {
-            return false
+            return record.runtimeStatusEventTime != nil
         }
         return eventTime < existingEventTime
     }
@@ -31525,14 +31525,12 @@ export default CMUXSessionRestore;
                 env: env,
                 sessionId: input.sessionId ?? sessionId
             )
-            var replaysStoredNeedsInputNotification = false
             if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
                 // Rebuilt from the stored session record: a stale .idle status is
                 // still a completion re-notification, so keep it under the
                 // "Agent Finished" gate. A stale non-idle status cannot
                 // distinguish permission from waiting; the fresh permission
                 // alert already delivered, so re-notifications gate as waiting.
-                replaysStoredNeedsInputNotification = mapped?.lastNotificationStatus == .needsInput
                 summary = AgentHookNotificationSummary(
                     subtitle: mapped?.lastSubtitle ?? summary.subtitle,
                     body: savedBody,
@@ -31683,7 +31681,7 @@ export default CMUXSessionRestore;
                 category: summary.notifyCategory,
                 body: summary.body
             )
-            if replaysStoredNeedsInputNotification || shouldSendNotification(fingerprint: notificationFingerprint) {
+            if shouldSendNotification(fingerprint: notificationFingerprint) {
                 // Tag by the classifier's category so the app's agent notification
                 // settings cover every built-in agent: approval prompts gate under
                 // "Agent Needs Permission", waiting-for-input cues under "Agent
