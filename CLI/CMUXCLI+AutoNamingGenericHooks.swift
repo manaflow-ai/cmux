@@ -38,8 +38,7 @@ extension CMUXCLI {
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
             params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true,
-           probe["workspace_user_owned"] as? Bool != true else {
+        ), probe["enabled"] as? Bool == true else {
             return []
         }
         return engine.extractHookMessages(fromPayloadObjects: [object])
@@ -67,10 +66,7 @@ extension CMUXCLI {
             telemetry.breadcrumb("\(def.name)-hook.auto-name.disabled")
             return
         }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.user-owned")
-            return
-        }
+        let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
         let mapped = try? sessionStore.lookup(sessionId: sessionId)
@@ -112,9 +108,6 @@ extension CMUXCLI {
         }()
         guard let sourceResult, !sourceResult.messages.isEmpty else { return }
 
-        let resolution = resolvedSummarizerAgent(
-            probe: probe, sessionAgent: def.name, env: env, telemetry: telemetry
-        )
         runMessageBackedAutoName(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -123,10 +116,13 @@ extension CMUXCLI {
             lineCount: sourceResult.lineCount,
             sessionStore: sessionStore,
             client: client,
-            missingOverride: resolution.missingOverride,
+            allowSummarization: !workspaceUserOwned,
             telemetryKey: "\(def.name)-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in
+            let resolution = resolvedSummarizerAgent(
+                probe: probe, sessionAgent: def.name, env: env, telemetry: telemetry
+            )
             guard let context = engine.buildContext(from: sourceResult.messages) else { return nil }
             let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
             guard let raw = summarize(
@@ -139,7 +135,7 @@ extension CMUXCLI {
                 reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
                 return nil
             }
-            return raw
+            return (response: raw, missingOverride: resolution.missingOverride)
         }
     }
 
@@ -151,10 +147,10 @@ extension CMUXCLI {
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
-        missingOverride: String?,
+        allowSummarization: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
-        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
+        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (response: String, missingOverride: String?)?
     ) {
         guard !lines.isEmpty else { return }
         runAutoNamingPass(
@@ -164,7 +160,7 @@ extension CMUXCLI {
             lineCount: lineCount,
             sessionStore: sessionStore,
             client: client,
-            missingOverride: missingOverride,
+            allowSummarization: allowSummarization,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -179,10 +175,10 @@ extension CMUXCLI {
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
-        missingOverride: String?,
+        allowSummarization: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
-        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
+        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (response: String, missingOverride: String?)?
     ) {
         guard !messages.isEmpty else { return }
         runAutoNamingPass(
@@ -192,7 +188,7 @@ extension CMUXCLI {
             lineCount: lineCount,
             sessionStore: sessionStore,
             client: client,
-            missingOverride: missingOverride,
+            allowSummarization: allowSummarization,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -256,10 +252,10 @@ extension CMUXCLI {
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
-        missingOverride: String?,
+        allowSummarization: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
-        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
+        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (response: String, missingOverride: String?)?
     ) {
         let engine = AutoNamingEngine()
         guard let outcome = try? sessionStore.beginAutoNaming(
@@ -268,10 +264,11 @@ extension CMUXCLI {
             surfaceId: surfaceId,
             transcriptLineCount: lineCount,
             now: Date(),
-            engine: engine
+            engine: engine,
+            allowNewTitleGeneration: allowSummarization
         ) else { return }
         if case .reseedBaseline(let compactedLineCount) = outcome.decision {
-            let applyOutcome: Result<(workspaceApplied: Bool, targetsResolved: Bool), CLIError>
+            let applyOutcome: Result<(titleApplied: Bool, targetsResolved: Bool), CLIError>
             if let lastTitle = outcome.lastTitle {
                 applyOutcome = applyAutoNamingTitle(
                     lastTitle,
@@ -285,7 +282,7 @@ extension CMUXCLI {
                 )
             } else {
                 telemetry.breadcrumb("\(telemetryKey).throttled")
-                applyOutcome = .success((workspaceApplied: false, targetsResolved: false))
+                applyOutcome = .success((titleApplied: false, targetsResolved: false))
             }
             let applied = try? applyOutcome.get()
             let confirmedApply = applied?.targetsResolved == true
@@ -300,6 +297,10 @@ extension CMUXCLI {
             telemetry.breadcrumb("\(telemetryKey).throttled")
             return
         }
+        guard allowSummarization else {
+            telemetry.breadcrumb("\(telemetryKey).user-owned")
+            return
+        }
 
         var confirmedTitle: String?
         defer {
@@ -310,11 +311,11 @@ extension CMUXCLI {
                 now: Date()
             )
         }
-        guard let rawResponse = rawResponse(engine, outcome) else {
+        guard let generated = rawResponse(engine, outcome) else {
             telemetry.breadcrumb("\(telemetryKey).llm-failed")
             return
         }
-        guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else { return }
+        guard let sanitized = engine.sanitizeResponse(generated.response, currentTitle: nil) else { return }
         let applyOutcome = applyAutoNamingTitle(
             sanitized,
             workspaceId: workspaceId,
@@ -325,17 +326,15 @@ extension CMUXCLI {
         )
         switch applyOutcome {
         case .success(let applied):
-            if applied.workspaceApplied && applied.targetsResolved {
-                confirmedTitle = sanitized
-            } else if !applied.workspaceApplied {
-                confirmedTitle = outcome.lastTitle
+            if applied.targetsResolved {
+                confirmedTitle = applied.titleApplied ? sanitized : outcome.lastTitle
             }
         case .failure:
             confirmedTitle = nil
         }
         // Re-report a missing override only after the apply, so the app's
         // clear-on-apply doesn't immediately wipe the Settings note.
-        if confirmedTitle != nil, let missing = missingOverride {
+        if confirmedTitle != nil, let missing = generated.missingOverride {
             reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
         }
     }

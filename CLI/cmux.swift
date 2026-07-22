@@ -328,10 +328,9 @@ final class ClaudeHookSessionStore {
         var lastTitle: String?
     }
 
-    /// Atomically evaluates the auto-naming throttle for a session and, when
-    /// the decision starts either naming or reconciliation, records the
-    /// in-flight marker inside the same locked transaction so a concurrent
-    /// Stop hook sees it and skips.
+    /// Atomically evaluates the auto-naming throttle and records the in-flight
+    /// marker for reconciliation or an allowed naming pass. A disallowed pass
+    /// does not claim an attempt, while transcript shrink can still reconcile.
     /// When no session record exists yet (the auto-name hook can race the
     /// sync Stop hook's upsert), a minimal record is synthesized so the
     /// in-flight reservation is never silently dropped.
@@ -341,7 +340,8 @@ final class ClaudeHookSessionStore {
         surfaceId: String,
         transcriptLineCount: Int,
         now: Date,
-        engine: AutoNamingEngine
+        engine: AutoNamingEngine,
+        allowNewTitleGeneration: Bool
     ) throws -> AutoNamingBeginOutcome {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else {
@@ -368,9 +368,9 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             switch decision {
-            case .proceed, .reseedBaseline:
+            case .proceed where allowNewTitleGeneration, .reseedBaseline:
                 record.autoNameInFlightAt = now.timeIntervalSince1970
-            case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
+            case .proceed, .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
                 break
             }
             record.updatedAt = Date().timeIntervalSince1970
@@ -31376,8 +31376,7 @@ export default CMUXSessionRestore;
                    method: "workspace.set_auto_title",
                    params: ["probe": true, "workspace_id": workspaceId]
                ),
-               autoNameProbe["enabled"] as? Bool == true,
-               autoNameProbe["workspace_user_owned"] as? Bool != true {
+               autoNameProbe["enabled"] as? Bool == true {
                 spawnDetachedAgentAutoName(
                     def: def,
                     sessionId: sessionId,

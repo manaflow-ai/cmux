@@ -61,15 +61,8 @@ extension CMUXCLI {
         ) {
             return
         }
-        guard !workspaceUserOwned else {
-            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
-            return
-        }
         guard let transcriptSnapshot else { return }
         let lines = transcriptSnapshot.lines
-        let resolution = resolvedSummarizerAgent(
-            probe: probe, sessionAgent: "claude", env: env, telemetry: telemetry
-        )
         runFileBackedAutoName(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -78,10 +71,13 @@ extension CMUXCLI {
             lineCount: transcriptSnapshot.lineCount,
             sessionStore: sessionStore,
             client: client,
-            missingOverride: resolution.missingOverride,
+            allowSummarization: !workspaceUserOwned,
             telemetryKey: "claude-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in
+            let resolution = resolvedSummarizerAgent(
+                probe: probe, sessionAgent: "claude", env: env, telemetry: telemetry
+            )
             let messages = engine.extractMessages(fromTranscriptLines: lines)
             guard let context = engine.buildContext(from: messages) else { return nil }
             let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
@@ -95,7 +91,7 @@ extension CMUXCLI {
                 reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
                 return nil
             }
-            return rawResponse
+            return (response: rawResponse, missingOverride: resolution.missingOverride)
         }
     }
 
@@ -229,10 +225,7 @@ extension CMUXCLI {
             telemetry.breadcrumb("codex-hook.auto-name.disabled")
             return
         }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("codex-hook.auto-name.user-owned")
-            return
-        }
+        let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
@@ -246,9 +239,6 @@ extension CMUXCLI {
               !lines.isEmpty else {
             return
         }
-        let resolution = resolvedSummarizerAgent(
-            probe: probe, sessionAgent: "codex", env: env, telemetry: telemetry
-        )
         runFileBackedAutoName(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -257,10 +247,13 @@ extension CMUXCLI {
             lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count),
             sessionStore: sessionStore,
             client: client,
-            missingOverride: resolution.missingOverride,
+            allowSummarization: !workspaceUserOwned,
             telemetryKey: "codex-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in
+            let resolution = resolvedSummarizerAgent(
+                probe: probe, sessionAgent: "codex", env: env, telemetry: telemetry
+            )
             let messages = engine.extractCodexMessages(fromRolloutLines: lines)
             guard let context = engine.buildContext(from: messages) else { return nil }
             let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
@@ -275,7 +268,7 @@ extension CMUXCLI {
                 reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
                 return nil
             }
-            return raw
+            return (response: raw, missingOverride: resolution.missingOverride)
         }
     }
 
@@ -290,7 +283,7 @@ extension CMUXCLI {
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> Result<(workspaceApplied: Bool, targetsResolved: Bool), CLIError> {
+    ) -> Result<(titleApplied: Bool, targetsResolved: Bool), CLIError> {
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "panel_id": surfaceId,
@@ -310,11 +303,13 @@ extension CMUXCLI {
         }
         let workspaceApplied = payload["workspace_applied"] as? Bool == true
         let workspaceApplySkipped = payload["workspace_apply_skipped"] as? Bool == true
+        let panelApplied = payload["panel_applied"] as? Bool
         let workspaceResolved = workspaceApplied
             || workspaceApplySkipped
-        let panelResolved = payload["panel_applied"] is Bool
+        let panelResolved = panelApplied != nil
             || payload["panel_apply_skipped"] as? Bool == true
-        if workspaceApplied {
+        let titleApplied = workspaceApplied || panelApplied == true
+        if titleApplied {
             telemetry.breadcrumb("\(telemetryKey).applied")
         } else if workspaceApplySkipped {
             telemetry.breadcrumb("\(telemetryKey).preserved-workspace-title")
@@ -322,7 +317,7 @@ extension CMUXCLI {
             telemetry.breadcrumb("\(telemetryKey).rejected")
         }
         return .success((
-            workspaceApplied: workspaceApplied,
+            titleApplied: titleApplied,
             targetsResolved: workspaceResolved && panelResolved
         ))
     }

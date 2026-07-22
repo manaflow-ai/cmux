@@ -3707,9 +3707,15 @@ class TerminalController {
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
-            if let expectedWorkspaceTitle,
-               workspace.effectiveCustomTitleSource == .user ||
-               (workspace.effectiveCustomTitleSource == .auto && workspace.customTitle != expectedWorkspaceTitle) {
+            // Resolve every requested target before mutating either one.
+            let resolvedPanelId = panelId.flatMap { id in
+                workspace.panels[id] != nil ? id : workspace.panelIdFromSurfaceId(TabID(uuid: id))
+            }
+            guard panelId == nil || resolvedPanelId != nil else { return }
+            if workspace.effectiveCustomTitleSource == .user ||
+               (expectedWorkspaceTitle != nil &&
+                workspace.effectiveCustomTitleSource == .auto &&
+                workspace.customTitle != expectedWorkspaceTitle) {
                 // Manual ownership or a newer sibling-session auto-title wins.
                 // Reconciliation may still repair its independently owned panel.
                 workspaceApplySkipped = true
@@ -3720,22 +3726,15 @@ class TerminalController {
                     source: .auto
                 )
             }
-            if let panelId {
-                // Hook payloads carry surface ids; accept either a panel id
-                // or a surface id for the tab target.
-                let resolvedPanelId = workspace.panels[panelId] != nil
-                    ? panelId
-                    : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
-                if let resolvedPanelId {
-                    if panelOnlyIfMultiple && workspace.panels.count < 2 {
-                        panelApplySkipped = true
-                    } else {
-                        panelApplied = workspace.setPanelCustomTitle(
-                            panelId: resolvedPanelId,
-                            title: title,
-                            source: .auto
-                        )
-                    }
+            if let resolvedPanelId {
+                if panelOnlyIfMultiple && workspace.panels.count < 2 {
+                    panelApplySkipped = true
+                } else {
+                    panelApplied = workspace.setPanelCustomTitle(
+                        panelId: resolvedPanelId,
+                        title: title,
+                        source: .auto
+                    )
                 }
             }
         }
@@ -3749,7 +3748,7 @@ class TerminalController {
 
         // A title landed, so the naming agent is working again: clear any stale
         // failure the Settings status line may be showing.
-        if workspaceApplied && clearStatusOnApply {
+        if (workspaceApplied || panelApplied == true) && clearStatusOnApply {
             AutoNamingStatusStore.clear()
         }
 

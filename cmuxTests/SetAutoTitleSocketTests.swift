@@ -301,6 +301,8 @@ import Testing
                     title: "Earlier automatic topic",
                     source: .auto
                 ))
+                AutoNamingStatusStore.record(rawCategory: "failed", agent: "claude", at: 1)
+                defer { AutoNamingStatusStore.clear() }
 
                 let envelope = try call(method: "workspace.set_auto_title", params: [
                     "workspace_id": workspace.id.uuidString,
@@ -316,6 +318,7 @@ import Testing
                 #expect(workspace.effectiveCustomTitleSource == .user)
                 #expect(workspace.panelCustomTitles[panelId] == "New automatic topic")
                 #expect(workspace.panelCustomTitleSources[panelId] == .auto)
+                #expect(AutoNamingStatusStore.current() == nil)
             }
         }
     }
