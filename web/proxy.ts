@@ -78,6 +78,13 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Stripe returns cmux Cloud users to one fixed, status-qualified URL.
+  // Keep it outside the localized route tree so every Checkout and portal
+  // session can share the same production URL.
+  if (pathname === "/cloud/billing" || pathname === "/cloud/billing/") {
+    return NextResponse.next();
+  }
+
   if (pathname.includes(".")) {
     return NextResponse.next();
   }
