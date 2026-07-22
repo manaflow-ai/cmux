@@ -218,6 +218,10 @@ _CONDITIONAL_SCOPE_HEADER = re.compile(
     r"^\s*(?:}\s*else\s+)?(?:if|while|for)\b"
 )
 _COMPILATION_DIRECTIVE = re.compile(r"^\s*#(if|elseif|else|endif)\b")
+_TYPE_SCOPE_HEADER = re.compile(
+    r"\b(?:struct|class|actor|enum|extension|protocol)\s+"
+    r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)"
+)
 _FOR_SCOPE_BINDING = re.compile(
     r"^\s*for(?:\s+try)?(?:\s+await)?\s+([A-Za-z_]\w*)\s+in\b"
 )
@@ -752,6 +756,62 @@ def _nearest_receiver_kind(
     )
 
 
+def _has_explicit_real_member(
+    masked_lines: list[str], call_index: int, call_column: int, receiver: str
+) -> bool:
+    """Find this type's explicit real-clock member, independent of file order."""
+    depth = 0
+    pending_type: Optional[str] = None
+    active_types: list[tuple[str, int]] = []
+    call_type: Optional[str] = None
+    real_member_types: set[str] = set()
+
+    for line_index, candidate in enumerate(masked_lines):
+        type_header = _TYPE_SCOPE_HEADER.search(candidate)
+        if type_header:
+            pending_type = type_header.group(1).rsplit(".", 1)[-1]
+        events: list[tuple[int, str, Optional[str]]] = []
+        events.extend(
+            (position, "binding", declaration)
+            for position, declaration in _local_receiver_declarations(
+                candidate, receiver
+            )
+        )
+        events.extend(
+            (position, token, None)
+            for position, token in enumerate(candidate)
+            if token in "{}"
+        )
+        if line_index == call_index:
+            events.append((call_column, "call", None))
+        events.sort(key=lambda event: event[0])
+
+        for _, event, declaration in events:
+            if event == "call":
+                if active_types:
+                    call_type = active_types[-1][0]
+            elif event == "{":
+                depth += 1
+                if pending_type is not None:
+                    active_types.append((pending_type, depth))
+                    pending_type = None
+            elif event == "}":
+                if active_types and active_types[-1][1] == depth:
+                    active_types.pop()
+                depth = max(0, depth - 1)
+            elif (
+                declaration is not None
+                and active_types
+                and depth == active_types[-1][1]
+                and _receiver_declaration_kind(
+                    declaration, masked_lines[line_index + 1 :]
+                )
+            ):
+                real_member_types.add(active_types[-1][0])
+
+    return call_type is not None and call_type in real_member_types
+
+
 def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     """Resolve a named receiver through Swift-like lexical brace scopes."""
     current = masked_lines[idx]
@@ -924,7 +984,7 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     for scope_index in range(search_end - 1, -1, -1):
         if receiver in scopes[scope_index]:
             return scopes[scope_index][receiver]
-    return False
+    return _has_explicit_real_member(masked_lines, idx, sleep_start, receiver)
 
 
 def detect_sleep_then_assert(
