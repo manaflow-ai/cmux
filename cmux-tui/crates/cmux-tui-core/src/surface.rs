@@ -127,6 +127,15 @@ impl Default for DefaultColors {
     }
 }
 
+/// Install Ghostty configuration cursor defaults without collapsing the
+/// nullable blink setting in [`DefaultColors`]. Ghostty starts an unspecified
+/// cursor blinking, while still allowing DEC mode 12 to change the live mode;
+/// the low-level VT engine needs that initial visual supplied explicitly.
+/// Explicit `true` and `false` values pass through unchanged.
+pub(crate) fn replace_ghostty_cursor_defaults(term: &mut Terminal, colors: DefaultColors) {
+    term.replace_default_cursor(colors.cursor_style, Some(colors.cursor_blink.unwrap_or(true)));
+}
+
 /// Effective colors exposed to attached terminal clients.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalColors {
@@ -749,7 +758,7 @@ impl Surface {
             let colors = mux.default_colors();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
+            replace_ghostty_cursor_defaults(&mut term, colors);
         }
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
@@ -904,7 +913,7 @@ impl Surface {
             let colors = mux.default_colors();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
+            replace_ghostty_cursor_defaults(&mut term, colors);
         }
         term.vt_write(&snapshot.replay);
         let initial_color_delta = terminal_color_override_full_state(&snapshot.colors);
@@ -1094,10 +1103,7 @@ impl Surface {
                                     defaults.cursor,
                                 );
                                 replacement.set_default_palette(&defaults.palette);
-                                replacement.replace_default_cursor(
-                                    defaults.cursor_style,
-                                    defaults.cursor_blink,
-                                );
+                                replace_ghostty_cursor_defaults(&mut replacement, defaults);
                                 replacement.vt_write(&replay);
                                 let delta = terminal_color_override_full_state(&colors);
                                 if !delta.is_empty() {
@@ -1309,8 +1315,7 @@ impl Surface {
                             defaults.cursor,
                         );
                         replacement_term.set_default_palette(&defaults.palette);
-                        replacement_term
-                            .replace_default_cursor(defaults.cursor_style, defaults.cursor_blink);
+                        replace_ghostty_cursor_defaults(&mut replacement_term, defaults);
                         replacement_term.vt_write(&replacement_snapshot.replay);
                         let color_delta =
                             terminal_color_override_full_state(&replacement_snapshot.colors);
@@ -1403,7 +1408,7 @@ impl Surface {
             let colors = mux.default_colors();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
+            replace_ghostty_cursor_defaults(&mut term, colors);
         }
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
@@ -1471,7 +1476,7 @@ impl Surface {
             let colors = mux.default_colors();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
+            replace_ghostty_cursor_defaults(&mut term, colors);
         }
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
@@ -1748,7 +1753,7 @@ impl Surface {
             let mut term = pty.term.lock().unwrap();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
+            replace_ghostty_cursor_defaults(&mut term, colors);
             let live_colors = TerminalColors::from_pty_output(&term, colors);
             let colors = pty.terminal_colors_locked(&term, colors);
             pty.attach_colors_pending.store(false, Ordering::Release);
@@ -2630,6 +2635,71 @@ mod tests {
         assert_eq!(colors.palette[4], Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }));
         assert_eq!(colors.cursor_style, None);
         assert_eq!(colors.cursor_blink, None);
+    }
+
+    #[test]
+    fn unspecified_ghostty_cursor_blink_stays_mode_12_authoritative_in_local_and_mirror() {
+        let defaults = DefaultColors {
+            cursor_style: Some(CursorShape::Bar),
+            cursor_blink: None,
+            ..DefaultColors::default()
+        };
+        let mut local = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        replace_ghostty_cursor_defaults(&mut local, defaults);
+
+        assert_eq!(local.effective_cursor_visual().unwrap(), (CursorShape::Bar, true));
+        let initial_colors = TerminalColors::from_terminal(&local, defaults);
+        assert_eq!(initial_colors.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(initial_colors.cursor_blink, Some(true));
+
+        // A process-separated renderer starts from the resolved cursor pair
+        // carried beside its replay, then consumes the same subsequent VT
+        // bytes as the authoritative parser.
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        replace_ghostty_cursor_defaults(&mut mirror, defaults);
+        mirror.vt_write(&terminal_color_override_full_state(&local.color_overrides()));
+
+        let mut local_render = RenderState::new().unwrap();
+        let mut mirror_render = RenderState::new().unwrap();
+        for (sequence, expected_blink) in [
+            (b"".as_slice(), true),
+            (b"\x1b[?12l".as_slice(), false),
+            (b"\x1b[?12h".as_slice(), true),
+        ] {
+            local.vt_write(sequence);
+            mirror.vt_write(sequence);
+            local_render.update(&mut local).unwrap();
+            mirror_render.update(&mut mirror).unwrap();
+            let expected = (CursorShape::Bar, expected_blink);
+            assert_eq!(local_render.cursor_visual().unwrap(), expected);
+            assert_eq!(mirror_render.cursor_visual().unwrap(), expected);
+            assert_eq!(
+                TerminalColors::from_terminal(&local, defaults).cursor_blink,
+                Some(expected_blink)
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_ghostty_cursor_blink_defaults_pass_through_unchanged() {
+        for configured in [false, true] {
+            let defaults = DefaultColors {
+                cursor_style: Some(CursorShape::Underline),
+                cursor_blink: Some(configured),
+                ..DefaultColors::default()
+            };
+            let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            replace_ghostty_cursor_defaults(&mut term, defaults);
+            assert_eq!(
+                term.effective_cursor_visual().unwrap(),
+                (CursorShape::Underline, configured)
+            );
+            term.vt_write(b"\x1b[0 q");
+            assert_eq!(
+                term.effective_cursor_visual().unwrap(),
+                (CursorShape::Underline, configured)
+            );
+        }
     }
 
     #[test]

@@ -672,7 +672,7 @@ fn control_socket_attach_vt_state_reports_builtin_cursor_without_config() {
     writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
     let vt_state = read_json_line(&mut reader).expect("vt-state event");
     assert_eq!(vt_state["colors"]["cursor_style"], "block");
-    assert_eq!(vt_state["colors"]["cursor_blink"], false);
+    assert_eq!(vt_state["colors"]["cursor_blink"], true);
 
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");

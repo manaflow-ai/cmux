@@ -1351,7 +1351,7 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-/// The user's relevant Ghostty settings with Ghostty's application defaults
+/// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
     let parsed = resolved_ghostty_defaults()
@@ -1367,7 +1367,10 @@ fn ghostty_defaults() -> DefaultColors {
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
     defaults.cursor_style.get_or_insert(CursorShape::Block);
-    defaults.cursor_blink.get_or_insert(true);
+    // `cursor-style-blink = null` is semantically different from `true` in
+    // Ghostty: both start blinking, but only the unset form lets DEC mode 12
+    // control the live cursor. Keep that absence intact for the terminal
+    // application boundary to resolve without losing its provenance.
     defaults
 }
 
@@ -1617,6 +1620,20 @@ mod tests {
         );
         assert_eq!(quoted.cursor_style, Some(CursorShape::Bar));
         assert_eq!(quoted.cursor_blink, Some(false));
+    }
+
+    #[test]
+    fn resolves_ghostty_cursor_defaults_without_erasing_nullable_blink_semantics() {
+        let absent = resolve_ghostty_application_defaults(parse_ghostty_defaults(""));
+        assert_eq!(absent.cursor_style, Some(CursorShape::Block));
+        assert_eq!(absent.cursor_blink, None);
+
+        for (value, expected) in [("true", true), ("false", false)] {
+            let explicit = resolve_ghostty_application_defaults(parse_ghostty_defaults(&format!(
+                "cursor-style-blink = {value}\n"
+            )));
+            assert_eq!(explicit.cursor_blink, Some(expected));
+        }
     }
 
     #[test]
@@ -1945,7 +1962,7 @@ mod tests {
     }
 
     #[test]
-    fn omitted_ghostty_cursor_blink_resolves_to_blinking() {
+    fn omitted_ghostty_cursor_blink_remains_unspecified() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
         let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
@@ -1966,7 +1983,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
 
         assert_eq!(config.terminal_defaults.cursor_style, Some(CursorShape::Bar));
-        assert_eq!(config.terminal_defaults.cursor_blink, Some(true));
+        assert_eq!(config.terminal_defaults.cursor_blink, None);
+        assert_eq!(config.cursor_blink, None);
     }
 
     #[test]

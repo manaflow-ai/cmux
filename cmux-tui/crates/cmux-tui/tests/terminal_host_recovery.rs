@@ -664,10 +664,10 @@ fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
     let surface = created["surface"].as_u64().unwrap();
     let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
     assert!(record.supports_set_defaults);
-    let builtin_cursor = ghostty_vt::Terminal::new(1, 1, 0, ghostty_vt::Callbacks::default())
-        .unwrap()
-        .effective_cursor_visual()
-        .unwrap();
+    // Ghostty's application default differs intentionally from the raw VT
+    // library default: an absent cursor-style-blink starts blinking while
+    // remaining controllable by DEC mode 12.
+    let builtin_cursor = (ghostty_vt::CursorShape::Block, true);
 
     request(
         &harness.socket,

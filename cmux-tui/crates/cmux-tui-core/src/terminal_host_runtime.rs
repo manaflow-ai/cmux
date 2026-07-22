@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 use serde::{Deserialize, Serialize};
 
-use crate::surface::{DefaultColors, SurfaceOptions};
+use crate::surface::{DefaultColors, SurfaceOptions, replace_ghostty_cursor_defaults};
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
     HostHello, HostIncarnation, HostReady, TerminalId,
@@ -1520,7 +1520,7 @@ mod unix {
             let mut term = self.term.lock().unwrap();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
+            replace_ghostty_cursor_defaults(&mut term, colors);
             let resolved = term.color_overrides();
             // An empty coupled Output is an ordered state transition already
             // understood by every v2 consumer; no standalone Colors frame can
@@ -2130,10 +2130,7 @@ mod unix {
             launch.default_colors.cursor,
         );
         term.set_default_palette(&launch.default_colors.palette);
-        term.replace_default_cursor(
-            launch.default_colors.cursor_style,
-            launch.default_colors.cursor_blink,
-        );
+        replace_ghostty_cursor_defaults(&mut term, launch.default_colors);
         let initial_colors = term.color_overrides();
         let shared = Arc::new(HostShared {
             terminal_id: bootstrapped.terminal_id,
@@ -2862,6 +2859,15 @@ mod unix {
                     .unwrap(),
                 default_colors,
                 "live SetDefaults must preserve the complete frontend defaults"
+            );
+
+            default_colors.cursor_blink = None;
+            assert_eq!(
+                decode_default_colors_payload(&encode_default_colors_payload(default_colors))
+                    .unwrap()
+                    .cursor_blink,
+                None,
+                "an absent Ghostty blink setting must survive the host boundary"
             );
         }
 
