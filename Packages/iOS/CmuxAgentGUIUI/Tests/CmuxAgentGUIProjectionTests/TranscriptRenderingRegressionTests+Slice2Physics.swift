@@ -102,19 +102,25 @@ extension TranscriptRenderingRegressionTests {
         #expect(controller.pillHost?.view.alpha == 0)
     }
 
-    @Test func scrollToBottomPillUsesMatchedNearAndFarChoreographyAndLandsExactly() throws {
+    @Test func scrollToBottomPillUsesSnapshotChoreographyWithDistanceAwareTravelAndLandsExactly() throws {
         let mounted = Self.makeSlice2PhysicsMount()
         defer { mounted.window.isHidden = true }
         let controller = mounted.container.transcript
-        let nearDistance = controller.collectionView.bounds.height
+        let nearDistance = controller.collectionView.bounds.height * 1.25
         controller.collectionView.setContentOffset(
             CGPoint(x: 0, y: controller.bottomRestOffset.y - nearDistance),
             animated: false
         )
         controller.scrollViewDidScroll(controller.collectionView)
+        let actualNearDistance = controller.distanceFromBottom
+        #expect(actualNearDistance < controller.collectionView.bounds.height * 1.75)
 
         try #require(controller.pillHost).rootView.action()
-        #expect(abs((controller.scrollAnimator?.duration ?? 0) - 0.45) < 0.001)
+        let nearSnapshot = try #require(controller.jumpSnapshotView)
+        #expect(nearSnapshot.superview === controller.collectionViewportView)
+        #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
+        #expect(abs(nearSnapshot.transform.ty + actualNearDistance) < 0.001)
+        #expect(abs((controller.scrollAnimator?.duration ?? 0) - 0.4) < 0.001)
         Self.pumpLiveRunLoop(duration: 0.55)
         #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
 
@@ -122,8 +128,14 @@ extension TranscriptRenderingRegressionTests {
         controller.collectionView.setContentOffset(CGPoint(x: 0, y: historyTop), animated: false)
         controller.scrollViewDidScroll(controller.collectionView)
         #expect(controller.distanceFromBottom >= controller.collectionView.bounds.height * 1.75)
+        let farTravel = max(1, controller.collectionViewportView.bounds.height)
 
         try #require(controller.pillHost).rootView.action()
+        let farSnapshot = try #require(controller.jumpSnapshotView)
+        #expect(farSnapshot.superview === controller.collectionViewportView)
+        #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
+        #expect(abs(farSnapshot.transform.ty + farTravel) < 0.001)
+        #expect(abs((controller.scrollAnimator?.duration ?? 0) - 0.4) < 0.001)
         Self.pumpLiveRunLoop(duration: 0.5)
         #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
     }

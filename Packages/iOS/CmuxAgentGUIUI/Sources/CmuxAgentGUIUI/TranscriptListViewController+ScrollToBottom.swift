@@ -13,16 +13,15 @@ extension TranscriptListViewController {
             updatePillVisibility()
             return
         }
-        if distance < collectionView.bounds.height * 1.75 {
-            animateRealScrollToBottom(duration: 0.45)
-            return
-        }
         collectionView.layoutIfNeeded()
         guard let oldSnapshot = collectionMotionView.snapshotView(afterScreenUpdates: false) else {
             animateRealScrollToBottom(duration: 0.4)
             return
         }
-        let travel = max(1, collectionViewportView.bounds.height)
+        let viewportTravel = max(1, collectionViewportView.bounds.height)
+        let travel = distance < collectionView.bounds.height * 1.75
+            ? distance
+            : viewportTravel
         oldSnapshot.frame = collectionViewportView.bounds
         oldSnapshot.isUserInteractionEnabled = false
         collectionViewportView.addSubview(oldSnapshot)
