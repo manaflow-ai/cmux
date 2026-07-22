@@ -103,7 +103,7 @@ struct SessionIndexJSONLReaderTests {
     }
 
     @Test
-    func antigravitySearchPagesPastTailCapAndPreviewDisclosesOmittedHistory() async throws {
+    func antigravityShowMoreAndSearchPagePastTailCap() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-vault-antigravity-pages-\(UUID().uuidString)", isDirectory: true)
         let url = root.appendingPathComponent("history.jsonl")
@@ -129,6 +129,13 @@ struct SessionIndexJSONLReaderTests {
             offset: 0,
             limit: SessionIndexStore.perAgentLimit
         )
+        let expandedEntries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 100
+        )
         let entries = await SessionIndexStore.loadRegisteredAgentEntries(
             registration: registration,
             needle: "needle-old",
@@ -151,8 +158,45 @@ struct SessionIndexJSONLReaderTests {
         let turns = try await SessionTranscriptLoader.load(entry: previewEntry)
 
         #expect(initialEntries.map(\.sessionId) == ["active-session"])
+        #expect(Set(expandedEntries.map(\.sessionId)) == ["active-session", "old-session"])
+        let initialSection = IndexSection(
+            key: .agent(.registered(RegisteredSessionAgent(registration: registration))),
+            title: "Antigravity",
+            icon: .agent(.registered(RegisteredSessionAgent(registration: registration))),
+            entries: initialEntries
+        )
+        #expect(initialSection.shouldOfferShowMore(rowLimit: 5))
         #expect(entries.map(\.sessionId) == ["old-session"])
         #expect(turns.first?.role == .event)
         #expect(turns.last?.text == "latest prompt")
+    }
+
+    @Test
+    func antigravityReverseScanKeepsNewestMetadataWhenTimestampsAreMissing() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-antigravity-equal-dates-\(UUID().uuidString)", isDirectory: true)
+        let url = root.appendingPathComponent("history.jsonl")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let history = """
+        {"conversationId":"same-session","display":"older title","cwd":"/tmp/older"}
+        {"conversationId":"same-session","display":"newest title","cwd":"/tmp/newest"}
+
+        """
+        try Data(history.utf8).write(to: url)
+
+        var registration = CmuxVaultAgentRegistration.builtInAntigravity
+        registration.sessionDirectory = root.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: SessionIndexStore.perAgentLimit
+        )
+
+        #expect(entries.count == 1)
+        #expect(entries.first?.title == "newest title")
+        #expect(entries.first?.cwd == "/tmp/newest")
     }
 }

@@ -516,7 +516,7 @@ extension SessionIndexStore {
                     fileURL: historyURL
                 )
                 if let existing = latestBySessionID[sessionId] {
-                    if metadata.modified >= existing.modified {
+                    if metadata.modified > existing.modified {
                         latestBySessionID[sessionId] = metadata
                     }
                 } else {

@@ -164,16 +164,13 @@ struct IndexSection: Identifiable, Equatable {
 
     /// Whether to render the "Show more" affordance for this section.
     ///
-    /// Directory sections are derived from `loadInitialEntries()`'s global, per-agent-capped
-    /// pool, so their in-memory `entries` are only a preview that can under-report
-    /// a folder's true on-disk session count (issue #6302). "Show more" is the
-    /// only trigger for the complete folder-scoped query (`loadDirectorySnapshot`),
-    /// so always offer it for directory sections; otherwise a folder that
-    /// contributed ≤ `rowLimit` sessions to the capped pool would have the rest of
-    /// its sessions permanently unreachable from the UI. Agent sections aren't
-    /// folder-truncated this way, so they keep the simple count threshold.
+    /// Directory sections can under-report sessions because the initial pool is capped
+    /// per agent (issue #6302). Antigravity's initial history read is also deliberately
+    /// capped to one tail page. Keep "Show more" available for both so the explicit,
+    /// off-main query can page beyond either bounded snapshot.
     func shouldOfferShowMore(rowLimit: Int) -> Bool {
-        key.isDirectory || entries.count > rowLimit
+        let isAntigravity = entries.first?.agent.rawValue == "antigravity"
+        return key.isDirectory || isAntigravity || entries.count > rowLimit
     }
 }
 
