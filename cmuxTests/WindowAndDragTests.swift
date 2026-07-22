@@ -3109,17 +3109,16 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(panel.standardWindowButton(.miniaturizeButton)?.alphaValue, 1)
         XCTAssertEqual(panel.standardWindowButton(.zoomButton)?.alphaValue, 1)
         XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isEnabled == true)
-        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == true)
+        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == false)
         XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
-        panel.standardWindowButton(.miniaturizeButton)?.performClick(nil)
-        XCTAssertEqual(minimizedDockId, dock.id)
+        XCTAssertNil(minimizedDockId)
         XCTAssertFalse(panel.isMiniaturized)
         XCTAssertFalse(panel.isOpaque)
         XCTAssertTrue(panel.hasShadow)
         XCTAssertTrue(panel.usesWorkspaceFloatingDockGlassBackdrop)
-        XCTAssertTrue(
+        XCTAssertFalse(
             panel.isMovable,
-            "Floating panels must be movable before mouse-down so NSWindow.performDrag can hand the gesture to Window Server"
+            "Floating panels must leave mouse-drag ownership to their content unless the explicit titlebar handle owns the sequence"
         )
         XCTAssertFalse(panel.isMovableByWindowBackground)
         XCTAssertFalse(panel.contentView?.mouseDownCanMoveWindow ?? true)
