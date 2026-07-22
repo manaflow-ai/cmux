@@ -234,7 +234,7 @@ struct TaskComposerSheet: View {
                     actionTitle: primaryActionTitle,
                     progressTitle: primaryActionProgressTitle,
                     caption: primaryActionCaption,
-                    failureTitle: failureTitleStyle.title(templateName: selectedTemplate?.name),
+                    failureTitle: failureTitleStyle.title,
                     failureText: failureText,
                     completedOperationRecovery: blockingCompletedOperationRecovery,
                     action: startSubmission,

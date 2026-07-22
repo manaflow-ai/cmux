@@ -9997,23 +9997,6 @@
         }
       }
     },
-    "mobile.taskComposer.failure.titleFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn’t start %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@を開始できませんでした"
-          }
-        }
-      }
-    },
     "mobile.taskComposer.failure.title.statusUnconfirmed": {
       "extractionState": "manual",
       "localizations": {

@@ -48,7 +48,10 @@ struct TaskComposerPromptCard: View {
                 .accessibilityLabel(L10n.string("mobile.taskComposer.prompt", defaultValue: "Prompt"))
                 .accessibilityHint(placeholder)
                 .accessibilityIdentifier("MobileTaskComposerPrompt")
-                .onSubmit(endEditing)
+                .taskComposerEditingCompletion(
+                    isFocused: isFocused,
+                    endEditing: endEditing
+                )
 
         }
         .padding(14)
@@ -70,11 +73,6 @@ struct TaskComposerPromptCard: View {
             accessibilityReduceMotion ? nil : .easeOut(duration: 0.18),
             value: isFocused
         )
-        .onChange(of: isFocused) { wasFocused, isFocused in
-            if wasFocused && !isFocused {
-                endEditing()
-            }
-        }
     }
 
     private var promptLineLimit: ClosedRange<Int> {

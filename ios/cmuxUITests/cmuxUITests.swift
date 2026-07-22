@@ -1235,7 +1235,7 @@ final class cmuxUITests: XCTestCase {
 
         let failureTitle = app.staticTexts["MobileTaskComposerFailureTitle"]
         XCTAssertTrue(failureTitle.waitForExistence(timeout: 3))
-        XCTAssertEqual(failureTitle.label, "Couldn’t start Claude")
+        XCTAssertEqual(failureTitle.label, "Couldn’t start this task")
 
         let failure = app.staticTexts["MobileTaskComposerFailure"]
         XCTAssertTrue(failure.waitForExistence(timeout: 3))

@@ -44,17 +44,15 @@ struct TaskComposerWorkspaceNameField: View {
                     )
                 )
                 .accessibilityIdentifier("MobileTaskComposerWorkspaceName")
-                .onSubmit(endEditing)
+                .taskComposerEditingCompletion(
+                    isFocused: isFocused,
+                    endEditing: endEditing
+                )
             }
         }
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .onChange(of: isFocused) { wasFocused, isFocused in
-            if wasFocused && !isFocused {
-                endEditing()
-            }
-        }
     }
 }
 #endif

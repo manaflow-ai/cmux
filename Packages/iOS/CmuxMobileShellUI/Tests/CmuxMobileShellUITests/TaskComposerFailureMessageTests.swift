@@ -86,9 +86,9 @@ import Testing
     }
 
     @Test func failureTitlesDistinguishRejectedAcceptedAndUnconfirmedRequests() {
-        #expect(TaskComposerFailureTitleStyle.launchFailed.title(templateName: "Claude") == "Couldn’t start Claude")
-        #expect(TaskComposerFailureTitleStyle.taskAccepted.title(templateName: "Claude") == "Task already accepted")
-        #expect(TaskComposerFailureTitleStyle.statusUnconfirmed.title(templateName: "Claude") == "Task status unconfirmed")
+        #expect(TaskComposerFailureTitleStyle.launchFailed.title == "Couldn’t start this task")
+        #expect(TaskComposerFailureTitleStyle.taskAccepted.title == "Task already accepted")
+        #expect(TaskComposerFailureTitleStyle.statusUnconfirmed.title == "Task status unconfirmed")
         #expect(
             TaskComposerFailureTitleStyle(failure: .alreadyCompleted(hostDisplayName: nil)) == .taskAccepted
         )
