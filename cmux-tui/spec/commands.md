@@ -891,7 +891,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new workspace with one screen, one pane, and one PTY tab, then makes the new workspace active. If `name` is absent, the workspace name is the next 1-based workspace count at creation time. Initial dimensions follow [Sizing](#sizing).
+Creates a new workspace with one screen, one pane, and one PTY tab, then makes the new workspace active. If `name` is absent, the workspace name is the zero-based workspace count at creation time. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -950,7 +950,7 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `name` | `string` | default null | Defaults to the next 1-based workspace count |
+| `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
 | `key` | `string` | default generated UUID | Must be non-empty and never previously used |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
