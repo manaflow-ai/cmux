@@ -61,24 +61,58 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.status == 0)
         let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
         let params = try #require(request["params"] as? [String: Any])
-        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
         #expect(params["surface_id"] as? String == surfaceID.uuidString)
+        #expect(params["workspace_id"] == nil)
+        #expect(params["window_id"] == nil)
+    }
+
+    @Test func paletteDefaultsToTheCallerWorkspaceWhenNoSurfaceExists() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-palworkspace-\(UUID().uuidString.prefix(8)).sock"
+        let workspaceID = UUID()
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"count":0,"commands":[]}}"#
+        )
+        defer { responder.stop() }
+        var environment = commandPaletteCLIEnvironment()
+        environment["CMUX_WORKSPACE_ID"] = workspaceID.uuidString
+        environment["CMUX_WINDOW_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "palette", "list"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["surface_id"] == nil)
         #expect(params["window_id"] == nil)
     }
 
     @Test func paletteRunForwardsTheStableActionID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-palrun-\(UUID().uuidString.prefix(8)).sock"
+        let surfaceID = UUID()
         let responder = try UnixSocketResponder(
             path: socketPath,
             response: #"{"ok":true,"result":{"command":{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":null,"keywords":[],"dismiss_on_run":true}}}"#
         )
         defer { responder.stop() }
+        var environment = commandPaletteCLIEnvironment()
+        environment["CMUX_WORKSPACE_ID"] = UUID().uuidString
+        environment["CMUX_SURFACE_ID"] = surfaceID.uuidString
+        environment["CMUX_WINDOW_ID"] = UUID().uuidString
 
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["--socket", socketPath, "palette", "run", "palette.demo"],
-            environment: commandPaletteCLIEnvironment(),
+            environment: environment,
             timeout: 5
         )
 
@@ -89,6 +123,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(request["method"] as? String == "palette.run")
         let params = try #require(request["params"] as? [String: Any])
         #expect(params["command_id"] as? String == "palette.demo")
+        #expect(params["surface_id"] as? String == surfaceID.uuidString)
+        #expect(params["workspace_id"] == nil)
+        #expect(params["window_id"] == nil)
     }
 
     @Test func paletteRunReportsQueuedOutcomeTruthfully() throws {
@@ -302,8 +339,8 @@ extension CMUXCLIErrorOutputRegressionTests {
         let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
         #expect(request["method"] as? String == "vscode.open")
         let params = try #require(request["params"] as? [String: Any])
-        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
         #expect(params["surface_id"] as? String == surfaceID.uuidString)
+        #expect(params["workspace_id"] == nil)
         #expect(params["window_id"] == nil)
     }
 
