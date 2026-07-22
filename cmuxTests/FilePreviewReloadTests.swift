@@ -44,23 +44,32 @@ struct FilePreviewReloadTests {
         #expect(!panel.isDirty)
     }
 
-    @Test("File preview change detection ignores unrelated sibling writes")
-    func fileStateTracksOnlyPreviewPath() throws {
+    @Test("Observed sibling changes do not reload a file preview")
+    func observedSiblingChangeDoesNotReloadPreview() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appending(path: "cmux-file-preview-state-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let fileURL = directoryURL.appending(path: "preview.txt")
-        let siblingURL = directoryURL.appending(path: "sibling.txt")
-        try "before\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        let originalState = FilePreviewFileState.capture(path: fileURL.path)
+        let fileURL = directoryURL.appending(path: "preview.bin")
+        let siblingURL = directoryURL.appending(path: "sibling.bin")
+        try Data([0x00]).write(to: fileURL)
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        let initialRevision = panel.previewRevision
 
-        try "sibling\n".write(to: siblingURL, atomically: true, encoding: .utf8)
-        #expect(FilePreviewFileState.capture(path: fileURL.path) == originalState)
+        try Data([0x01]).write(to: siblingURL)
+        #expect(panel.handleObservedFileChange() == nil)
+        #expect(panel.previewRevision == initialRevision)
 
-        try "after with a different size\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        #expect(FilePreviewFileState.capture(path: fileURL.path) != originalState)
+        try Data([0x02, 0x03]).write(to: fileURL)
+        let reloadTask = try #require(panel.handleObservedFileChange())
+        await reloadTask.value
+        #expect(panel.previewRevision == initialRevision + 1)
     }
 
     @Test("The manual refresh path reloads a text preview")
