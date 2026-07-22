@@ -198,6 +198,7 @@ dependencies = [
  "cmux-tui-core",
  "cmux-tui-machine-protocol",
  "crossterm",
+ "getrandom 0.3.4",
  "ghostty-vt",
  "libc",
  "ratatui",

@@ -9,6 +9,7 @@ pub(crate) mod input;
 pub mod omnibar;
 mod overlay;
 pub(crate) mod pane;
+mod rail;
 mod scrollbar;
 mod sidebar;
 pub(crate) mod terminal_grid;
@@ -29,6 +30,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     }
 
     app.hits.clear();
+    if app.machine_sidebar_width > 0 {
+        sidebar::draw_machines(app, frame);
+    }
     if app.sidebar_width > 0 {
         sidebar::draw(app, frame);
     }
@@ -56,7 +60,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
 fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let status_y = area.height - 1;
-    let bar_x = app.sidebar_width.min(area.width);
+    let bar_x = app.total_sidebar_width().min(area.width);
     let chrome = app.chrome;
     let base = Style::default().bg(chrome.status_bg).fg(chrome.status_fg);
     for x in bar_x..area.width {

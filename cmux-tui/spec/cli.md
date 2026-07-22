@@ -2,6 +2,29 @@
 
 The generated CLI is `cmux-tui <verb> ...`. The current checked-in binary also has TUI server modes; this file specifies the future generated command verbs that map 1:1 to `commands.md`.
 
+## Process Modes
+
+`relay` is an implemented hand-written process mode, not a generated protocol command:
+
+```text
+cmux-tui relay [--session <name>] [--socket <path>]
+```
+
+It resolves the target socket with the normal server-mode arguments, with `--socket` taking precedence, and copies raw protocol bytes between that socket and stdio. It produces no human output on stdout. Machine connectors use `ssh -T host cmux-tui relay --session main` to carry a remote session without nesting a TUI. See [Transport Contract](transports.md#relay-stdio).
+
+Dynamic machine providers are implemented TUI startup modes:
+
+```text
+cmux-tui --machine-provider <unix-socket>
+cmux-tui --machine-provider-command <program> [arg ...] --
+cmux-tui --cloud [--cloud-host <host>] [--cloud-user <user>]
+                   [--cloud-port <port>] [--cloud-identity <path>]
+```
+
+Exactly one provider mode may be active. The direct command's terminating `--` is mandatory; every preceding value is a literal argv element, and the client appends `control` or `stream` without a shell. Cloud override flags imply `--cloud`, take precedence over `machine_provider.cloud` config values, and default the host to `cmux.cloud`. An explicit Unix-socket or command mode overrides an enabled cloud config. Provider modes reject static `machines`, attach/server flags, `--headless`, and `--term` instead of silently ignoring them.
+
+The cloud transport invokes OpenSSH with exact remote commands `cmux provider control` and `cmux provider stream`. Provider bearers are generated client-side per connection generation and never carried in argv or environment variables. See [Machine Provider Contract](machine-provider.md#implemented-v1).
+
 ## Global Conventions
 
 ### Socket Resolution

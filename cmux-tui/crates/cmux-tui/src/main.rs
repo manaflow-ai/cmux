@@ -13,17 +13,33 @@ mod config;
 mod host_colors;
 mod keys;
 mod localization;
+mod machine;
+mod machine_provider_client;
+#[cfg(unix)]
+mod machine_provider_runtime;
+mod machine_runtime;
 mod plugin_manager;
 mod pty_input;
 mod session;
 mod sidebar_files;
 mod ui;
 
+use std::ffi::OsString;
+use std::io::{self, IsTerminal};
+use std::net::Shutdown;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use cmux_tui_core::{Mux, SurfaceOptions};
+use machine::{MachineActionResult, MachineController, MachineRequest, MachineUiState};
+#[cfg(unix)]
+use machine_provider_client::{
+    CommandProviderConnector, MachineProviderConnector, SshProviderConnector, UnixProviderConnector,
+};
+#[cfg(unix)]
+use machine_provider_runtime::ProviderMachineRuntime;
+use machine_runtime::MachineRuntime;
 use session::{RemoteSession, Session};
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -57,12 +73,22 @@ cmux-tui - terminal multiplexer backed by libghostty-vt
 USAGE:
   cmux-tui [OPTIONS]           Start a session (TUI + control socket)
   cmux-tui attach [OPTIONS]    Attach to an existing session's socket
+  cmux-tui relay [OPTIONS]     Relay stdio to a session's socket
   cmux-tui <verb> [OPTIONS]    Run one control-socket command
   cmux-tui plugin <subcommand> Manage sidebar plugins locally
 
 OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
+  --machine-provider <path>
+                     Use a dynamic machine provider Unix socket.
+  --machine-provider-command <program> [arg ...] --
+                     Run a provider command directly, appending control or stream.
+  --cloud            Connect through the built-in cmux.cloud SSH provider.
+  --cloud-host <host>       Cloud SSH host (default: cmux.cloud).
+  --cloud-user <user>       Cloud SSH user.
+  --cloud-port <port>       Cloud SSH port.
+  --cloud-identity <path>   Cloud SSH identity file.
   --headless         Run only the control socket, no TUI.
   --ws <addr>        Also listen for WebSocket clients (default: off).
   --ws-token <token> Allow a static-token bypass for interactive pairing.
@@ -116,10 +142,18 @@ PLUGIN VERBS (local; no socket protocol command)
   plugin remove <name>
 ";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Args {
     attach: bool,
     session: String,
     socket: Option<PathBuf>,
+    machine_provider: Option<PathBuf>,
+    machine_provider_command: Option<Vec<String>>,
+    cloud: bool,
+    cloud_host: Option<String>,
+    cloud_user: Option<String>,
+    cloud_port: Option<u16>,
+    cloud_identity: Option<PathBuf>,
     headless: bool,
     ws: Option<String>,
     ws_token: Option<String>,
@@ -128,10 +162,21 @@ struct Args {
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
+    parse_args_result(args).unwrap_or_else(|message| usage_exit(&message))
+}
+
+fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut out = Args {
         attach: false,
         session: "main".to_string(),
         socket: None,
+        machine_provider: None,
+        machine_provider_command: None,
+        cloud: false,
+        cloud_host: None,
+        cloud_user: None,
+        cloud_port: None,
+        cloud_identity: None,
         headless: false,
         ws: None,
         ws_token: None,
@@ -146,24 +191,77 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--session" => {
-                out.session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"));
+                out.session = args.next().ok_or_else(|| "--session needs a value".to_string())?;
             }
             "--socket" => {
-                out.socket = Some(
-                    args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into(),
+                out.socket =
+                    Some(args.next().ok_or_else(|| "--socket needs a value".to_string())?.into());
+            }
+            "--machine-provider" => {
+                if out.machine_provider.is_some() {
+                    return Err("--machine-provider may be supplied only once".to_string());
+                }
+                out.machine_provider = Some(
+                    args.next()
+                        .ok_or_else(|| "--machine-provider needs a value".to_string())?
+                        .into(),
+                );
+            }
+            "--machine-provider-command" => {
+                if out.machine_provider_command.is_some() {
+                    return Err("--machine-provider-command may be supplied only once".to_string());
+                }
+                let mut command = Vec::new();
+                loop {
+                    match args.next() {
+                        Some(value) if value == "--" => break,
+                        Some(value) => command.push(value),
+                        None => {
+                            return Err(
+                                "--machine-provider-command values must end with --".to_string()
+                            );
+                        }
+                    }
+                }
+                if command.is_empty() {
+                    return Err("--machine-provider-command needs a program".to_string());
+                }
+                out.machine_provider_command = Some(command);
+            }
+            "--cloud" => out.cloud = true,
+            "--cloud-host" => {
+                out.cloud_host =
+                    Some(args.next().ok_or_else(|| "--cloud-host needs a value".to_string())?);
+            }
+            "--cloud-user" => {
+                out.cloud_user =
+                    Some(args.next().ok_or_else(|| "--cloud-user needs a value".to_string())?);
+            }
+            "--cloud-port" => {
+                let value = args.next().ok_or_else(|| "--cloud-port needs a value".to_string())?;
+                let port =
+                    value.parse::<u16>().map_err(|_| format!("invalid --cloud-port {value:?}"))?;
+                if port == 0 {
+                    return Err("--cloud-port cannot be zero".to_string());
+                }
+                out.cloud_port = Some(port);
+            }
+            "--cloud-identity" => {
+                out.cloud_identity = Some(
+                    args.next().ok_or_else(|| "--cloud-identity needs a value".to_string())?.into(),
                 );
             }
             "--headless" => out.headless = true,
             "--ws" => {
-                out.ws = Some(args.next().unwrap_or_else(|| usage_exit("--ws needs a value")));
+                out.ws = Some(args.next().ok_or_else(|| "--ws needs a value".to_string())?);
             }
             "--ws-token" => {
                 out.ws_token =
-                    Some(args.next().unwrap_or_else(|| usage_exit("--ws-token needs a value")));
+                    Some(args.next().ok_or_else(|| "--ws-token needs a value".to_string())?);
             }
             "--ws-insecure-bind" => out.ws_insecure_bind = true,
             "--term" => {
-                out.term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value")));
+                out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
             }
             "-h" | "--help" => {
                 print!("{USAGE}");
@@ -173,10 +271,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
                 println!("cmux-tui {}", version_string());
                 std::process::exit(0);
             }
-            other => usage_exit(&format!("unknown argument {other:?}")),
+            other => return Err(format!("unknown argument {other:?}")),
         }
     }
-    out
+    Ok(out)
 }
 
 fn version_string() -> String {
@@ -196,6 +294,118 @@ fn version_string() -> String {
     }
 }
 
+impl Args {
+    fn cloud_cli_requested(&self) -> bool {
+        self.cloud
+            || self.cloud_host.is_some()
+            || self.cloud_user.is_some()
+            || self.cloud_port.is_some()
+            || self.cloud_identity.is_some()
+    }
+
+    fn provider_cli_requested(&self) -> bool {
+        self.machine_provider.is_some()
+            || self.machine_provider_command.is_some()
+            || self.cloud_cli_requested()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProviderLaunch {
+    Unix(PathBuf),
+    Command(Vec<OsString>),
+    Cloud(CloudLaunch),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CloudLaunch {
+    host: String,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<PathBuf>,
+}
+
+fn resolve_provider_launch(
+    args: &Args,
+    config: &config::Config,
+) -> anyhow::Result<Option<ProviderLaunch>> {
+    let explicit_modes = usize::from(args.machine_provider.is_some())
+        + usize::from(args.machine_provider_command.is_some())
+        + usize::from(args.cloud_cli_requested());
+    if explicit_modes > 1 {
+        anyhow::bail!(
+            "choose only one provider mode: --machine-provider, --machine-provider-command, or --cloud"
+        );
+    }
+
+    let launch = if let Some(socket) = &args.machine_provider {
+        Some(ProviderLaunch::Unix(socket.clone()))
+    } else if let Some(command) = &args.machine_provider_command {
+        Some(ProviderLaunch::Command(command.iter().map(OsString::from).collect()))
+    } else if args.cloud_cli_requested() || config.machine_provider.cloud.enabled {
+        let cloud = &config.machine_provider.cloud;
+        Some(ProviderLaunch::Cloud(CloudLaunch {
+            host: args.cloud_host.clone().unwrap_or_else(|| cloud.host.clone()),
+            user: args.cloud_user.clone().or_else(|| cloud.user.clone()),
+            port: args.cloud_port.or(cloud.port),
+            identity_file: args.cloud_identity.clone().or_else(|| cloud.identity_file.clone()),
+        }))
+    } else {
+        None
+    };
+    if launch.is_some() && !config.machines.is_empty() {
+        anyhow::bail!("a dynamic machine provider cannot be combined with static machines config");
+    }
+    Ok(launch)
+}
+
+#[cfg(unix)]
+fn provider_connector(launch: ProviderLaunch) -> anyhow::Result<Arc<dyn MachineProviderConnector>> {
+    let connector: Arc<dyn MachineProviderConnector> = match launch {
+        ProviderLaunch::Unix(socket) => Arc::new(UnixProviderConnector::generated(socket)),
+        ProviderLaunch::Command(command) => Arc::new(CommandProviderConnector::new(command)?),
+        ProviderLaunch::Cloud(cloud) => Arc::new(SshProviderConnector::cloud(
+            &cloud.host,
+            cloud.user.as_deref(),
+            cloud.port,
+            cloud.identity_file,
+        )?),
+    };
+    Ok(connector)
+}
+
+fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
+    let mut conflicts = Vec::new();
+    if args.attach {
+        conflicts.push("attach");
+    }
+    if args.session != "main" {
+        conflicts.push("--session");
+    }
+    if args.socket.is_some() {
+        conflicts.push("--socket");
+    }
+    if args.headless {
+        conflicts.push("--headless");
+    }
+    if args.ws.is_some() {
+        conflicts.push("--ws");
+    }
+    if args.ws_token.is_some() {
+        conflicts.push("--ws-token");
+    }
+    if args.ws_insecure_bind {
+        conflicts.push("--ws-insecure-bind");
+    }
+    if args.term.is_some() {
+        conflicts.push("--term");
+    }
+    if !conflicts.is_empty() {
+        anyhow::bail!("machine provider mode cannot be combined with {}", conflicts.join(", "));
+    }
+    Ok(())
+}
+
 fn main() {
     install_signal_handlers();
     let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -203,11 +413,36 @@ fn main() {
         cli::print_help(USAGE);
         std::process::exit(0);
     }
+    if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
+        let args = parse_args(raw_args.into_iter().skip(1));
+        if let Err(error) = run_relay(args) {
+            eprintln!("cmux-tui: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if cli::is_cli_invocation(&raw_args) {
         std::process::exit(cli::run(&raw_args, USAGE));
     }
     let args = parse_args(raw_args);
-    let result = if args.attach { run_attach(args) } else { run_server(args) };
+    let provider = resolve_provider_launch(&args, &config::load())
+        .unwrap_or_else(|error| usage_exit(&error.to_string()));
+    if provider.is_some() {
+        validate_provider_process_args(&args)
+            .unwrap_or_else(|error| usage_exit(&error.to_string()));
+    }
+    #[cfg(unix)]
+    let result = match provider {
+        Some(provider) => run_provider_machine_client(args, provider),
+        None if args.attach => run_attach(args),
+        None => run_server(args),
+    };
+    #[cfg(not(unix))]
+    let result = match provider {
+        Some(_) => Err(anyhow::anyhow!("dynamic machine providers require Unix")),
+        None if args.attach => run_attach(args),
+        None => run_server(args),
+    };
     if let Err(e) = result {
         eprintln!("cmux-tui: {e}");
         std::process::exit(1);
@@ -217,8 +452,53 @@ fn main() {
 fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let config = config::load();
+    if config.machine_sidebar.enabled || !config.machines.is_empty() {
+        return run_machine_client(MachineRuntime::new(socket_path, config.machines));
+    }
     let remote = RemoteSession::connect(&socket_path)?;
     run_tui(Session::Remote(remote), args.session)
+}
+
+/// Copy the control protocol byte-for-byte between stdio and a local session.
+///
+/// This is intentionally a transport primitive rather than an SSH feature.
+/// `ssh -T machine cmux-tui relay` is one consumer; cloud providers can run
+/// the same command through their authenticated process transport.
+fn run_relay(args: Args) -> anyhow::Result<()> {
+    if args.provider_cli_requested() {
+        anyhow::bail!("relay cannot also select a machine provider");
+    }
+    let socket_path =
+        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let stream = cmux_tui_core::platform::transport::connect(&socket_path).map_err(|error| {
+        anyhow::anyhow!("cannot connect relay to session socket {}: {error}", socket_path.display())
+    })?;
+    let mut reader = stream.try_clone_box()?;
+    let mut writer = stream;
+
+    // Provider APIs commonly allocate a PTY. Raw mode prevents echo, newline
+    // rewriting, and signal processing from corrupting JSONL protocol bytes.
+    let raw_stdio = io::stdin().is_terminal();
+    if raw_stdio {
+        crossterm::terminal::enable_raw_mode()?;
+    }
+
+    let input = std::thread::Builder::new().name("relay-input".into()).spawn(move || {
+        let result = io::copy(&mut io::stdin().lock(), &mut writer);
+        let _ = writer.shutdown(Shutdown::Write);
+        result
+    })?;
+    let output_result = io::copy(&mut reader, &mut io::stdout().lock());
+    let _ = reader.shutdown(Shutdown::Read);
+    if raw_stdio {
+        let _ = crossterm::terminal::disable_raw_mode();
+    }
+    output_result?;
+    if input.is_finished() {
+        input.join().map_err(|_| anyhow::anyhow!("relay input thread panicked"))??;
+    }
+    Ok(())
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
@@ -260,8 +540,12 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     }
     cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
+    let machine_runtime = (config.machine_sidebar.enabled || !config.machines.is_empty())
+        .then(|| MachineRuntime::new(socket_path.clone(), config.machines.clone()));
     let result = if args.headless {
         run_headless(&mux, &socket_path)
+    } else if let Some(runtime) = machine_runtime {
+        run_machine_client(runtime)
     } else {
         run_tui(Session::Local(mux.clone()), args.session)
     };
@@ -272,6 +556,96 @@ fn run_server(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
+    match run_tui_once(session, session_label, None, None)? {
+        app::RunOutcome::Quit => Ok(()),
+        app::RunOutcome::Machine(_) => {
+            anyhow::bail!("machine request returned without a machine runtime")
+        }
+    }
+}
+
+fn run_machine_client(mut runtime: MachineRuntime) -> anyhow::Result<()> {
+    let active = runtime.initial_key();
+    let session = runtime.connect(active)?;
+    let label = runtime.name(active).unwrap_or("machine").to_string();
+    let machine_ui = MachineUiState::new(runtime.snapshot(active));
+    let controller: Box<dyn MachineController> =
+        Box::new(StaticMachineController { runtime, active });
+    match run_tui_once(session, label, Some(machine_ui), Some(controller))? {
+        app::RunOutcome::Quit => Ok(()),
+        app::RunOutcome::Machine(_) => {
+            anyhow::bail!("machine request escaped its in-place controller")
+        }
+    }
+}
+
+struct StaticMachineController {
+    runtime: MachineRuntime,
+    active: machine::MachineKey,
+}
+
+impl MachineController for StaticMachineController {
+    fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+        match request {
+            MachineRequest::Switch(machine) => self.switch(machine),
+            MachineRequest::Connect(target) => {
+                let machine = self.runtime.connect_machine(&target)?;
+                self.switch(machine)
+            }
+            MachineRequest::Create => Ok(self.notice("This machine catalog cannot create VMs")),
+            MachineRequest::SelectProviderScope(_)
+            | MachineRequest::InvokeProviderAction { .. }
+            | MachineRequest::ReconnectProvider => {
+                Ok(self.notice("This machine catalog has no provider actions"))
+            }
+            MachineRequest::CreateManagedIsolatedWorkspace(_)
+            | MachineRequest::CreateManagedHostWorkspace(_) => {
+                Ok(self.notice(localization::catalog().sidebar.managed_workspace_unsupported))
+            }
+        }
+    }
+}
+
+impl StaticMachineController {
+    fn switch(&mut self, machine: machine::MachineKey) -> anyhow::Result<MachineActionResult> {
+        let session = self.runtime.connect(machine)?;
+        let label = self.runtime.name(machine).unwrap_or("machine").to_string();
+        self.active = machine;
+        let ui = MachineUiState::new(self.runtime.snapshot(machine));
+        Ok(MachineActionResult::replace(ui, session, label))
+    }
+
+    fn notice(&self, notice: impl Into<String>) -> MachineActionResult {
+        let mut ui = MachineUiState::new(self.runtime.snapshot(self.active));
+        ui.notice = Some(notice.into());
+        MachineActionResult::ui(ui)
+    }
+}
+
+#[cfg(unix)]
+fn run_provider_machine_client(args: Args, launch: ProviderLaunch) -> anyhow::Result<()> {
+    validate_provider_process_args(&args)?;
+    let mut runtime = ProviderMachineRuntime::connect_with(provider_connector(launch)?)?;
+
+    let (session, label, machine_ui) = match runtime.open_selected() {
+        Ok(opened) => opened,
+        Err(error) => runtime.placeholder(format!("Could not connect: {error}")),
+    };
+    let controller: Box<dyn MachineController> = Box::new(runtime);
+    match run_tui_once(session, label, Some(machine_ui), Some(controller))? {
+        app::RunOutcome::Quit => Ok(()),
+        app::RunOutcome::Machine(_) => {
+            anyhow::bail!("provider request escaped its in-place controller")
+        }
+    }
+}
+
+fn run_tui_once(
+    session: Session,
+    session_label: String,
+    machine_ui: Option<MachineUiState>,
+    machine_controller: Option<Box<dyn MachineController>>,
+) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
     let config = config::load();
     let mut colors = config.terminal_defaults;
@@ -288,7 +662,7 @@ fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
         eprintln!("cmux-tui: failed to set default colors: {err}");
     }
     raw_result?;
-    app::run(session, session_label, colors)
+    app::run_with_machine_updates(session, session_label, colors, machine_ui, machine_controller)
 }
 
 fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {
@@ -313,4 +687,181 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
 fn usage_exit(msg: &str) -> ! {
     eprintln!("cmux-tui: {msg}\n\n{USAGE}");
     std::process::exit(2);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Args {
+        parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn direct_provider_command_preserves_literal_argv_until_terminator() {
+        let parsed = args(&[
+            "--machine-provider-command",
+            "/opt/provider",
+            "--literal",
+            "$(touch nope)",
+            "--",
+            "--term",
+            "xterm-direct",
+        ]);
+
+        assert_eq!(
+            parsed.machine_provider_command,
+            Some(vec!["/opt/provider".into(), "--literal".into(), "$(touch nope)".into(),])
+        );
+        assert_eq!(parsed.term.as_deref(), Some("xterm-direct"));
+        assert!(
+            parse_args_result(["--machine-provider-command".into(), "provider".into()]).is_err()
+        );
+        assert!(parse_args_result(["--machine-provider-command".into(), "--".into()]).is_err());
+    }
+
+    #[test]
+    fn cloud_cli_parses_overrides_and_implies_cloud_mode() {
+        let parsed = args(&[
+            "--cloud-host",
+            "edge.example.com",
+            "--cloud-user",
+            "lawrence",
+            "--cloud-port",
+            "2200",
+            "--cloud-identity",
+            "/tmp/cloud-key",
+        ]);
+
+        assert!(parsed.cloud_cli_requested());
+        assert_eq!(parsed.cloud_host.as_deref(), Some("edge.example.com"));
+        assert_eq!(parsed.cloud_user.as_deref(), Some("lawrence"));
+        assert_eq!(parsed.cloud_port, Some(2200));
+        assert_eq!(parsed.cloud_identity, Some(PathBuf::from("/tmp/cloud-key")));
+        assert!(parse_args_result(["--cloud-port".into(), "0".into()]).is_err());
+    }
+
+    #[test]
+    fn provider_resolution_keeps_defaults_off_and_applies_cli_over_config() {
+        let mut config = config::Config::default();
+        assert_eq!(resolve_provider_launch(&args(&[]), &config).unwrap(), None);
+
+        config.machine_provider.cloud.enabled = true;
+        config.machine_provider.cloud.host = "configured.example.com".into();
+        config.machine_provider.cloud.user = Some("configured-user".into());
+        config.machine_provider.cloud.port = Some(2222);
+        config.machine_provider.cloud.identity_file = Some(PathBuf::from("/configured-key"));
+        assert_eq!(
+            resolve_provider_launch(&args(&[]), &config).unwrap(),
+            Some(ProviderLaunch::Cloud(CloudLaunch {
+                host: "configured.example.com".into(),
+                user: Some("configured-user".into()),
+                port: Some(2222),
+                identity_file: Some(PathBuf::from("/configured-key")),
+            }))
+        );
+        assert_eq!(
+            resolve_provider_launch(
+                &args(&["--cloud", "--cloud-host", "cli.example.com", "--cloud-port", "2200",]),
+                &config,
+            )
+            .unwrap(),
+            Some(ProviderLaunch::Cloud(CloudLaunch {
+                host: "cli.example.com".into(),
+                user: Some("configured-user".into()),
+                port: Some(2200),
+                identity_file: Some(PathBuf::from("/configured-key")),
+            }))
+        );
+
+        assert_eq!(
+            resolve_provider_launch(&args(&["--machine-provider", "/tmp/provider.sock"]), &config)
+                .unwrap(),
+            Some(ProviderLaunch::Unix(PathBuf::from("/tmp/provider.sock")))
+        );
+
+        assert_eq!(
+            resolve_provider_launch(
+                &args(&["--machine-provider-command", "/opt/provider", "--profile", "dev", "--",]),
+                &config,
+            )
+            .unwrap(),
+            Some(ProviderLaunch::Command(vec![
+                OsString::from("/opt/provider"),
+                OsString::from("--profile"),
+                OsString::from("dev"),
+            ]))
+        );
+    }
+
+    #[test]
+    fn provider_resolution_rejects_incompatible_explicit_modes() {
+        let mut config = config::Config::default();
+        let parsed = args(&["--machine-provider", "/tmp/provider.sock", "--cloud"]);
+        let error = resolve_provider_launch(&parsed, &config).unwrap_err().to_string();
+        assert!(error.contains("choose only one provider mode"), "{error}");
+
+        let parsed = args(&[
+            "--machine-provider-command",
+            "provider",
+            "--",
+            "--cloud-host",
+            "edge.example.com",
+        ]);
+        let error = resolve_provider_launch(&parsed, &config).unwrap_err().to_string();
+        assert!(error.contains("choose only one provider mode"), "{error}");
+
+        config.machines.push(config::MachineConfig {
+            id: "local-agents".into(),
+            name: "Local agents".into(),
+            subtitle: String::new(),
+            target: config::MachineTargetConfig::Unix {
+                socket: PathBuf::from("/tmp/local-agents.sock"),
+            },
+        });
+        let error = resolve_provider_launch(&args(&["--cloud"]), &config).unwrap_err().to_string();
+        assert!(error.contains("cannot be combined with static machines"), "{error}");
+    }
+
+    #[test]
+    fn startup_help_lists_all_provider_entrypoints() {
+        assert!(USAGE.contains("--machine-provider <path>"));
+        assert!(USAGE.contains("--machine-provider-command <program> [arg ...] --"));
+        assert!(USAGE.contains("--cloud"));
+        assert!(USAGE.contains("--cloud-identity"));
+    }
+
+    #[test]
+    fn provider_mode_rejects_server_and_attach_options_before_connecting() {
+        let parsed = args(&[
+            "attach",
+            "--cloud",
+            "--session",
+            "agents",
+            "--socket",
+            "/tmp/session.sock",
+            "--headless",
+            "--ws",
+            "127.0.0.1:7681",
+            "--ws-token",
+            "secret",
+            "--ws-insecure-bind",
+            "--term",
+            "xterm-direct",
+        ]);
+
+        let error = validate_provider_process_args(&parsed).unwrap_err().to_string();
+        for conflict in [
+            "attach",
+            "--session",
+            "--socket",
+            "--headless",
+            "--ws",
+            "--ws-token",
+            "--ws-insecure-bind",
+            "--term",
+        ] {
+            assert!(error.contains(conflict), "missing {conflict:?} in {error:?}");
+        }
+    }
 }

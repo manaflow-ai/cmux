@@ -19,6 +19,39 @@ pub(crate) struct ForeignViewportMessages {
     pub terminal_grid: &'static str,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SidebarMessages {
+    pub machines: &'static str,
+    pub workspaces: &'static str,
+    pub new_vm: &'static str,
+    pub connect_machine: &'static str,
+    pub no_machines: &'static str,
+    pub new_workspace: &'static str,
+    pub new_isolated_workspace: &'static str,
+    pub new_shared_workspace: &'static str,
+    pub no_active_session: &'static str,
+    pub managed_workspace_unsupported: &'static str,
+    pub running: &'static str,
+    pub connecting: &'static str,
+    pub sleeping: &'static str,
+    pub stopped: &'static str,
+    pub unavailable: &'static str,
+    pub connect_prompt: &'static str,
+    pub personal_scope: &'static str,
+    pub team_scope: &'static str,
+    pub scope: &'static str,
+    pub provider_actions: &'static str,
+    pub action_required: &'static str,
+    pub action_too_long: &'static str,
+    pub action_invalid_email: &'static str,
+    pub action_invalid_integer: &'static str,
+    pub action_below_minimum: &'static str,
+    pub action_above_maximum: &'static str,
+    pub action_multiple_fields_unsupported: &'static str,
+    pub confirm_destructive_action: &'static str,
+    pub confirmation_mismatch: &'static str,
+}
+
 impl ForeignViewportMessages {
     pub fn hint(&self, cols: u16, rows: u16) -> Option<ForeignViewportHint> {
         let mut bytes = [0_u8; FOREIGN_VIEWPORT_HINT_CAPACITY];
@@ -61,6 +94,7 @@ const fn decimal_width(mut value: u16) -> usize {
 pub(crate) struct Catalog {
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub sidebar: SidebarMessages,
 }
 
 static ENGLISH: Catalog = Catalog {
@@ -72,6 +106,37 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    sidebar: SidebarMessages {
+        machines: "machines",
+        workspaces: "workspaces",
+        new_vm: "new VM",
+        connect_machine: "connect machine",
+        no_machines: "no machines",
+        new_workspace: "new workspace",
+        new_isolated_workspace: "new isolated",
+        new_shared_workspace: "new shared",
+        no_active_session: "select or create a machine first",
+        managed_workspace_unsupported: "this machine provider cannot create managed workspaces",
+        running: "running",
+        connecting: "connecting",
+        sleeping: "sleeping",
+        stopped: "stopped",
+        unavailable: "unavailable",
+        connect_prompt: "Connect user@host",
+        personal_scope: "personal",
+        team_scope: "team",
+        scope: "scope",
+        provider_actions: "actions",
+        action_required: "This value is required",
+        action_too_long: "This value is too long",
+        action_invalid_email: "Enter a valid email address",
+        action_invalid_integer: "Enter a whole number",
+        action_below_minimum: "This number is below the allowed minimum",
+        action_above_maximum: "This number is above the allowed maximum",
+        action_multiple_fields_unsupported: "This action needs a form that this client cannot show",
+        confirm_destructive_action: "Type CONFIRM to continue",
+        confirmation_mismatch: "Type CONFIRM exactly to run this action",
+    },
 };
 
 static JAPANESE: Catalog = Catalog {
@@ -83,6 +148,37 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    sidebar: SidebarMessages {
+        machines: "マシン",
+        workspaces: "ワークスペース",
+        new_vm: "新規 VM",
+        connect_machine: "マシンを接続",
+        no_machines: "マシンがありません",
+        new_workspace: "新規ワークスペース",
+        new_isolated_workspace: "新規隔離",
+        new_shared_workspace: "新規共有",
+        no_active_session: "先にマシンを選択または作成してください",
+        managed_workspace_unsupported: "このマシンプロバイダーは管理ワークスペースを作成できません",
+        running: "実行中",
+        connecting: "接続中",
+        sleeping: "スリープ中",
+        stopped: "停止",
+        unavailable: "利用不可",
+        connect_prompt: "user@host に接続",
+        personal_scope: "個人",
+        team_scope: "チーム",
+        scope: "スコープ",
+        provider_actions: "操作",
+        action_required: "この値は必須です",
+        action_too_long: "この値は長すぎます",
+        action_invalid_email: "有効なメールアドレスを入力してください",
+        action_invalid_integer: "整数を入力してください",
+        action_below_minimum: "この数値は許可された最小値未満です",
+        action_above_maximum: "この数値は許可された最大値を超えています",
+        action_multiple_fields_unsupported: "この操作に必要なフォームをこのクライアントでは表示できません",
+        confirm_destructive_action: "続行するには CONFIRM と入力",
+        confirmation_mismatch: "この操作を実行するには CONFIRM と正確に入力してください",
+    },
 };
 
 pub(crate) fn catalog() -> &'static Catalog {

@@ -22,7 +22,9 @@ use ghostty_vt::{MouseInput, RenderState, Terminal};
 use serde::Deserialize;
 use serde_json::json;
 
-pub use remote::{RemoteSession, RemoteSurface};
+pub use remote::{
+    RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
+};
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 #[derive(Clone)]
