@@ -14,7 +14,7 @@ struct PullRequestProbeServiceFetchTests {
 
     private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [GitHubPullRequestStubURLProtocol.self]
+        configuration.protocolClasses = [PullRequestProbeStubURLProtocol.self]
         configuration.timeoutIntervalForRequest = 2
         configuration.timeoutIntervalForResource = 2
         return URLSession(configuration: configuration)
@@ -76,7 +76,7 @@ struct PullRequestProbeServiceFetchTests {
     }
 
     private func requestURLStrings() -> [String] {
-        GitHubPullRequestStubURLProtocol.capturedRequests().map { $0.url?.absoluteString ?? "" }
+        PullRequestProbeStubURLProtocol.capturedRequests().map { $0.url?.absoluteString ?? "" }
     }
 
     private func hasQueryItem(named name: String, in urlString: String) -> Bool {
@@ -84,7 +84,7 @@ struct PullRequestProbeServiceFetchTests {
     }
 
     @Test func coldFetchIssuesPerBranchHeadRequestsAndNoListPagination() async throws {
-        GitHubPullRequestStubURLProtocol.reset(stubs: [
+        PullRequestProbeStubURLProtocol.reset(stubs: [
             .init(statusCode: 200, data: listBody(pullRequestJSON(number: 8175, branch: "feat/badge"))),
         ])
         let service = makeService()
@@ -103,7 +103,7 @@ struct PullRequestProbeServiceFetchTests {
 
     @Test func secondRefreshRevalidatesUnchangedBranchTo304() async throws {
         let body = listBody(pullRequestJSON(number: 8175, branch: "feat/badge"))
-        GitHubPullRequestStubURLProtocol.reset(stubs: [
+        PullRequestProbeStubURLProtocol.reset(stubs: [
             .init(statusCode: 200, headers: ["ETag": "\"badge-8175\""], data: body),
             .init(statusCode: 304),
         ])
@@ -115,13 +115,13 @@ struct PullRequestProbeServiceFetchTests {
         #expect(entry(from: first)?.pullRequestsByBranch["feat/badge"]?.number == 8175)
         // The 304 short-circuits to the cached body: the badge still resolves.
         #expect(entry(from: second)?.pullRequestsByBranch["feat/badge"]?.number == 8175)
-        let requests = GitHubPullRequestStubURLProtocol.capturedRequests()
+        let requests = PullRequestProbeStubURLProtocol.capturedRequests()
         #expect(requests.count == 2)
         #expect(try #require(requests.last).value(forHTTPHeaderField: "If-None-Match") == "\"badge-8175\"")
     }
 
     @Test func notFoundBranchBecomesKnownAbsentAndIsNotRefetchedFromFreshCache() async throws {
-        GitHubPullRequestStubURLProtocol.reset(stubs: [
+        PullRequestProbeStubURLProtocol.reset(stubs: [
             .init(statusCode: 404, data: Data("{\"message\":\"Not Found\"}".utf8)),
         ])
         let service = makeService()
@@ -130,7 +130,7 @@ struct PullRequestProbeServiceFetchTests {
         let coldEntry = try #require(entry(from: coldResult))
         #expect(coldEntry.knownAbsentBranches.contains("deleted/branch"))
         #expect(coldEntry.pullRequestsByBranch["deleted/branch"] == nil)
-        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
+        #expect(PullRequestProbeStubURLProtocol.capturedRequests().count == 1)
 
         // A fresh cache that already marks the branch absent must not re-poll it,
         // so a renamed/deleted repo backs off the fast loop instead of 404ing forever.
@@ -146,7 +146,7 @@ struct PullRequestProbeServiceFetchTests {
             return
         }
         #expect(usedCache)
-        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
+        #expect(PullRequestProbeStubURLProtocol.capturedRequests().count == 1)
     }
 
     @Test func multipleCandidateBranchesEachGetOwnHeadRequest() async throws {
@@ -157,7 +157,7 @@ struct PullRequestProbeServiceFetchTests {
             pullRequestJSON(number: 8100, branch: "feat/alpha"),
             pullRequestJSON(number: 8200, branch: "feat/beta")
         )
-        GitHubPullRequestStubURLProtocol.reset(stubs: [
+        PullRequestProbeStubURLProtocol.reset(stubs: [
             .init(statusCode: 200, data: combined),
             .init(statusCode: 200, data: combined),
         ])
