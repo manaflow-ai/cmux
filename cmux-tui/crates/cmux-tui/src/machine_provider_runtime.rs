@@ -3503,7 +3503,7 @@ mod tests {
             level: protocol::NoticeLevel::Warning,
             message: "scheduled maintenance".into(),
         });
-        let server_catalog = catalog.clone();
+        let server_catalog = catalog;
         let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, mut reader) =
