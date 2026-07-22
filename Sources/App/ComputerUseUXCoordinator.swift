@@ -155,13 +155,15 @@ final class ComputerUseUXCoordinator {
         watchTargetController = nil
     }
 
-    func presentOnboarding() {
+    func presentOnboarding(
+        startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint = .overview
+    ) {
         userDefaults.set(true, forKey: ComputerUseOnboardingWindowController.seenDefaultsKey)
         let controller = onboardingWindowController ?? ComputerUseOnboardingWindowController(
             runtimeService: runtimeService
         )
         onboardingWindowController = controller
-        controller.present()
+        controller.present(startingAt: startingPoint)
     }
 
     private func recordToolInvocation(_ event: WorkstreamEvent) {

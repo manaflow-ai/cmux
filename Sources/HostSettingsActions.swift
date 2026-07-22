@@ -19,7 +19,8 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
     private let computerUseRuntimeService: ComputerUseRuntimeService
-    private var runComputerUseOnboardingAction: @MainActor () -> Void = {}
+    private var runComputerUseOnboardingAction:
+        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -125,26 +126,32 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func requestComputerUseAccessibility() {
-        computerUseRuntimeService.requestAccessibility()
+        runComputerUseOnboardingAction(.accessibility)
     }
 
     func requestComputerUseScreenRecording() {
-        computerUseRuntimeService.requestScreenRecording()
+        runComputerUseOnboardingAction(.screenRecording)
     }
 
     func openComputerUseAccessibilitySettings() {
-        computerUseRuntimeService.openAccessibilitySettings()
+        Task { @MainActor [computerUseRuntimeService] in
+            _ = await computerUseRuntimeService.openAccessibilitySettings()
+        }
     }
 
     func openComputerUseScreenRecordingSettings() {
-        computerUseRuntimeService.openScreenRecordingSettings()
+        Task { @MainActor [computerUseRuntimeService] in
+            _ = await computerUseRuntimeService.openScreenRecordingSettings()
+        }
     }
 
     func runComputerUseOnboarding() {
-        runComputerUseOnboardingAction()
+        runComputerUseOnboardingAction(.overview)
     }
 
-    func setRunComputerUseOnboardingAction(_ action: @escaping @MainActor () -> Void) {
+    func setRunComputerUseOnboardingAction(
+        _ action: @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
+    ) {
         runComputerUseOnboardingAction = action
     }
 

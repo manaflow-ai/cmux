@@ -2069,8 +2069,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.sidebarState = sidebarState
         self.auth = auth
         self.computerUseRuntimeService = computerUseRuntimeService
-        (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] in
-            self?.computerUseUXCoordinator.presentOnboarding()
+        (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
+            self?.computerUseUXCoordinator.presentOnboarding(startingAt: startingPoint)
         }
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)

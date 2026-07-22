@@ -12,6 +12,8 @@ import Foundation
 final class ComputerUseRuntimeService {
     static let helperAppName = "cmux Computer Use"
 
+    private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
+
     let paths: ComputerUseRuntimePaths
     let applicationName: String
 
@@ -30,12 +32,11 @@ final class ComputerUseRuntimeService {
         self.transport = transport
         let nestedURL = bundle.bundleURL
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app", isDirectory: true)
+        applicationName = Self.helperAppName
         if FileManager.default.fileExists(atPath: nestedURL.path) {
             bundledHelperAppURL = nestedURL
-            applicationName = Self.displayName(for: nestedURL)
         } else {
             bundledHelperAppURL = nil
-            applicationName = Self.helperAppName
         }
     }
 
@@ -111,20 +112,14 @@ final class ComputerUseRuntimeService {
         return status()
     }
 
-    func requestAccessibility() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            _ = await ensureStandaloneHelperInstalled()
-            openAccessibilitySettings()
-        }
+    func requestAccessibility() async -> Bool {
+        guard await ensureStandaloneHelperInstalled() != nil else { return false }
+        return await openAccessibilitySettings()
     }
 
-    func requestScreenRecording() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            _ = await ensureStandaloneHelperInstalled()
-            openScreenRecordingSettings()
-        }
+    func requestScreenRecording() async -> Bool {
+        guard await ensureStandaloneHelperInstalled() != nil else { return false }
+        return await openScreenRecordingSettings()
     }
 
     func revealHelperInFinder() {
@@ -134,12 +129,16 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    func openAccessibilitySettings() {
-        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    func openAccessibilitySettings() async -> Bool {
+        await openSystemSettings(
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        )
     }
 
-    func openScreenRecordingSettings() {
-        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+    func openScreenRecordingSettings() async -> Bool {
+        await openSystemSettings(
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        )
     }
 
     private func startIfNeeded() async {
@@ -186,9 +185,26 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    private func openSystemSettings(_ deepLink: String) {
-        guard let url = URL(string: deepLink) else { return }
-        NSWorkspace.shared.open(url)
+    private func openSystemSettings(_ deepLink: String) async -> Bool {
+        guard let url = URL(string: deepLink) else { return false }
+        guard let systemSettingsURL = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: Self.systemSettingsBundleIdentifier
+        ) else {
+            return NSWorkspace.shared.open(url)
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.createsNewApplicationInstance = false
+        return await withCheckedContinuation { continuation in
+            NSWorkspace.shared.open(
+                [url],
+                withApplicationAt: systemSettingsURL,
+                configuration: configuration
+            ) { application, error in
+                continuation.resume(returning: application != nil && error == nil)
+            }
+        }
     }
 
     nonisolated private static func helperIsCurrent(nested: URL, destination: URL) -> Bool {
@@ -228,18 +244,6 @@ final class ComputerUseRuntimeService {
         } catch {
             return nil
         }
-    }
-
-    nonisolated private static func displayName(for helperAppURL: URL) -> String {
-        guard
-            let bundle = Bundle(url: helperAppURL),
-            let candidate = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-                ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
-        else {
-            return helperAppName
-        }
-        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? helperAppName : trimmed
     }
 
     nonisolated private static func isDaemonListening(

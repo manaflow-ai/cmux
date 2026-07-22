@@ -34,7 +34,9 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   startup with its internal permission gate disabled. Starting cmux or an agent
   never requests access or shows onboarding.
 - Wrappers are pure forced proxies. They never copy or launch the helper and
-  never fall back to in-process computer use.
+  never fall back to in-process computer use. The helper owns the external
+  onboarding UI, while the proxy keeps its own external-flow flag off so the
+  first driving call waits for both helper grants before it is forwarded.
 - Kill switch: set `CMUX_COMPUTER_USE_MCP_DISABLED=1`, or toggle it off in
   Settings → Computer Use (persists to `~/.config/cmux/cmux.json` and is
   exported to spawned terminals).
@@ -127,10 +129,12 @@ Settings → Computer Use.
 - Engine source: `manaflow-ai/cmux-cua` (`libs/cua-driver/rust`). cmux consumes
   it via `CMUX_CUA_PINNED_SHA` in `scripts/build-cua-driver.sh`, which builds,
   lipos, and codesigns the binary plus the nested helper into the app bundle.
-- `CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=1` prevents agent-supplied
-  `check_permissions {prompt:true}` from bypassing cmux onboarding. The wrappers
-  set `CUA_DRIVER_RS_MCP_FORCE_PROXY=1`; `CMUX_CUA_DRIVER` may replace only the
-  proxy executable and never enables embedded mode.
+- The helper daemon's `CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=1` prevents
+  agent-supplied `check_permissions {prompt:true}` from bypassing cmux
+  onboarding. The wrappers set `CUA_DRIVER_RS_MCP_FORCE_PROXY=1` and keep that
+  flag off in the proxy process so its first-call grant wait remains active;
+  `CMUX_CUA_DRIVER` may replace only the proxy executable and never enables
+  embedded mode.
 - If the cmux-owned daemon is unavailable, do **not** invoke `cua-driver`
   directly through Bash and do not start its default socket. Tell the user to
   open Settings → Computer Use or restart the tagged cmux build, then retry the
