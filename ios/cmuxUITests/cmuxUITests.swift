@@ -784,6 +784,8 @@ final class cmuxUITests: XCTestCase {
             (name: "OpenCode", action: "Start OpenCode"),
             (name: "Shell", action: "Open Shell"),
         ]
+        let agentMenu = app.buttons["MobileTaskComposerAgentMenu"]
+        let stableAgentMenuWidth = agentMenu.frame.width
         for template in templates {
             selectTaskComposerAgent(named: template.name, in: app)
             let selectedAction = NSPredicate(
@@ -793,8 +795,14 @@ final class cmuxUITests: XCTestCase {
             expectation(for: selectedAction, evaluatedWith: create)
             waitForExpectations(timeout: 3)
             XCTAssertEqual(
-                app.buttons["MobileTaskComposerAgentMenu"].value as? String,
+                agentMenu.value as? String,
                 template.name
+            )
+            XCTAssertEqual(
+                agentMenu.frame.width,
+                stableAgentMenuWidth,
+                accuracy: 0.5,
+                "Changing to a longer agent title must not resize and clip the menu label"
             )
         }
     }
@@ -1169,6 +1177,10 @@ final class cmuxUITests: XCTestCase {
 
         let workspaceName = app.textFields["MobileTaskComposerWorkspaceName"]
         XCTAssertTrue(workspaceName.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.staticTexts["Workspace name (optional)"].exists,
+            "The workspace name field must state that it is optional"
+        )
         let prompt = app.textFields["MobileTaskComposerPrompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 3))
         let machine = app.buttons["MobileTaskComposerMachineMenu"]
