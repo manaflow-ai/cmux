@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -17,8 +17,10 @@ use cmux_tui_core::{
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
     SurfaceKind, platform::transport,
 };
+use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
+use zeroize::Zeroize;
 
 use super::tree::{TreeView, parse_tree};
 
@@ -30,6 +32,12 @@ const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+
+fn zeroize_string(value: &mut str) {
+    // NUL is valid UTF-8, so the serialized request can be cleared in place
+    // immediately after the synchronous transport write finishes.
+    value.zeroize();
+}
 
 fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
     if ident.get("app").and_then(Value::as_str) != Some("cmux-tui") {
@@ -54,7 +62,7 @@ pub(crate) struct RemoteCellPixelUpdate {
 #[derive(Debug)]
 pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
-    Transport(std::io::Error),
+    Transport(io::Error),
     Timeout,
     Rejected(String),
     Shutdown,
@@ -384,7 +392,7 @@ struct SubscriptionRecoveryState {
 }
 
 pub struct RemoteSession {
-    writer: Mutex<Box<dyn transport::Stream>>,
+    writer: Mutex<Box<dyn RemoteMessageWriter>>,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
     next_id: AtomicU64,
     shutdown: AtomicBool,
@@ -397,6 +405,81 @@ pub struct RemoteSession {
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
+    capabilities: Mutex<HashSet<String>>,
+    provider_workspace_authority: Option<BearerToken>,
+}
+
+/// Receive complete JSON protocol messages from one transport.
+///
+/// Message framing belongs to the transport adapter: Unix sockets and SSH
+/// relays use JSON lines, while WebSocket and future Iroh adapters can use
+/// their native message boundaries.
+pub trait RemoteMessageReader: Send {
+    fn receive(&mut self) -> io::Result<Option<String>>;
+}
+
+/// Send complete JSON protocol messages over one transport.
+pub trait RemoteMessageWriter: Send {
+    fn send(&mut self, message: &str) -> io::Result<()>;
+    fn close(&mut self) -> io::Result<()>;
+}
+
+/// The independently-owned read and write halves of a remote connection.
+/// Split halves support process stdio and async transport pumps without
+/// requiring the underlying stream to be cloneable.
+pub struct RemoteTransport {
+    reader: Box<dyn RemoteMessageReader>,
+    writer: Box<dyn RemoteMessageWriter>,
+}
+
+impl RemoteTransport {
+    pub fn new(reader: Box<dyn RemoteMessageReader>, writer: Box<dyn RemoteMessageWriter>) -> Self {
+        Self { reader, writer }
+    }
+
+    pub fn json_lines(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
+        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT))?;
+        let read_half = stream.try_clone_box()?;
+        Ok(Self {
+            reader: Box::new(JsonLineReader { inner: BufReader::new(read_half) }),
+            writer: Box::new(JsonLineWriter { inner: stream }),
+        })
+    }
+}
+
+struct JsonLineReader {
+    inner: BufReader<Box<dyn transport::Stream>>,
+}
+
+impl RemoteMessageReader for JsonLineReader {
+    fn receive(&mut self) -> io::Result<Option<String>> {
+        let mut message = String::new();
+        if self.inner.read_line(&mut message)? == 0 {
+            return Ok(None);
+        }
+        if message.ends_with('\n') {
+            message.pop();
+            if message.ends_with('\r') {
+                message.pop();
+            }
+        }
+        Ok(Some(message))
+    }
+}
+
+struct JsonLineWriter {
+    inner: Box<dyn transport::Stream>,
+}
+
+impl RemoteMessageWriter for JsonLineWriter {
+    fn send(&mut self, message: &str) -> io::Result<()> {
+        self.inner.write_all(message.as_bytes())?;
+        self.inner.write_all(b"\n")
+    }
+
+    fn close(&mut self) -> io::Result<()> {
+        self.inner.shutdown(Shutdown::Both)
+    }
 }
 
 impl RemoteSession {
@@ -412,12 +495,40 @@ impl RemoteSession {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
         })?;
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).map_err(|error| {
-            anyhow::anyhow!("cannot configure session socket write timeout: {error}")
+        Self::connect_stream(stream)
+    }
+
+    /// Connect over an already-established full-duplex byte stream.
+    ///
+    /// The cmux protocol is transport-independent JSONL. Keeping stream
+    /// establishment outside `RemoteSession` lets clients use a local socket,
+    /// an SSH relay, or another authenticated tunnel without teaching the
+    /// session and rendering layers about those transports.
+    pub fn connect_stream(stream: Box<dyn transport::Stream>) -> anyhow::Result<Arc<Self>> {
+        let transport = RemoteTransport::json_lines(stream).map_err(|error| {
+            anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
         })?;
-        let read_half = stream.try_clone_box()?;
+        Self::connect_transport(transport)
+    }
+
+    pub fn connect_transport(transport: RemoteTransport) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_provider_authority(transport, None)
+    }
+
+    pub fn connect_provider_transport(
+        transport: RemoteTransport,
+        authority: BearerToken,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_provider_authority(transport, Some(authority))
+    }
+
+    fn connect_transport_with_provider_authority(
+        transport: RemoteTransport,
+        provider_workspace_authority: Option<BearerToken>,
+    ) -> anyhow::Result<Arc<Self>> {
+        let RemoteTransport { mut reader, writer } = transport;
         let session = Arc::new(RemoteSession {
-            writer: Mutex::new(stream),
+            writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
@@ -430,19 +541,20 @@ impl RemoteSession {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            capabilities: Mutex::new(HashSet::new()),
+            provider_workspace_authority,
         });
 
         let reader_session = Arc::downgrade(&session);
         std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-            let reader = BufReader::new(read_half);
-            for line in reader.lines() {
-                let Ok(line) = line else { break };
-                let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
+            while let Ok(Some(message)) = reader.receive() {
+                let Ok(value) = serde_json::from_str::<Value>(&message) else { continue };
                 let Some(session) = reader_session.upgrade() else { break };
                 session.handle_line(value);
             }
             // Connection lost: tell the app to quit.
             if let Some(session) = reader_session.upgrade() {
+                session.disconnect_transport();
                 session.emit(MuxEvent::Empty);
             }
         })?;
@@ -450,6 +562,14 @@ impl RemoteSession {
         // Identify (validates the endpoint) and subscribe to events.
         let ident = session.request(json!({"cmd": "identify"}))?;
         validate_remote_identity(&ident)?;
+        *session.capabilities.lock().unwrap() = ident
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
@@ -457,6 +577,14 @@ impl RemoteSession {
         session.request(client_info)?;
         session.request(json!({"cmd": "subscribe"}))?;
         Ok(session)
+    }
+
+    pub(super) fn supports_capability(&self, capability: &str) -> bool {
+        self.capabilities.lock().unwrap().contains(capability)
+    }
+
+    pub(super) fn provider_workspace_authority(&self) -> Option<&BearerToken> {
+        self.provider_workspace_authority.as_ref()
     }
 
     fn emit(&self, event: MuxEvent) {
@@ -840,16 +968,20 @@ impl RemoteSession {
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
-        let mut line = serde_json::to_vec(&cmd)
+        let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
-        line.push(b'\n');
+        if let Some(Value::String(authority)) = cmd.get_mut("authority") {
+            zeroize_string(authority);
+        }
 
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(id, tx);
         let mut writer = self.writer.lock().unwrap();
-        if let Err(err) = writer.write_all(&line) {
-            let _ = writer.shutdown(Shutdown::Both);
+        let send_result = writer.send(&message);
+        zeroize_string(&mut message);
+        if let Err(err) = send_result {
+            let _ = writer.close();
             drop(writer);
             self.pending.lock().unwrap().remove(&id);
             return Err(RemoteRequestError::Transport(err).into());
@@ -892,6 +1024,13 @@ impl RemoteSession {
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
         for (_, sender) in pending {
             let _ = sender.send(json!({"shutdown": true}));
+        }
+    }
+
+    fn disconnect_transport(&self) {
+        self.begin_shutdown();
+        if let Ok(mut writer) = self.writer.lock() {
+            let _ = writer.close();
         }
     }
 
@@ -1241,8 +1380,44 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
 }
 
 #[cfg(test)]
+pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
+    struct NoopWriter;
+
+    impl RemoteMessageWriter for NoopWriter {
+        fn send(&mut self, _message: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    Arc::new(RemoteSession {
+        writer: Mutex::new(Box::new(NoopWriter)),
+        pending: Mutex::new(HashMap::new()),
+        next_id: AtomicU64::new(1),
+        shutdown: AtomicBool::new(false),
+        surfaces: Mutex::new(HashMap::new()),
+        exited_surfaces: Mutex::new(HashSet::new()),
+        tree: Mutex::new(RemoteTreeCache::default()),
+        tree_refresh: Mutex::new(()),
+        tree_stale: AtomicBool::new(true),
+        subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
+        subscribers: MuxEventBroadcaster::default(),
+        frame_logs: Mutex::new(HashMap::new()),
+        surface_overflow_recovery: Mutex::new(HashMap::new()),
+        capabilities: Mutex::new(HashSet::from([
+            cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string(),
+        ])),
+        provider_workspace_authority: None,
+    })
+}
+
+#[cfg(test)]
 mod tests {
-    use std::io::BufRead;
+    #[cfg(unix)]
+    use std::io::{BufRead, Read, Write};
     #[cfg(unix)]
     use std::os::unix::net::UnixStream;
     use std::sync::Mutex;
@@ -1274,10 +1449,65 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
+    #[test]
+    fn json_line_reader_returns_complete_messages_without_delimiters() {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        server.write_all(b"{\"fragmented\":").unwrap();
+        server.write_all(b"true}\n{\"crlf\":true}\r\n{\"final\":true}").unwrap();
+        server.shutdown(Shutdown::Write).unwrap();
+
+        let mut reader = JsonLineReader { inner: BufReader::new(Box::new(client)) };
+        assert_eq!(reader.receive().unwrap().as_deref(), Some("{\"fragmented\":true}"));
+        assert_eq!(reader.receive().unwrap().as_deref(), Some("{\"crlf\":true}"));
+        assert_eq!(reader.receive().unwrap().as_deref(), Some("{\"final\":true}"));
+        assert_eq!(reader.receive().unwrap(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn json_line_writer_appends_exactly_one_delimiter_per_message() {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        let mut writer = JsonLineWriter { inner: Box::new(client) };
+
+        writer.send("{\"first\":1}").unwrap();
+        writer.send("{\"second\":2}").unwrap();
+        writer.close().unwrap();
+
+        let mut bytes = String::new();
+        server.read_to_string(&mut bytes).unwrap();
+        assert_eq!(bytes, "{\"first\":1}\n{\"second\":2}\n");
+    }
+
+    struct CloseTrackingWriter {
+        closed: Arc<AtomicBool>,
+    }
+
+    impl RemoteMessageWriter for CloseTrackingWriter {
+        fn send(&mut self, _message: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            self.closed.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
+    struct UnexpectedWriteWriter;
+
+    impl RemoteMessageWriter for UnexpectedWriteWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            panic!("unexpected remote write: {message}")
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
-            writer: Mutex::new(Box::new(stream)),
+            writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
@@ -1290,7 +1520,98 @@ mod tests {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            capabilities: Mutex::new(HashSet::new()),
+            provider_workspace_authority: None,
         })
+    }
+
+    #[test]
+    fn provider_guard_fails_before_writing_to_an_older_remote_server() {
+        let session =
+            crate::session::Session::Remote(test_session(Box::new(UnexpectedWriteWriter)));
+
+        let error = session.mark_workspaces_provider_managed().unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
+        );
+    }
+
+    #[test]
+    fn transport_disconnect_closes_the_transport_writer() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
+
+        session.disconnect_transport();
+
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[cfg(unix)]
+    fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
+        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
+        test_session(Box::new(JsonLineWriter { inner: Box::new(stream) }))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn eof_cancels_a_pending_request_without_waiting_for_the_request_timeout() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "wait-for-eof");
+            // Dropping the peer produces EOF while this request is pending.
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+        let request_session = session.clone();
+        let (done_tx, done_rx) = channel();
+        let started = Instant::now();
+        let request = std::thread::spawn(move || {
+            done_tx.send(request_session.request(json!({"cmd": "wait-for-eof"}))).unwrap();
+        });
+
+        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(result) => result,
+            Err(error) => {
+                session.begin_shutdown();
+                request.join().unwrap();
+                panic!("EOF did not cancel the request promptly: {error}");
+            }
+        };
+        request.join().unwrap();
+        peer.join().unwrap();
+
+        let error = result.unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Shutdown)
+        ));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(session.pending.lock().unwrap().is_empty());
     }
 
     #[cfg(unix)]
@@ -1335,7 +1656,7 @@ mod tests {
         assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
             matches!(error, RemoteRequestError::Transport(io_error) if matches!(
                 io_error.kind(),
-                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
             ))
         }));
         assert!(session.pending.lock().unwrap().is_empty());
