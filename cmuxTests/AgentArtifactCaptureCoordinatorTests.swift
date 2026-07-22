@@ -56,6 +56,29 @@ struct AgentArtifactCaptureCoordinatorTests {
         #expect(await store.importedPaths == [oldPath, newPath])
     }
 
+    @Test func busyStoreDoesNotCheckpointAnAutomaticArtifact() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let store = OutOfOrderCaptureStore(
+            suspendsFirstImport: false,
+            rejectsFirstImportAsBusy: true
+        )
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = captureRecord(projectRoot: projectRoot)
+        let indexed = snapshot(
+            revision: 1,
+            path: projectRoot.appendingPathComponent("plan.md").path
+        )
+
+        await coordinator.capture(record: record, snapshot: indexed)
+        await coordinator.capture(record: record, snapshot: indexed)
+
+        #expect(await store.importCount == 2)
+        #expect(await store.importedPaths == [projectRoot.appendingPathComponent("plan.md").path])
+    }
+
     @Test func transcriptTruncationResetsTheCompletedReferenceCursor() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }
@@ -406,6 +429,7 @@ struct AgentArtifactCaptureCoordinatorTests {
 
 private actor OutOfOrderCaptureStore: ArtifactStoring {
     private let suspendsFirstImport: Bool
+    private let rejectsFirstImportAsBusy: Bool
     private let captureConfiguration: ArtifactCaptureConfiguration
     private var firstImportStarted: CheckedContinuation<Void, Never>?
     private var firstImportRelease: CheckedContinuation<Void, Never>?
@@ -414,9 +438,11 @@ private actor OutOfOrderCaptureStore: ArtifactStoring {
 
     init(
         suspendsFirstImport: Bool = true,
+        rejectsFirstImportAsBusy: Bool = false,
         maximumFilesPerCapture: Int = ArtifactCaptureConfiguration.defaultValue.maximumFilesPerCapture
     ) {
         self.suspendsFirstImport = suspendsFirstImport
+        self.rejectsFirstImportAsBusy = rejectsFirstImportAsBusy
         var configuration = ArtifactCaptureConfiguration.defaultValue
         configuration.maximumFilesPerCapture = maximumFilesPerCapture
         captureConfiguration = configuration
@@ -472,6 +498,11 @@ private actor OutOfOrderCaptureStore: ArtifactStoring {
         capturedAt _: Date
     ) async -> [ArtifactImportAttempt] {
         importCount += 1
+        if importCount == 1, rejectsFirstImportAsBusy {
+            return candidates.map { _ in
+                .rejected(.storeBusy("artifact store"))
+            }
+        }
         importedPaths.append(contentsOf: candidates.map(\.sourceURL.path))
         if importCount == 1, suspendsFirstImport {
             firstImportStarted?.resume()

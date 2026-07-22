@@ -76,11 +76,30 @@ struct ArtifactSidebarModelTests {
 
         await model.addFiles([source])
 
-        let call = await capture.lastAdd
-        #expect(call?.sourceURL == source)
-        #expect(call?.context.projectRoot == root.standardizedFileURL)
-        #expect(call?.context.workspaceID == "workspace-1")
-        #expect(call?.context.workspaceTitle == "Artifacts Test")
+        #expect(await capture.addedSourceURLs == [source])
+        #expect(await capture.lastContext?.projectRoot == root.standardizedFileURL)
+        #expect(await capture.lastContext?.workspaceID == "workspace-1")
+        #expect(await capture.lastContext?.workspaceTitle == "Artifacts Test")
+    }
+
+    @Test("Manual multi-select submits one batch, continues after rejection, and reloads once")
+    func addsSelectionAsOneBatch() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let rejected = root.appendingPathComponent("rejected.exe")
+        let accepted = root.appendingPathComponent("accepted.md")
+        let store = SidebarArtifactStore(root: root, nodes: [])
+        let capture = SidebarCaptureSpy(rejectedSourceURLs: [rejected])
+        let model = ArtifactSidebarModel(store: store, captureService: capture)
+        await model.bind(workspace: workspace(root: root))
+        let snapshotCountBeforeAdd = await store.snapshotCount
+
+        await model.addFiles([rejected, accepted])
+
+        #expect(await capture.addCallCount == 1)
+        #expect(await capture.addedSourceURLs == [rejected, accepted])
+        #expect(await store.snapshotCount == snapshotCountBeforeAdd + 1)
+        #expect(model.actionFailure == .add)
     }
 
     @Test("Working-directory and title churn within one project does not rescan")
@@ -103,7 +122,7 @@ struct ArtifactSidebarModelTests {
         await model.addFiles([root.appendingPathComponent("outside.md")])
 
         #expect(snapshotCountAfterUpdate == snapshotCountBeforeUpdate)
-        #expect(await capture.lastAdd?.context.workspaceTitle == "Renamed")
+        #expect(await capture.lastContext?.workspaceTitle == "Renamed")
     }
 
     private func workspace(root: URL) -> ArtifactSidebarWorkspace {
