@@ -875,6 +875,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001429 /* FilePreviewPDFViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001428 /* FilePreviewPDFViewport.swift */; };
 		C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */; };
 		DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */; };
+		C0DE86520000000000000001 /* FilePreviewReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000002 /* FilePreviewReloadTests.swift */; };
 		C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */; };
 		D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */; };
 		C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */; };
@@ -3048,6 +3049,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001428 /* FilePreviewPDFViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFViewport.swift; sourceTree = "<group>"; };
 		C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookContainerView.swift; sourceTree = "<group>"; };
 		0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookSession.swift; sourceTree = "<group>"; };
+		C0DE86520000000000000002 /* FilePreviewReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReloadTests.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReviewFeedbackTests.swift; sourceTree = "<group>"; };
 		D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTextEditor.swift; sourceTree = "<group>"; };
 		C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewTextEditorTextKitTests.swift; sourceTree = "<group>"; };
@@ -6362,6 +6364,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */,
 				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
 		C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
+				C0DE86520000000000000002 /* FilePreviewReloadTests.swift */,
 				120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */,
 				4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */,
 				A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */,
@@ -8841,6 +8844,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				828800010000000000000002 /* FileExplorerStyleContrastTests.swift in Sources */,
 				C0DE49950000000000000001 /* FilePreviewKindResolverTests.swift in Sources */,
 				A5001436A5001436A5001436 /* FilePreviewPDFThumbnailSidebarTests.swift in Sources */,
+				C0DE86520000000000000001 /* FilePreviewReloadTests.swift in Sources */,
 				C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */,
 				C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */,
 				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
