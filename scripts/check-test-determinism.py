@@ -3523,6 +3523,18 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/SelfReassignedRealClockTests.swift",
+            "final class Fixture {\n"
+            "    var clock = TestRelayClock()\n"
+            "    func verify() async {\n"
+            "        self.clock = ContinuousClock()\n"
+            "        try await self.clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/DoReassignedRealClockTests.swift",
             "var clock: any Clock<Duration> = TestRelayClock()\n"
             "do {\n"
@@ -4810,6 +4822,17 @@ def _self_test() -> int:
             "clock = TestRelayClock()\n"
             "try await clock.sleep(until: deadline)\n"
             "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/SelfReassignedVirtualClockTests.swift",
+            "final class Fixture {\n"
+            "    var clock = ContinuousClock()\n"
+            "    func verify() async {\n"
+            "        self.clock = TestRelayClock()\n"
+            "        try await self.clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
         ),
         (
             "Packages/CmuxClock/Tests/DoReassignedVirtualClockTests.swift",
