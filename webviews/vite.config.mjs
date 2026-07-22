@@ -68,6 +68,32 @@ export default defineConfig({
           if (!id.includes("node_modules")) {
             return undefined;
           }
+          // CodeMirror language packages stay out of `editor-vendor` so each
+          // language loads as its own lazy chunk via @codemirror/language-data
+          // (mirroring the per-grammar shape of the Shiki diff vendor). Their
+          // unique @lezer grammars fall through to Rollup's automatic
+          // chunking, which co-locates each grammar with the language chunk
+          // that imports it.
+          const editorLanguage = id.match(/\/@codemirror\/(lang-[^/]+)\//);
+          if (editorLanguage) {
+            return `editor-${editorLanguage[1]}`;
+          }
+          if (id.includes("/@codemirror/legacy-modes/")) {
+            return "editor-legacy-modes";
+          }
+          // CodeMirror core + shared runtime, loaded only by the editor surface.
+          if (
+            id.includes("/@codemirror/") ||
+            id.includes("/@lezer/common/") ||
+            id.includes("/@lezer/highlight/") ||
+            id.includes("/@lezer/lr/") ||
+            id.includes("/@marijn/") ||
+            id.includes("/crelt/") ||
+            id.includes("/style-mod/") ||
+            id.includes("/w3c-keyname/")
+          ) {
+            return "editor-vendor";
+          }
           if (
             id.includes("/@pierre/") ||
             id.includes("/shiki/") ||

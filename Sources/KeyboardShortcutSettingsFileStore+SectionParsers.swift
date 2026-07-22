@@ -13,6 +13,12 @@ extension CmuxSettingsFileStore {
         } else if section.keys.contains("wordWrap") {
             logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
         }
+
+        if let raw = jsonString(section["engine"]), FilePreviewEditorEngineSettings.validEngines.contains(raw) {
+            snapshot.managedUserDefaults[FilePreviewEditorEngineSettings.key] = .string(raw)
+        } else if section.keys.contains("engine") {
+            logInvalid("fileEditor.engine", sourcePath: sourcePath)
+        }
     }
 
     func parseFileExplorerSection(

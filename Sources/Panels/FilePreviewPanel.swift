@@ -990,8 +990,17 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
+    /// Bumped whenever ``diskTextContent`` is refreshed from disk (initial
+    /// load, revert, file-watcher reload). The code editor web renderer
+    /// observes this to push external changes into its buffer.
+    @Published private(set) var textDiskSyncToken = 0
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
+
+    /// Set while the CodeMirror web renderer drives the text mode. Routes
+    /// header/shortcut saves through the webview so the live buffer is
+    /// pulled from JS before writing to disk.
+    var webEditorSaveHandler: (() -> Task<Void, Never>?)?
 
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
@@ -999,12 +1008,21 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
+    private var fileWatcher: FileWatcher?
+    private var fileWatchTask: Task<Void, Never>?
+    private var isClosed = false
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
+    }
+
+    /// The last text content read from or written to disk. While the buffer
+    /// is dirty this is the on-disk baseline, not the edited content.
+    var diskTextContent: String {
+        originalTextContent
     }
 
     init(
@@ -1040,6 +1058,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        isClosed = true
+        stopWatching()
+        webEditorSaveHandler = nil
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
@@ -1142,12 +1163,44 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         isDirty = nextContent != originalTextContent
     }
 
+    /// Dirty-state reported by the code editor webview, which owns the live
+    /// buffer while the `code` engine renders the text mode.
+    func webEditorDidChangeDirty(_ dirty: Bool) {
+        guard previewMode == .text else { return }
+        isDirty = dirty
+    }
+
     private func prepareContentForPreviewMode() {
         if previewMode == .text {
             loadTextContent(replacingDirtyContent: false)
+            startWatching()
         } else {
+            stopWatching()
             isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
         }
+    }
+
+    /// Watches ``filePath`` while the text mode is active so external edits
+    /// (agents, other tools) refresh clean buffers and update the dirty
+    /// baseline; mirrors `MarkdownPanel.startWatching()`.
+    private func startWatching() {
+        stopWatching()
+        let watcher = FileWatcher(path: filePath)
+        fileWatcher = watcher
+        let events = watcher.events
+        fileWatchTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self, !self.isClosed else { break }
+                self.loadTextContent(replacingDirtyContent: false)
+            }
+        }
+    }
+
+    private func stopWatching() {
+        fileWatchTask?.cancel()
+        fileWatchTask = nil
+        // Dropping the watcher runs its deinit, cancelling the DispatchSources.
+        fileWatcher = nil
     }
 
     private func resolvePreviewModeIfNeeded(for fileURL: URL) {
@@ -1216,6 +1269,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 originalTextContent = content
                 textEncoding = encoding
                 isFileUnavailable = false
+                textDiskSyncToken += 1
                 return
             }
             textContent = content
@@ -1223,6 +1277,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             textEncoding = encoding
             isDirty = false
             isFileUnavailable = false
+            textDiskSyncToken += 1
         }
     }
 
@@ -1230,34 +1285,51 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func saveTextContent() -> Task<Void, Never>? {
         guard previewMode == .text else { return nil }
         guard !isSaving else { return nil }
+        if let webEditorSaveHandler {
+            return webEditorSaveHandler()
+        }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
             textContent = currentContent
             isDirty = false
             return nil
         }
+        return Task { [weak self, currentContent] in
+            _ = await self?.saveResolvedTextContent(currentContent)
+        }
+    }
+
+    /// Writes `content` to disk as the new text baseline. Returns `true` when
+    /// the file is clean on disk afterwards (including the nothing-to-save
+    /// case). The code editor web renderer calls this with the buffer pulled
+    /// from JS; the native path routes through ``saveTextContent()``.
+    func saveResolvedTextContent(_ content: String) async -> Bool {
+        guard previewMode == .text, !isSaving else { return false }
+        guard content != originalTextContent else {
+            textContent = content
+            isDirty = false
+            return true
+        }
 
         textLoadGeneration += 1
         saveGeneration += 1
         let generation = saveGeneration
-        textContent = currentContent
+        textContent = content
         isSaving = true
         activeSaveGeneration = generation
-        let fileURL = fileURL
-        let encoding = textEncoding
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
-            guard let self, self.activeSaveGeneration == generation else { return }
-            self.activeSaveGeneration = nil
-            self.isSaving = false
-            switch result {
-            case .saved:
-                self.originalTextContent = currentContent
-                self.isDirty = self.textContent != currentContent
-                self.isFileUnavailable = false
-            case .failed(let fileExists):
-                self.isFileUnavailable = !fileExists
-            }
+        let result = await FilePreviewTextSaver.save(content: content, to: fileURL, encoding: textEncoding)
+        guard activeSaveGeneration == generation else { return false }
+        activeSaveGeneration = nil
+        isSaving = false
+        switch result {
+        case .saved:
+            originalTextContent = content
+            isDirty = textContent != content
+            isFileUnavailable = false
+            return true
+        case .failed(let fileExists):
+            isFileUnavailable = !fileExists
+            return false
         }
     }
 
@@ -1275,6 +1347,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             return .quickLook
         }
     }
+
+    deinit {
+        fileWatchTask?.cancel()
+    }
 }
 
 struct FilePreviewPanelView: View {
@@ -1288,6 +1364,7 @@ struct FilePreviewPanelView: View {
     @State private var focusFlashOpacity = 0.0
     @State private var focusFlashAnimationGeneration = 0
     @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
+    @AppStorage(FilePreviewEditorEngineSettings.key) private var fileEditorEngine = FilePreviewEditorEngineSettings.defaultEngine
 
     private var themeForegroundColor: NSColor {
         appearance.foregroundColor
@@ -1353,14 +1430,26 @@ struct FilePreviewPanelView: View {
         } else {
             switch panel.previewMode {
             case .text:
-                FilePreviewTextEditor(
-                    panel: panel,
-                    isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: contentBackgroundColor,
-                    themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
-                )
+                if fileEditorEngine == FilePreviewEditorEngineSettings.codeEngine {
+                    CodeEditorWebRenderer(
+                        panel: panel,
+                        isVisibleInUI: isVisibleInUI,
+                        isFocused: isFocused,
+                        theme: AgentSessionWebTheme.resolve(appearance: appearance),
+                        wordWrap: fileEditorWordWrap,
+                        backgroundColor: contentBackgroundColor,
+                        onRequestPanelFocus: onRequestPanelFocus
+                    )
+                } else {
+                    FilePreviewTextEditor(
+                        panel: panel,
+                        isVisibleInUI: isVisibleInUI,
+                        themeBackgroundColor: contentBackgroundColor,
+                        themeForegroundColor: themeForegroundColor,
+                        drawsBackground: appearance.drawsContentBackground,
+                        wordWrap: fileEditorWordWrap
+                    )
+                }
             case .pdf:
                 FilePreviewPDFView(
                     panel: panel,

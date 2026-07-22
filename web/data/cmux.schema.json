@@ -1516,7 +1516,7 @@
     },
     "fileEditor": {
       "title": "fileEditor",
-      "description": "Built-in plain-text file editor settings.",
+      "description": "Built-in file editor settings.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1525,6 +1525,13 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        },
+        "engine": {
+          "type": "string",
+          "enum": ["plain", "code"],
+          "default": "plain",
+          "description": "Editor used for text files: `plain` is the plain-text editor; `code` is the code editor with syntax highlighting, code folding, and in-editor search.",
+          "descriptionKey": "schemaDescriptions.fileEditor.engine"
         }
       }
     },

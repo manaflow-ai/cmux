@@ -6,6 +6,8 @@ final class FilePreviewNativeViewSessions {
     let image = FilePreviewImageSession()
     let media = FilePreviewMediaSession()
     let quickLook = FilePreviewQuickLookSession()
+    /// Code editor webview (text mode with `fileEditor.engine = "code"`).
+    let codeEditorWeb = CodeEditorWebSession()
 
     deinit {
         // AppKit teardown is performed explicitly by closeAll() on the main actor.
@@ -14,23 +16,30 @@ final class FilePreviewNativeViewSessions {
     func closeInactive(except mode: FilePreviewMode) {
         switch mode {
         case .text:
-            closeAll()
+            pdf.close()
+            image.close()
+            media.close()
+            quickLook.close()
         case .pdf:
             image.close()
             media.close()
             quickLook.close()
+            codeEditorWeb.close()
         case .image:
             pdf.close()
             media.close()
             quickLook.close()
+            codeEditorWeb.close()
         case .media:
             pdf.close()
             image.close()
             quickLook.close()
+            codeEditorWeb.close()
         case .quickLook:
             pdf.close()
             image.close()
             media.close()
+            codeEditorWeb.close()
         }
     }
 
@@ -39,5 +48,6 @@ final class FilePreviewNativeViewSessions {
         image.close()
         media.close()
         quickLook.close()
+        codeEditorWeb.close()
     }
 }

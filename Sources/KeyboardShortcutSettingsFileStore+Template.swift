@@ -228,6 +228,7 @@ extension CmuxSettingsFileStore {
             [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
+                    "engine": FilePreviewEditorEngineSettings.defaultEngine,
                 ],
             ],
             [

@@ -16,6 +16,14 @@
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on none"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/theme-one-dark": "^6.1.3",
+    "@codemirror/view": "^6.43.6",
     "@pierre/diffs": "1.2.7",
     "@pierre/trees": "1.0.0-beta.4",
     "@tanstack/react-router": "1.170.11",

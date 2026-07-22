@@ -534,6 +534,94 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileParsesFileEditorEngine() throws {
+        let defaults = UserDefaults.standard
+
+        try preservingDefaults(keys: [
+            FilePreviewEditorEngineSettings.key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey
+        ]) {
+            defaults.removeObject(forKey: FilePreviewEditorEngineSettings.key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            // Defaults to the plain engine until the config opts in.
+            XCTAssertFalse(FilePreviewEditorEngineSettings.isCodeEngineEnabled(defaults: defaults))
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "fileEditor": {
+                    "engine": "code"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            withExtendedLifetime(store) {
+                XCTAssertEqual(
+                    defaults.string(forKey: FilePreviewEditorEngineSettings.key),
+                    FilePreviewEditorEngineSettings.codeEngine
+                )
+                XCTAssertTrue(FilePreviewEditorEngineSettings.isCodeEngineEnabled(defaults: defaults))
+            }
+        }
+    }
+
+    func testSettingsFileRejectsInvalidFileEditorEngine() throws {
+        let defaults = UserDefaults.standard
+
+        try preservingDefaults(keys: [
+            FilePreviewEditorEngineSettings.key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey
+        ]) {
+            defaults.removeObject(forKey: FilePreviewEditorEngineSettings.key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "fileEditor": {
+                    "engine": "vim"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            withExtendedLifetime(store) {
+                XCTAssertNil(defaults.string(forKey: FilePreviewEditorEngineSettings.key))
+                XCTAssertFalse(FilePreviewEditorEngineSettings.isCodeEngineEnabled(defaults: defaults))
+            }
+        }
+    }
+
     func testManagedAppearanceUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey

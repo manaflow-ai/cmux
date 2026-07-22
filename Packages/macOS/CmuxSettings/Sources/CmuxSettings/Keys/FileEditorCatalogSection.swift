@@ -19,6 +19,18 @@ public struct FileEditorCatalogSection: SettingCatalogSection {
         userDefaultsKey: "fileEditor.wordWrap"
     )
 
+    /// Which renderer draws the text editor.
+    ///
+    /// `"plain"` (the default) is the established NSTextView-based plain-text
+    /// editor. `"code"` renders the CodeMirror-based code editor with syntax
+    /// highlighting, code folding, and in-editor search. Changing this
+    /// applies to open editors live.
+    public let engine = DefaultsKey<String>(
+        id: "fileEditor.engine",
+        defaultValue: "plain",
+        userDefaultsKey: "fileEditor.engine"
+    )
+
     /// Creates the file editor settings section with its default keys.
     public init() {}
 }
