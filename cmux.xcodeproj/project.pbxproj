@@ -1400,6 +1400,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C6711A060000000000000001 /* RestorableAgentHookSessionStoreFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B060000000000000001 /* RestorableAgentHookSessionStoreFile.swift */; };
 		F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */; };
 		A5001662 /* RestorableAgentSession+Campfire.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001663 /* RestorableAgentSession+Campfire.swift */; };
+		858200000000000000000006 /* RestorableAgentSession+Kimi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000005 /* RestorableAgentSession+Kimi.swift */; };
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
 		C6711A020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */; };
 		F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */; };
@@ -3516,6 +3517,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C6711B060000000000000001 /* RestorableAgentHookSessionStoreFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookSessionStoreFile.swift; sourceTree = "<group>"; };
 		F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentNonInteractiveTests.swift; sourceTree = "<group>"; };
 		A5001663 /* RestorableAgentSession+Campfire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSession+Campfire.swift"; sourceTree = "<group>"; };
+		858200000000000000000005 /* RestorableAgentSession+Kimi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSession+Kimi.swift"; sourceTree = "<group>"; };
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
 		C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexCodexWeakRecordTests.swift; sourceTree = "<group>"; };
 		F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexTests.swift; sourceTree = "<group>"; };
@@ -5672,6 +5674,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C6711B040000000000000001 /* RestorableAgentHookSessionRecord.swift */,
 				C6711B060000000000000001 /* RestorableAgentHookSessionStoreFile.swift */,
 				A5001663 /* RestorableAgentSession+Campfire.swift */,
+				858200000000000000000005 /* RestorableAgentSession+Kimi.swift */,
 				A5001661 /* RestorableAgentSession.swift */,
 				F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */,
 				F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */,
@@ -7758,6 +7761,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C6711A040000000000000001 /* RestorableAgentHookSessionRecord.swift in Sources */,
 				C6711A060000000000000001 /* RestorableAgentHookSessionStoreFile.swift in Sources */,
 				A5001662 /* RestorableAgentSession+Campfire.swift in Sources */,
+				858200000000000000000006 /* RestorableAgentSession+Kimi.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				C7C5FAF3145342F395DB4C40 /* RestoredAgentCompletedGeneration.swift in Sources */,
