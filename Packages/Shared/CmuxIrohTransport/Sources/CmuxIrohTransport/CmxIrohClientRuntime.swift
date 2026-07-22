@@ -81,6 +81,9 @@ public actor CmxIrohClientRuntime {
     let handleBinding: BindingHandler
     let handleCachedBindings: CachedBindingsHandler
     let handleRelayCredential: RelayCredentialHandler
+    /// Forwards a broker Retry-After observed by the credential coordinator so
+    /// the composition-owned cooldown survives runtime teardown.
+    let handleRelayRateLimit: (@Sendable (Int) async -> Void)?
     let handleLocalDeactivation: LocalDeactivationHandler
     let handlePolicyInvalidation: PolicyInvalidationHandler
 
@@ -141,6 +144,7 @@ public actor CmxIrohClientRuntime {
         handleBinding: @escaping BindingHandler = { _, _ in true },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
+        handleRelayRateLimit: (@Sendable (Int) async -> Void)? = nil,
         handleLocalDeactivation: @escaping LocalDeactivationHandler = {},
         handlePolicyInvalidation: @escaping PolicyInvalidationHandler = {}
     ) throws {
@@ -181,6 +185,7 @@ public actor CmxIrohClientRuntime {
         self.handleBinding = handleBinding
         self.handleCachedBindings = handleCachedBindings
         self.handleRelayCredential = handleRelayCredential
+        self.handleRelayRateLimit = handleRelayRateLimit
         self.handleLocalDeactivation = handleLocalDeactivation
         self.handlePolicyInvalidation = handlePolicyInvalidation
         transportFactory = CmxIrohByteTransportFactory(sessionPool: sessionPool)

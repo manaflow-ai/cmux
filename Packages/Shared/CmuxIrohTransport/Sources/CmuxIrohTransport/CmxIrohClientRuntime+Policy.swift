@@ -204,7 +204,8 @@ extension CmxIrohClientRuntime {
                 automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
                 credentialDidInstall: { [handleRelayCredential] response in
                     await handleRelayCredential(response, policy.binding)
-                }
+                },
+                rateLimitedDirective: handleRelayRateLimit
             )
             relayCoordinator = coordinator
         }

@@ -109,7 +109,8 @@ extension CmxIrohClientRuntime {
             automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
             credentialDidInstall: { [handleRelayCredential] response in
                 await handleRelayCredential(response, binding)
-            }
+            },
+            rateLimitedDirective: handleRelayRateLimit
         )
         relayCoordinator = coordinator
         do {

@@ -43,6 +43,46 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         #expect(await clockEvents.next() == .cancelled)
     }
 
+    /// Even a successfully installed bootstrap must not schedule its refresh
+    /// before the mint floor: the credential's refreshAfter can precede a
+    /// Retry-After the caller just received from the same endpoint.
+    @Test
+    func bootstrapRefreshScheduleNeverPrecedesTheMintFloor() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let broker = TestRelayTokenBroker(steps: [])
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let response = try fixture.response()
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 },
+            credentialDidInstall: { _ in }
+        )
+        let floor = fixture.refreshAfter.addingTimeInterval(120)
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: response,
+            mintNotBefore: floor
+        )
+
+        guard case let .sleep(deadline) = await clockEvents.next() else {
+            Issue.record("Expected the floored refresh sleep")
+            return
+        }
+        #expect(deadline == floor)
+        #expect(await broker.observedEndpointIDs().isEmpty)
+        await coordinator.deactivate()
+        #expect(await clockEvents.next() == .cancelled)
+    }
+
     @Test
     func bootstrapInstallsCompleteFleetBeforeSleepingUntilRefresh() async throws {
         let fixture = try RelayCoordinatorFixture()

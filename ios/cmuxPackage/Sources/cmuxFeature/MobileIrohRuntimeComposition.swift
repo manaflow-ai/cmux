@@ -1369,6 +1369,13 @@ public final class MobileIrohRuntimeComposition:
             factory: endpointFactoryProvider(transportVerificationMode),
             broker: broker,
             configuration: configuration,
+            handleRelayRateLimit: { @MainActor [weak self] seconds in
+                self?.brokerCooldown.record(
+                    accountID: accountID,
+                    retryAfterSeconds: seconds,
+                    now: self?.now() ?? Date()
+                )
+            },
             pendingRevocations: pendingRevocations,
             protocolConfiguration: Self.protocolConfiguration(
                 for: transportVerificationMode
@@ -2148,9 +2155,11 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         }
         // A Retry-After from the activation-time bootstrap failure seeds the
         // first attempt so the scheduler's default cadence cannot retry the
-        // rate-limited endpoint early.
+        // rate-limited endpoint early. The credential coordinator owns the
+        // floor-expiry mint; this refresh follows staggered so the two
+        // consumers of the same endpoint never wake together.
         let initialRetryAt = initialRetryAfterSeconds.map {
-            now().addingTimeInterval(TimeInterval($0))
+            now().addingTimeInterval(TimeInterval($0) + 30)
         }
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
             var retryAt: Date? = initialRetryAt
