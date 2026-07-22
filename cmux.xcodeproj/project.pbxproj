@@ -1556,10 +1556,16 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B804A02E000000000000002E /* SidebarRowChecklistAddRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B02E000000000000002E /* SidebarRowChecklistAddRow.swift */; };
 		B804A02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift */; };
 		B804A0300000000000000030 /* SidebarRowChecklistFieldSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0300000000000000030 /* SidebarRowChecklistFieldSupport.swift */; };
+		B804A0390000000000000039 /* SidebarRowChecklistFlippedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0390000000000000039 /* SidebarRowChecklistFlippedView.swift */; };
+		B804A0360000000000000036 /* SidebarRowChecklistFocusField.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0360000000000000036 /* SidebarRowChecklistFocusField.swift */; };
+		B804A0340000000000000034 /* SidebarRowChecklistGhostAddButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0340000000000000034 /* SidebarRowChecklistGhostAddButton.swift */; };
 		B804A02D000000000000002D /* SidebarRowChecklistItemLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B02D000000000000002D /* SidebarRowChecklistItemLine.swift */; };
 		B804A02C000000000000002C /* SidebarRowChecklistSummaryLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B02C000000000000002C /* SidebarRowChecklistSummaryLine.swift */; };
+		B804A0350000000000000035 /* SidebarRowChecklistTransparentButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0350000000000000035 /* SidebarRowChecklistTransparentButton.swift */; };
 		B804A0330000000000000033 /* SidebarRowCompactStatusLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0330000000000000033 /* SidebarRowCompactStatusLine.swift */; };
+		B804A0380000000000000038 /* SidebarRowContentContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0380000000000000038 /* SidebarRowContentContainerView.swift */; };
 		AABBCC00000000000000020A /* SidebarRowDragGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000209 /* SidebarRowDragGate.swift */; };
+		B804A0370000000000000037 /* SidebarRowPressedDim.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0370000000000000037 /* SidebarRowPressedDim.swift */; };
 		B804A0310000000000000031 /* SidebarRowSwiftUIPopoverPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0310000000000000031 /* SidebarRowSwiftUIPopoverPresenter.swift */; };
 		B804A0320000000000000032 /* SidebarRowTaskStatusGlyphButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0320000000000000032 /* SidebarRowTaskStatusGlyphButton.swift */; };
 		C0DE35010000000000000001 /* SidebarScrim.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35010000000000000002 /* SidebarScrim.swift */; };
@@ -3670,10 +3676,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B804B02E000000000000002E /* SidebarRowChecklistAddRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistAddRow.swift; sourceTree = "<group>"; };
 		B804B02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistAttachmentButton.swift; sourceTree = "<group>"; };
 		B804B0300000000000000030 /* SidebarRowChecklistFieldSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistFieldSupport.swift; sourceTree = "<group>"; };
+		B804B0390000000000000039 /* SidebarRowChecklistFlippedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistFlippedView.swift; sourceTree = "<group>"; };
+		B804B0360000000000000036 /* SidebarRowChecklistFocusField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistFocusField.swift; sourceTree = "<group>"; };
+		B804B0340000000000000034 /* SidebarRowChecklistGhostAddButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistGhostAddButton.swift; sourceTree = "<group>"; };
 		B804B02D000000000000002D /* SidebarRowChecklistItemLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistItemLine.swift; sourceTree = "<group>"; };
 		B804B02C000000000000002C /* SidebarRowChecklistSummaryLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistSummaryLine.swift; sourceTree = "<group>"; };
+		B804B0350000000000000035 /* SidebarRowChecklistTransparentButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistTransparentButton.swift; sourceTree = "<group>"; };
 		B804B0330000000000000033 /* SidebarRowCompactStatusLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowCompactStatusLine.swift; sourceTree = "<group>"; };
+		B804B0380000000000000038 /* SidebarRowContentContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowContentContainerView.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000209 /* SidebarRowDragGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarRowDragGate.swift; sourceTree = "<group>"; };
+		B804B0370000000000000037 /* SidebarRowPressedDim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowPressedDim.swift; sourceTree = "<group>"; };
 		B804B0310000000000000031 /* SidebarRowSwiftUIPopoverPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowSwiftUIPopoverPresenter.swift; sourceTree = "<group>"; };
 		B804B0320000000000000032 /* SidebarRowTaskStatusGlyphButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowTaskStatusGlyphButton.swift; sourceTree = "<group>"; };
 		C0DE35010000000000000002 /* SidebarScrim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarScrim.swift; sourceTree = "<group>"; };
@@ -4782,6 +4794,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B804B02C000000000000002C /* SidebarRowChecklistSummaryLine.swift */,
 				B804B02D000000000000002D /* SidebarRowChecklistItemLine.swift */,
 				B804B02E000000000000002E /* SidebarRowChecklistAddRow.swift */,
+				B804B0340000000000000034 /* SidebarRowChecklistGhostAddButton.swift */,
+				B804B0350000000000000035 /* SidebarRowChecklistTransparentButton.swift */,
+				B804B0360000000000000036 /* SidebarRowChecklistFocusField.swift */,
+				B804B0370000000000000037 /* SidebarRowPressedDim.swift */,
+				B804B0380000000000000038 /* SidebarRowContentContainerView.swift */,
+				B804B0390000000000000039 /* SidebarRowChecklistFlippedView.swift */,
 				B804B02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift */,
 				B804B0300000000000000030 /* SidebarRowChecklistFieldSupport.swift */,
 				B804B0310000000000000031 /* SidebarRowSwiftUIPopoverPresenter.swift */,
@@ -7857,10 +7875,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B804A02E000000000000002E /* SidebarRowChecklistAddRow.swift in Sources */,
 				B804A02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift in Sources */,
 				B804A0300000000000000030 /* SidebarRowChecklistFieldSupport.swift in Sources */,
+				B804A0390000000000000039 /* SidebarRowChecklistFlippedView.swift in Sources */,
+				B804A0360000000000000036 /* SidebarRowChecklistFocusField.swift in Sources */,
+				B804A0340000000000000034 /* SidebarRowChecklistGhostAddButton.swift in Sources */,
 				B804A02D000000000000002D /* SidebarRowChecklistItemLine.swift in Sources */,
 				B804A02C000000000000002C /* SidebarRowChecklistSummaryLine.swift in Sources */,
+				B804A0350000000000000035 /* SidebarRowChecklistTransparentButton.swift in Sources */,
 				B804A0330000000000000033 /* SidebarRowCompactStatusLine.swift in Sources */,
+				B804A0380000000000000038 /* SidebarRowContentContainerView.swift in Sources */,
 				AABBCC00000000000000020A /* SidebarRowDragGate.swift in Sources */,
+				B804A0370000000000000037 /* SidebarRowPressedDim.swift in Sources */,
 				B804A0310000000000000031 /* SidebarRowSwiftUIPopoverPresenter.swift in Sources */,
 				B804A0320000000000000032 /* SidebarRowTaskStatusGlyphButton.swift in Sources */,
 				C0DE35010000000000000001 /* SidebarScrim.swift in Sources */,

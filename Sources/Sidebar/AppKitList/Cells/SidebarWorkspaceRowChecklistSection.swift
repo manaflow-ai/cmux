@@ -561,8 +561,3 @@ final class SidebarRowChecklistSection: NSView {
 }
 
 /// Flipped document view for the checklist scroll viewport.
-
-@MainActor
-final class SidebarRowChecklistFlippedView: NSView {
-    override var isFlipped: Bool { true }
-}

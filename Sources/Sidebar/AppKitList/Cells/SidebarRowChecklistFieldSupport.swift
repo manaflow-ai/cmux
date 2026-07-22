@@ -4,30 +4,6 @@ import SwiftUI
 
 // MARK: - Support
 
-/// Transparent full-frame click target (the tap-to-edit overlay on item
-/// text; legacy: `.contentShape(Rectangle()).onTapGesture`).
-@MainActor
-final class SidebarRowChecklistTransparentButton: NSControl {
-    var onClick: (() -> Void)?
-
-    override func mouseDown(with event: NSEvent) {
-        // Swallow so the table row action does not also fire.
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(point) else { return }
-        onClick?()
-    }
-
-    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Button.
-    override func accessibilityPerformPress() -> Bool {
-        guard let onClick else { return false }
-        onClick()
-        return true
-    }
-}
-
 /// Bridges Return / Escape / focus loss on a checklist field to commit and
 /// cancel closures — the exact `ChecklistInputField.Coordinator` semantics
 /// (focus loss commits non-empty text, Option-Return inserts a newline).
@@ -102,17 +78,3 @@ final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {
     }
 }
 
-/// The checklist add/edit field: `FocusGrabbingTextField` that also clears
-/// the field editor's background AFTER the focus grab. The immediate clear
-/// at creation only covers cells configured while already in a window —
-/// `tableView(_:viewFor:row:)` configures BEFORE window attachment, and the
-/// editor created by the deferred focus grab would otherwise restore the
-/// oversized dark editor box.
-@MainActor
-final class SidebarRowChecklistFocusField: FocusGrabbingTextField {
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard window != nil else { return }
-        SidebarRowChecklistFieldBridge.clearFieldEditorBackground(self)
-    }
-}
