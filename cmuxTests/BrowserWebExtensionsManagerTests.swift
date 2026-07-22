@@ -3616,7 +3616,7 @@ struct BrowserWebExtensionsManagerTests {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
-            initialURL: try #require(URL(string: "https://example.com/profile-restore")),
+            initialURL: try #require(URL(string: "about:blank#profile-restore")),
             browserServices: services
         )
         defer { panel.close() }
@@ -3946,7 +3946,7 @@ struct BrowserWebExtensionsManagerTests {
         panel.runWhenWebExtensionsLoaded {
             deferredNavigationCount += 1
         }
-        panel.navigate(to: try #require(URL(string: "https://example.com/newer")))
+        panel.navigate(to: try #require(URL(string: "about:blank#newer")))
         loadGate.resume()
         for _ in 0..<4 { await Task.yield() }
 
@@ -4155,7 +4155,7 @@ struct BrowserWebExtensionsManagerTests {
         }
         #expect(!registeredWebViews().contains(managerPage.webView))
 
-        managerPage.navigate(to: try #require(URL(string: "https://example.com")))
+        managerPage.navigate(to: try #require(URL(string: "about:blank#manager")))
 
         #expect(registeredWebViews().contains(managerPage.webView))
         #expect(manager.debugDidOpenTabEventCount == openEventsBeforeManagerPage + 1)
@@ -6158,13 +6158,13 @@ struct BrowserWebExtensionsManagerTests {
         let firstPanelID = try #require(store.newSurface(
             kind: .browser,
             inPane: rootPane,
-            url: URL(string: "https://example.com"),
+            url: URL(string: "about:blank#first"),
             focus: false
         ))
         let secondPanelID = try #require(store.newSurface(
             kind: .browser,
             inPane: rootPane,
-            url: URL(string: "https://example.com/second"),
+            url: URL(string: "about:blank#second"),
             focus: false
         ))
         let firstPanel = try #require(store.browserPanel(for: firstPanelID))
