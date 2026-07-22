@@ -146,6 +146,34 @@ struct BrowserWebExtensionRepositoryTests {
         #expect(discovery.failures.isEmpty)
     }
 
+    @Test func legacyManagedRecordWithoutContextIdentifierStillDecodes() throws {
+        var expected = BrowserWebExtensionManagedRecord(
+            id: "catalog:legacy",
+            displayName: "Legacy",
+            version: "1",
+            source: .directory(filename: "legacy", digest: "digest"),
+            isEnabled: true,
+            isToolbarPinned: true,
+            webExtensionContextIdentifier: "cmux-browser-extension-installation",
+            grantedPermissions: ["storage"],
+            grantedMatchPatterns: []
+        )
+        let encoded = try JSONEncoder().encode(expected)
+        var object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object.removeValue(forKey: "webExtensionContextIdentifier")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        expected.webExtensionContextIdentifier = nil
+        let decoded = try JSONDecoder().decode(
+            BrowserWebExtensionManagedRecord.self,
+            from: legacyData
+        )
+
+        #expect(decoded == expected)
+    }
+
     @Test func conditionalManagementMutationsRejectStaleRecords() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

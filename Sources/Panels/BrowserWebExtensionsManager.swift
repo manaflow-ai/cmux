@@ -712,10 +712,10 @@ final class BrowserWebExtensionsManager: NSObject {
             managedRecords = ledger.records
             toolbarPinnedExtensionIdentifiers = Set(ledger.records.values.compactMap { record in
                 record.isEnabled && record.isToolbarPinned
-                    ? Self.contextIdentifier(for: record.id)
+                    ? Self.contextIdentifier(for: record)
                     : nil
             })
-            await removeOrphanedManagedData(authoritativeRecordIDs: Set(ledger.records.keys))
+            await removeOrphanedManagedData(authoritativeRecords: ledger.records.values)
             try await directoryRepository.removeUnreferencedManagedPackages(in: directory)
             guard !Task.isCancelled, !isShutDown else { return .degraded(.loadFailed) }
             discovery = try await directoryRepository.managedInstallations(in: directory)
@@ -769,8 +769,12 @@ final class BrowserWebExtensionsManager: NSObject {
         return .ready
     }
 
-    private func removeOrphanedManagedData(authoritativeRecordIDs: Set<String>) async {
-        let authoritativeContextIdentifiers = Set(authoritativeRecordIDs.map(Self.contextIdentifier(for:)))
+    private func removeOrphanedManagedData(
+        authoritativeRecords: Dictionary<String, BrowserWebExtensionManagedRecord>.Values
+    ) async {
+        let authoritativeContextIdentifiers = Set(authoritativeRecords.map {
+            Self.contextIdentifier(for: $0)
+        })
         let dataTypes = WKWebExtensionController.allExtensionDataTypes
         let orphanedRecords = await controller.dataRecords(ofTypes: dataTypes).filter { record in
             record.uniqueIdentifier.hasPrefix(Self.managedContextIdentifierPrefix)
@@ -1065,6 +1069,7 @@ final class BrowserWebExtensionsManager: NSObject {
         let reviewedWebExtension: WKWebExtension
         let installationName: String
         var safariReference: BrowserWebExtensionAppExtensionReference?
+        var attemptedContextIdentifier: String?
         var committedRecord: BrowserWebExtensionManagedRecord?
         var committedReceipt: BrowserWebExtensionInstallReceipt?
         do {
@@ -1098,6 +1103,9 @@ final class BrowserWebExtensionsManager: NSObject {
                     source: managedSource,
                     isEnabled: previousRecord?.isEnabled ?? true,
                     isToolbarPinned: previousRecord?.isToolbarPinned ?? false,
+                    webExtensionContextIdentifier: previousRecord.map {
+                        Self.contextIdentifier(for: $0)
+                    } ?? Self.freshContextIdentifier(),
                     grantedPermissions: Array(requiredPermissions.union(allowedOptionalPermissions)),
                     requiredPermissions: Array(requiredPermissions),
                     deniedPermissions: [],
@@ -1121,6 +1129,9 @@ final class BrowserWebExtensionsManager: NSObject {
                     source: .safariApp(reference),
                     isEnabled: previousRecord?.isEnabled ?? true,
                     isToolbarPinned: previousRecord?.isToolbarPinned ?? false,
+                    webExtensionContextIdentifier: previousRecord.map {
+                        Self.contextIdentifier(for: $0)
+                    } ?? Self.freshContextIdentifier(),
                     grantedPermissions: Array(requiredPermissions.union(allowedOptionalPermissions)),
                     requiredPermissions: Array(requiredPermissions),
                     deniedPermissions: [],
@@ -1130,6 +1141,7 @@ final class BrowserWebExtensionsManager: NSObject {
                     capabilityNotices: prepared.preview.capabilityNotices
                 )
             }
+            attemptedContextIdentifier = Self.contextIdentifier(for: record)
             if let previousContext {
                 cancelPermissionPrompts(for: previousContext)
                 await closePresentedPopups(
@@ -1180,7 +1192,7 @@ final class BrowserWebExtensionsManager: NSObject {
             committedReceipt = receipt
             try await postManagementCommitHook()
             managedRecords[record.id] = record
-            let contextIdentifier = Self.contextIdentifier(for: record.id)
+            let contextIdentifier = Self.contextIdentifier(for: record)
             if record.isEnabled, record.isToolbarPinned {
                 toolbarPinnedExtensionIdentifiers.insert(contextIdentifier)
             } else {
@@ -1202,7 +1214,7 @@ final class BrowserWebExtensionsManager: NSObject {
             // memory and the live controller back on the previous record.
             if let committedRecord, let committedReceipt {
                 managedRecords[committedRecord.id] = committedRecord
-                let identifier = Self.contextIdentifier(for: committedRecord.id)
+                let identifier = Self.contextIdentifier(for: committedRecord)
                 if committedRecord.isEnabled, committedRecord.isToolbarPinned {
                     toolbarPinnedExtensionIdentifiers.insert(identifier)
                 } else {
@@ -1214,12 +1226,14 @@ final class BrowserWebExtensionsManager: NSObject {
                 }
                 throw error
             }
-            let newContextIdentifier = Self.contextIdentifier(for: prepared.logicalID)
-            if let newContext = loadedContexts.first(where: { $0.uniqueIdentifier == newContextIdentifier }) {
+            if let attemptedContextIdentifier,
+               let newContext = loadedContexts.first(where: {
+                   $0.uniqueIdentifier == attemptedContextIdentifier
+               }) {
                 cancelPermissionPrompts(for: newContext)
                 _ = try? unloadContext(newContext)
                 loadedContexts.removeAll { $0 === newContext }
-                managedRecordIDsByContextIdentifier.removeValue(forKey: newContextIdentifier)
+                managedRecordIDsByContextIdentifier.removeValue(forKey: attemptedContextIdentifier)
             }
             if let authoritativeLedger = try? await directoryRepository
                 .managementLedger(in: directory),
@@ -1446,9 +1460,10 @@ final class BrowserWebExtensionsManager: NSObject {
             }
             managedRecords[managementID] = record
             clearManagedLoadFailure(for: record)
-            toolbarPinnedExtensionIdentifiers.remove(Self.contextIdentifier(for: managementID))
+            let identifier = Self.contextIdentifier(for: record)
+            toolbarPinnedExtensionIdentifiers.remove(identifier)
             clearTransientState(
-                forExtensionIdentifier: Self.contextIdentifier(for: managementID)
+                forExtensionIdentifier: identifier
             )
         }
         profileRuntime.invalidateSnapshot()
@@ -1459,7 +1474,7 @@ final class BrowserWebExtensionsManager: NSObject {
         guard let record = managedRecords[managementID] else {
             throw BrowserWebExtensionManagementError.extensionNotFound
         }
-        let identifier = Self.contextIdentifier(for: managementID)
+        let identifier = Self.contextIdentifier(for: record)
         if let context = loadedContext(managementID: managementID) {
             cancelPermissionPrompts(for: context)
             await closePresentedPopups(forExtensionIdentifier: context.uniqueIdentifier)
@@ -1527,14 +1542,17 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     private func restoreAuthoritativeManagedRecord(managementID: String) async {
+        let previousRecord = managedRecords[managementID]
         guard let ledger = try? await directoryRepository.managementLedger(in: directory),
               let record = ledger.records[managementID] else {
             managedRecords.removeValue(forKey: managementID)
-            toolbarPinnedExtensionIdentifiers.remove(Self.contextIdentifier(for: managementID))
+            if let previousRecord {
+                toolbarPinnedExtensionIdentifiers.remove(Self.contextIdentifier(for: previousRecord))
+            }
             return
         }
         managedRecords[managementID] = record
-        let identifier = Self.contextIdentifier(for: managementID)
+        let identifier = Self.contextIdentifier(for: record)
         if record.isEnabled, record.isToolbarPinned {
             toolbarPinnedExtensionIdentifiers.insert(identifier)
         } else {
@@ -2239,10 +2257,11 @@ final class BrowserWebExtensionsManager: NSObject {
         try requireActive()
         try validateLoadableManifest(webExtension)
         let context = WKWebExtensionContext(for: webExtension)
-        // Stable identifier derived from the managed entry or app-extension
-        // bundle identifier so storage survives extension and app updates.
+        // The persisted per-install identifier keeps storage stable across
+        // updates while preventing removed extensions from donating storage to
+        // a same-session reinstall with the same management identity.
         context.uniqueIdentifier = managedRecord.map {
-            Self.contextIdentifier(for: $0.id)
+            Self.contextIdentifier(for: $0)
         } ?? "cmux-browser-extension-\(installationName)"
         if !supportsNativeMessaging {
             // WKWebExtension's native messaging transport targets an embedded
@@ -2274,11 +2293,19 @@ final class BrowserWebExtensionsManager: NSObject {
 
     static let managedContextIdentifierPrefix = "cmux-browser-extension-"
 
+    static func contextIdentifier(for record: BrowserWebExtensionManagedRecord) -> String {
+        record.webExtensionContextIdentifier ?? contextIdentifier(for: record.id)
+    }
+
     static func contextIdentifier(for logicalID: String) -> String {
         let digest = SHA256.hash(data: Data(logicalID.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
         return managedContextIdentifierPrefix + digest
+    }
+
+    private static func freshContextIdentifier() -> String {
+        managedContextIdentifierPrefix + UUID().uuidString.lowercased()
     }
 
     private func managedPackageURL(
@@ -2341,7 +2368,7 @@ final class BrowserWebExtensionsManager: NSObject {
             .map { record in
                 let loadFailed = record.isEnabled && failedManagedRecordIDs.contains(record.id)
                 return BrowserWebExtensionPresentationItem(
-                    id: Self.contextIdentifier(for: record.id),
+                    id: Self.contextIdentifier(for: record),
                     managementID: record.id,
                     name: record.displayName,
                     version: record.version,
