@@ -889,6 +889,37 @@ impl Surface {
         Ok(())
     }
 
+    /// Clear the active screen and retained scrollback without sending bytes
+    /// to the child process. Attached byte frontends receive the same VT
+    /// sequence so every mirror stays authoritative and reconnects stay clear.
+    pub fn clear_history(&self) -> anyhow::Result<()> {
+        const CLEAR_SCREEN_AND_HISTORY: &[u8] = b"\x1b[2J\x1b[3J\x1b[H";
+
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let scroll_changed = {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            term.vt_write(CLEAR_SCREEN_AND_HISTORY);
+            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.broadcast_attach_output(CLEAR_SCREEN_AND_HISTORY);
+            let after = terminal_scroll_position(&term);
+            if before != after {
+                broadcast_render_scroll_locked(pty, after);
+            }
+            let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            let _ = pty.build_frame_locked(&mut term, generation, false);
+            (before != after).then_some(after)
+        };
+        if let Some((offset, at_bottom)) = scroll_changed
+            && let Some(mux) = pty.mux.upgrade()
+        {
+            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+        }
+        Ok(())
+    }
+
     pub fn set_default_colors(&self, colors: DefaultColors) {
         if let Some(pty) = self.as_pty() {
             let mut term = pty.term.lock().unwrap();
@@ -1695,5 +1726,37 @@ mod tests {
         drop(render);
         assert!(pty.dirty.load(Ordering::Acquire));
         assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
+    }
+
+    #[test]
+    fn clear_history_updates_the_authoritative_terminal_and_attach_mirrors() {
+        let mux = Mux::new_for_test("clear-history", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"visible");
+        });
+        let attach = surface.attach_stream().unwrap();
+        let mut mirror =
+            Terminal::new(attach.cols, attach.rows, 10_000, Callbacks::default()).unwrap();
+        mirror.vt_write(&attach.replay);
+
+        surface.clear_history().unwrap();
+
+        let AttachFrame::Output(bytes) =
+            attach.stream.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("clear did not reach the attach mirror");
+        };
+        mirror.vt_write(&bytes);
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert!(term.viewport_text().unwrap().trim().is_empty());
+        });
+        assert_eq!(mirror.history_rows(), 0);
+        assert!(mirror.viewport_text().unwrap().trim().is_empty());
     }
 }

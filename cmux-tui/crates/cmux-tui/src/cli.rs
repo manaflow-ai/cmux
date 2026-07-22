@@ -135,6 +135,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_surface, print_read_screen, false),
     },
     VerbSpec {
+        name: "clear-history",
+        help: "Clear a PTY surface's screen and scrollback.",
+        allowed: &["surface"],
+        kind: socket(build_surface, print_empty, false),
+    },
+    VerbSpec {
         name: "read-scrollback",
         help: "Print a styled scrollback page as text.",
         allowed: &["surface", "start", "count"],

@@ -56,7 +56,8 @@
 //!   "keys": {
 //!     "prefix": "ctrl+b",
 //!     "alt_shortcuts": true,
-//!     "new-tab": ["t", "alt+t"],
+//!     "super_shortcuts": true,
+//!     "new-tab": ["t", "alt+t", "cmd+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
 //!     "select-screen-0": "0",
@@ -83,7 +84,7 @@
 //! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-view`, `focus-sidebar`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
-//! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
+//! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
 //! `browser-forward`, `browser-reload`, `browser-edit-url`, and `detach`.
 //!
 //! The defaults intentionally match tmux where cmux has the same
@@ -140,7 +141,7 @@ struct RawConfig {
     server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
-    /// `"alt_shortcuts": false`.
+    /// `"alt_shortcuts": false`, or `"super_shortcuts": false`.
     #[serde(default)]
     keys: HashMap<String, Value>,
 }
@@ -635,6 +636,7 @@ pub enum Action {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
@@ -680,6 +682,7 @@ impl Action {
             Action::ResizeShrink => "resize-shrink".to_string(),
             Action::ScrollUp => "scroll-up".to_string(),
             Action::ScrollDown => "scroll-down".to_string(),
+            Action::ClearHistory => "clear-history".to_string(),
             Action::BrowserBack => "browser-back".to_string(),
             Action::BrowserForward => "browser-forward".to_string(),
             Action::BrowserReload => "browser-reload".to_string(),
@@ -717,8 +720,10 @@ impl Chord {
         let mods_match = if matches!(self.code, KeyCode::Char(_)) {
             key.modifiers.contains(self.mods & !KeyModifiers::SHIFT)
         } else {
-            const TRACKED: KeyModifiers =
-                KeyModifiers::CONTROL.union(KeyModifiers::ALT).union(KeyModifiers::SHIFT);
+            const TRACKED: KeyModifiers = KeyModifiers::CONTROL
+                .union(KeyModifiers::ALT)
+                .union(KeyModifiers::SHIFT)
+                .union(KeyModifiers::SUPER);
             key.modifiers & TRACKED == self.mods & TRACKED
         };
         self.code == key.code && mods_match
@@ -736,26 +741,33 @@ impl Default for Keys {
     fn default() -> Self {
         let bind = |code, action| (Chord { code, mods: KeyModifiers::NONE }, action);
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
+        let command = |code, action| (Chord { code, mods: KeyModifiers::SUPER }, action);
         Keys {
             prefix: Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL },
             bindings: vec![
                 bind(KeyCode::Char('t'), Action::NewTab),
                 alt(KeyCode::Char('t'), Action::NewTab),
+                command(KeyCode::Char('t'), Action::NewTab),
                 bind(KeyCode::Char('B'), Action::NewBrowserTab),
                 alt(KeyCode::Char('n'), Action::NewPaneSmart),
                 bind(KeyCode::Tab, Action::NextTab),
                 bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
+                command(KeyCode::Char('d'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
+                command(KeyCode::Char('D'), Action::SplitDown),
                 bind(KeyCode::Char('x'), Action::ClosePane),
                 bind(KeyCode::Char('X'), Action::CloseTab),
+                command(KeyCode::Char('w'), Action::CloseTab),
                 bind(KeyCode::Char(','), Action::RenameScreen),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
                 bind(KeyCode::Char('&'), Action::CloseScreen),
                 bind(KeyCode::Char('p'), Action::PrevScreen),
                 alt(KeyCode::Char('['), Action::PrevScreen),
+                command(KeyCode::Char('{'), Action::PrevScreen),
                 bind(KeyCode::Char('n'), Action::NextScreen),
                 alt(KeyCode::Char(']'), Action::NextScreen),
+                command(KeyCode::Char('}'), Action::NextScreen),
                 bind(KeyCode::Char('1'), Action::SelectScreen(1)),
                 bind(KeyCode::Char('2'), Action::SelectScreen(2)),
                 bind(KeyCode::Char('3'), Action::SelectScreen(3)),
@@ -797,6 +809,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('['), Action::ScrollUp),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
+                command(KeyCode::Char('k'), Action::ClearHistory),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
                 bind(KeyCode::Char('>'), Action::BrowserForward),
                 bind(KeyCode::Char('r'), Action::BrowserReload),
@@ -813,12 +826,14 @@ impl Keys {
         self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
     }
 
-    /// The modeless action bound to a key event. Only Alt-modified
-    /// chords are modeless; non-Alt chords remain prefix-only.
+    /// The modeless action bound to a key event. Alt- and Super-modified
+    /// chords are modeless; other chords remain prefix-only.
     pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings
             .iter()
-            .find(|(chord, _)| chord.mods.contains(KeyModifiers::ALT) && chord.matches(key))
+            .find(|(chord, _)| {
+                chord.mods.intersects(KeyModifiers::ALT | KeyModifiers::SUPER) && chord.matches(key)
+            })
             .map(|(_, a)| *a)
     }
 
@@ -828,8 +843,11 @@ impl Keys {
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
             self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::ALT));
         }
+        if raw.get("super_shortcuts").and_then(Value::as_bool) == Some(false) {
+            self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::SUPER));
+        }
         for (name, value) in raw {
-            if name == "alt_shortcuts" {
+            if name == "alt_shortcuts" || name == "super_shortcuts" {
                 continue;
             }
             if name == "prefix" {
@@ -942,6 +960,7 @@ fn all_actions() -> &'static [Action] {
         Action::ResizeShrink,
         Action::ScrollUp,
         Action::ScrollDown,
+        Action::ClearHistory,
         Action::BrowserBack,
         Action::BrowserForward,
         Action::BrowserReload,
@@ -959,6 +978,7 @@ fn parse_chord(s: &str) -> Option<Chord> {
         match part.to_lowercase().as_str() {
             "ctrl" | "control" => mods |= KeyModifiers::CONTROL,
             "alt" | "option" => mods |= KeyModifiers::ALT,
+            "cmd" | "command" | "super" => mods |= KeyModifiers::SUPER,
             "shift" => mods |= KeyModifiers::SHIFT,
             "tab" => code = Some(KeyCode::Tab),
             "backtab" => code = Some(KeyCode::BackTab),
@@ -988,8 +1008,44 @@ fn parse_chord(s: &str) -> Option<Chord> {
     if code == KeyCode::Tab && mods.contains(KeyModifiers::SHIFT) {
         code = KeyCode::BackTab;
         mods.remove(KeyModifiers::SHIFT);
+    } else if let KeyCode::Char(c) = code
+        && mods.contains(KeyModifiers::SHIFT)
+    {
+        code = KeyCode::Char(shifted_ascii_char(c));
+        // Crossterm reports shifted printable keys as their resulting
+        // character. Keeping SHIFT here would make equivalent spellings
+        // such as `D` and `shift+d` resolve to different chords.
+        mods.remove(KeyModifiers::SHIFT);
     }
     Some(Chord { code, mods })
+}
+
+fn shifted_ascii_char(c: char) -> char {
+    match c {
+        'a'..='z' => c.to_ascii_uppercase(),
+        '`' => '~',
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        '-' => '_',
+        '=' => '+',
+        '[' => '{',
+        ']' => '}',
+        '\\' => '|',
+        ';' => ':',
+        '\'' => '"',
+        ',' => '<',
+        '.' => '>',
+        '/' => '?',
+        _ => c,
+    }
 }
 
 /// Full resolved configuration.
@@ -2158,6 +2214,55 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn default_super_shortcuts_match_familiar_terminal_actions() {
+        let keys = Keys::default();
+        let action = |code, modifiers| keys.modeless_action_for(&KeyEvent::new(code, modifiers));
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER), Some(Action::ClearHistory));
+        assert_eq!(action(KeyCode::Char('t'), KeyModifiers::SUPER), Some(Action::NewTab));
+        assert_eq!(action(KeyCode::Char('w'), KeyModifiers::SUPER), Some(Action::CloseTab));
+        assert_eq!(action(KeyCode::Char('d'), KeyModifiers::SUPER), Some(Action::SplitRight));
+        assert_eq!(
+            action(KeyCode::Char('D'), KeyModifiers::SUPER | KeyModifiers::SHIFT),
+            Some(Action::SplitDown)
+        );
+        assert_eq!(
+            action(KeyCode::Char('{'), KeyModifiers::SUPER | KeyModifiers::SHIFT),
+            Some(Action::PrevScreen)
+        );
+        assert_eq!(
+            action(KeyCode::Char('}'), KeyModifiers::SUPER | KeyModifiers::SHIFT),
+            Some(Action::NextScreen)
+        );
+    }
+
+    #[test]
+    fn super_shortcuts_can_be_disabled_or_configured_explicitly() {
+        let mut keys = Keys::default();
+        keys.apply(&HashMap::from([("super_shortcuts".to_string(), Value::Bool(false))]));
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)),
+            None
+        );
+
+        keys.apply(&HashMap::from([(
+            "clear-history".to_string(),
+            Value::String("command+l".to_string()),
+        )]));
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::SUPER)),
+            Some(Action::ClearHistory)
+        );
+        assert_eq!(
+            parse_chord("cmd+shift+d"),
+            Some(Chord { code: KeyCode::Char('D'), mods: KeyModifiers::SUPER })
+        );
+        assert_eq!(
+            parse_chord("super+shift+["),
+            Some(Chord { code: KeyCode::Char('{'), mods: KeyModifiers::SUPER })
+        );
     }
 
     #[test]

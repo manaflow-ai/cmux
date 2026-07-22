@@ -740,6 +740,18 @@ impl Session {
         }
     }
 
+    pub fn clear_history(&self, surface: SurfaceId) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?
+                .clear_history(),
+            Session::Remote(remote) => {
+                remote.request(json!({"cmd": "clear-history", "surface": surface})).map(|_| ())
+            }
+        }
+    }
+
     pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {

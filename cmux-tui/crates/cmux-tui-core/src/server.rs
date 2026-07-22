@@ -130,6 +130,9 @@ enum Command {
     ReadScreen {
         surface: SurfaceId,
     },
+    ClearHistory {
+        surface: SurfaceId,
+    },
     ReadScrollback {
         surface: SurfaceId,
         start: u32,
@@ -2804,6 +2807,12 @@ fn handle_command(
             require_pty(&surface)?;
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
+        }
+        Command::ClearHistory { surface } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            surface.clear_history()?;
+            Ok(json!({}))
         }
         Command::ReadScrollback { surface, start, count } => {
             let surface = get_surface(mux, surface)?;

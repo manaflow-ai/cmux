@@ -637,6 +637,49 @@ Example:
 {"id":4,"ok":true,"data":{"text":"$ ls\nREADME.md\n"}}
 ```
 
+### clear-history
+
+| Field | Value |
+| --- | --- |
+| name | `clear-history` |
+| status | implemented |
+| since | protocol 9 |
+
+Clears the current screen and retained scrollback for a live PTY surface without sending input to the child process. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Must identify a live PTY surface |
+
+Result: empty object.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | Surface id does not exist |
+| `browser surface does not support PTY/VT socket commands` | Surface is a browser |
+| `bad request: ...` | Missing `surface` or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `clear-history` |
+| Flags | `--surface <id>` |
+| Plain stdout | none |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":5,"cmd":"clear-history","surface":1}
+{"id":5,"ok":true,"data":{}}
+```
+
 ### sidebar-plugin
 
 | Field | Value |

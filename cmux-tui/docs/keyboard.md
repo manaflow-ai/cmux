@@ -4,7 +4,7 @@
 
 `cmux-tui` uses a tmux-style prefix. The default prefix is `Ctrl-b`. After the prefix, the next key is interpreted as a mux command. Pressing the prefix twice sends a literal `Ctrl-b` to the active surface.
 
-Unknown prefixed keys are swallowed. Unprefixed non-Alt keys go to the active surface. Alt chords that are bound in the key table are modeless commands by default.
+Unknown prefixed keys are swallowed. Unprefixed keys go to the active surface unless they match a configured modeless Alt or Command/Super chord.
 
 ## Default Bindings
 
@@ -14,22 +14,28 @@ These defaults come from `Keys::default`.
 | --- | --- |
 | `Ctrl-b t` | New PTY tab in the active pane |
 | `Alt-t` | New PTY tab in the active pane |
+| `Cmd-t` / `Super-t` | New PTY tab in the active pane |
 | `Ctrl-b B` | Open the browser-tab URL prompt |
 | `Alt-n` | Create a pane with Zellij's default vertical auto-layout |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
 | `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
 | `Ctrl-b %` | Split the active pane right |
+| `Cmd-d` / `Super-d` | Split the active pane right |
 | `Ctrl-b "` | Split the active pane down |
+| `Cmd-Shift-d` / `Super-Shift-d` | Split the active pane down |
 | `Ctrl-b x` | Close the active pane |
 | `Ctrl-b X` | Close the active tab |
+| `Cmd-w` / `Super-w` | Close the active tab |
 | `Ctrl-b ,` | Rename the active screen |
 | `Ctrl-b $` | Rename the active workspace |
 | `Ctrl-b &` | Close the active screen |
 | `Ctrl-b p` | Previous screen in the active workspace |
 | `Alt-[` | Previous screen in the active workspace |
+| `Cmd-Shift-[` / `Super-Shift-[` | Previous screen in the active workspace |
 | `Ctrl-b n` | Next screen in the active workspace |
 | `Alt-]` | Next screen in the active workspace |
+| `Cmd-Shift-]` / `Super-Shift-]` | Next screen in the active workspace |
 | `Ctrl-b c` | New screen in the active workspace |
 | `Ctrl-b z` | Toggle zoom for the active pane |
 | `Ctrl-b o` | Focus the next pane in the current screen |
@@ -53,6 +59,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
+| `Cmd-k` / `Super-k` | Clear the active PTY screen and scrollback |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
@@ -77,6 +84,12 @@ Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kil
 
 Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a deliberate non-goal because they conflict with common shell and editor control keys such as history, transpose, flow control, and editor navigation.
 
+## Modeless Command/Super Layer
+
+Command/Super defaults mirror common terminal shortcuts: `Cmd-k` clears the active PTY screen and scrollback, `Cmd-t` creates a tab, `Cmd-w` closes a tab, `Cmd-d` and `Cmd-Shift-d` split right and down, and `Cmd-Shift-[` / `Cmd-Shift-]` switch screens. These chords require a host terminal that forwards Super-modified keys. Ghostty forwards its performable `Cmd-k` binding while cmux-tui owns the alternate screen. Other host-level shortcuts may remain owned by the host terminal.
+
+Set `keys.super_shortcuts` to `false` to remove the default Command/Super bindings. Explicit `cmd+...`, `command+...`, and `super+...` bindings still work.
+
 ## Number Selection
 
 `0` through `9` are regular configurable screen-selection bindings. Zero-based tab selectors are available as `select-tab-0` through `select-tab-9`; they are unbound by default because the number keys select screens.
@@ -92,7 +105,8 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
   "keys": {
     "prefix": "ctrl+a",
     "alt_shortcuts": false,
-    "new-tab": ["t", "alt+t"],
+    "super_shortcuts": false,
+    "new-tab": ["t", "alt+t", "cmd+t"],
     "new-pane-smart": "alt+n",
     "select-screen-0": "0",
     "select-screen-1": "1",
@@ -164,6 +178,7 @@ resize-grow
 resize-shrink
 scroll-up
 scroll-down
+clear-history
 browser-back
 browser-forward
 browser-reload
@@ -177,4 +192,4 @@ detach
 
 Chord strings are case-sensitive for single characters. Uppercase letters and symbols represent the shifted character.
 
-Supported examples include `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
+Supported examples include `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"cmd+k"`, `"super+shift+d"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.

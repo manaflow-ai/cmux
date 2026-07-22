@@ -1685,6 +1685,10 @@ impl OrderedSession {
         self.enqueue_routing("close tab", move |session| session.close_surface(surface));
     }
 
+    pub fn clear_history(&self, surface: SurfaceId) {
+        self.enqueue("clear terminal history", move |session| session.clear_history(surface));
+    }
+
     pub fn close_pane(&self, pane: PaneId) {
         self.enqueue_routing("close pane", move |session| session.close_pane(pane));
     }
@@ -5136,6 +5140,13 @@ impl App {
             Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
+            Action::ClearHistory => {
+                if let Some(surface) = self.active_surface() {
+                    self.session.clear_history(surface);
+                    self.render_states.remove(&surface);
+                    self.selection = None;
+                }
+            }
             Action::BrowserBack => {
                 self.enqueue_active_browser_command(BrowserInputKind::Back);
                 return Ok(RenderAction::Draw);
@@ -7969,10 +7980,14 @@ mod tests {
         });
         assert!(surface.with_terminal(|term| term.history_rows()).unwrap() > 0);
 
-        let mut app = test_app(Session::Local(mux.clone()));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
         app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
 
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);

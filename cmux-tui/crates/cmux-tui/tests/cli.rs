@@ -325,6 +325,13 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&copied);
     assert!(String::from_utf8_lossy(&copied.stdout).contains(&marker));
 
+    let cleared = cli(&server, &["clear-history", "--surface", &surface.to_string()]);
+    assert_success(&cleared);
+    assert!(cleared.stdout.is_empty(), "clear-history should be quiet on success");
+    let cleared_screen = cli(&server, &["read-screen", "--surface", &surface.to_string()]);
+    assert_success(&cleared_screen);
+    assert!(String::from_utf8_lossy(&cleared_screen.stdout).trim().is_empty());
+
     let notify = cli(&server, &["notify", "--title", "Build", "--body", "ok"]);
     assert_success(&notify);
     assert!(String::from_utf8_lossy(&notify.stdout).trim().parse::<u64>().unwrap() > 0);

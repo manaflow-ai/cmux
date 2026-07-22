@@ -37,6 +37,7 @@ identify
 list-workspaces
 send
 read-screen
+clear-history
 vt-state
 new-tab
 new-browser-tab
