@@ -1727,7 +1727,13 @@ final class CmuxSettingsFileStore {
             }
             return
         }
-        guard let data = try? JSONEncoder().encode(imported),
+        // Sorted keys matter here, not just tidiness: a Swift dictionary's encoding order follows
+        // the per-process hash seed, so without this the first reload after a relaunch can encode
+        // identical content to different bytes, fail the comparison, and write anyway -- firing
+        // exactly the notification cascade this guard exists to avoid.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(imported),
               defaults.data(forKey: Self.importedManagedDefaultsDefaultsKey) != data else { return }
         defaults.set(data, forKey: Self.importedManagedDefaultsDefaultsKey)
     }
@@ -1750,7 +1756,11 @@ final class CmuxSettingsFileStore {
             }
             return
         }
-        guard let data = try? JSONEncoder().encode(backups),
+        // Sorted keys for the same reason as saveImportedManagedDefaults: an unsorted encoding is
+        // not stable across process launches, so the comparison would spuriously miss.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(backups),
               defaults.data(forKey: Self.backupsDefaultsKey) != data else { return }
         defaults.set(data, forKey: Self.backupsDefaultsKey)
     }
