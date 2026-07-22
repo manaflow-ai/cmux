@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import Foundation
 import SwiftUI
 
 /// Snapshot-isolated switcher for terminals, chat, local browser, and streamed Mac browsers.
@@ -10,6 +11,7 @@ struct TerminalPickerMenu: View, Equatable {
     let terminalTheme: TerminalTheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isSwitcherPresented = false
+    @State private var switcherPresentationID = UUID()
     @State private var compactDetent = PresentationDetent.fraction(0.72)
     #if DEBUG
     private let diagnostics = TerminalPickerMenuDiagnostics()
@@ -36,6 +38,7 @@ struct TerminalPickerMenu: View, Equatable {
         .accessibilityValue(activeSurfaceName)
         .popover(isPresented: $isSwitcherPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
             SurfaceSwitcherSheet(
+                presentationID: switcherPresentationID,
                 value: value,
                 actions: actions,
                 terminalTheme: terminalTheme,

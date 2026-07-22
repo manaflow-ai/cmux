@@ -1,9 +1,11 @@
 import CMUXMobileCore
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import Foundation
 import SwiftUI
 
 struct SurfaceSwitcherSheet: View {
+    let presentationID: UUID
     let value: TerminalPickerMenuValue
     let actions: TerminalPickerMenuActions
     let terminalTheme: TerminalTheme
@@ -55,10 +57,22 @@ struct SurfaceSwitcherSheet: View {
         .background(terminalTheme.terminalBackgroundColor)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileSurfaceSwitcher")
+        .accessibilityValue(presentationAccessibilityValue)
     }
 
     private var foreground: Color {
         terminalTheme.terminalChromeForegroundColor
+    }
+
+    private var presentationAccessibilityValue: String {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_SURFACE_SWITCHER"] == "1" else {
+            return ""
+        }
+        return presentationID.uuidString
+        #else
+        return ""
+        #endif
     }
 
     private var visibleDestinations: [SurfaceSwitcherDestination] {
