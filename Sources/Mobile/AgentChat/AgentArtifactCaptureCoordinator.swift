@@ -51,7 +51,7 @@ actor AgentArtifactCaptureCoordinator {
         let checkpoint = completedState?.checkpoint
         let transcriptReset = checkpoint.map {
             $0.transcriptLineage != snapshot.transcriptLineage
-                || snapshot.lineCount < $0.lineCount
+                || snapshot.transcriptExtent < $0.transcriptExtent
         } ?? false
         let completedCursor = transcriptReset ? nil : checkpoint?.referenceCursor
         var seenPaths: Set<String> = []
@@ -80,7 +80,7 @@ actor AgentArtifactCaptureCoordinator {
                     revision: snapshot.revision,
                     checkpoint: AgentArtifactCaptureCheckpoint(
                         transcriptLineage: snapshot.transcriptLineage,
-                        lineCount: snapshot.lineCount,
+                        transcriptExtent: snapshot.transcriptExtent,
                         referenceCursor: completedCursor
                     )
                 ),
@@ -107,7 +107,7 @@ actor AgentArtifactCaptureCoordinator {
             let last = pending[processedCount - 1]
             updatedCheckpoint = AgentArtifactCaptureCheckpoint(
                 transcriptLineage: snapshot.transcriptLineage,
-                lineCount: snapshot.lineCount,
+                transcriptExtent: snapshot.transcriptExtent,
                 referenceCursor: AgentArtifactReferenceCursor(
                     sequence: last.lastReferencedSeq,
                     path: last.path

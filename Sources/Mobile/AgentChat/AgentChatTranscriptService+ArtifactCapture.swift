@@ -11,13 +11,7 @@ extension AgentChatTranscriptService {
         let isAutomaticArtifactCaptureEnabled = self.isAutomaticArtifactCaptureEnabled
         replaceArtifactCaptureTask(sessionID: record.sessionID) {
             guard !Task.isCancelled, await isAutomaticArtifactCaptureEnabled() else { return }
-            let transcriptPath: String
-            do {
-                guard let resolved = try resolver.transcriptPath(for: record) else { return }
-                transcriptPath = resolved
-            } catch {
-                return
-            }
+            guard let transcriptPath = resolver.boundedTranscriptPath(for: record) else { return }
             guard !Task.isCancelled else { return }
             guard let maximumFileBytes = await artifactCaptureCoordinator.maximumTranscriptScanBytes(
                 for: record

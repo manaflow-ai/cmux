@@ -6,19 +6,18 @@ struct ArtifactSearchEngine {
 
     func results(snapshot: ArtifactSnapshot, query rawQuery: String) throws -> [ArtifactSearchResult] {
         try Task.checkCancellation()
-        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return [] }
-        let matcher = ArtifactFuzzyMatcher()
+        let matcher = ArtifactFuzzyMatcher(query: rawQuery)
+        guard !matcher.isEmpty else { return [] }
         var remainingContentBytes = configuration.contentSearchTotalMaximumBytes
         var results: [ArtifactSearchResult] = []
         for node in snapshot.nodes.flattenedArtifactNodes() where !node.isDirectory {
             try Task.checkCancellation()
-            let nameScore = matcher.score(candidate: node.name, query: query)
-            let pathScore = matcher.score(candidate: node.relativePath, query: query).map { $0 - 250 }
+            let nameScore = matcher.score(candidate: node.name)
+            let pathScore = matcher.score(candidate: node.relativePath).map { $0 - 250 }
             let contentMatch = try contentMatch(
                 node: node,
                 artifactsRoot: snapshot.artifactsRoot,
-                query: query,
+                query: matcher.contentQuery,
                 remainingBytes: &remainingContentBytes
             )
             guard nameScore != nil || pathScore != nil || contentMatch != nil else { continue }

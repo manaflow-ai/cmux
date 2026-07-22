@@ -3,15 +3,18 @@ import Foundation
 /// Exhaustively streams ordinary artifact files for stale-provenance recovery.
 struct ArtifactDeduplicationScanner {
     let fileManager: FileManager
+    let maximumDepth: Int
     let nodeLimit: Int
     let hashByteLimit: Int64
 
     init(
         fileManager: FileManager,
+        maximumDepth: Int = 32,
         nodeLimit: Int = 100_000,
         hashByteLimit: Int64 = 512 * 1024 * 1024
     ) {
         self.fileManager = fileManager
+        self.maximumDepth = max(1, maximumDepth)
         self.nodeLimit = max(1, nodeLimit)
         self.hashByteLimit = max(1, hashByteLimit)
     }
@@ -31,37 +34,32 @@ struct ArtifactDeduplicationScanner {
         let keys: Set<URLResourceKey> = [
             .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
         ]
-        guard let rootEnumerator = fileManager.enumerator(
+        guard let enumerator = fileManager.enumerator(
             at: paths.artifactsRoot,
             includingPropertiesForKeys: Array(keys),
-            options: [.skipsSubdirectoryDescendants]
+            options: []
         ) else { return }
-        var enumerators = [rootEnumerator]
         let pathResolver = ArtifactPathResolver()
 
-        while let enumerator = enumerators.last {
+        while let url = enumerator.nextObject() as? URL {
             try Task.checkCancellation()
             guard remainingNodes > 0 else { return }
-            guard let url = enumerator.nextObject() as? URL else {
-                enumerators.removeLast()
-                continue
-            }
             remainingNodes -= 1
             if pathResolver.refersToSameLocation(url, paths.metadataRoot) {
+                enumerator.skipDescendants()
                 continue
             }
             let values = try url.resourceValues(forKeys: keys)
             guard values.isSymbolicLink != true,
                   pathResolver.isInsideStore(url, paths: paths) else {
+                enumerator.skipDescendants()
                 continue
             }
             if values.isDirectory == true {
-                if let childEnumerator = fileManager.enumerator(
-                    at: url,
-                    includingPropertiesForKeys: Array(keys),
-                    options: [.skipsSubdirectoryDescendants]
-                ) {
-                    enumerators.append(childEnumerator)
+                let relativeDepth = pathResolver.relativePath(url, root: paths.artifactsRoot)?
+                    .split(separator: "/").count ?? Int.max
+                if relativeDepth > maximumDepth {
+                    enumerator.skipDescendants()
                 }
                 continue
             }

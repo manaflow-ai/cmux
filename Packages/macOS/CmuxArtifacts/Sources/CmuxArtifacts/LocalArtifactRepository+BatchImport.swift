@@ -208,6 +208,7 @@ extension LocalArtifactRepository {
             ),
             scanner: ArtifactDeduplicationScanner(
                 fileManager: fileManager,
+                maximumDepth: maximumScanDepth,
                 nodeLimit: configuration.deduplicationScanNodeLimit,
                 hashByteLimit: configuration.deduplicationHashByteLimit
             )
