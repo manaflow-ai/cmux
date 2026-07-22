@@ -82,6 +82,22 @@ struct PromptLineTurnDetectorTests {
         #expect(detector.pendingConfirmation == nil)
     }
 
+    @Test("A multi-byte CSI G preserves the echoed submission until its line boundary")
+    func multiByteCSIGPreservesSubmissionState() throws {
+        var detector = readyDetector()
+
+        detector.consume(Data("explain\u{1B}[12G\r\n".utf8))
+        #expect(detector.submissionCount == 1)
+        #expect(detector.pendingConfirmation == nil)
+
+        detector.consume(Data("answer\r\n".utf8))
+        #expect(detector.pendingConfirmation == nil)
+
+        detector.consume(Data(">>> ".utf8))
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
     @Test("Prompt text inside an OSC title is ignored")
     func oscPayloadCannotCompleteTurn() throws {
         var detector = readyDetector()
