@@ -1,20 +1,47 @@
 /// One statically declared argument accepted by a command-palette action.
 public struct ControlCommandPaletteArgument: Sendable, Equatable {
+    /// One finite argument value exposed to control-socket clients.
+    public struct Choice: Sendable, Equatable {
+        /// Stable value accepted by `palette.run`.
+        public let value: String
+        /// Localized label shown by interactive clients.
+        public let title: String
+
+        /// Creates one finite command-palette argument choice.
+        public init(value: String, title: String) {
+            self.value = value
+            self.title = title
+        }
+    }
+
     /// Stable argument name used on the wire.
     public let name: String
+    /// Localized argument label shown by interactive clients.
+    public let title: String
     /// Wire value type, currently `string`, `path`, or `boolean`.
     public let type: String
     /// Whether automation callers must supply the argument.
     public let required: Bool
     /// Whether an explicitly supplied empty string is valid.
     public let allowsEmpty: Bool
+    /// Finite accepted values, or an empty array for a free-form argument.
+    public let choices: [Choice]
 
     /// Creates an action argument description.
-    public init(name: String, type: String, required: Bool, allowsEmpty: Bool) {
+    public init(
+        name: String,
+        title: String? = nil,
+        type: String,
+        required: Bool,
+        allowsEmpty: Bool,
+        choices: [Choice] = []
+    ) {
         self.name = name
+        self.title = title ?? name
         self.type = type
         self.required = required
         self.allowsEmpty = allowsEmpty
+        self.choices = choices
     }
 }
 

@@ -18,9 +18,16 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             dismissOnRun: true,
             arguments: [ControlCommandPaletteArgument(
                 name: "path",
+                title: "Project Path",
                 type: "path",
                 required: true,
-                allowsEmpty: false
+                allowsEmpty: false,
+                choices: [
+                    ControlCommandPaletteArgument.Choice(
+                        value: "Sources",
+                        title: "Sources"
+                    ),
+                ]
             )]
         )
         context.listResolution = .listed(windowID: windowID, commands: [command])
@@ -47,9 +54,14 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             "dismiss_on_run": .bool(true),
             "arguments": .array([.object([
                 "name": .string("path"),
+                "title": .string("Project Path"),
                 "type": .string("path"),
                 "required": .bool(true),
                 "allows_empty": .bool(false),
+                "choices": .array([.object([
+                    "value": .string("Sources"),
+                    "title": .string("Sources"),
+                ])]),
             ])]),
         ])]))
     }
@@ -123,10 +135,15 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let argument = ControlCommandPaletteArgument(
-            name: "name",
+            name: "harness",
+            title: "Harness",
             type: "string",
             required: true,
-            allowsEmpty: true
+            allowsEmpty: false,
+            choices: [
+                ControlCommandPaletteArgument.Choice(value: "claude", title: "Claude Code"),
+                ControlCommandPaletteArgument.Choice(value: "codex", title: "Codex"),
+            ]
         )
         let command = ControlCommandPaletteItem(
             id: "palette.renameWorkspace",
@@ -155,10 +172,21 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         }
         #expect(code == "invalid_params")
         #expect(data["required_arguments"] == .array([.object([
-            "name": .string("name"),
+            "name": .string("harness"),
+            "title": .string("Harness"),
             "type": .string("string"),
             "required": .bool(true),
-            "allows_empty": .bool(true),
+            "allows_empty": .bool(false),
+            "choices": .array([
+                .object([
+                    "value": .string("claude"),
+                    "title": .string("Claude Code"),
+                ]),
+                .object([
+                    "value": .string("codex"),
+                    "title": .string("Codex"),
+                ]),
+            ]),
         ])]))
     }
 

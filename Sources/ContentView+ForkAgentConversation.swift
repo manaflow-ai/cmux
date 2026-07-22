@@ -5,43 +5,37 @@ import Foundation
 
 extension ContentView {
     func forkFocusedAgentConversationRight() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.right)
-        }
+        forkFocusedAgentConversation(.init(targetHarness: .current, destination: .right))
     }
 
     func forkFocusedAgentConversationLeft() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.left)
-        }
+        forkFocusedAgentConversation(.init(targetHarness: .current, destination: .left))
     }
 
     func forkFocusedAgentConversationTop() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.top)
-        }
+        forkFocusedAgentConversation(.init(targetHarness: .current, destination: .top))
     }
 
     func forkFocusedAgentConversationBottom() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.bottom)
-        }
+        forkFocusedAgentConversation(.init(targetHarness: .current, destination: .bottom))
     }
 
     func forkFocusedAgentConversationToNewTab() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.newTab)
-        }
+        forkFocusedAgentConversation(.init(targetHarness: .current, destination: .newTab))
     }
 
     func forkFocusedAgentConversationToNewWorkspace() {
+        forkFocusedAgentConversation(.init(targetHarness: .current, destination: .newWorkspace))
+    }
+
+    func forkFocusedAgentConversation(_ request: AgentConversationForkRequest) {
         Task { @MainActor in
-            await forkFocusedAgentConversation(.newWorkspace)
+            await performForkFocusedAgentConversation(request)
         }
     }
 
     @MainActor
-    private func forkFocusedAgentConversation(_ destination: AgentConversationForkDestination) async {
+    private func performForkFocusedAgentConversation(_ request: AgentConversationForkRequest) async {
         guard var currentContext = focusedPanelContext,
               currentContext.panel.panelType == .terminal else {
             NSSound.beep()
@@ -247,61 +241,19 @@ extension ContentView {
         commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
         commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = selection.usedFallbackSnapshot
 
-        let didFork: Bool
-        if let direction = destination.splitDirection {
-            didFork = currentContext.workspace.forkAgentConversation(
-                fromPanelId: panelId,
-                snapshot: snapshot,
-                direction: direction
-            ) != nil
-        } else {
-            switch destination {
-            case .newTab:
-                guard let anchorTabId = currentContext.workspace.surfaceIdFromPanelId(panelId),
-                      let paneId = currentContext.workspace.paneId(forPanelId: panelId) else {
-                    clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
-                    return
-                }
-                didFork = currentContext.workspace.forkAgentConversationToNewTab(
-                    fromPanelId: panelId,
-                    snapshot: snapshot,
-                    anchorTabId: anchorTabId,
-                    paneId: paneId
-                ) != nil
-            case .newWorkspace:
-                guard let launch = currentContext.workspace.forkAgentWorkspaceLaunch(
-                    fromPanelId: panelId,
-                    snapshot: snapshot
-                ) else {
-                    clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
-                    return
-                }
-                let forkWorkspace = tabManager.addWorkspace(
-                    workingDirectory: launch.terminalWorkingDirectory,
-                    initialTerminalCommand: launch.initialTerminalCommand,
-                    initialTerminalInput: launch.initialTerminalInput,
-                    initialTerminalEnvironment: launch.initialTerminalEnvironment,
-                    inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-                    autoWelcomeIfNeeded: false
-                )
-                if let remoteConfiguration = launch.remoteConfiguration {
-                    forkWorkspace.configureRemoteConnection(
-                        remoteConfiguration,
-                        autoConnect: launch.autoConnectRemoteConfiguration
-                    )
-                }
-                if let workingDirectory = launch.workingDirectory,
-                   launch.terminalWorkingDirectory == nil,
-                   let forkPanelId = forkWorkspace.focusedPanelId {
-                    forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
-                }
-                didFork = true
-            case .right, .left, .top, .bottom:
-                didFork = false
-            }
+        guard let anchorTabId = currentContext.workspace.surfaceIdFromPanelId(panelId),
+              let paneId = currentContext.workspace.paneId(forPanelId: panelId) else {
+            clearCommandPaletteForkableAgentCache(panelKey: panelKey)
+            NSSound.beep()
+            return
         }
+        let didFork = currentContext.workspace.forkAgentConversation(
+            fromPanelId: panelId,
+            snapshot: snapshot,
+            request: request,
+            anchorTabId: anchorTabId,
+            paneId: paneId
+        )
 
         guard didFork else {
             clearCommandPaletteForkableAgentCache(panelKey: panelKey)

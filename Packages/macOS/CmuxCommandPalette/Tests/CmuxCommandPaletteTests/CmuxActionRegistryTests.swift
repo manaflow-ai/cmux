@@ -106,6 +106,70 @@ struct CmuxActionRegistryTests {
         )) == .invalidArgumentValues(["overwrite"]))
     }
 
+    @Test func finiteChoiceArgumentsRejectUndeclaredValues() {
+        var receivedHarness: String?
+        let command = makeCommand(arguments: [
+            CmuxActionArgumentDefinition(
+                name: "harness",
+                title: "Harness",
+                choices: [
+                    .init(value: "claude", title: "Claude Code"),
+                    .init(value: "codex", title: "Codex"),
+                ]
+            ),
+        ]) { invocation in
+            receivedHarness = invocation.string("harness")
+            return .completed
+        }
+
+        #expect(command.execute(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["harness": "unknown"]
+        )) == .invalidArgumentValues(["harness"]))
+        #expect(receivedHarness == nil)
+        #expect(command.execute(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["harness": "claude"]
+        )) == .completed)
+        #expect(receivedHarness == "claude")
+    }
+
+    @Test func finiteChoiceCollectionAdvancesInDeclarationOrder() throws {
+        let arguments = [
+            CmuxActionArgumentDefinition(
+                name: "harness",
+                title: "Harness",
+                choices: [
+                    .init(value: "current", title: "Current Harness"),
+                    .init(value: "claude", title: "Claude Code"),
+                ]
+            ),
+            CmuxActionArgumentDefinition(
+                name: "destination",
+                title: "Destination",
+                choices: [
+                    .init(value: "right", title: "Right Split"),
+                    .init(value: "newTab", title: "New Tab"),
+                ]
+            ),
+        ]
+        var collection = try #require(CommandPaletteArgumentCollection(
+            commandID: "palette.forkAgentConversation",
+            arguments: arguments
+        ))
+
+        #expect(collection.currentArgument.name == "harness")
+        #expect(collection.currentStep == 1)
+        #expect(collection.stepCount == 2)
+        #expect(collection.selectCurrentChoice(value: "invalid") == .invalid)
+        #expect(collection.values.isEmpty)
+        #expect(collection.selectCurrentChoice(value: "claude") == .advanced)
+        #expect(collection.currentArgument.name == "destination")
+        #expect(collection.currentStep == 2)
+        #expect(collection.selectCurrentChoice(value: "right") == .completed)
+        #expect(collection.values == ["harness": "claude", "destination": "right"])
+    }
+
     @Test func registryUsesStableStringIDsAndRejectsDuplicates() {
         let first = makeCommand(id: "custom.deploy") { _ in .completed }
         let duplicate = makeCommand(id: "custom.deploy") { _ in .presented }

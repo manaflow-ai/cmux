@@ -211,9 +211,16 @@ extension ControlCommandCoordinator {
     ) -> JSONValue {
         .object([
             "name": .string(argument.name),
+            "title": .string(argument.title),
             "type": .string(argument.type),
             "required": .bool(argument.required),
             "allows_empty": .bool(argument.allowsEmpty),
+            "choices": .array(argument.choices.map { choice in
+                .object([
+                    "value": .string(choice.value),
+                    "title": .string(choice.title),
+                ])
+            }),
         ])
     }
 }

@@ -104,10 +104,16 @@ public struct CommandPaletteCommand: Identifiable {
             }
             switch argument.valueType {
             case .string, .path:
-                return nil
+                break
             case .boolean:
-                return invocation.bool(argument.name) == nil ? argument.name : nil
+                guard invocation.bool(argument.name) != nil else {
+                    return argument.name
+                }
             }
+            guard argument.choices.isEmpty || argument.choices.contains(where: { $0.value == value }) else {
+                return argument.name
+            }
+            return nil
         }.sorted()
         if !invalidValueArguments.isEmpty {
             return .invalidArgumentValues(invalidValueArguments)

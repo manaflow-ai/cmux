@@ -1093,6 +1093,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     func testForkCommandsDismissPaletteBeforeRunning() {
         let forkCommandIds = [
+            "palette.forkAgentConversation",
             "palette.forkAgentConversationRight",
             "palette.forkAgentConversationLeft",
             "palette.forkAgentConversationTop",

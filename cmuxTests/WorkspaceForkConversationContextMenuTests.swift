@@ -1,4 +1,5 @@
 import Darwin
+import CmuxCommandPalette
 import Foundation
 import os
 import Testing
@@ -35,6 +36,62 @@ private actor AsyncTestBarrier {
 @MainActor
 @Suite(.serialized)
 struct WorkspaceForkConversationContextMenuTests {
+    @Test
+    func crossHarnessForkBuildsTranscriptHandoffCommand() throws {
+        let source = makeForkableSnapshot(kind: .codex, sessionId: "codex-session")
+        let request = AgentConversationForkRequest(
+            targetHarness: .claude,
+            destination: .right
+        )
+
+        let startupInput = try #require(request.startupInputOverride(sourceSnapshot: source))
+        #expect(startupInput.hasPrefix("claude '"))
+        #expect(startupInput.contains("cmux sessions list --agent"))
+        #expect(startupInput.contains("codex-session"))
+        #expect(startupInput.hasSuffix("\n"))
+    }
+
+    @Test
+    func sameHarnessForkKeepsNativeForkCommand() {
+        let source = makeForkableClaudeSnapshot()
+
+        #expect(AgentConversationForkRequest(
+            targetHarness: .current,
+            destination: .newTab
+        ).startupInputOverride(sourceSnapshot: source) == nil)
+        #expect(AgentConversationForkRequest(
+            targetHarness: .claude,
+            destination: .newTab
+        ).startupInputOverride(sourceSnapshot: source) == nil)
+    }
+
+    @Test
+    func openCodeForkUsesPromptFlag() throws {
+        let source = makeForkableSnapshot(kind: .codex, sessionId: "codex-session")
+        let request = AgentConversationForkRequest(
+            targetHarness: .opencode,
+            destination: .newWorkspace
+        )
+
+        let startupInput = try #require(request.startupInputOverride(sourceSnapshot: source))
+        #expect(startupInput.hasPrefix("opencode --prompt '"))
+    }
+
+    @Test
+    func paletteForkRequestParsesHarnessAndDestination() throws {
+        let request = try #require(AgentConversationForkRequest(invocation: CmuxActionInvocation(
+            source: .commandPalette,
+            arguments: [
+                AgentConversationForkRequest.harnessArgumentName: "opencode",
+                AgentConversationForkRequest.destinationArgumentName: "bottom",
+            ]
+        )))
+
+        #expect(request.targetHarness == .opencode)
+        #expect(request.destination == .bottom)
+        #expect(AgentConversationForkRequest.commandPaletteArguments.map(\.name) == ["harness", "destination"])
+    }
+
     @Test
     func panelContextMenuActionUsesClickedPanel() async throws {
         let workspace = Workspace()
@@ -4869,14 +4926,27 @@ struct WorkspaceForkConversationContextMenuTests {
         sessionId: String = "019dad34-d218-7943-b81a-eddac5c87951",
         workingDirectory: String = "/tmp/fork repo"
     ) -> SessionRestorableAgentSnapshot {
-        SessionRestorableAgentSnapshot(
+        makeForkableSnapshot(
             kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    private func makeForkableSnapshot(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        workingDirectory: String = "/tmp/fork repo"
+    ) -> SessionRestorableAgentSnapshot {
+        let launcher = kind.rawValue
+        return SessionRestorableAgentSnapshot(
+            kind: kind,
             sessionId: sessionId,
             workingDirectory: workingDirectory,
             launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "claude",
-                executablePath: "/opt/homebrew/bin/claude",
-                arguments: ["/opt/homebrew/bin/claude"],
+                launcher: launcher,
+                executablePath: "/opt/homebrew/bin/\(launcher)",
+                arguments: ["/opt/homebrew/bin/\(launcher)"],
                 workingDirectory: workingDirectory,
                 environment: nil,
                 capturedAt: 123,
