@@ -81,6 +81,14 @@ final class WorkspaceContentViewVisibilityTests {
         let scheduler = SidebarResizerCursorReleaseScheduler()
         var releases: [Bool] = []
 
+        scheduler.schedule(force: false, delay: .zero) { force in
+            releases.append(force)
+        }
+        #expect(releases.isEmpty)
+        try await Task.sleep(for: .milliseconds(10))
+        #expect(releases == [false])
+        releases.removeAll()
+
         scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
             releases.append(force)
         }

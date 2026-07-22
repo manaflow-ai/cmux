@@ -17,17 +17,18 @@ final class SidebarResizerCursorReleaseScheduler {
         release: @escaping @MainActor (Bool) -> Void
     ) {
         cancelPendingRelease()
-        guard delay > .zero else {
-            release(force)
-            return
-        }
 
         let scheduledGeneration = generation
         pendingTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: delay)
-            } catch {
-                return
+            if delay > .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            } else {
+                await Task.yield()
+                guard !Task.isCancelled else { return }
             }
             guard let self, generation == scheduledGeneration else { return }
             pendingTask = nil
