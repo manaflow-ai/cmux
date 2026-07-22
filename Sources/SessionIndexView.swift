@@ -1306,7 +1306,7 @@ enum SessionTranscriptLoader {
         var didHitTurnLimit = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
 
-        SessionIndexStore.forEachJSONLineFromTail(
+        let metrics = SessionIndexStore.forEachJSONLineFromTail(
             url: url,
             maxBytes: SessionIndexStore.antigravityHistoryByteCap
         ) { object in
@@ -1326,7 +1326,7 @@ enum SessionTranscriptLoader {
             turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
             return false
         }
-        if didHitTurnLimit {
+        if didHitTurnLimit || !metrics.didReachStart {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
         turns.reverse()

@@ -70,6 +70,7 @@ struct SessionIndexJSONLReader: Sendable {
     func fromTail(
         url: URL,
         maxBytes: Int,
+        endingBeforeOffset: UInt64? = nil,
         body: ([String: Any]) -> Bool
     ) -> SessionIndexJSONLReadMetrics {
         guard maxBytes > 0, let handle = try? FileHandle(forReadingFrom: url) else {
@@ -77,13 +78,34 @@ struct SessionIndexJSONLReader: Sendable {
         }
         defer { try? handle.close() }
 
-        let endOffset = (try? handle.seekToEnd()) ?? 0
-        let requestedBytes = min(UInt64(maxBytes), endOffset)
-        let startOffset = endOffset - requestedBytes
-        try? handle.seek(toOffset: startOffset)
-        let data = (try? handle.read(upToCount: Int(requestedBytes))) ?? Data()
-        var lines = data.split(separator: 0x0a, omittingEmptySubsequences: true)
-        if startOffset > 0, !lines.isEmpty {
+        let fileEndOffset = (try? handle.seekToEnd()) ?? 0
+        let pageEndOffset = min(endingBeforeOffset ?? fileEndOffset, fileEndOffset)
+        guard pageEndOffset > 0 else {
+            return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+        }
+
+        let includesBoundaryContext = pageEndOffset > UInt64(maxBytes)
+        let candidateStartOffset: UInt64
+        let readStartOffset: UInt64
+        if includesBoundaryContext {
+            candidateStartOffset = pageEndOffset - UInt64(maxBytes - 1)
+            readStartOffset = candidateStartOffset - 1
+        } else {
+            candidateStartOffset = 0
+            readStartOffset = 0
+        }
+
+        try? handle.seek(toOffset: readStartOffset)
+        let readCount = Int(pageEndOffset - readStartOffset)
+        let data = (try? handle.read(upToCount: readCount)) ?? Data()
+        let payload = includesBoundaryContext ? data.dropFirst() : data[...]
+        let startsOnNewline = payload.first == 0x0a
+        let startsWithinRecord = includesBoundaryContext
+            && data.first != 0x0a
+            && !startsOnNewline
+        let firstNewline = payload.firstIndex(of: 0x0a)
+        var lines = payload.split(separator: 0x0a, omittingEmptySubsequences: true)
+        if startsWithinRecord, !lines.isEmpty {
             lines.removeFirst()
         }
 
@@ -94,9 +116,71 @@ struct SessionIndexJSONLReader: Sendable {
                 break
             }
         }
+
+        let nextEndOffset: UInt64?
+        if !includesBoundaryContext {
+            nextEndOffset = nil
+        } else if maxBytes == 1 {
+            nextEndOffset = readStartOffset
+        } else if data.first == 0x0a {
+            nextEndOffset = candidateStartOffset
+        } else if startsOnNewline {
+            nextEndOffset = candidateStartOffset + 1
+        } else if let firstNewline {
+            let distance = payload.distance(from: payload.startIndex, to: firstNewline)
+            let boundary = candidateStartOffset + UInt64(distance + 1)
+            nextEndOffset = boundary < pageEndOffset ? boundary : candidateStartOffset
+        } else {
+            nextEndOffset = candidateStartOffset
+        }
         return SessionIndexJSONLReadMetrics(
             bytesRead: data.count,
-            recordsVisited: recordsVisited
+            recordsVisited: recordsVisited,
+            didReachStart: !includesBoundaryContext,
+            nextEndOffset: nextEndOffset
+        )
+    }
+
+    /// Visits fixed-size tail pages until the callback stops or the file start is reached.
+    @discardableResult
+    func fromTailPages(
+        url: URL,
+        maxBytesPerPage: Int,
+        maximumPageCount: Int? = nil,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLReadMetrics {
+        var endOffset: UInt64?
+        var bytesRead = 0
+        var recordsVisited = 0
+        var didReachStart = false
+        var stoppedEarly = false
+        var pagesRead = 0
+
+        repeat {
+            let page = fromTail(
+                url: url,
+                maxBytes: maxBytesPerPage,
+                endingBeforeOffset: endOffset
+            ) { object in
+                stoppedEarly = body(object)
+                return stoppedEarly
+            }
+            bytesRead += page.bytesRead
+            recordsVisited += page.recordsVisited
+            didReachStart = page.didReachStart
+            endOffset = page.nextEndOffset
+            pagesRead += 1
+        } while !stoppedEarly
+            && !didReachStart
+            && endOffset != nil
+            && maximumPageCount.map({ pagesRead < $0 }) != false
+            && !Task.isCancelled
+
+        return SessionIndexJSONLReadMetrics(
+            bytesRead: bytesRead,
+            recordsVisited: recordsVisited,
+            didReachStart: didReachStart,
+            nextEndOffset: endOffset
         )
     }
 

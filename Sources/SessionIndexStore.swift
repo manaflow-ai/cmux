@@ -664,7 +664,7 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: - Scanning
 
-    private static let perAgentLimit = 30
+    nonisolated static let perAgentLimit = 30
     nonisolated static let headByteCap = 64 * 1024
     nonisolated static let tailByteCap = 32 * 1024
     /// Antigravity keeps every prompt in one append-only history file. Read only

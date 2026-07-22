@@ -488,7 +488,8 @@ extension SessionIndexStore {
             let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
                 ?? Date.distantPast
 
-            forEachJSONLineFromTail(url: historyURL, maxBytes: antigravityHistoryByteCap) { object in
+            let pageLimit = needle.isEmpty && cwdFilter == nil && offset == 0 && limit == perAgentLimit ? 1 : nil
+            SessionIndexJSONLReader().fromTailPages(url: historyURL, maxBytesPerPage: antigravityHistoryByteCap, maximumPageCount: pageLimit) { object in
                 if Task.isCancelled { return true }
                 guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
                     return false
@@ -524,7 +525,6 @@ extension SessionIndexStore {
                 return target > 0 && latestBySessionID.count >= target
             }
         }
-
         let entries = latestBySessionID.values
             .sorted {
                 if $0.modified == $1.modified {
