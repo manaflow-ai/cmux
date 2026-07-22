@@ -9913,13 +9913,12 @@ final class GhosttySurfaceScrollView: NSView {
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
-        // Re-realize before marking visible so we never draw into a released swap chain.
-        surfaceView.terminalSurface?.setRendererPortalVisible(visible)
-        if visible {
-            surfaceView.terminalSurface?.realizeRenderer()
-        }
+        // Make the AppKit portal presentable before asking Ghostty to realize its
+        // drawable. Ghostty remains occluded until after the enqueue below, so it
+        // cannot draw into a released swap chain during this short transition.
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)
