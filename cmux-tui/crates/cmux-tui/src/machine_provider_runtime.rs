@@ -56,6 +56,7 @@ struct AcceptedProviderEffects {
     session_mutation: Option<ManagedWorkspaceSessionMutation>,
     session_label: Option<String>,
     retire_open_on_failure: bool,
+    restart_updates: bool,
 }
 
 struct KeyRegistry {
@@ -77,6 +78,8 @@ pub(crate) struct ProviderMachineRuntime {
     open: Option<OpenConnection>,
     pending: Option<PendingConnection>,
     accepted_selection: Option<AcceptedSelectionIntent>,
+    last_snapshot_notice: Option<protocol::ProviderNotice>,
+    pending_notice_messages: HashSet<String>,
     notice: Option<String>,
 }
 
@@ -290,30 +293,29 @@ impl ProviderMachineRuntime {
             open: None,
             pending: None,
             accepted_selection: None,
+            last_snapshot_notice: None,
+            pending_notice_messages: HashSet::new(),
             notice: None,
         };
+        runtime.observe_snapshot_notice(runtime.snapshot.notice.clone());
         runtime.reconcile_keys();
         Ok(runtime)
     }
 
     pub(crate) fn refresh(&mut self) -> anyhow::Result<()> {
-        let snapshot = match self.accepted_selection.as_ref().and_then(|intent| {
-            intent
-                .scope_id
-                .as_ref()
-                .filter(|scope_id| *scope_id != &self.snapshot.selected_scope_id)
-        }) {
-            Some(scope_id) => self.client.select_scope(scope_id.clone())?.snapshot,
-            None => self.client.snapshot(Some(self.snapshot.revision))?,
-        };
-        self.install_snapshot(snapshot)?;
-        if let Some(notice) = self.snapshot.notice.as_ref().map(|notice| notice.message.clone()) {
-            self.push_notice(notice);
-        }
-        Ok(())
+        let (mut desired_scope_id, mut desired_machine_id) = self.desired_selection();
+        let snapshot = load_snapshot_for_selection(
+            &self.client,
+            Some(self.snapshot.revision),
+            &self.snapshot.selected_scope_id,
+            &mut desired_scope_id,
+            &mut desired_machine_id,
+        )?;
+        self.install_snapshot(snapshot)
     }
 
     fn install_snapshot(&mut self, mut snapshot: protocol::SnapshotResult) -> anyhow::Result<()> {
+        self.observe_snapshot_notice(snapshot.notice.clone());
         let selection_applied = self.accepted_selection.as_ref().is_none_or(|intent| {
             let scope_matches = intent
                 .scope_id
@@ -347,7 +349,7 @@ impl ProviderMachineRuntime {
         let session_available = open.is_some();
         self.open = open;
         let mut ui = self.ui_state(session_available);
-        ui.notice = self.notice.take();
+        ui.notice = self.take_notice();
         Ok((session, label, ui))
     }
 
@@ -403,7 +405,7 @@ impl ProviderMachineRuntime {
                 let session_available = open.is_some();
                 self.stage_connection(open, Some(rollback))?;
                 let mut ui = self.ui_state(session_available);
-                ui.notice = self.notice.take();
+                ui.notice = self.take_notice();
                 let mut result = MachineActionResult::replace(ui, session, label);
                 result.restart_updates = true;
                 Ok(result)
@@ -419,10 +421,16 @@ impl ProviderMachineRuntime {
                     scope_id: Some(self.snapshot.selected_scope_id.clone()),
                     machine_id: Some(created_machine_id),
                 });
-                Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
-                    runtime.refresh()?;
-                    Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                }))
+                Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects {
+                        restart_updates: true,
+                        ..AcceptedProviderEffects::default()
+                    },
+                    |runtime| {
+                        runtime.refresh()?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ))
             }
             MachineRequest::SelectProviderScope(scope_id) => {
                 let selected =
@@ -432,7 +440,10 @@ impl ProviderMachineRuntime {
                     machine_id: None,
                 });
                 Ok(self.finish_accepted_action(
-                    AcceptedProviderEffects::default(),
+                    AcceptedProviderEffects {
+                        restart_updates: true,
+                        ..AcceptedProviderEffects::default()
+                    },
                     move |runtime| {
                         runtime.install_snapshot(selected)?;
                         Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
@@ -466,16 +477,23 @@ impl ProviderMachineRuntime {
                         localization::catalog().sidebar.provider_action_open_url
                     ));
                 }
-                if selected_scope_id.is_some() || selected_machine_id.is_some() {
+                let restarts_updates = selected_scope_id.is_some() || selected_machine_id.is_some();
+                if restarts_updates {
                     self.accepted_selection = Some(AcceptedSelectionIntent {
                         scope_id: selected_scope_id,
                         machine_id: selected_machine_id,
                     });
                 }
-                Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
-                    runtime.refresh()?;
-                    Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                }))
+                Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects {
+                        restart_updates: restarts_updates,
+                        ..AcceptedProviderEffects::default()
+                    },
+                    |runtime| {
+                        runtime.refresh()?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ))
             }
             MachineRequest::RenameManagedMachine { machine, expected_version, name } => {
                 let machine_id = self.machine_id(machine)?;
@@ -521,7 +539,7 @@ impl ProviderMachineRuntime {
                             let session_available = open.is_some();
                             runtime.stage_mandatory_replacement(open);
                             let mut ui = runtime.ui_state(session_available);
-                            ui.notice = runtime.notice.take();
+                            ui.notice = runtime.take_notice();
                             return Ok(MachineActionResult::replace(ui, session, label));
                         }
                         Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
@@ -645,6 +663,8 @@ impl ProviderMachineRuntime {
         let mut last_snapshot = self.snapshot.clone();
         let mut last_machine_lifecycle_snapshot = self.machine_lifecycle_snapshot.clone();
         let mut last_workspace_snapshot = self.workspace_snapshot.clone();
+        let mut last_snapshot_notice = self.last_snapshot_notice.clone();
+        let (mut desired_scope_id, mut desired_machine_id) = self.desired_selection();
         let worker = std::thread::Builder::new().name("machine-provider-snapshots".into()).spawn(
             move || {
                 let mut authoritative_refresh_pending = true;
@@ -691,7 +711,13 @@ impl ProviderMachineRuntime {
                     if let Some(protocol::ProviderEvent::Notice(provider_notice)) = event.as_ref() {
                         notice = Some(provider_notice.message.clone());
                     }
-                    let snapshot = match client.snapshot(Some(last_snapshot.revision)) {
+                    let snapshot = match load_snapshot_for_selection(
+                        &client,
+                        Some(last_snapshot.revision),
+                        &last_snapshot.selected_scope_id,
+                        &mut desired_scope_id,
+                        &mut desired_machine_id,
+                    ) {
                         Ok(snapshot) => snapshot,
                         Err(error) => {
                             let mut ui = machine_ui_state(
@@ -715,6 +741,12 @@ impl ProviderMachineRuntime {
                             break;
                         }
                     };
+                    let changed_snapshot_notice = if snapshot.notice != last_snapshot_notice {
+                        snapshot.notice.clone()
+                    } else {
+                        None
+                    };
+                    last_snapshot_notice = snapshot.notice.clone();
                     last_snapshot = snapshot.clone();
                     last_machine_lifecycle_snapshot =
                         match load_machine_lifecycle_snapshot(&client, &snapshot) {
@@ -773,8 +805,10 @@ impl ProviderMachineRuntime {
                         session_available,
                         provider_connect_supported,
                     );
-                    ui.notice = notice
-                        .or_else(|| snapshot.notice.as_ref().map(|notice| notice.message.clone()));
+                    ui.notice = notice;
+                    if let Some(snapshot_notice) = changed_snapshot_notice {
+                        append_notice_once(&mut ui.notice, snapshot_notice.message);
+                    }
                     if !session_available
                         && let Some(selected) = snapshot.selected_machine_id.as_ref()
                         && snapshot
@@ -804,7 +838,7 @@ impl ProviderMachineRuntime {
                 let session_available = open.is_some();
                 self.stage_connection(open, None)?;
                 let mut ui = self.ui_state(session_available);
-                ui.notice = self.notice.take();
+                ui.notice = self.take_notice();
                 let mut result = MachineActionResult::replace(ui, session, label);
                 result.restart_updates = true;
                 Ok(result)
@@ -830,14 +864,25 @@ impl ProviderMachineRuntime {
     }
 
     fn reconnect_control(&mut self) -> anyhow::Result<()> {
-        let (client, mut snapshot, mut machine_lifecycle_snapshot, mut workspace_snapshot) =
+        let (client, initial_snapshot, initial_machine_lifecycle, initial_workspace) =
             connect_client(Arc::clone(&self.connector))?;
+        let (mut desired_scope_id, mut desired_machine_id) = self.desired_selection();
+        let mut snapshot = reconcile_snapshot_selection(
+            &client,
+            initial_snapshot.clone(),
+            &mut desired_scope_id,
+            &mut desired_machine_id,
+        )?;
+        self.observe_snapshot_notice(snapshot.notice.clone());
+        let (machine_lifecycle_snapshot, workspace_snapshot) = if snapshot == initial_snapshot {
+            (initial_machine_lifecycle, initial_workspace)
+        } else {
+            (
+                load_machine_lifecycle_snapshot(&client, &snapshot)?,
+                load_workspace_snapshot(&client, &snapshot)?,
+            )
+        };
         let selection_applied = if let Some(intent) = self.accepted_selection.as_ref() {
-            if let Some(scope_id) =
-                intent.scope_id.as_ref().filter(|scope_id| *scope_id != &snapshot.selected_scope_id)
-            {
-                snapshot = client.select_scope(scope_id.clone())?.snapshot;
-            }
             let scope_matches = intent
                 .scope_id
                 .as_ref()
@@ -850,8 +895,6 @@ impl ProviderMachineRuntime {
                     false
                 }
             });
-            machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&client, &snapshot)?;
-            workspace_snapshot = load_workspace_snapshot(&client, &snapshot)?;
             scope_matches && machine_matches
         } else {
             true
@@ -864,9 +907,6 @@ impl ProviderMachineRuntime {
             self.accepted_selection = None;
         }
         self.reconcile_keys();
-        if let Some(notice) = self.snapshot.notice.as_ref().map(|notice| notice.message.clone()) {
-            self.push_notice(notice);
-        }
         Ok(())
     }
 
@@ -993,6 +1033,7 @@ impl ProviderMachineRuntime {
         if let Some(label) = effects.session_label {
             result = result.with_session_label(label);
         }
+        result.restart_updates |= effects.restart_updates;
         if reconciliation_failed && effects.retire_open_on_failure {
             let label = self
                 .open
@@ -1115,7 +1156,7 @@ impl ProviderMachineRuntime {
             self.snapshot.selected_machine_id.as_ref() == Some(&open.machine_id)
         });
         let mut ui = self.ui_state(session_available);
-        ui.notice = self.notice.take();
+        ui.notice = self.take_notice();
         if !session_available
             && let Some(selected) = self.snapshot.selected_machine_id.as_ref()
             && self
@@ -1130,6 +1171,35 @@ impl ProviderMachineRuntime {
         ui
     }
 
+    fn desired_selection(&self) -> (protocol::OpaqueId, Option<protocol::OpaqueId>) {
+        let scope_id = self
+            .accepted_selection
+            .as_ref()
+            .and_then(|intent| intent.scope_id.clone())
+            .unwrap_or_else(|| self.snapshot.selected_scope_id.clone());
+        let machine_id = self
+            .accepted_selection
+            .as_ref()
+            .and_then(|intent| intent.machine_id.clone())
+            .or_else(|| self.snapshot.selected_machine_id.clone());
+        (scope_id, machine_id)
+    }
+
+    fn observe_snapshot_notice(&mut self, notice: Option<protocol::ProviderNotice>) {
+        if self.last_snapshot_notice == notice {
+            return;
+        }
+        self.last_snapshot_notice = notice.clone();
+        if let Some(notice) = notice {
+            self.push_notice(notice.message);
+        }
+    }
+
+    fn take_notice(&mut self) -> Option<String> {
+        self.pending_notice_messages.clear();
+        self.notice.take()
+    }
+
     fn set_notice(&mut self, notice: Option<protocol::ProviderNotice>) {
         if let Some(notice) = notice {
             self.push_notice(notice.message);
@@ -1137,7 +1207,10 @@ impl ProviderMachineRuntime {
     }
 
     fn push_notice(&mut self, notice: impl Into<String>) {
-        append_notice(&mut self.notice, notice);
+        let notice = notice.into();
+        if self.pending_notice_messages.insert(notice.clone()) {
+            append_notice(&mut self.notice, notice);
+        }
     }
 }
 
@@ -1147,6 +1220,13 @@ fn append_notice(notice: &mut Option<String>, message: impl Into<String>) {
         Some(existing) => format!("{existing}\n{message}"),
         None => message,
     });
+}
+
+fn append_notice_once(notice: &mut Option<String>, message: impl Into<String>) {
+    let message = message.into();
+    if notice.as_deref() != Some(message.as_str()) {
+        append_notice(notice, message);
+    }
 }
 
 fn merge_local_machine_ui(
@@ -1223,6 +1303,47 @@ fn connect_client(
     let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&client, &snapshot)?;
     let workspace_snapshot = load_workspace_snapshot(&client, &snapshot)?;
     Ok((client, snapshot, machine_lifecycle_snapshot, workspace_snapshot))
+}
+
+fn load_snapshot_for_selection(
+    client: &ProviderClient,
+    known_revision: Option<u64>,
+    observed_scope_id: &protocol::OpaqueId,
+    desired_scope_id: &mut protocol::OpaqueId,
+    desired_machine_id: &mut Option<protocol::OpaqueId>,
+) -> anyhow::Result<protocol::SnapshotResult> {
+    let snapshot = if observed_scope_id == desired_scope_id {
+        client.snapshot(known_revision)?
+    } else {
+        client.select_scope(desired_scope_id.clone())?.snapshot
+    };
+    reconcile_snapshot_selection(client, snapshot, desired_scope_id, desired_machine_id)
+}
+
+fn reconcile_snapshot_selection(
+    client: &ProviderClient,
+    mut snapshot: protocol::SnapshotResult,
+    desired_scope_id: &mut protocol::OpaqueId,
+    desired_machine_id: &mut Option<protocol::OpaqueId>,
+) -> anyhow::Result<protocol::SnapshotResult> {
+    if snapshot.selected_scope_id != *desired_scope_id {
+        if snapshot.scopes.iter().any(|scope| scope.id == *desired_scope_id) {
+            snapshot = client.select_scope(desired_scope_id.clone())?.snapshot;
+        } else {
+            *desired_scope_id = snapshot.selected_scope_id.clone();
+            *desired_machine_id = snapshot.selected_machine_id.clone();
+        }
+    }
+    if snapshot.selected_scope_id == *desired_scope_id {
+        if let Some(machine_id) = desired_machine_id.as_ref()
+            && snapshot.machines.iter().any(|machine| &machine.id == machine_id)
+        {
+            snapshot.selected_machine_id = Some(machine_id.clone());
+        } else {
+            *desired_machine_id = snapshot.selected_machine_id.clone();
+        }
+    }
+    Ok(snapshot)
 }
 
 fn load_machine_lifecycle_snapshot(
