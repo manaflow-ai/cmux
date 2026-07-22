@@ -136,11 +136,11 @@ impl ScreenView {
         self.panes.iter().find(|p| p.id == id)
     }
 
-    /// Display name: the user-assigned name, else "screen N" by position.
+    /// Display name: the user-assigned name, else its zero-based position.
     pub fn display_name(&self, index: usize) -> String {
         match self.name.as_deref() {
             Some(name) if !name.is_empty() => name.to_string(),
-            _ => format!("{}", index + 1),
+            _ => format!("{index}"),
         }
     }
 }
@@ -399,6 +399,22 @@ pub fn parse_tree(data: &Value) -> TreeView {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn unnamed_screens_use_zero_based_display_names() {
+        let screen = ScreenView {
+            id: 1,
+            short_id: "1".to_string(),
+            name: None,
+            layout: Node::Leaf(1),
+            active_pane: 1,
+            zoomed_pane: None,
+            panes: Vec::new(),
+        };
+
+        assert_eq!(screen.display_name(0), "0");
+        assert_eq!(screen.display_name(9), "9");
+    }
 
     #[test]
     fn protocol_v8_parser_preserves_split_ids() {
