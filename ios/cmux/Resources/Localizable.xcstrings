@@ -7714,6 +7714,41 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Mac" } }
       }
     },
+    "mobile.paneMap.more.bottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More panes below" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "下にさらにペインがあります" } }
+      }
+    },
+    "mobile.paneMap.more.leading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More panes to the left" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "左にさらにペインがあります" } }
+      }
+    },
+    "mobile.paneMap.more.top": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More panes above" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上にさらにペインがあります" } }
+      }
+    },
+    "mobile.paneMap.more.trailing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More panes to the right" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "右にさらにペインがあります" } }
+      }
+    },
+    "mobile.paneMap.openNamedTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open terminal: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを開く：%@" } }
+      }
+    },
     "mobile.paneMap.panePosition": {
       "extractionState": "manual",
       "localizations": {
@@ -7726,6 +7761,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
         "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "mobile.paneMap.unavailableOnPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unavailable on iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneでは利用できません" } }
       }
     },
     "mobile.surfaceDeck.add": {
