@@ -479,6 +479,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func workspaceDragSessionDidEnd() {
         reorderDragWindowPoint = nil
+        retireReorderIndicator()
     }
 
     // MARK: Workspace reorder drop (native NSTableView destination)
@@ -488,6 +489,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// present, every viewport change re-plans against it so the indicator
     /// tracks rows sliding under a stationary pointer during edge autoscroll.
     private var reorderDragWindowPoint: NSPoint?
+
+    /// Controller-owned indicator paint for the live reorder drag. The plan
+    /// result deliberately never enters the SwiftUI drag state (that rebuilds
+    /// every sidebar row per gap change and made the line lag the pointer);
+    /// the controller paints the affected cells directly instead.
+    private var reorderIndicatorPainter: SidebarWorkspaceTableReorderIndicatorPainter?
 
     func tableView(
         _ tableView: NSTableView,
@@ -522,15 +529,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             "targets=\(targets.count) performed=\(performed ? 1 : 0)"
         )
 #endif
-        setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+        retireReorderIndicator()
         return performed
     }
 
     func reorderDropDragExited() {
-        guard reorderDragWindowPoint != nil else { return }
+        guard reorderDragWindowPoint != nil || reorderIndicatorPainter != nil else { return }
         reorderDragWindowPoint = nil
-        actions?.clearWorkspaceDropIndicator()
-        setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+        retireReorderIndicator()
     }
 
     func reorderDropSessionEnded() {
@@ -543,29 +549,73 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// stops the re-plan loop until the pointer produces a new validateDrop.
     @discardableResult
     func updateReorderDrag(windowPoint: NSPoint) -> Bool {
-        guard let actions, actions.isValidWorkspaceDrag(),
-              let table = containerView?.tableView else {
+        guard let actions, let table = containerView?.tableView else {
             reorderDragWindowPoint = nil
+            retireReorderIndicator()
             return false
         }
         let targets = reorderDropTargets()
-        guard !targets.isEmpty else {
+        guard !targets.isEmpty,
+              let update = actions.updateWorkspaceDrag(
+                  table.convert(windowPoint, from: nil),
+                  targets
+              )
+        else {
             reorderDragWindowPoint = nil
-            actions.clearWorkspaceDropIndicator()
-            setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+            retireReorderIndicator()
             return false
         }
-        let accepted = actions.updateWorkspaceDrag(
-            table.convert(windowPoint, from: nil),
-            targets
+        reorderIndicatorPainter = SidebarWorkspaceTableReorderIndicatorPainter(
+            indicator: update.indicator,
+            scope: update.scope,
+            draggedWorkspaceId: update.draggedWorkspaceId,
+            indicatorRowIds: update.indicatorRowIds
         )
-        setAppKitDropIndicator(
-            actions.currentDropIndicator(),
-            scope: actions.currentDropIndicatorScope(),
-            includeRowTargets: false
-        )
-        reorderDragWindowPoint = accepted ? windowPoint : nil
-        return accepted
+        enforceReorderIndicatorPaintOnVisibleCells()
+        setAppKitDropIndicator(update.indicator, scope: update.scope, includeRowTargets: false)
+        reorderDragWindowPoint = windowPoint
+        return true
+    }
+
+    private func retireReorderIndicator() {
+        guard reorderIndicatorPainter != nil else { return }
+        reorderIndicatorPainter = nil
+        clearReorderIndicatorPaintOnVisibleCells()
+        actions?.clearWorkspaceDropIndicator()
+        setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+    }
+
+    private func enforceReorderIndicatorPaintOnVisibleCells() {
+        guard reorderIndicatorPainter != nil else { return }
+        sweepReorderIndicatorPaint(reorderIndicatorPainter)
+    }
+
+    private func clearReorderIndicatorPaintOnVisibleCells() {
+        sweepReorderIndicatorPaint(nil)
+    }
+
+    /// A nil painter clears every visible drop line, which is only safe here
+    /// because reorder and bonsplit drags cannot overlap: outside a reorder
+    /// drag the row models carry `false` for both flags, so clearing matches
+    /// what the next configure would apply anyway.
+    private func sweepReorderIndicatorPaint(
+        _ painter: SidebarWorkspaceTableReorderIndicatorPainter?
+    ) {
+        guard let table = containerView?.tableView else { return }
+        let visible = table.rows(in: table.visibleRect)
+        guard visible.length > 0 else { return }
+        for row in visible.lowerBound..<(visible.lowerBound + visible.length)
+        where rows.indices.contains(row) {
+            let paint = painter?.paint(forRowWorkspaceId: rows[row].workspaceId) ?? (false, false)
+            switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+            case let cell as SidebarWorkspaceRowTableCellView:
+                cell.paintControllerDropIndicator(top: paint.top, bottom: paint.bottom)
+            case let cell as SidebarGroupHeaderTableCellView:
+                cell.paintControllerDropIndicator(top: paint.top, bottom: paint.bottom)
+            default:
+                break
+            }
+        }
     }
 
     /// Visible-row drop targets in table coordinates, built synchronously at
@@ -989,6 +1039,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 self.noteRowHeightOverride(rowId: rowId, cell: cell, model: fresh)
             }
         }
+        // configure() resets the drop lines from the model (always false
+        // during a reorder drag); recycled/reconfigured cells must re-apply
+        // the controller-owned paint or scrolling mid-drag drops the line.
+        if let painter = reorderIndicatorPainter {
+            let paint = painter.paint(forRowWorkspaceId: configuration.workspaceId)
+            cell.paintControllerDropIndicator(top: paint.top, bottom: paint.bottom)
+        }
     }
 
     /// Pump-driven height corrections between applies: heightOfRow consults
@@ -1026,6 +1083,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 self?.contextMenuDidClose(rowId: rowId)
             }
         )
+        // Same recycled-cell rule as configure(workspaceCell:): re-apply the
+        // controller-owned drop line after the model reset it.
+        if let painter = reorderIndicatorPainter {
+            let paint = painter.paint(forRowWorkspaceId: configuration.workspaceId)
+            cell.paintControllerDropIndicator(top: paint.top, bottom: paint.bottom)
+        }
     }
 
     private func configure(cell: SidebarWorkspaceTableCellView, at row: Int) {
@@ -1096,6 +1159,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func synchronizeAppKitDropIndicator(actions: SidebarWorkspaceTableActions) {
+        // A live reorder drag owns the indicator locally; dragState only
+        // carries bonsplit indicators now, so syncing from it mid-reorder
+        // would clear the past-the-end overlay on every apply.
+        if let painter = reorderIndicatorPainter {
+            setAppKitDropIndicator(painter.indicator, scope: painter.scope, includeRowTargets: false)
+            return
+        }
         let current = actions.currentDropIndicator()
         let currentScope = actions.currentDropIndicatorScope()
         if current == nil {

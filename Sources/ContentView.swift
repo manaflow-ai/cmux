@@ -11463,7 +11463,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 activateSidebarWorkspaceDragIfNeeded()
             },
             updateWorkspaceDrag: { point, targets in
-                updateWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
+                updateWorkspaceReorderDropForTable(point: point, targets: targets, renderContext: renderContext)
             },
             performWorkspaceDrop: { point, targets in
                 performWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
@@ -13151,6 +13151,35 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         dragState.setDropIndicator(plan.indicator, scope: plan.indicatorScope)
         return true
+    }
+
+    /// AppKit-table variant of `updateWorkspaceReorderDrop` that never writes
+    /// the indicator into `dragState`: the table controller paints the two
+    /// affected cells directly, so a dragState write here would only rebuild
+    /// every sidebar row per gap change (the indicator-lags-pointer report).
+    private func updateWorkspaceReorderDropForTable(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlay.Target],
+        renderContext: WorkspaceListRenderContext
+    ) -> SidebarWorkspaceTableReorderDropUpdate? {
+        guard activateSidebarWorkspaceDragIfNeeded(),
+              let draggedWorkspaceId = dragState.draggedTabId,
+              let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
+            return nil
+        }
+        dragAutoScrollController.updateFromDragLocation()
+        return SidebarWorkspaceTableReorderDropUpdate(
+            indicator: plan.indicator,
+            scope: plan.indicatorScope,
+            draggedWorkspaceId: draggedWorkspaceId,
+            indicatorRowIds: sidebarDropIndicatorRowIds(
+                draggedWorkspaceId: draggedWorkspaceId,
+                scope: plan.indicatorScope,
+                tabs: renderContext.tabs,
+                workspaceGroups: renderContext.workspaceGroups,
+                visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds
+            )
+        )
     }
 
     private func performWorkspaceReorderDrop(

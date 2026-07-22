@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 import Testing
 
@@ -306,11 +307,17 @@ struct SidebarWorkspaceTableTests {
         var plannedPoints: [CGPoint] = []
         var plannedTargetCounts: [Int] = []
         var indicatorClears = 0
+        let draggedId = ids[2]
         let actions = makeTableActions(
             updateWorkspaceDrag: { point, targets in
                 plannedPoints.append(point)
                 plannedTargetCounts.append(targets.count)
-                return true
+                return SidebarWorkspaceTableReorderDropUpdate(
+                    indicator: SidebarDropIndicator(tabId: ids[5], edge: .top),
+                    scope: .raw,
+                    draggedWorkspaceId: draggedId,
+                    indicatorRowIds: ids
+                )
             },
             clearWorkspaceDropIndicator: { indicatorClears += 1 }
         )
@@ -350,6 +357,47 @@ struct SidebarWorkspaceTableTests {
         controller.viewportDidChange()
         await flushStagedTableMutations()
         #expect(plannedPoints.count == 2)
+    }
+
+    @Test
+    func reorderIndicatorPainterMatchesPredicateAndSuppressesDraggedRow() {
+        let ids = (0..<5).map { _ in UUID() }
+
+        let topEdge = SidebarWorkspaceTableReorderIndicatorPainter(
+            indicator: SidebarDropIndicator(tabId: ids[3], edge: .top),
+            scope: .raw,
+            draggedWorkspaceId: ids[1],
+            indicatorRowIds: ids
+        )
+        let targetPaint = topEdge.paint(forRowWorkspaceId: ids[3])
+        #expect(targetPaint.top)
+        #expect(!targetPaint.bottom)
+        let bystanderPaint = topEdge.paint(forRowWorkspaceId: ids[2])
+        #expect(!bystanderPaint.top)
+        #expect(!bystanderPaint.bottom)
+
+        // A bottom-edge indicator canonicalizes to the top of the row after
+        // the gap, same as the SwiftUI sidebar's predicate.
+        let bottomEdge = SidebarWorkspaceTableReorderIndicatorPainter(
+            indicator: SidebarDropIndicator(tabId: ids[2], edge: .bottom),
+            scope: .raw,
+            draggedWorkspaceId: ids[1],
+            indicatorRowIds: ids
+        )
+        let canonicalPaint = bottomEdge.paint(forRowWorkspaceId: ids[3])
+        #expect(canonicalPaint.top)
+
+        // The dragged row never paints: AppKit snapshots it as the drag image
+        // lazily, and a painted line would be baked into the ghost.
+        let selfTargeting = SidebarWorkspaceTableReorderIndicatorPainter(
+            indicator: SidebarDropIndicator(tabId: ids[1], edge: .top),
+            scope: .raw,
+            draggedWorkspaceId: ids[1],
+            indicatorRowIds: ids
+        )
+        let draggedPaint = selfTargeting.paint(forRowWorkspaceId: ids[1])
+        #expect(!draggedPaint.top)
+        #expect(!draggedPaint.bottom)
     }
 #endif
 
@@ -435,7 +483,7 @@ struct SidebarWorkspaceTableTests {
 
     @MainActor
     private func makeTableActions(
-        updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool = { _, _ in false },
+        updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _ in nil },
         clearWorkspaceDropIndicator: @escaping () -> Void = {}
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(

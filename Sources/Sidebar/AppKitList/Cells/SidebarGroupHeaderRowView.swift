@@ -209,6 +209,21 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         setAccessibilityLabel(model.name)
     }
 
+    /// Live drop-line painting during native reorder drags; see
+    /// `SidebarWorkspaceRowTableCellView.paintControllerDropIndicator`.
+    func paintControllerDropIndicator(top: Bool, bottom: Bool) {
+        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        topDropIndicator.isHidden = !top
+        bottomDropIndicator.isHidden = !bottom
+    }
+
+#if DEBUG
+    var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
+        (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
+    }
+#endif
+
     private func updatePlusVisibility() {
         let showsHint = model?.shortcutHintText != nil
         plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !showsHint)
