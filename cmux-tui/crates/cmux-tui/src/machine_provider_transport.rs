@@ -484,6 +484,7 @@ fn spawn_command(
     arguments: &[OsString],
     redactions: Arc<Vec<String>>,
 ) -> io::Result<ProviderIo> {
+    let (stderr_cancel, stderr_cancel_worker) = UnixStream::pair()?;
     let mut command = Command::new(program);
     command
         .args(arguments)
@@ -522,13 +523,14 @@ fn spawn_command(
         process_group,
         child: Mutex::new(Some(child)),
         diagnostics: Arc::clone(&diagnostics),
+        stderr_cancel,
         stderr_worker: Mutex::new(None),
         closed: AtomicBool::new(false),
     });
     let worker_diagnostics = Arc::clone(&diagnostics);
     let worker = thread::Builder::new()
         .name("machine-provider-stderr".to_string())
-        .spawn(move || worker_diagnostics.drain(stderr));
+        .spawn(move || worker_diagnostics.drain_cancellable(stderr, stderr_cancel_worker));
     match worker {
         Ok(worker) => {
             *cleanup
@@ -549,6 +551,7 @@ struct ProcessCleanup {
     process_group: libc::pid_t,
     child: Mutex<Option<Child>>,
     diagnostics: Arc<BoundedDiagnosticBuffer>,
+    stderr_cancel: UnixStream,
     stderr_worker: Mutex<Option<JoinHandle<()>>>,
     closed: AtomicBool,
 }
@@ -582,6 +585,7 @@ impl ProcessCleanup {
                 let _ = child.wait();
             }
         }
+        let _ = self.stderr_cancel.shutdown(std::net::Shutdown::Both);
         if let Ok(mut worker) = self.stderr_worker.lock()
             && let Some(worker) = worker.take()
         {
