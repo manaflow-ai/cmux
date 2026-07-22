@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Adds the local artifact store to Git's per-checkout exclude file.
@@ -16,7 +17,8 @@ struct ArtifactGitIgnoreManager {
         }
         let infoDirectory = commonGitDirectory.appendingPathComponent("info", isDirectory: true)
         let excludeURL = infoDirectory.appendingPathComponent("exclude", isDirectory: false)
-        try fileManager.createDirectory(at: infoDirectory, withIntermediateDirectories: true)
+        try ensureTrustedDirectory(infoDirectory)
+        try rejectUntrustedFileEntry(excludeURL)
         let existing: String
         if fileManager.fileExists(atPath: excludeURL.path) {
             existing = try String(contentsOf: excludeURL, encoding: .utf8)
@@ -28,10 +30,12 @@ struct ArtifactGitIgnoreManager {
         var updated = existing
         if !updated.isEmpty, !updated.hasSuffix("\n") { updated += "\n" }
         updated += ignoreEntry + "\n"
+        try ensureTrustedDirectory(infoDirectory)
+        try rejectUntrustedFileEntry(excludeURL)
         try updated.write(to: excludeURL, atomically: true, encoding: .utf8)
     }
 
-    /// Establishes one fail-closed validator for an automatic import batch.
+    /// Resolves the repository context for a fail-closed automatic import validator.
     func automaticWriteValidator(
         projectRoot: URL,
         commandRunner: any ArtifactGitCommandRunning
@@ -39,19 +43,6 @@ struct ArtifactGitIgnoreManager {
         guard let repository = locateGitRepository(startingAt: projectRoot) else {
             guard !containsGitMarker(startingAt: projectRoot) else { return nil }
             return ArtifactGitPrivacyValidator(worktreeRoot: nil, commandRunner: commandRunner)
-        }
-        let artifactsRoot = ArtifactStorePaths(projectRoot: projectRoot).artifactsRoot
-        guard let relativeArtifactsPath = ArtifactPathResolver().relativePath(
-            artifactsRoot,
-            root: repository.worktreeRoot
-        ) else {
-            return nil
-        }
-        guard let trackedStatus = try? commandRunner.terminationStatus(arguments: [
-            "-C", repository.worktreeRoot.path,
-            "ls-files", "--error-unmatch", "--", relativeArtifactsPath,
-        ]), trackedStatus == 1 else {
-            return nil
         }
         return ArtifactGitPrivacyValidator(
             worktreeRoot: repository.worktreeRoot,
@@ -168,5 +159,35 @@ struct ArtifactGitIgnoreManager {
             escaped.append(character)
         }
         return escaped
+    }
+
+    private func ensureTrustedDirectory(_ url: URL) throws {
+        let entryType = try filesystemEntryType(url)
+        if entryType == nil {
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: false)
+        } else if entryType != S_IFDIR {
+            throw ArtifactStoreError.pathOutsideStore(url.path)
+        }
+        guard try filesystemEntryType(url) == S_IFDIR else {
+            throw ArtifactStoreError.pathOutsideStore(url.path)
+        }
+    }
+
+    private func rejectUntrustedFileEntry(_ url: URL) throws {
+        guard let entryType = try filesystemEntryType(url) else { return }
+        guard entryType == S_IFREG else {
+            throw ArtifactStoreError.pathOutsideStore(url.path)
+        }
+    }
+
+    private func filesystemEntryType(_ url: URL) throws -> mode_t? {
+        var status = stat()
+        if lstat(url.path, &status) == 0 {
+            return status.st_mode & S_IFMT
+        }
+        guard errno == ENOENT else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        return nil
     }
 }
