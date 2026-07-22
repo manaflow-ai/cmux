@@ -165,7 +165,9 @@ struct WorkspaceShellView: View {
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
     @State private var rootToolbarSelectionGeneration: UInt64 = 0
+    @State private var workspaceSearchIsPresented = false
     #endif
+    @State private var workspaceSearchText = ""
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
@@ -207,6 +209,14 @@ struct WorkspaceShellView: View {
         store.connectionState == .connected
     }
 
+    #if os(iOS)
+    private var workspaceSearchControlIsVisible: Bool {
+        selectedPrimaryTab == .workspaces
+            && usesCompactStack
+            && compactNavigationPath.isEmpty
+    }
+    #endif
+
     var body: some View {
         #if os(iOS)
         let presentation = workspaceShellRenderPresentation
@@ -238,9 +248,17 @@ struct WorkspaceShellView: View {
                                 canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                             )
                             .toolbarVisibility(.hidden, for: .tabBar)
-                        }
+                    }
                 }
             }
+            .workspaceListBottomSearch(
+                text: $workspaceSearchText,
+                isPresented: $workspaceSearchIsPresented,
+                isVisible: workspaceSearchControlIsVisible,
+                taskComposerAction: displaySettings.taskComposerEnabled ? {
+                    isTaskComposerPresented = true
+                } : nil
+            )
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
@@ -350,7 +368,11 @@ struct WorkspaceShellView: View {
 
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
-            WorkspaceListSearchHost { searchText in
+            WorkspaceListSearchHost(
+                searchText: $workspaceSearchText,
+                usesBottomControl: true,
+                bottomControlIsPresented: workspaceSearchIsPresented
+            ) { searchText in
                 workspaceList(
                     navigationStyle: .push,
                     searchText: searchText,
@@ -433,7 +455,10 @@ struct WorkspaceShellView: View {
 
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
-            WorkspaceListSearchHost { searchText in
+            WorkspaceListSearchHost(
+                searchText: $workspaceSearchText,
+                usesBottomControl: false
+            ) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: searchText,
@@ -670,12 +695,22 @@ struct WorkspaceShellView: View {
 
     @ViewBuilder
     private var taskComposerButtonOverlay: some View {
-        if displaySettings.taskComposerEnabled {
-            TaskComposerButton {
-                isTaskComposerPresented = true
+        if displaySettings.taskComposerEnabled, !workspaceSearchIsPresented {
+            if #available(iOS 26.0, *) {
+                if !usesCompactStack {
+                    TaskComposerButton {
+                        isTaskComposerPresented = true
+                    }
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 6)
+                }
+            } else {
+                TaskComposerButton {
+                    isTaskComposerPresented = true
+                }
+                .padding(.trailing, 20)
+                .padding(.bottom, 6)
             }
-            .padding(.trailing, 20)
-            .padding(.bottom, 6)
         }
     }
     #endif

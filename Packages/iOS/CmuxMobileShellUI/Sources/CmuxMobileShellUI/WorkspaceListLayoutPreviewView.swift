@@ -48,6 +48,9 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var macSelection: WorkspaceMacSelection = .all
     @State private var refreshGeneration = 0
     @State private var model: WorkspaceListLayoutPreviewModel
+    @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    @State private var workspaceSearchText = ""
+    @State private var workspaceSearchIsPresented = false
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
     private let notificationPresenter = ScreenshotNotificationPresenter()
@@ -229,7 +232,11 @@ public struct WorkspaceListLayoutPreviewView: View {
                 WorkspaceDetailDelayedTerminalPreviewView()
             } else {
                 let workspaceListStack = NavigationStack {
-                    WorkspaceListSearchHost { searchText in
+                    WorkspaceListSearchHost(
+                        searchText: $workspaceSearchText,
+                        usesBottomControl: showsTabScaffold,
+                        bottomControlIsPresented: workspaceSearchIsPresented
+                    ) { searchText in
                         WorkspaceListView(
                             workspaces: model.workspaces,
                             groups: groups,
@@ -300,6 +307,15 @@ public struct WorkspaceListLayoutPreviewView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .accessibilityIdentifier("FixtureWorkspaceDetail")
+                            .toolbarVisibility(.hidden, for: .tabBar)
+                            .navigationBarBackButtonHidden(true)
+                            .toolbar {
+                                ToolbarItem(placement: .topBarLeading) {
+                                    WorkspaceBackButton(unreadCount: 0) {
+                                        fixtureRoute = nil
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -310,16 +326,22 @@ public struct WorkspaceListLayoutPreviewView: View {
                             .accessibilityHidden(true)
                     }
                 }
+
                 if showsTabScaffold {
-                    TabView {
-                        Tab("Workspaces", systemImage: "rectangle.stack") {
-                            workspaceListStack
-                        }
-                        Tab("Notifications", systemImage: "bell") {
-                            Text("Notification feed fixture")
-                                .foregroundStyle(.secondary)
-                        }
+                    MobilePrimaryTabScaffold(
+                        selection: $selectedPrimaryTab,
+                        notificationUnreadCount: 0
+                    ) {
+                        workspaceListStack
+                    } notifications: {
+                        Text("Notification feed fixture")
+                            .foregroundStyle(.secondary)
                     }
+                    .workspaceListBottomSearch(
+                        text: $workspaceSearchText,
+                        isPresented: $workspaceSearchIsPresented,
+                        isVisible: selectedPrimaryTab == .workspaces && fixtureRoute == nil
+                    )
                 } else {
                     workspaceListStack
                 }
