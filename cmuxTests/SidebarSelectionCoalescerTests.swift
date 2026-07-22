@@ -25,9 +25,18 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
         let continuation: CheckedContinuation<Void, any Error>
     }
 
+    private struct SleepWaiter {
+        let deadline: Instant?
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private let lock = NSLock()
     private var _now = Instant(offset: .zero)
-    private var sleepers: [Sleeper] = []
+    private var sleepers: [UUID: Sleeper] = [:]
+    private var pendingSleeperRegistrationIDs: Set<UUID> = []
+    private var cancelledSleeperIDs: Set<UUID> = []
+    private var sleepWaiters: [SleepWaiter] = []
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     var now: Instant {
         lock.lock()
@@ -37,34 +46,99 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
 
     var minimumResolution: Duration { .zero }
 
+    var retainedCancellationMarkerCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelledSleeperIDs.count
+    }
+
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        try Task.checkCancellation()
-        let readyNow: Bool = {
-            lock.lock()
-            defer { lock.unlock() }
-            return deadline <= _now
-        }()
-        if readyNow { return }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            lock.lock()
-            if deadline <= _now {
+        let id = UUID()
+        lock.lock()
+        pendingSleeperRegistrationIDs.insert(id)
+        lock.unlock()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                pendingSleeperRegistrationIDs.remove(id)
+                if cancelledSleeperIDs.remove(id) != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if deadline <= _now {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
+                var matchedWaiters: [CheckedContinuation<Void, Never>] = []
+                sleepWaiters.removeAll { waiter in
+                    let matches = waiter.deadline == nil || waiter.deadline == deadline
+                    if matches { matchedWaiters.append(waiter.continuation) }
+                    return matches
+                }
                 lock.unlock()
-                continuation.resume()
-                return
+                for waiter in matchedWaiters { waiter.resume() }
             }
-            sleepers.append(Sleeper(deadline: deadline, continuation: continuation))
+        } onCancel: {
+            lock.lock()
+            let sleeper = sleepers.removeValue(forKey: id)
+            if sleeper == nil, pendingSleeperRegistrationIDs.contains(id) {
+                cancelledSleeperIDs.insert(id)
+            }
+            let waiters = sleepers.isEmpty ? idleWaiters : []
+            if sleepers.isEmpty { idleWaiters.removeAll() }
             lock.unlock()
+            sleeper?.continuation.resume(throwing: CancellationError())
+            for waiter in waiters { waiter.resume() }
         }
     }
 
-    func advance(by duration: Duration) {
+    func waitUntilSleeping(for duration: Duration? = nil) async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            let deadline = duration.map { _now.advanced(by: $0) }
+            let alreadySleeping = sleepers.values.contains { sleeper in
+                deadline == nil || sleeper.deadline == deadline
+            }
+            if alreadySleeping {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                sleepWaiters.append(SleepWaiter(deadline: deadline, continuation: continuation))
+                lock.unlock()
+            }
+        }
+    }
+
+    func advance(by duration: Duration, beforeResuming: () -> Void = {}) {
         lock.lock()
         _now = _now.advanced(by: duration)
-        let due = sleepers.filter { $0.deadline <= _now }
-        sleepers.removeAll { $0.deadline <= _now }
+        let dueIDs = sleepers.compactMap { id, sleeper in
+            sleeper.deadline <= _now ? id : nil
+        }
+        let due = dueIDs.compactMap { sleepers.removeValue(forKey: $0) }
+        let waiters = sleepers.isEmpty ? idleWaiters : []
+        if sleepers.isEmpty { idleWaiters.removeAll() }
         lock.unlock()
+        beforeResuming()
         for sleeper in due {
             sleeper.continuation.resume()
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitUntilIdle() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if sleepers.isEmpty {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                idleWaiters.append(continuation)
+                lock.unlock()
+            }
         }
     }
 }
@@ -157,5 +231,21 @@ struct SidebarSelectionCoalescerTests {
         coalescer.request { applied.append("a") }
         coalescer.flushNow()
         #expect(applied == ["a"])
+    }
+
+    @Test
+    func cancellationAfterDeadlineDoesNotRetainMarker() async {
+        let clock = SidebarTestManualClock()
+        let sleep = Task {
+            try await clock.sleep(for: .milliseconds(100))
+        }
+
+        await clock.waitUntilSleeping(for: .milliseconds(100))
+        clock.advance(by: .milliseconds(100)) {
+            sleep.cancel()
+        }
+        _ = await sleep.result
+
+        #expect(clock.retainedCancellationMarkerCount == 0)
     }
 }
