@@ -111,12 +111,6 @@ extension WKWebView {
         browserPortalNeedsFirstSizedRevealNudge
     }
 
-#if DEBUG
-    var browserPortalHasPendingFirstSizedRevealNudgeForTesting: Bool {
-        browserPortalNeedsFirstSizedRevealNudge
-    }
-#endif
-
     func browserPortalMarkNeedsFirstSizedRevealNudge(reason: String) {
         browserPortalNeedsFirstSizedRevealNudge = true
 #if DEBUG
@@ -128,7 +122,10 @@ extension WKWebView {
     }
 
     func browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: String) {
-        let startsInHiddenWindow = window.map { $0.alphaValue <= 0.01 } ?? false
+        // An attached window only counts as presenting when it is ordered on
+        // screen with nonzero alpha; an ordered-out or alpha-0 host loads the
+        // document just as hidden as no window at all.
+        let startsInHiddenWindow = window.map { $0.alphaValue <= 0.01 || !$0.isVisible } ?? false
         guard window == nil ||
             startsInHiddenWindow ||
             !frame.size.width.isFinite ||
@@ -172,11 +169,24 @@ extension WKWebView {
         managedByExternalFullscreenWindow: Bool
     ) -> Bool {
         guard browserPortalNeedsFirstSizedRevealNudge else { return false }
-        guard window != nil else {
+        guard let window else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
                 "reason=\(reason) skip=noWindow frame=\(browserPortalRenderingStateDebugFrame(frame))"
+            )
+#endif
+            return false
+        }
+        // An ordered-out, miniaturized, or alpha-0 window is not a genuine
+        // presentation: WebKit still treats the webview as hidden, so consuming
+        // the one-shot flag here would waste it. Keep the nudge pending for the
+        // refresh pass that runs once the window actually presents.
+        guard window.isVisible, window.alphaValue > 0.01 else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=windowNotPresented frame=\(browserPortalRenderingStateDebugFrame(frame))"
             )
 #endif
             return false
@@ -318,5 +328,71 @@ extension WKWebView {
             )
         }
 #endif
+    }
+}
+
+// MARK: - Navigation-start marking
+
+extension WKWebView {
+    /// Starts a request load, first arming the first-sized-reveal nudge when
+    /// the navigation begins without a genuine presentation (no window, an
+    /// unpresented window, or a degenerate frame).
+    @discardableResult
+    func browserPortalLoadMarkingFirstSizedRevealNudge(_ request: URLRequest) -> WKNavigation? {
+        browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(
+            reason: "navigationStart:\(request.url?.scheme?.lowercased() ?? "none")"
+        )
+        return load(request)
+    }
+
+    /// File-URL variant of `browserPortalLoadMarkingFirstSizedRevealNudge(_:)`.
+    @discardableResult
+    func browserPortalLoadFileMarkingFirstSizedRevealNudge(
+        _ url: URL,
+        allowingReadAccessTo readAccessURL: URL
+    ) -> WKNavigation? {
+        browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(
+            reason: "navigationStart:\(url.scheme?.lowercased() ?? "none")"
+        )
+        return loadFileURL(url, allowingReadAccessTo: readAccessURL)
+    }
+
+    /// Docks the webview into an alpha-0 background-preload host view and
+    /// records the hidden rendering state (WebKit re-enter reattach plus the
+    /// first-sized-reveal geometry nudge) that the reveal path replays.
+    func browserPortalDockIntoHiddenPreloadHost(_ hostContentView: NSView, reason: String) {
+        frame = hostContentView.bounds
+        autoresizingMask = [.width, .height]
+        hostContentView.addSubview(self)
+        browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
+    }
+}
+
+// MARK: - Companion WebKit subview detection
+
+extension WindowBrowserSlotView {
+    /// Companion WebKit subviews (find bars, inspector overlays, PiP shims)
+    /// own their own geometry inside the slot; rendering-state passes must not
+    /// reset or nudge the primary webview frame while one is visible.
+    func hasVisibleWebKitCompanionSubview(for primaryWebView: WKWebView) -> Bool {
+        var stack = subviews.filter { $0 !== primaryWebView }
+        while let current = stack.popLast() {
+            if current.isDescendant(of: primaryWebView) {
+                continue
+            }
+            if current.isHidden || current.alphaValue <= 0 {
+                continue
+            }
+            if String(describing: type(of: current)).contains("WK") {
+                let width = max(current.frame.width, current.bounds.width)
+                let height = max(current.frame.height, current.bounds.height)
+                if width > 1, height > 1 {
+                    return true
+                }
+                continue
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
     }
 }

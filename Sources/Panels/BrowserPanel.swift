@@ -976,14 +976,11 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 @discardableResult
 func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
     guard let url = request.url else { return nil }
-    let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
         guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
-        webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
-        return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
+        return webView.browserPortalLoadFileMarkingFirstSizedRevealNudge(url, allowingReadAccessTo: readAccessURL)
     }
-    webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
-    return webView.load(browserPreparedNavigationRequest(request))
+    return webView.browserPortalLoadMarkingFirstSizedRevealNudge(browserPreparedNavigationRequest(request))
 }
 
 private let browserEmbeddedNavigationSchemes: Set<String> = [
@@ -4229,10 +4226,7 @@ final class BrowserPanel: Panel, ObservableObject {
                   let contentView = preloadWindow.contentView else {
                 return false
             }
-            webView.frame = contentView.bounds
-            webView.autoresizingMask = [.width, .height]
-            contentView.addSubview(webView)
-            webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
+            webView.browserPortalDockIntoHiddenPreloadHost(contentView, reason: reason)
             return true
         }
 
@@ -4255,13 +4249,10 @@ final class BrowserPanel: Panel, ObservableObject {
         window.isExcludedFromWindowsMenu = true
 
         let contentView = NSView(frame: frame)
-        webView.frame = contentView.bounds
-        webView.autoresizingMask = [.width, .height]
-        contentView.addSubview(webView)
+        webView.browserPortalDockIntoHiddenPreloadHost(contentView, reason: reason)
         window.contentView = contentView
         backgroundPreloadWindow = window
         window.orderFrontRegardless()
-        webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
 
 #if DEBUG
         cmuxDebugLog(

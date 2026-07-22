@@ -1551,32 +1551,6 @@ final class WindowBrowserSlotView: NSView {
             abs(frame.height - bounds.height) > epsilon
     }
 
-    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-        var stack = host.subviews.filter { $0 !== primaryWebView }
-        while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
-                continue
-            }
-            if current.isHidden || current.alphaValue <= 0 {
-                continue
-            }
-            if String(describing: type(of: current)).contains("WK") {
-                let width = max(current.frame.width, current.bounds.width)
-                let height = max(current.frame.height, current.bounds.height)
-                if width > 1, height > 1 {
-                    return true
-                }
-                continue
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
-    }
-
-    func hasVisibleWebKitCompanionSubview(for primaryWebView: WKWebView) -> Bool {
-        Self.hasWebKitCompanionSubview(in: self, primaryWebView: primaryWebView)
-    }
-
     func effectivePaneTopChromeHeight() -> CGFloat {
         paneTopChromeHeight
     }
@@ -2403,7 +2377,10 @@ final class WindowBrowserPortal: NSObject {
             if reattachRenderingState {
                 webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
             }
-            if webKitSubview === webView {
+            // Gate on the pending flag before computing arguments: the
+            // companion-subview scan walks the slot's view tree and must not
+            // run on every portal refresh pass once the one-shot is consumed.
+            if webKitSubview === webView, webView.browserPortalRequiresFirstSizedRevealNudge {
                 webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
                     reason: "\(reason):\(phase)",
                     hasCompanionWKSubviews: containerView.hasVisibleWebKitCompanionSubview(for: webView),
