@@ -200,7 +200,8 @@ _SLEEP_CALL = re.compile(
   | \bTask(?:\s*<[^>\n]+>)?\s*\.sleep\s*\(
   | try\s+await\s+Task\.sleep
   | \b(?:ContinuousClock|SuspendingClock)\s*\(\s*\)\.sleep\s*\(
-  | \basyncio\.sleep\s*\(
+  | \b(?:asyncio|trio|anyio|gevent)\.sleep\s*\(
+  | \bBun\.sleep\s*\(
   | \bsetTimeout\s*\(                       # JS, when used as a bare delay
     """
 )
@@ -219,7 +220,7 @@ _CONDITIONAL_SCOPE_HEADER = re.compile(
 )
 _COMPILATION_DIRECTIVE = re.compile(r"^\s*#(if|elseif|else|endif)\b")
 _TYPE_SCOPE_HEADER = re.compile(
-    r"\b(?:struct|class|actor|enum|extension|protocol)\s+"
+    r"\b(struct|class|actor|enum|extension|protocol)\s+"
     r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)"
 )
 _FOR_SCOPE_BINDING = re.compile(
@@ -644,7 +645,6 @@ def _local_receiver_declarations(
         segment_start = keyword.end()
         paren_depth = 0
         bracket_depth = 0
-        angle_depth = 0
         segments: list[tuple[int, int]] = []
         i = segment_start
 
@@ -658,11 +658,7 @@ def _local_receiver_declarations(
                 bracket_depth += 1
             elif char == "]" and bracket_depth:
                 bracket_depth -= 1
-            elif char == "<":
-                angle_depth += 1
-            elif char == ">" and angle_depth:
-                angle_depth -= 1
-            elif not (paren_depth or bracket_depth or angle_depth):
+            elif not (paren_depth or bracket_depth):
                 if char == ",":
                     segments.append((segment_start, i))
                     segment_start = i + 1
@@ -769,7 +765,16 @@ def _has_explicit_real_member(
     for line_index, candidate in enumerate(masked_lines):
         type_header = _TYPE_SCOPE_HEADER.search(candidate)
         if type_header:
-            pending_type = type_header.group(1).rsplit(".", 1)[-1]
+            type_kind = type_header.group(1)
+            declared_type = type_header.group(2)
+            if (
+                type_kind != "extension"
+                and "." not in declared_type
+                and active_types
+            ):
+                pending_type = f"{active_types[-1][0]}.{declared_type}"
+            else:
+                pending_type = declared_type
         events: list[tuple[int, str, Optional[str]]] = []
         events.extend(
             (position, "binding", declaration)
