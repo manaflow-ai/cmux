@@ -15,7 +15,11 @@ final class AgentChatTranscriptService {
     let resolver: AgentChatTranscriptResolver
     let artifactIndex: AgentChatArtifactIndex
     let artifactCaptureCoordinator: AgentArtifactCaptureCoordinator?
-    var artifactCaptureTasks: [String: (token: UUID, task: Task<Void, Never>?)] = [:]
+    var artifactCaptureTasks: [String: (
+        token: UUID,
+        task: Task<Void, Never>?,
+        pending: (@Sendable () async -> Void)?
+    )] = [:]
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void

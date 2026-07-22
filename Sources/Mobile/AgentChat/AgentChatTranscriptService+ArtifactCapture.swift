@@ -56,12 +56,26 @@ extension AgentChatTranscriptService {
         sessionID: String,
         operation: @escaping @Sendable () async -> Void
     ) {
-        artifactCaptureTasks.removeValue(forKey: sessionID)?.task?.cancel()
+        if var active = artifactCaptureTasks[sessionID] {
+            active.pending = operation
+            artifactCaptureTasks[sessionID] = active
+            return
+        }
         let token = UUID()
-        artifactCaptureTasks[sessionID] = (token: token, task: nil)
+        artifactCaptureTasks[sessionID] = (token: token, task: nil, pending: nil)
         let task = Task.detached(priority: .utility) { [weak self] in
-            await operation()
-            await self?.finishArtifactCaptureTask(sessionID: sessionID, token: token)
+            var current: (@Sendable () async -> Void)? = operation
+            while let operation = current, !Task.isCancelled {
+                await operation()
+                guard !Task.isCancelled else { break }
+                current = await self?.takeNextArtifactCaptureOperation(
+                    sessionID: sessionID,
+                    token: token
+                )
+            }
+            if Task.isCancelled {
+                await self?.finishArtifactCaptureTask(sessionID: sessionID, token: token)
+            }
         }
         if var entry = artifactCaptureTasks[sessionID], entry.token == token {
             entry.task = task
@@ -74,5 +88,21 @@ extension AgentChatTranscriptService {
     private func finishArtifactCaptureTask(sessionID: String, token: UUID) {
         guard artifactCaptureTasks[sessionID]?.token == token else { return }
         artifactCaptureTasks.removeValue(forKey: sessionID)
+    }
+
+    private func takeNextArtifactCaptureOperation(
+        sessionID: String,
+        token: UUID
+    ) -> (@Sendable () async -> Void)? {
+        guard var active = artifactCaptureTasks[sessionID], active.token == token else {
+            return nil
+        }
+        guard let pending = active.pending else {
+            artifactCaptureTasks.removeValue(forKey: sessionID)
+            return nil
+        }
+        active.pending = nil
+        artifactCaptureTasks[sessionID] = active
+        return pending
     }
 }
