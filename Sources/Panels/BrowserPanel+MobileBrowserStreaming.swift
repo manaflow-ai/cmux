@@ -122,11 +122,13 @@ extension BrowserPanel {
         reevaluateHiddenWebViewDiscardScheduling(reason: "mobile_browser_stream_stopped")
     }
 
-    /// Applies the phone's point viewport through the shared automation reflow path.
+    /// Reflows the browser in a persistent offscreen render host at the phone's point viewport.
     @discardableResult
     func applyMobileStreamViewport(width: Int, height: Int, scale: Double) -> Bool {
         let reportedViewport = MobileBrowserViewport(width: width, height: height, scale: scale)
-        if mobileBrowserStreamViewportIsActive, mobileBrowserStreamViewport == reportedViewport {
+        if mobileBrowserStreamRenderHost != nil,
+           mobileBrowserStreamViewport == reportedViewport,
+           mobileBrowserStreamCanUseOffscreenRenderHost {
             return true
         }
         guard let mapping = MobileBrowserStreamViewportMapping(
@@ -137,81 +139,49 @@ extension BrowserPanel {
             return false
         }
 
-        let previousViewport = viewportModel.requestedViewport
-        switch setAutomationViewport(mapping.viewport) {
-        case .success:
-            if !mobileBrowserStreamViewportIsActive {
-                mobileBrowserStreamPreviousAutomationViewport = previousViewport
-                mobileBrowserStreamViewportIsActive = true
-            }
+        guard mobileBrowserStreamCanUseOffscreenRenderHost else {
+            restoreMobileStreamPresentation(endingStream: false)
             mobileBrowserStreamViewport = reportedViewport
-            forceMobileStreamRepaintAfterReflow()
-            // `.reflowed` (not just `.dirty`) so the session schedules settle
-            // re-captures: the relayout paints asynchronously and an idle page
-            // sends no further dirty, so a single capture can grab a blank frame.
-            publishMobileBrowserStreamSignal(.reflowed)
+            publishMobileBrowserStreamSignal(.dirty(editableFocused: nil))
             return true
-        case .failure:
+        }
+
+        guard BrowserViewportLayout(
+            containerBounds: CGRect(origin: .zero, size: mapping.viewport.size),
+            viewport: mapping.viewport,
+            pageZoom: Double(webView.pageZoom)
+        ) != nil else {
             return false
         }
-    }
 
-    /// Forces a compositor repaint after a viewport reflow so the next capture
-    /// is not a blank frame.
-    ///
-    /// An already-loaded, idle page reflowed to a new viewport relayouts but does
-    /// not necessarily repaint on its own, so `takeSnapshot` right after the
-    /// reflow can capture a WHITE frame that then sticks (the idle page sends no
-    /// further dirty signal, so nothing re-captures). A user scroll recovers it,
-    /// which is exactly the compositor nudge this reproduces programmatically: a
-    /// double-`requestAnimationFrame` (runs after the relayout paints) followed
-    /// by a net-zero 1px scroll jitter and a `resize` dispatch. Both fire the
-    /// stream dirty beacon's listeners, so the settled, painted layout is
-    /// captured and replaces the premature blank frame. The scroll is restored
-    /// to its exact prior offset, so it is imperceptible; the `resize` dispatch
-    /// covers short pages that have no scroll room to jitter.
-    private func forceMobileStreamRepaintAfterReflow() {
-        // Two REAL scrolls in SEPARATE frames, not a same-tick net-zero pair:
-        // the browser coalesces `scrollTo(y+1); scrollTo(y)` in one tick to the
-        // final position and never actually scrolls, so no repaint. Moving by a
-        // real pixel in one frame and back in the next produces two genuine
-        // scroll+repaint cycles (the compositor nudge a user scroll gives). A
-        // page pinned at the top still has room to go down 1px; one pinned at the
-        // bottom still has room to go up 1px, so at least one real move lands.
-        let script = """
-        (() => {
-          const back = () => {
-            try {
-              window.scrollBy(0, -1);
-              window.dispatchEvent(new Event('resize'));
-            } catch (_) {}
-          };
-          const forward = () => {
-            try { window.scrollBy(0, 1); } catch (_) {}
-            try { requestAnimationFrame(back); } catch (_) { back(); }
-          };
-          try {
-            requestAnimationFrame(() => requestAnimationFrame(forward));
-          } catch (_) {
-            forward();
-          }
-        })()
-        """
-        let activeWebView = webView
-        Task { @MainActor [weak activeWebView] in
-            try? await activeWebView?.evaluateJavaScript(script, contentWorld: .page)
+        if mobileBrowserStreamRenderHost == nil {
+            if !mobileBrowserStreamPreviousViewportWasCaptured {
+                mobileBrowserStreamPreviousViewport = viewportModel.requestedViewport
+                mobileBrowserStreamPreviousViewportWasCaptured = true
+            }
+            mobileBrowserStreamRenderHost = BrowserOffscreenRenderHost(
+                webView: webView,
+                viewportSize: mapping.viewport.size
+            )
         }
+
+        viewportModel.setViewport(mapping.viewport)
+        guard mobileBrowserStreamRenderHost?.resize(to: mapping.viewport.size) == true else {
+            restoreMobileStreamPresentation(endingStream: false)
+            mobileBrowserStreamViewport = reportedViewport
+            publishMobileBrowserStreamSignal(.dirty(editableFocused: nil))
+            return true
+        }
+
+        mobileBrowserStreamViewport = reportedViewport
+        BrowserWindowPortalRegistry.refresh(webView: webView, reason: "mobileStreamViewport")
+        publishMobileBrowserStreamSignal(.dirty(editableFocused: nil))
+        return true
     }
 
-    /// Restores the automation viewport that was active before phone streaming.
+    /// Restores the presentation hierarchy and viewport that preceded phone streaming.
     func clearMobileStreamViewport() {
-        guard mobileBrowserStreamViewportIsActive else { return }
-        let previousViewport = mobileBrowserStreamPreviousAutomationViewport
-        guard case .success = setAutomationViewport(previousViewport) else { return }
-        mobileBrowserStreamViewportIsActive = false
-        mobileBrowserStreamPreviousAutomationViewport = nil
-        mobileBrowserStreamViewport = nil
-        publishMobileBrowserStreamSignal(.dirty(editableFocused: nil))
+        restoreMobileStreamPresentation(endingStream: true)
     }
 
     func publishMobileBrowserStreamSignal(_ signal: MobileBrowserPanelNativeSignal) {
@@ -231,7 +201,56 @@ extension BrowserPanel {
     func mobileBrowserWebViewDidBind() {
         guard !mobileBrowserStreamSignalHandlers.isEmpty else { return }
         installMobileBrowserDirtyBeaconIfNeeded()
+        mobileBrowserStreamRenderHost?.abandon()
+        mobileBrowserStreamRenderHost = nil
+        if let viewport = mobileBrowserStreamViewport {
+            _ = applyMobileStreamViewport(
+                width: viewport.width,
+                height: viewport.height,
+                scale: viewport.scale
+            )
+        } else {
+            restoreMobileStreamPresentation(endingStream: false)
+        }
         publishMobileBrowserStreamSignal(.webViewReplaced)
+    }
+
+    private var mobileBrowserStreamCanUseOffscreenRenderHost: Bool {
+        guard !webView.cmuxIsElementFullscreenActiveOrTransitioning else { return false }
+        if let host = webView.superview,
+           host.browserPortalHasVisibleWebKitCompanionSubview(for: webView) {
+            return false
+        }
+        return !viewportHostView.browserPortalHasVisibleWebKitCompanionSubview(for: webView)
+    }
+
+    private func restoreMobileStreamPresentation(endingStream: Bool) {
+        let renderHost = mobileBrowserStreamRenderHost
+        mobileBrowserStreamRenderHost = nil
+
+        if mobileBrowserStreamPreviousViewportWasCaptured {
+            viewportModel.setViewport(mobileBrowserStreamPreviousViewport)
+        }
+        renderHost?.restore()
+
+        if mobileBrowserStreamPreviousViewportWasCaptured,
+           mobileBrowserStreamPreviousViewport == nil,
+           webView.cmuxBrowserViewportUsesHost,
+           let nativeLayout = BrowserViewportLayout(
+               containerBounds: webView.cmuxBrowserViewportContainerBounds
+                   ?? CGRect(origin: .zero, size: webView.bounds.size),
+               viewport: nil,
+               pageZoom: Double(webView.pageZoom)
+           ) {
+            _ = viewportHostView.deactivateWebView(using: nativeLayout)
+        }
+
+        BrowserWindowPortalRegistry.refresh(webView: webView, reason: "mobileStreamRestore")
+        if endingStream {
+            mobileBrowserStreamPreviousViewport = nil
+            mobileBrowserStreamPreviousViewportWasCaptured = false
+            mobileBrowserStreamViewport = nil
+        }
     }
 
     private func installMobileBrowserDirtyBeaconIfNeeded() {

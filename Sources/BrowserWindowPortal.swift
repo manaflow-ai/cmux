@@ -2955,6 +2955,8 @@ final class WindowBrowserPortal: NSObject {
             ),
             webView: webView
         )
+        let shouldPreserveExternalRenderHost =
+            webView.cmuxIsManagedByExternalRenderHost(relativeTo: containerView)
 
         if let previousWebViewId = webViewByAnchorId[anchorId], previousWebViewId != webViewId {
 #if DEBUG
@@ -3015,11 +3017,12 @@ final class WindowBrowserPortal: NSObject {
         }
 #endif
 
-        if shouldPreserveExternalFullscreenHost {
+        if shouldPreserveExternalFullscreenHost || shouldPreserveExternalRenderHost {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
-                "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "reason=\(shouldPreserveExternalFullscreenHost ? "fullscreenExternalHost" : "renderExternalHost") " +
+                "super=\(browserPortalDebugToken(webView.superview)) " +
                 "container=\(browserPortalDebugToken(containerView)) " +
                 "state=\(String(describing: webView.fullscreenState))"
             )
@@ -3307,15 +3310,19 @@ final class WindowBrowserPortal: NSObject {
         }
         let shouldPreserveExternalFullscreenHost =
             webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
+        let shouldPreserveExternalRenderHost =
+            webView.cmuxIsManagedByExternalRenderHost(relativeTo: containerView)
         let shouldPreserveExternalHostForHiddenEntry =
             !shouldPreserveExternalFullscreenHost &&
+            !shouldPreserveExternalRenderHost &&
             !entry.visibleInUI &&
             webView.cmuxBrowserViewportPresentationView.superview !== containerView
-        if shouldPreserveExternalFullscreenHost {
+        if shouldPreserveExternalFullscreenHost || shouldPreserveExternalRenderHost {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
-                "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "reason=\(shouldPreserveExternalFullscreenHost ? "fullscreenExternalHost" : "renderExternalHost") " +
+                "super=\(browserPortalDebugToken(webView.superview)) " +
                 "container=\(browserPortalDebugToken(containerView)) " +
                 "state=\(String(describing: webView.fullscreenState))"
             )

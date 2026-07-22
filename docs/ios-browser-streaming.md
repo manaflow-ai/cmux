@@ -20,12 +20,19 @@ identical to "what the Mac tab shows", including `localhost:3000`.
 ## Capture (Mac)
 
 Frames come from `WKWebView.takeSnapshot(with:)` on the pane's live web view,
-the same API the browser screenshot pipeline already uses. It renders in the
-web content process, so capture works whether the pane is visible, hidden
-behind another workspace, or in an unfocused window, and it never picks up
-cmux chrome or overlays. No Screen Recording permission is required.
-ScreenCaptureKit was rejected for exactly those reasons: TCC prompt, captures
-overlays, and cannot capture a pane whose portal is detached.
+the same API the browser screenshot pipeline already uses. For the stream
+lifetime, cmux moves the web view's presentation root into the screenshot
+pipeline's borderless offscreen render window and sizes that window to the
+phone's point viewport. WebKit therefore reflows and snapshots in a real
+rendering host at phone width, including when the page was already loaded and
+idle. Rotation resizes the same host; it does not reparent the view per frame.
+
+The snapshot renders in the web content process, so it never picks up cmux
+chrome or overlays. No Screen Recording permission is required. ScreenCaptureKit
+was rejected for exactly those reasons: TCC prompt, captures overlays, and
+cannot capture a pane whose portal is detached. While streaming, the Mac pane
+does not show the live web view; teardown restores the presentation root to its
+captured on-screen superview, sibling position, and geometry.
 
 Capture is dirty-driven, not clocked. While a stream is active, the panel
 injects a user script that reports paint activity (a throttled
@@ -121,4 +128,8 @@ disconnect, panel close (pushed as `mobile.browser.closed`), or app
 background. Reconnect resubscribes and the first frame repaints the surface;
 sequence numbers restart per subscription. The Mac-side hidden-webview
 discard manager treats an actively streamed panel as visible so the web
-process stays alive while a phone is watching.
+process stays alive while a phone is watching. The final subscriber teardown
+also closes the offscreen render window and restores the saved pre-stream
+viewport and presentation hierarchy. Element fullscreen and attached-inspector
+layouts stay on-screen and use ordinary visible-viewport capture rather than
+being moved into the offscreen host.
