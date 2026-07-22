@@ -9,6 +9,8 @@ final class SidebarWorkspaceTableContainerView: NSView {
     let reorderDropView = SidebarWorkspaceReorderDropView()
     let bonsplitDropView = SidebarBonsplitTabWorkspaceDropView()
     let emptyDropIndicatorView = SidebarWorkspaceTableEmptyDropIndicatorView()
+    var viewportWidthDidChange: ((CGFloat) -> Void)?
+    private var lastReportedViewportWidth: CGFloat = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -43,5 +45,16 @@ final class SidebarWorkspaceTableContainerView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        // Row measurement uses integral point widths. Report that same value
+        // here so apply, live reflow, and settled cache keys cannot disagree
+        // about sub-point geometry changes.
+        let width = floor(clipView.bounds.width)
+        guard width > 0, width != lastReportedViewportWidth else { return }
+        lastReportedViewportWidth = width
+        viewportWidthDidChange?(width)
     }
 }

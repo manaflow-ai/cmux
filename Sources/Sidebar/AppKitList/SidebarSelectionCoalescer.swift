@@ -50,12 +50,15 @@ final class SidebarSelectionCoalescer<C: Clock> where C.Duration == Duration {
         }
     }
 
-    /// Drops any pending request. Used by gestures that consume the click
-    /// without selecting (double-click rename, drag sessions).
-    func cancel() {
+    /// Drops any queued fallback request when an immediate pointer selection
+    /// or double-click rename supersedes it.
+    @discardableResult
+    func cancel() -> Bool {
+        let canceledPendingRequest = pendingApply != nil
         trailingTask?.cancel()
         trailingTask = nil
         pendingApply = nil
+        return canceledPendingRequest
     }
 
     /// Applies any pending request immediately, then clears it. Modifier

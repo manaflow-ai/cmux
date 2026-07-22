@@ -377,7 +377,7 @@ struct WorkspaceGroupTests {
         ] + Array(originalIds.dropFirst(4)))
     }
 
-    @Test func draggingPinnedGroupedChildToRootSlotAfterOwnUnpinnedGroupPromotesToPinnedTier() throws {
+    @Test func draggingPinnedGroupedChildToUnpinnedRootPromotesAndUnpins() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -391,23 +391,42 @@ struct WorkspaceGroupTests {
         let draggedId = originalIds[1]
         let rootAfterGroupId = originalIds[3]
         manager.setPinned(try #require(manager.tabs.first { $0.id == draggedId }), pinned: true)
-        let reorderIds = manager.sidebarReorderWorkspaceIds(
+        let initialReorderIds = manager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: draggedId,
             targetWorkspaceId: rootAfterGroupId,
             usesTopLevelRows: true
+        )
+        let initialPinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: rootAfterGroupId,
+            usesTopLevelRows: true
+        )
+        let targetPinnedState = SidebarDropPlanner().destinationPinnedState(
+            draggedTabId: draggedId,
+            targetTabId: rootAfterGroupId,
+            tabIds: initialReorderIds,
+            pinnedTabIds: initialPinnedIds
+        )
+        #expect(!targetPinnedState)
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: rootAfterGroupId,
+            usesTopLevelRows: true,
+            targetPinnedState: targetPinnedState
         )
         let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
             forDraggedWorkspaceId: draggedId,
             targetWorkspaceId: rootAfterGroupId,
-            usesTopLevelRows: true
+            usesTopLevelRows: true,
+            targetPinnedState: targetPinnedState
         )
         #expect(reorderIds == [
-            draggedId,
             originalIds[0],
             group.anchorWorkspaceId,
+            draggedId,
             rootAfterGroupId,
         ] + Array(originalIds.dropFirst(4)))
-        #expect(pinnedIds == [draggedId])
+        #expect(pinnedIds.isEmpty)
         let targetIndex = try #require(SidebarDropPlanner().targetIndex(
             draggedTabId: draggedId,
             targetTabId: rootAfterGroupId,
@@ -415,22 +434,24 @@ struct WorkspaceGroupTests {
             tabIds: reorderIds,
             pinnedTabIds: pinnedIds
         ))
-        #expect(targetIndex == 0)
+        #expect(targetIndex == 2)
 
         let moved = manager.reorderSidebarWorkspace(
             tabId: draggedId,
             toIndex: targetIndex,
             isDragOperation: true,
-            usesTopLevelRows: true
+            usesTopLevelRows: true,
+            targetPinnedState: targetPinnedState
         )
 
         #expect(moved)
         #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
+        #expect(manager.tabs.first { $0.id == draggedId }?.isPinned == false)
         #expect(manager.tabs.map(\.id) == [
-            draggedId,
             originalIds[0],
             group.anchorWorkspaceId,
             originalIds[2],
+            draggedId,
             rootAfterGroupId,
         ] + Array(originalIds.dropFirst(4)))
     }

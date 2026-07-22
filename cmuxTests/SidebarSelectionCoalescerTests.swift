@@ -94,6 +94,9 @@ struct SidebarSelectionCoalescerTests {
         coalescer.request { applied.append("a") }
         clock.advance(by: .milliseconds(30))
         coalescer.request { applied.append("b") }
+        // Let the trailing task register its manual-clock sleeper before
+        // advancing again; otherwise it can derive its deadline after the jump.
+        await drain()
         clock.advance(by: .milliseconds(30))
         coalescer.request { applied.append("c") }
         #expect(applied == ["a"])
