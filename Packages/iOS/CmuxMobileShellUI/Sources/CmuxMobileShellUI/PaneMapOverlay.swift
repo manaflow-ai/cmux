@@ -112,7 +112,7 @@ struct PaneMapOverlay: View {
             let normalizedRects = value.layout.normalizedRects()
 
             ZStack(alignment: .topLeading) {
-                ForEach(value.panes.enumerated(), id: \.element.id) { index, pane in
+                ForEach(Array(value.panes.enumerated()), id: \.element.id) { index, pane in
                     if let normalizedRect = normalizedRects[pane.id] {
                         let tileRect = scaledTileRect(normalizedRect, in: canvasRect)
                         let surfaceID = selectedSurfaceIDsByPaneID[pane.id]
