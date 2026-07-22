@@ -51,6 +51,12 @@ kill_stale_app_host() {
     pkill -f "${ci_app_host_root%/}/.*Build/Products/.*cmux DEV" 2>/dev/null || true
 }
 
+log_contains_test_assertion_failure() {
+  grep -Eq \
+    '✘ (Test|Suite) |recorded an issue:|Test run with .* failed|Test Case .* failed|Executed [0-9]+ tests?, with [1-9][0-9]* failures?' \
+    "$1"
+}
+
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
@@ -78,6 +84,13 @@ while [ "$attempt" -le "$max_attempts" ]; do
   fi
 
   if [ "$status" -ne 0 ]; then
+    # Infrastructure text can be emitted after a real assertion failure while
+    # the runner channel is tearing down. Retrying that attempt can produce a
+    # passing second run and hide the deterministic product failure.
+    if log_contains_test_assertion_failure "$log_path"; then
+      echo "FAIL: app-host test assertion failed; refusing infrastructure retry" >&2
+      exit "$status"
+    fi
     retry_reason=""
     if [ "$status" -eq 124 ]; then
       retry_reason="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout"
