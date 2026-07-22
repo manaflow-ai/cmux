@@ -74,6 +74,15 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         workspaceController?.reorderDropDragExited()
     }
 
+    // SidebarDragAutoScrollController owns drag autoscroll. As a native drag
+    // destination the table also gets AppKit's built-in drag autoscroll,
+    // whose engagement band, speed, and boundary behavior all differ — two
+    // drivers fighting reads as flaky scrolling and scrolling that continues
+    // after the pointer left the cmux edge zone.
+    override func autoscroll(with event: NSEvent) -> Bool {
+        false
+    }
+
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         super.draggingEnded(sender)
         workspaceController?.reorderDropSessionEnded()
