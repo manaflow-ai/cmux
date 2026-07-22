@@ -59,6 +59,8 @@ public enum ChatArtifactLoaderScope: Hashable, Sendable {
     case chat(sessionID: String)
     /// Artifacts currently visible in one terminal surface.
     case terminal(workspaceID: String, surfaceID: String)
+    /// The single file currently displayed by one file-backed panel surface.
+    case panel(workspaceID: String, surfaceID: String)
     /// Unsupported fixture/default scope.
     case unsupported
 
@@ -68,6 +70,8 @@ public enum ChatArtifactLoaderScope: Hashable, Sendable {
             return "chat:\(sessionID)"
         case .terminal(let workspaceID, let surfaceID):
             return "terminal:\(workspaceID):\(surfaceID)"
+        case .panel(let workspaceID, let surfaceID):
+            return "panel:\(workspaceID):\(surfaceID)"
         case .unsupported:
             return "unsupported"
         }
@@ -239,6 +243,51 @@ public struct ChatArtifactLoader: Sendable {
             stream: stream,
             thumbnail: thumbnail,
             list: list
+        )
+    }
+
+    /// Creates a panel-scoped closure-backed artifact loader.
+    ///
+    /// Panel authorization is a one-file allowlist, so directory browsing is
+    /// always disabled and cannot be enabled by a caller.
+    ///
+    /// - Parameters:
+    ///   - panelWorkspaceID: Workspace containing the file-backed panel.
+    ///   - panelSurfaceID: Panel surface authorizing its displayed file.
+    ///   - supportsArtifacts: Whether the connected Mac advertises panel reads.
+    ///   - cache: Thumbnail cache shared by rows and viewers.
+    ///   - contentCache: Full-content cache shared by viewer routes.
+    ///   - stat: Metadata operation for the panel's file.
+    ///   - fetch: Whole-file compatibility operation.
+    ///   - stream: Optional structured chunk operation.
+    ///   - thumbnail: Thumbnail operation for the panel's file.
+    public init(
+        panelWorkspaceID: String,
+        panelSurfaceID: String,
+        supportsArtifacts: Bool,
+        cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
+        contentCache: ChatArtifactContentCache = .applicationDefault(),
+        stat: @escaping @Sendable (_ path: String) async throws -> ChatArtifactStat,
+        fetch: @escaping @Sendable (
+            _ path: String,
+            _ progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
+        ) async throws -> Data,
+        stream: (@Sendable (
+            _ path: String,
+            _ onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+        ) async throws -> Void)? = nil,
+        thumbnail: @escaping @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail
+    ) {
+        self.init(
+            supportsArtifacts: supportsArtifacts,
+            supportsDirectoryBrowsing: false,
+            scope: .panel(workspaceID: panelWorkspaceID, surfaceID: panelSurfaceID),
+            cache: cache,
+            contentCache: contentCache,
+            stat: stat,
+            fetch: fetch,
+            stream: stream,
+            thumbnail: thumbnail
         )
     }
 

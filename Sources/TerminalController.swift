@@ -127,6 +127,7 @@ class TerminalController {
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
+    let panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -328,7 +329,11 @@ class TerminalController {
     )
     private var browserDownloadObserver: NSObjectProtocol?
 
-    func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
+    func cleanupSurfaceState(
+        surfaceIds: [UUID],
+        paneIds: [UUID] = [],
+        workspaceID: UUID? = nil
+    ) {
         for surfaceId in Set(surfaceIds) {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
@@ -337,6 +342,12 @@ class TerminalController {
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
+            if let workspaceID {
+                panelArtifactAuthorizationStore.invalidate(
+                    workspaceID: workspaceID.uuidString,
+                    surfaceID: surfaceId.uuidString
+                )
+            }
         }
         for paneId in Set(paneIds) { controlCommandCoordinator.removeRef(kind: .pane, uuid: paneId) }
     }
@@ -357,6 +368,7 @@ class TerminalController {
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
+        panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -371,6 +383,7 @@ class TerminalController {
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
+        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
@@ -13969,6 +13982,12 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case let method where method.hasPrefix("mobile.terminal.artifact."):
             result = await v2MobileTerminalArtifactDispatch(
+                method: method,
+                params: request.params,
+                executionContext: executionContext
+            )
+        case let method where method.hasPrefix("mobile.panel.artifact."):
+            result = await v2MobilePanelArtifactDispatch(
                 method: method,
                 params: request.params,
                 executionContext: executionContext

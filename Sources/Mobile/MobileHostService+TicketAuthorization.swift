@@ -58,7 +58,9 @@ extension MobileHostService {
         case "workspace.action", "workspace.close", "mobile.surface.focus",
              "mobile.todo.add", "mobile.todo.set_state", "mobile.todo.edit",
              "mobile.todo.move", "mobile.todo.remove", "mobile.todo.open",
-             "mobile.status.set", "mobile.status.cycle":
+             "mobile.status.set", "mobile.status.cycle",
+             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+             "mobile.panel.artifact.thumbnail":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "workspace.group.action", "workspace.group.create":
             return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)

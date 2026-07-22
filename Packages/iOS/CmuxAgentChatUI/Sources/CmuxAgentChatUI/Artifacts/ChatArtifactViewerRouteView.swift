@@ -394,6 +394,12 @@ struct ChatArtifactViewerRouteView: View {
                 defaultValue: "This file isn't visible in the current terminal view.",
                 bundle: .module
             )
+        case .panel:
+            String(
+                localized: "chat.artifact.forbidden.panel_message",
+                defaultValue: "This file isn't displayed by the selected panel.",
+                bundle: .module
+            )
         }
     }
 

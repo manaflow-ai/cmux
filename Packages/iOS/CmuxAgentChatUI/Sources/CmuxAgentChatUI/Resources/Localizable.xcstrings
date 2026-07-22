@@ -256,6 +256,23 @@
         }
       }
     },
+    "chat.artifact.forbidden.panel_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file isn't displayed by the selected panel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは選択したパネルに表示されていません。"
+          }
+        }
+      }
+    },
     "chat.artifact.forbidden.terminal_message": {
       "extractionState": "manual",
       "localizations": {
