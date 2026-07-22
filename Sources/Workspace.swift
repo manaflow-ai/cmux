@@ -3244,7 +3244,7 @@ final class Workspace: Identifiable, ObservableObject {
             queue: nil
         ) { [weak self] notification in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, !self.isRetiredFromOwningTabManager else { return }
                 if let index = SharedLiveAgentIndex.shared.index {
                     let completedPanelIds: [UUID]
                     if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
@@ -8515,6 +8515,10 @@ final class Workspace: Identifiable, ObservableObject {
     func retireFromOwningTabManager() {
         guard !isRetiredFromOwningTabManager else { return }
         isRetiredFromOwningTabManager = true
+        if let sharedLiveAgentIndexObserver {
+            NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
+            self.sharedLiveAgentIndexObserver = nil
+        }
         teardownAllPanels()
         teardownRemoteConnection()
         owningTabManager = nil

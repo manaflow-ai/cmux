@@ -5644,8 +5644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func focusMainWindow(windowId: UUID) -> Bool {
         let window: NSWindow?
         if let route = recoverableMainWindowRoute(windowId: windowId) {
-            route.window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: route.window)
-            window = route.window
+            window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: route.window)
         } else {
             window = windowForMainWindowId(windowId)
         }
@@ -16177,7 +16176,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let windowId = mainWindowId(from: window),
               let route = recoverableMainWindowRoute(windowId: windowId),
-              liveRecoverableMainWindow(windowId: windowId, cachedWindow: route.window) === window,
+              let cachedWindow = route.window,
+              cachedWindow === window,
+              NSApp.windows.contains(where: { $0 === cachedWindow }),
+              mainWindowId(from: cachedWindow) == windowId,
               let manager = route.tabManager else {
             return false
         }
