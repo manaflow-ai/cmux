@@ -275,6 +275,10 @@ _CLASS_INHERITANCE_HEADER = re.compile(
     r"\bclass\s+((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\s*:\s*"
     r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)"
 )
+_TYPEALIAS_DECLARATION = re.compile(
+    r"\btypealias\s+([A-Za-z_]\w*)\s*=\s*"
+    r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\??(?=\s|;|$)"
+)
 _FOR_SCOPE_BINDING = re.compile(
     r"^\s*for(?:\s+try)?(?:\s+await)?\s+([A-Za-z_]\w*)\s+in\b"
 )
@@ -286,15 +290,15 @@ _REAL_CLOCK_INIT = re.compile(
     r"^\s*(?::[^=]+)?=\s*(?:[A-Za-z_]\w*\.)*"
     r"(?:ContinuousClock|SuspendingClock)\s*(?:\.\s*init)?\s*\("
 )
-_REAL_CLOCK_CAST = re.compile(
-    r".+\bas[!?]?\s+"
-    r"((?:[A-Za-z_]\w*\.)*(?:ContinuousClock|SuspendingClock))\??\s*$"
-)
 _SLASH_NONCODE_MARKER = re.compile(r'//|/\*|"""|["\']')
 _HASH_NONCODE_MARKER = re.compile(r'#|"""|["\']')
 _BLOCK_COMMENT_MARKER = re.compile(r'/\*|\*/')
 _DIRECT_ASSIGNMENT = re.compile(
     r"(?:^|[;{}])\s*([A-Za-z_]\w*)\s*=(?!=)\s*([^;]+)"
+)
+_CONSTRUCTED_CLOCK_SLEEP_CALL = re.compile(
+    r"(?<![.\w])((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\s*"
+    r"(?:\.\s*init)?\s*\(\s*\)\s*\.\s*sleep\s*\("
 )
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
@@ -687,7 +691,133 @@ def _receiver_default_expression(text: str, receiver: str) -> Optional[str]:
     return expression.strip() or None
 
 
-def _annotated_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+def _explicit_typealias_targets(
+    masked_lines: list[str],
+) -> dict[str, set[str]]:
+    """Index simple Swift typealiases by their fully nested name."""
+    depth = 0
+    pending_type: Optional[str] = None
+    active_types: list[tuple[str, int]] = []
+    aliases: dict[str, set[str]] = {}
+
+    for candidate in masked_lines:
+        type_header = _TYPE_SCOPE_HEADER.search(candidate)
+        if type_header:
+            type_kind = type_header.group(1)
+            declared_type = type_header.group(2)
+            if (
+                type_kind != "extension"
+                and "." not in declared_type
+                and active_types
+            ):
+                declared_type = f"{active_types[-1][0]}.{declared_type}"
+            pending_type = declared_type
+
+        events: list[tuple[int, str, Optional[tuple[str, str]]]] = []
+        events.extend(
+            (match.start(), "alias", (match.group(1), match.group(2)))
+            for match in _TYPEALIAS_DECLARATION.finditer(candidate)
+        )
+        events.extend(
+            (position, token, None)
+            for position, token in enumerate(candidate)
+            if token in "{}"
+        )
+        events.sort(key=lambda event: event[0])
+
+        for _, event, alias in events:
+            if event == "{":
+                depth += 1
+                if pending_type is not None:
+                    active_types.append((pending_type, depth))
+                    pending_type = None
+            elif event == "}":
+                if active_types and active_types[-1][1] == depth:
+                    active_types.pop()
+                depth = max(0, depth - 1)
+            elif alias is not None:
+                alias_name = alias[0]
+                if active_types:
+                    alias_name = f"{active_types[-1][0]}.{alias_name}"
+                aliases.setdefault(alias_name, set()).add(alias[1])
+
+    return aliases
+
+
+def _merge_typealias_targets(
+    target: dict[str, set[str]], addition: dict[str, set[str]]
+) -> None:
+    for alias, targets in addition.items():
+        target.setdefault(alias, set()).update(targets)
+
+
+def _effective_typealias_targets(
+    same_file: dict[str, set[str]],
+    external: Optional[dict[str, set[str]]],
+) -> dict[str, set[str]]:
+    """Prefer same-file aliases over inaccessible same-named declarations."""
+    effective = {
+        alias: set(targets) for alias, targets in (external or {}).items()
+    }
+    for alias, targets in same_file.items():
+        effective[alias] = set(targets)
+    return effective
+
+
+def _resolved_real_clock_aliases(
+    aliases: dict[str, set[str]],
+) -> set[str]:
+    """Resolve unambiguous direct and transitive real-clock typealiases."""
+    resolved: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for alias, targets in aliases.items():
+            if alias in resolved or len(targets) != 1:
+                continue
+            target = next(iter(targets))
+            candidates = [target]
+            if "." not in target and "." in alias:
+                candidates.insert(0, f"{alias.rsplit('.', 1)[0]}.{target}")
+            if any(
+                candidate.rsplit(".", 1)[-1]
+                in ("ContinuousClock", "SuspendingClock")
+                or candidate in resolved
+                for candidate in candidates
+            ):
+                resolved.add(alias)
+                changed = True
+    return resolved
+
+
+def _is_real_clock_type_name(
+    type_name: Optional[str], real_clock_aliases: Optional[set[str]] = None
+) -> bool:
+    if type_name is None:
+        return False
+    normalized = type_name.rstrip("?")
+    if normalized.rsplit(".", 1)[-1] in (
+        "ContinuousClock",
+        "SuspendingClock",
+    ):
+        return True
+    return bool(real_clock_aliases and normalized in real_clock_aliases)
+
+
+def _is_real_clock_constructor_sleep(
+    text: str, real_clock_aliases: Optional[set[str]]
+) -> bool:
+    return any(
+        _is_real_clock_type_name(match.group(1), real_clock_aliases)
+        for match in _CONSTRUCTED_CLOCK_SLEEP_CALL.finditer(text)
+    )
+
+
+def _annotated_receiver_kind(
+    text: str,
+    receiver: str,
+    real_clock_aliases: Optional[set[str]] = None,
+) -> Optional[bool]:
     binding = re.search(rf"\b{re.escape(receiver)}\s*:", text)
     if not binding:
         return None
@@ -697,17 +827,16 @@ def _annotated_receiver_kind(text: str, receiver: str) -> Optional[bool]:
         text,
     )
     if annotation:
-        type_name = annotation.group(1).rsplit(".", 1)[-1]
-        if type_name in ("ContinuousClock", "SuspendingClock"):
+        if _is_real_clock_type_name(
+            annotation.group(1), real_clock_aliases
+        ):
             return True
 
     default_expression = _receiver_default_expression(text, receiver)
     if default_expression is None:
         return False
-    declaration = f"= {default_expression}"
-    return bool(
-        _REAL_CLOCK_INIT.search(declaration)
-        or _real_clock_cast_type(declaration)
+    return _receiver_declaration_kind(
+        f"= {default_expression}", (), real_clock_aliases
     )
 
 
@@ -721,8 +850,8 @@ def _annotated_receiver_type(text: str, receiver: str) -> Optional[str]:
     return annotation.group(1) if annotation else None
 
 
-def _real_clock_cast_type(declaration: str) -> Optional[str]:
-    """Return a concrete clock type when the initializer ends in a cast."""
+def _swift_cast_type(declaration: str) -> Optional[str]:
+    """Return a concrete Swift-like type when an initializer ends in a cast."""
     assignment = re.match(r"^\s*(?::[^=]+)?=\s*(.+)$", declaration)
     if not assignment:
         return None
@@ -743,8 +872,24 @@ def _real_clock_cast_type(declaration: str) -> Optional[str]:
             break
         expression = expression[1:-1].strip()
 
-    cast = _REAL_CLOCK_CAST.fullmatch(expression)
+    cast = re.fullmatch(
+        r".+\bas[!?]?\s+"
+        r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\??\s*$",
+        expression,
+    )
     return cast.group(1) if cast else None
+
+
+def _real_clock_cast_type(
+    declaration: str, real_clock_aliases: Optional[set[str]] = None
+) -> Optional[str]:
+    """Return a concrete real-clock type when an initializer ends in a cast."""
+    cast_type = _swift_cast_type(declaration)
+    return (
+        cast_type
+        if _is_real_clock_type_name(cast_type, real_clock_aliases)
+        else None
+    )
 
 
 def _captured_receiver_expression(text: str, receiver: str) -> Optional[str]:
@@ -758,14 +903,16 @@ def _captured_receiver_expression(text: str, receiver: str) -> Optional[str]:
     return assignment.group(1).strip()
 
 
-def _captured_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+def _captured_receiver_kind(
+    text: str,
+    receiver: str,
+    real_clock_aliases: Optional[set[str]] = None,
+) -> Optional[bool]:
     expression = _captured_receiver_expression(text, receiver)
     if expression is None:
         return None
-    declaration = f"= {expression}"
-    return bool(
-        _REAL_CLOCK_INIT.search(declaration)
-        or _real_clock_cast_type(declaration)
+    return _receiver_declaration_kind(
+        f"= {expression}", (), real_clock_aliases
     )
 
 
@@ -812,13 +959,19 @@ def _closure_header_parts(text: str) -> Optional[tuple[Optional[str], str]]:
     return (None, parameters)
 
 
-def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+def _closure_receiver_kind(
+    text: str,
+    receiver: str,
+    real_clock_aliases: Optional[set[str]] = None,
+) -> Optional[bool]:
     header_parts = _closure_header_parts(text)
     if header_parts is None:
         return None
     capture_list, parameters = header_parts
     captured_kind = (
-        _captured_receiver_kind(capture_list, receiver)
+        _captured_receiver_kind(
+            capture_list, receiver, real_clock_aliases
+        )
         if capture_list is not None
         else None
     )
@@ -829,7 +982,9 @@ def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
         or re.fullmatch(r"[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*", parameters)
     ):
         return None
-    annotated = _annotated_receiver_kind(parameters, receiver)
+    annotated = _annotated_receiver_kind(
+        parameters, receiver, real_clock_aliases
+    )
     if annotated is not None:
         return annotated
     if re.search(rf"\b{re.escape(receiver)}\b", parameters):
@@ -1016,7 +1171,9 @@ def _local_receiver_assignments(
 
 
 def _receiver_declaration_kind(
-    declaration: str, following_lines: Iterable[str]
+    declaration: str,
+    following_lines: Iterable[str],
+    real_clock_aliases: Optional[set[str]] = None,
 ) -> bool:
     """Classify a receiver declaration, including a continued initializer."""
     probe = declaration
@@ -1029,7 +1186,27 @@ def _receiver_declaration_kind(
     return bool(
         _REAL_CLOCK_TYPE.search(probe)
         or _REAL_CLOCK_INIT.search(probe)
-        or _real_clock_cast_type(probe)
+        or _real_clock_cast_type(probe, real_clock_aliases)
+        or _is_real_clock_type_name(
+            _receiver_declaration_type(probe, ()),
+            real_clock_aliases,
+        )
+    )
+
+
+def _declaration_has_explicit_real_clock_type(
+    declaration: str, real_clock_aliases: Optional[set[str]] = None
+) -> bool:
+    annotation = re.match(
+        r"^\s*:\s*(?:(?:any|some)\s+)?"
+        r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\??",
+        declaration,
+    )
+    return bool(
+        annotation
+        and _is_real_clock_type_name(
+            annotation.group(1), real_clock_aliases
+        )
     )
 
 
@@ -1051,7 +1228,7 @@ def _receiver_declaration_type(
     )
     if annotation:
         return annotation.group(1)
-    cast_type = _real_clock_cast_type(probe)
+    cast_type = _swift_cast_type(probe)
     if cast_type:
         return cast_type
     initializer = re.match(
@@ -1265,7 +1442,9 @@ def _nearest_receiver_kind(
 
 
 def _switch_case_receiver_kind(
-    candidate: str, receiver: str
+    candidate: str,
+    receiver: str,
+    real_clock_aliases: Optional[set[str]] = None,
 ) -> Optional[bool]:
     """Return the kind of a receiver bound by a Swift switch pattern."""
     if not _SWITCH_CASE_HEADER.match(candidate):
@@ -1288,14 +1467,15 @@ def _switch_case_receiver_kind(
     if not has_local_binding:
         return None
 
-    has_explicit_real_type = bool(
-        re.search(
-            rf"\b{escaped_receiver}\b\s+as\s+"
-            r"(?:[A-Za-z_]\w*\.)*(?:ContinuousClock|SuspendingClock)\b",
-            pattern,
-        )
+    cast = re.search(
+        rf"\b{escaped_receiver}\b\s+as\s+"
+        r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\??\b",
+        pattern,
     )
-    return has_explicit_real_type
+    return bool(
+        cast
+        and _is_real_clock_type_name(cast.group(1), real_clock_aliases)
+    )
 
 
 def _has_explicit_real_member(
@@ -1304,6 +1484,7 @@ def _has_explicit_real_member(
     call_column: int,
     receiver: str,
     external_real_members: Optional[dict[str, set[str]]] = None,
+    real_clock_aliases: Optional[set[str]] = None,
 ) -> bool:
     """Find this type's explicit real-clock member, independent of file order."""
     depth = 0
@@ -1362,7 +1543,9 @@ def _has_explicit_real_member(
                 type_name = active_types[-1][0]
                 explicit_member_types.add(type_name)
                 if _receiver_declaration_kind(
-                    declaration, masked_lines[line_index + 1 :]
+                    declaration,
+                    masked_lines[line_index + 1 :],
+                    real_clock_aliases,
                 ):
                     real_member_types.add(type_name)
 
@@ -1376,66 +1559,6 @@ def _has_explicit_real_member(
         external_real_members is not None
         and receiver in external_real_members.get(call_type, set())
     )
-
-
-def _explicit_real_clock_members(
-    masked_lines: list[str],
-) -> dict[str, set[str]]:
-    """Index explicit real-clock members by fully nested Swift type name."""
-    depth = 0
-    pending_type: Optional[str] = None
-    active_types: list[tuple[str, int]] = []
-    real_members: dict[str, set[str]] = {}
-
-    for line_index, candidate in enumerate(masked_lines):
-        type_header = _TYPE_SCOPE_HEADER.search(candidate)
-        if type_header:
-            type_kind = type_header.group(1)
-            declared_type = type_header.group(2)
-            if (
-                type_kind != "extension"
-                and "." not in declared_type
-                and active_types
-            ):
-                declared_type = f"{active_types[-1][0]}.{declared_type}"
-            pending_type = declared_type
-
-        events: list[
-            tuple[int, str, Optional[tuple[str, str]]]
-        ] = []
-        events.extend(
-            (position, "binding", (name, declaration))
-            for position, name, declaration in _local_declarations(candidate)
-        )
-        events.extend(
-            (position, token, None)
-            for position, token in enumerate(candidate)
-            if token in "{}"
-        )
-        events.sort(key=lambda event: event[0])
-
-        for _, event, binding in events:
-            if event == "{":
-                depth += 1
-                if pending_type is not None:
-                    active_types.append((pending_type, depth))
-                    pending_type = None
-            elif event == "}":
-                if active_types and active_types[-1][1] == depth:
-                    active_types.pop()
-                depth = max(0, depth - 1)
-            elif (
-                binding is not None
-                and active_types
-                and depth == active_types[-1][1]
-            ):
-                name, declaration = binding
-                if _receiver_declaration_kind(
-                    declaration, masked_lines[line_index + 1 :]
-                ):
-                    real_members.setdefault(active_types[-1][0], set()).add(name)
-
-    return real_members
 
 
 def _explicit_type_parents(masked_lines: list[str]) -> dict[str, str]:
@@ -1480,6 +1603,27 @@ def _explicit_type_parents(masked_lines: list[str]) -> dict[str, str]:
     return parents
 
 
+def _drop_ambiguous_cross_file_types(
+    real_members: dict[str, set[str]],
+    member_types: dict[str, dict[str, set[str]]],
+    parents: dict[str, str],
+    declaration_files: dict[str, set[str]],
+) -> None:
+    """Exclude type names that resolve to declarations in multiple files."""
+    ambiguous = {
+        type_name
+        for type_name, files in declaration_files.items()
+        if len(files) > 1
+    }
+    for type_name in ambiguous:
+        real_members.pop(type_name, None)
+        member_types.pop(type_name, None)
+        parents.pop(type_name, None)
+    for child, parent in list(parents.items()):
+        if child in ambiguous or parent in ambiguous:
+            parents.pop(child, None)
+
+
 def _propagate_inherited_real_members(
     real_members: dict[str, set[str]], parents: dict[str, str]
 ) -> None:
@@ -1518,7 +1662,10 @@ def _propagate_inherited_real_members(
 
 
 def _explicit_clock_member_kind(
-    masked_lines: list[str], type_name: str, member: str
+    masked_lines: list[str],
+    type_name: str,
+    member: str,
+    real_clock_aliases: Optional[set[str]] = None,
 ) -> Optional[bool]:
     """Return a same-file type member's explicit clock kind, if declared."""
     depth = 0
@@ -1572,7 +1719,9 @@ def _explicit_clock_member_kind(
             ):
                 kinds.append(
                     _receiver_declaration_kind(
-                        binding[1], masked_lines[line_index + 1 :]
+                        binding[1],
+                        masked_lines[line_index + 1 :],
+                        real_clock_aliases,
                     )
                 )
 
@@ -1583,8 +1732,11 @@ def _explicit_clock_member_kind(
 
 def _explicit_member_types(
     masked_lines: list[str],
+    declared_types: Optional[set[str]] = None,
+    real_members: Optional[dict[str, set[str]]] = None,
+    real_clock_aliases: Optional[set[str]] = None,
 ) -> dict[str, dict[str, set[str]]]:
-    """Index explicit member value types by fully nested owner type."""
+    """Index member types and optionally real clocks in one source pass."""
     depth = 0
     pending_type: Optional[str] = None
     active_types: list[tuple[str, int]] = []
@@ -1602,6 +1754,8 @@ def _explicit_member_types(
             ):
                 declared_type = f"{active_types[-1][0]}.{declared_type}"
             pending_type = declared_type
+            if declared_types is not None and type_kind != "extension":
+                declared_types.add(declared_type)
 
         events: list[
             tuple[int, str, Optional[tuple[str, str]]]
@@ -1632,11 +1786,17 @@ def _explicit_member_types(
                 and active_types
                 and depth == active_types[-1][1]
             ):
+                owner = active_types[-1][0]
+                if real_members is not None and _receiver_declaration_kind(
+                    binding[1],
+                    masked_lines[line_index + 1 :],
+                    real_clock_aliases,
+                ):
+                    real_members.setdefault(owner, set()).add(binding[0])
                 member_type = _receiver_declaration_type(
                     binding[1], masked_lines[line_index + 1 :]
                 )
                 if member_type is not None:
-                    owner = active_types[-1][0]
                     member_types.setdefault(owner, {}).setdefault(
                         binding[0], set()
                     ).add(member_type)
@@ -1832,6 +1992,7 @@ def _is_explicit_real_clock_member_chain(
     external_member_types: Optional[
         dict[str, dict[str, set[str]]]
     ] = None,
+    real_clock_aliases: Optional[set[str]] = None,
 ) -> bool:
     """Recognize a member chain whose terminal value is a real clock."""
     current = masked_lines[idx]
@@ -1893,7 +2054,10 @@ def _is_explicit_real_clock_member_chain(
 
     member = members[-1]
     same_file_kind = _explicit_clock_member_kind(
-        masked_lines, receiver_type, member
+        masked_lines,
+        receiver_type,
+        member,
+        real_clock_aliases,
     )
     if same_file_kind is not None:
         return same_file_kind
@@ -1910,6 +2074,7 @@ def _resolve_named_receiver_kind(
     receiver: str,
     self_receiver: bool,
     external_real_members: Optional[dict[str, set[str]]] = None,
+    real_clock_aliases: Optional[set[str]] = None,
     resolving: Optional[set[tuple[int, int, str, bool]]] = None,
 ) -> bool:
     """Resolve a receiver's clock kind at a Swift-like lexical position."""
@@ -2015,7 +2180,9 @@ def _resolve_named_receiver_kind(
         if pending_switch_case is not None and not switch_case_header:
             pending_switch_case.append(candidate)
             case_receiver_kind = _switch_case_receiver_kind(
-                " ".join(pending_switch_case), receiver
+                " ".join(pending_switch_case),
+                receiver,
+                real_clock_aliases,
             )
             if (
                 case_receiver_kind is not None
@@ -2032,7 +2199,7 @@ def _resolve_named_receiver_kind(
             if scope_kinds[-1] == "switch":
                 case_scope: dict[str, bool] = {}
                 case_receiver_kind = _switch_case_receiver_kind(
-                    candidate, receiver
+                    candidate, receiver, real_clock_aliases
                 )
                 if case_receiver_kind is not None:
                     case_scope[receiver] = case_receiver_kind
@@ -2074,7 +2241,9 @@ def _resolve_named_receiver_kind(
             pending_function = True
             pending_function_header = candidate
             pending_parameter = _annotated_receiver_kind(
-                pending_function_header, receiver
+                pending_function_header,
+                receiver,
+                real_clock_aliases,
             )
             pending_function_paren_depth = 0
             pending_function_saw_parameters = False
@@ -2083,7 +2252,9 @@ def _resolve_named_receiver_kind(
                 f"{pending_function_header} {candidate.strip()}"
             )
             candidate_parameter = _annotated_receiver_kind(
-                pending_function_header, receiver
+                pending_function_header,
+                receiver,
+                real_clock_aliases,
             )
             if candidate_parameter is not None:
                 pending_parameter = candidate_parameter
@@ -2188,16 +2359,23 @@ def _resolve_named_receiver_kind(
                             alias_receiver,
                             alias_is_self,
                             external_real_members,
+                            real_clock_aliases,
                             resolving,
                         )
                     else:
                         closure_kind = _closure_receiver_kind(
-                            closure_header, receiver
+                            closure_header,
+                            receiver,
+                            real_clock_aliases,
                         )
                 if closure_kind is not None:
                     scope[receiver] = closure_kind
                     declared_real = bool(
-                        _annotated_receiver_kind(closure_header, receiver)
+                        _annotated_receiver_kind(
+                            closure_header,
+                            receiver,
+                            real_clock_aliases,
+                        )
                     )
                 scopes.append(scope)
                 scope_kinds.append(scope_kind)
@@ -2239,8 +2417,10 @@ def _resolve_named_receiver_kind(
                                 _merge_runtime_declared_real(frame)
                             )
             elif declaration is not None:
-                has_explicit_real_type = bool(
-                    _REAL_CLOCK_TYPE.search(declaration)
+                has_explicit_real_type = (
+                    _declaration_has_explicit_real_clock_type(
+                        declaration, real_clock_aliases
+                    )
                 )
                 if _receiver_declaration_inherits_kind(declaration, receiver):
                     inherited_kind = _nearest_receiver_kind(scopes, receiver)
@@ -2260,11 +2440,14 @@ def _resolve_named_receiver_kind(
                             alias_receiver,
                             alias_is_self,
                             external_real_members,
+                            real_clock_aliases,
                             resolving,
                         )
                     else:
                         kind = _receiver_declaration_kind(
-                            declaration, prefix_lines[candidate_index + 1 :]
+                            declaration,
+                            prefix_lines[candidate_index + 1 :],
+                            real_clock_aliases,
                         )
                 if event == "assignment":
                     current_mutation = scope_mutations[-1]
@@ -2319,6 +2502,7 @@ def _resolve_named_receiver_kind(
         call_column,
         receiver,
         external_real_members,
+        real_clock_aliases,
     )
 
 
@@ -2332,6 +2516,7 @@ def _is_named_real_clock_sleep(
     external_member_types: Optional[
         dict[str, dict[str, set[str]]]
     ] = None,
+    real_clock_aliases: Optional[set[str]] = None,
 ) -> bool:
     """Resolve a named receiver through Swift-like lexical brace scopes."""
     if _is_explicit_real_clock_member_chain(
@@ -2340,6 +2525,7 @@ def _is_named_real_clock_sleep(
         external_real_members,
         same_file_member_types,
         external_member_types,
+        real_clock_aliases,
     ):
         return True
     current = masked_lines[idx]
@@ -2366,10 +2552,8 @@ def _is_named_real_clock_sleep(
             ),
             "",
         )
-        if re.search(
-            r"\b(?:ContinuousClock|SuspendingClock)\s*"
-            r"(?:\.\s*init)?\s*\(\s*\)\s*$",
-            previous,
+        if _is_real_clock_constructor_sleep(
+            f"{previous}.sleep(", real_clock_aliases
         ) or re.search(r"\bTask(?:\s*<[^>\n]+>)?\s*$", previous):
             return True
         receiver_match = re.search(r"\b([A-Za-z_]\w*)[?!]?\s*$", previous)
@@ -2394,6 +2578,7 @@ def _is_named_real_clock_sleep(
         receiver,
         self_receiver,
         external_real_members,
+        real_clock_aliases,
     )
 
 
@@ -2729,6 +2914,7 @@ def detect_sleep_then_assert(
     external_member_types: Optional[
         dict[str, dict[str, set[str]]]
     ] = None,
+    real_clock_aliases: Optional[set[str]] = None,
     python_standard_sleep: bool = False,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
@@ -2736,12 +2922,14 @@ def detect_sleep_then_assert(
     has_sleep_token = "sleep" in line or "setTimeout" in line
     is_sleep = has_sleep_token and (
         bool(_SLEEP_CALL.search(line))
+        or _is_real_clock_constructor_sleep(line, real_clock_aliases)
         or _is_named_real_clock_sleep(
             masked_lines,
             idx,
             external_real_members,
             same_file_member_types,
             external_member_types,
+            real_clock_aliases,
         )
     )
     if not is_sleep and path_suffix == ".py":
@@ -2799,6 +2987,8 @@ def scan_text(
     same_file_member_types: Optional[
         dict[str, dict[str, set[str]]]
     ] = None,
+    external_typealiases: Optional[dict[str, set[str]]] = None,
+    known_real_clock_aliases: Optional[set[str]] = None,
 ) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
@@ -2815,6 +3005,18 @@ def scan_text(
         and needs_sleep_mask
     ):
         same_file_member_types = _explicit_member_types(masked_lines)
+    real_clock_aliases = known_real_clock_aliases
+    if (
+        real_clock_aliases is None
+        and suffix == ".swift"
+        and needs_sleep_mask
+    ):
+        same_file_typealiases = _explicit_typealias_targets(masked_lines)
+        real_clock_aliases = _resolved_real_clock_aliases(
+            _effective_typealias_targets(
+                same_file_typealiases, external_typealiases
+            )
+        )
     python_standard_sleep_lines = (
         _python_standard_sleep_lines(masked_lines)
         if suffix == ".py" and needs_sleep_mask
@@ -2842,6 +3044,7 @@ def scan_text(
             external_real_members,
             same_file_member_types,
             external_member_types,
+            real_clock_aliases,
             python_standard_sleep=i in python_standard_sleep_lines,
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
@@ -2875,12 +3078,29 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
         str, dict[str, dict[str, set[str]]]
     ] = {}
     file_member_types: dict[str, dict[str, dict[str, set[str]]]] = {}
+    bundle_typealiases: dict[str, dict[str, set[str]]] = {}
+    file_typealiases: dict[str, dict[str, set[str]]] = {}
+    file_real_clock_aliases: dict[str, set[str]] = {}
+    bundle_parents: dict[str, dict[str, str]] = {}
+    bundle_declaration_files: dict[str, dict[str, set[str]]] = {}
+
+    for rel_posix, text in source_list:
+        if pathlib.PurePosixPath(rel_posix).suffix != ".swift":
+            continue
+        aliases = _explicit_typealias_targets(
+            _mask_noncode(text.splitlines(), ".swift")
+        )
+        file_typealiases[rel_posix] = aliases
+        _merge_typealias_targets(
+            bundle_typealiases.setdefault(
+                _swift_test_bundle_key(rel_posix), {}
+            ),
+            aliases,
+        )
 
     for rel_posix, text in source_list:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
-        if suffix != ".swift" or not (
-            "ContinuousClock" in text or "SuspendingClock" in text
-        ):
+        if suffix != ".swift":
             continue
         raw_lines = text.splitlines()
         masked_lines = [
@@ -2888,32 +3108,45 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
             for line in _mask_noncode(raw_lines, suffix)
         ]
         bundle = _swift_test_bundle_key(rel_posix)
+        real_clock_aliases = _resolved_real_clock_aliases(
+            _effective_typealias_targets(
+                file_typealiases.get(rel_posix, {}),
+                bundle_typealiases.get(bundle),
+            )
+        )
+        file_real_clock_aliases[rel_posix] = real_clock_aliases
+        declared_types: set[str] = set()
+        file_real_members: dict[str, set[str]] = {}
+        member_types = _explicit_member_types(
+            masked_lines,
+            declared_types,
+            file_real_members,
+            real_clock_aliases,
+        )
         index = bundle_members.setdefault(bundle, {})
-        for type_name, member_names in _explicit_real_clock_members(
-            masked_lines
-        ).items():
+        for type_name, member_names in file_real_members.items():
             index.setdefault(type_name, set()).update(member_names)
-
-    bundle_parents: dict[str, dict[str, str]] = {}
-    for rel_posix, text in source_list:
-        if pathlib.PurePosixPath(rel_posix).suffix != ".swift":
-            continue
-        bundle = _swift_test_bundle_key(rel_posix)
-        if bundle not in bundle_members:
-            continue
-        masked_lines = _mask_noncode(text.splitlines(), ".swift")
-        member_types = _explicit_member_types(masked_lines)
         file_member_types[rel_posix] = member_types
         _merge_member_type_index(
             bundle_member_types.setdefault(bundle, {}),
             member_types,
         )
+        declaration_files = bundle_declaration_files.setdefault(bundle, {})
+        for type_name in declared_types:
+            declaration_files.setdefault(type_name, set()).add(rel_posix)
         if _CLASS_INHERITANCE_HEADER.search(text):
             bundle_parents.setdefault(bundle, {}).update(
                 _explicit_type_parents(masked_lines)
             )
 
-    for bundle, parents in bundle_parents.items():
+    for bundle in bundle_members:
+        parents = bundle_parents.setdefault(bundle, {})
+        _drop_ambiguous_cross_file_types(
+            bundle_members[bundle],
+            bundle_member_types.setdefault(bundle, {}),
+            parents,
+            bundle_declaration_files.get(bundle, {}),
+        )
         _propagate_inherited_real_members(
             bundle_members.setdefault(bundle, {}), parents
         )
@@ -2923,17 +3156,21 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
         external_real_members = None
         external_member_types = None
+        external_typealiases = None
         if suffix == ".swift":
             bundle = _swift_test_bundle_key(rel_posix)
             external_real_members = bundle_members.get(bundle)
             external_member_types = bundle_member_types.get(bundle)
+            external_typealiases = bundle_typealiases.get(bundle)
         findings.extend(
             scan_text(
                 rel_posix,
                 text,
                 external_real_members,
                 external_member_types,
-                file_member_types.get(rel_posix),
+                file_member_types.get(rel_posix, {}),
+                external_typealiases,
+                file_real_clock_aliases.get(rel_posix, set()),
             )
         )
     return findings
@@ -2960,69 +3197,113 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
                 continue
             source_paths.append((path, rel_posix))
 
+    file_typealiases: dict[str, dict[str, set[str]]] = {}
+    bundle_typealiases: dict[str, dict[str, set[str]]] = {}
+    file_real_clock_aliases: dict[str, set[str]] = {}
+    literal_clock_bundles: set[str] = set()
+    for path, rel_posix in source_paths:
+        if pathlib.PurePosixPath(rel_posix).suffix != ".swift":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        bundle = _swift_test_bundle_key(rel_posix)
+        if "ContinuousClock" in text or "SuspendingClock" in text:
+            literal_clock_bundles.add(bundle)
+        aliases: dict[str, set[str]] = {}
+        if "typealias" in text:
+            masked_lines = [
+                _strip_comment(line, ".swift")
+                for line in _mask_noncode(text.splitlines(), ".swift")
+            ]
+            aliases = _explicit_typealias_targets(masked_lines)
+        file_typealiases[rel_posix] = aliases
+        _merge_typealias_targets(
+            bundle_typealiases.setdefault(bundle, {}),
+            aliases,
+        )
+
+    indexed_bundles = set(literal_clock_bundles)
+    indexed_bundles.update(
+        bundle
+        for bundle, aliases in bundle_typealiases.items()
+        if _resolved_real_clock_aliases(aliases)
+    )
+
     bundle_members: dict[str, dict[str, set[str]]] = {}
     bundle_member_types: dict[
         str, dict[str, dict[str, set[str]]]
     ] = {}
     file_member_types: dict[str, dict[str, dict[str, set[str]]]] = {}
-    for path, rel_posix in source_paths:
-        suffix = pathlib.PurePosixPath(rel_posix).suffix
-        if suffix != ".swift":
-            continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if not ("ContinuousClock" in text or "SuspendingClock" in text):
-            continue
-        masked_lines = [
-            _strip_comment(line, suffix)
-            for line in _mask_noncode(text.splitlines(), suffix)
-        ]
-        bundle = _swift_test_bundle_key(rel_posix)
-        index = bundle_members.setdefault(bundle, {})
-        for type_name, member_names in _explicit_real_clock_members(
-            masked_lines
-        ).items():
-            index.setdefault(type_name, set()).update(member_names)
-
     bundle_parents: dict[str, dict[str, str]] = {}
+    bundle_declaration_files: dict[str, dict[str, set[str]]] = {}
     for path, rel_posix in source_paths:
         if pathlib.PurePosixPath(rel_posix).suffix != ".swift":
             continue
         bundle = _swift_test_bundle_key(rel_posix)
-        if bundle not in bundle_members:
+        if bundle not in indexed_bundles:
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        masked_lines = _mask_noncode(text.splitlines(), ".swift")
-        member_types = _explicit_member_types(masked_lines)
+        masked_lines = [
+            _strip_comment(line, ".swift")
+            for line in _mask_noncode(text.splitlines(), ".swift")
+        ]
+        real_clock_aliases = _resolved_real_clock_aliases(
+            _effective_typealias_targets(
+                file_typealiases.get(rel_posix, {}),
+                bundle_typealiases.get(bundle),
+            )
+        )
+        file_real_clock_aliases[rel_posix] = real_clock_aliases
+        declared_types: set[str] = set()
+        file_real_members: dict[str, set[str]] = {}
+        member_types = _explicit_member_types(
+            masked_lines,
+            declared_types,
+            file_real_members,
+            real_clock_aliases,
+        )
+        index = bundle_members.setdefault(bundle, {})
+        for type_name, member_names in file_real_members.items():
+            index.setdefault(type_name, set()).update(member_names)
         file_member_types[rel_posix] = member_types
         _merge_member_type_index(
             bundle_member_types.setdefault(bundle, {}),
             member_types,
         )
+        declaration_files = bundle_declaration_files.setdefault(bundle, {})
+        for type_name in declared_types:
+            declaration_files.setdefault(type_name, set()).add(rel_posix)
         if _CLASS_INHERITANCE_HEADER.search(text):
             bundle_parents.setdefault(bundle, {}).update(
                 _explicit_type_parents(masked_lines)
             )
 
-    for bundle, parents in bundle_parents.items():
-        _propagate_inherited_real_members(
-            bundle_members.setdefault(bundle, {}), parents
+    for bundle in bundle_members:
+        parents = bundle_parents.setdefault(bundle, {})
+        _drop_ambiguous_cross_file_types(
+            bundle_members[bundle],
+            bundle_member_types.setdefault(bundle, {}),
+            parents,
+            bundle_declaration_files.get(bundle, {}),
         )
+        _propagate_inherited_real_members(bundle_members[bundle], parents)
 
     findings: list[Finding] = []
     for path, rel_posix in source_paths:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
         external_real_members = None
         external_member_types = None
+        external_typealiases = None
         if suffix == ".swift":
             bundle = _swift_test_bundle_key(rel_posix)
             external_real_members = bundle_members.get(bundle)
             external_member_types = bundle_member_types.get(bundle)
+            external_typealiases = bundle_typealiases.get(bundle)
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -3033,7 +3314,9 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
                 text,
                 external_real_members,
                 external_member_types,
-                file_member_types.get(rel_posix),
+                file_member_types.get(rel_posix, {}),
+                external_typealiases,
+                file_real_clock_aliases.get(rel_posix, set()),
             )
         )
     findings.sort(key=lambda f: (f.path, f.line, f.rule))
@@ -3176,6 +3459,21 @@ def _self_test() -> int:
             "typealias BaseWallClock = ContinuousClock\n"
             "typealias WallClock = BaseWallClock\n"
             "let clock: WallClock = WallClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ConstructedTypealiasedRealClockTests.swift",
+            "typealias WallClock = ContinuousClock\n"
+            "try await WallClock().sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/CastTypealiasedRealClockTests.swift",
+            "typealias WallClock = ContinuousClock\n"
+            "let clock = makeClock() as WallClock\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
             "#expect(widget.isRendered)\n",
             {RULE_SLEEP_THEN_ASSERT},
@@ -4417,6 +4715,13 @@ def _self_test() -> int:
             "}\n",
         ),
         (
+            "Tests/VirtualTypealiasClockTests.swift",
+            "typealias WallClock = TestRelayClock\n"
+            "let clock = WallClock()\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await events.next() == expected)\n",
+        ),
+        (
             "Packages/CmuxClock/Tests/WrappedMemberClockTests.swift",
             "let clock = ContinuousClock()\n"
             "let fixture = VirtualClockFixture()\n"
@@ -4653,6 +4958,29 @@ def _self_test() -> int:
         failures.append(
             "POSITIVE cross-file real clock member: missing "
             f"{RULE_SLEEP_THEN_ASSERT!r} (got {sorted(cross_file_rules)})"
+        )
+
+    cross_file_alias_sources = [
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/WallClock.swift",
+            "typealias WallClock = ContinuousClock\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/AliasClockTests.swift",
+            "let clock = WallClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+        ),
+    ]
+    cross_file_alias_rules = {
+        finding.rule
+        for finding in scan_sources(cross_file_alias_sources)
+    }
+    if RULE_SLEEP_THEN_ASSERT not in cross_file_alias_rules:
+        failures.append(
+            "POSITIVE cross-file real clock typealias: missing "
+            f"{RULE_SLEEP_THEN_ASSERT!r} "
+            f"(got {sorted(cross_file_alias_rules)})"
         )
 
     cross_file_chain_sources = [
@@ -4909,6 +5237,17 @@ def _self_test() -> int:
             "        #expect(await events.next() == expected)\n"
             "    }\n"
             "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/RealPrivateAlias.swift",
+            "private typealias PrivateWallClock = ContinuousClock\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/VirtualPrivateAlias.swift",
+            "private typealias PrivateWallClock = TestRelayClock\n"
+            "let clock = PrivateWallClock()\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await events.next() == expected)\n",
         ),
     ]
     cross_file_negative_rules = {
