@@ -255,13 +255,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         private func refreshGitStatusRows(in outlineView: NSOutlineView) {
             let currentStatusByPath = store.gitStatusByPath
-            let allPaths = Set(lastRenderedGitStatusByPath.keys).union(currentStatusByPath.keys)
-            let changedPaths = allPaths.filter { lastRenderedGitStatusByPath[$0] != currentStatusByPath[$0] }
-            guard !changedPaths.isEmpty else { return }
             var changedRows = IndexSet()
             for row in 0..<outlineView.numberOfRows {
                 guard let node = outlineView.item(atRow: row) as? FileExplorerNode,
-                      changedPaths.contains(node.path) else { continue }
+                      lastRenderedGitStatusByPath[node.path] != currentStatusByPath[node.path] else { continue }
                 changedRows.insert(row)
             }
             guard !changedRows.isEmpty else { return }

@@ -711,7 +711,12 @@ struct FileExplorerStoreTests {
     func testGitStatusChangeReloadsVisibleFileRow() {
         let store = FileExplorerStore()
         let file = FileExplorerNode(name: "main.swift", path: "/project/main.swift", isDirectory: false)
-        store.rootNodes = [file]
+        let unchangedFile = FileExplorerNode(
+            name: "README.md",
+            path: "/project/README.md",
+            isDirectory: false
+        )
+        store.rootNodes = [file, unchangedFile]
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: FileExplorerState(),
@@ -729,6 +734,7 @@ struct FileExplorerStoreTests {
         coordinator.reloadIfNeeded()
 
         #expect(outlineView.reloadedRowIndexes.contains(0))
+        #expect(!outlineView.reloadedRowIndexes.contains(1))
     }
 
     @Test
