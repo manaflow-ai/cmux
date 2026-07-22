@@ -315,11 +315,10 @@ final class BrowserWebExtensionsManager: NSObject {
             didBeginCloseCompletion = true
             placementLock?.stop()
             owner?.presentedPopupDidClose(self, event: event)
-            Task { @MainActor [self] in
-                // This is an event-loop boundary, not an elapsed-time delay.
-                // It releases WebKit objects only after AppKit returns from the
-                // terminal popover callback.
-                await Task.yield()
+            DispatchQueue.main.async { [self] in
+                // AppKit can retain deferred observations until its close
+                // callback returns. A main-queue hop guarantees that boundary;
+                // Task.yield() does not.
                 popover.delegate = nil
                 let retainedOwner = owner
                 owner = nil
@@ -333,6 +332,19 @@ final class BrowserWebExtensionsManager: NSObject {
 
         init(_ webView: WKWebView) {
             self.webView = webView
+        }
+    }
+
+    private final class ExtensionPageContentControllerRegistration {
+        weak var userContentController: WKUserContentController?
+        let extensionIdentifier: String
+
+        init(
+            userContentController: WKUserContentController,
+            extensionIdentifier: String
+        ) {
+            self.userContentController = userContentController
+            self.extensionIdentifier = extensionIdentifier
         }
     }
 
@@ -375,6 +387,9 @@ final class BrowserWebExtensionsManager: NSObject {
     private var popupClosuresRequestedByActionButton = Set<ActionInvocationKey>()
     private var presentedPopups: [ObjectIdentifier: PresentedActionPopup] = [:]
     private var popupWebViews: [String: WeakPopupWebView] = [:]
+    private var extensionPageContentControllers: [
+        ObjectIdentifier: ExtensionPageContentControllerRegistration
+    ] = [:]
 #if DEBUG
     private var debugSyntheticPopupKeys: [ObjectIdentifier: ActionInvocationKey] = [:]
 #endif
@@ -562,9 +577,10 @@ final class BrowserWebExtensionsManager: NSObject {
         didFinalizeShutdown = true
         popupWebViews.removeAll()
         for context in loadedContexts {
-            _ = try? controller.unload(context)
+            _ = try? unloadContext(context)
         }
         loadedContexts.removeAll()
+        extensionPageContentControllers.removeAll()
         managedRecordIDsByContextIdentifier.removeAll()
         managedRecords.removeAll()
         toolbarPinnedExtensionIdentifiers.removeAll()
@@ -640,9 +656,10 @@ final class BrowserWebExtensionsManager: NSObject {
     private func startLoadingAttempt() {
         for context in loadedContexts {
             cancelPermissionPrompts(for: context)
-            _ = try? controller.unload(context)
+            _ = try? unloadContext(context)
         }
         loadedContexts.removeAll()
+        extensionPageContentControllers.removeAll()
         loadErrors.removeAll()
         failedManagedRecordIDs.removeAll()
         managedLoadFailureURLPaths.removeAll()
@@ -1115,7 +1132,7 @@ final class BrowserWebExtensionsManager: NSObject {
                 await closePresentedPopups(
                     forExtensionIdentifier: previousContext.uniqueIdentifier
                 )
-                try controller.unload(previousContext)
+                try unloadContext(previousContext)
                 loadedContexts.removeAll { $0 === previousContext }
                 managedRecordIDsByContextIdentifier.removeValue(forKey: previousContext.uniqueIdentifier)
                 clearTransientState(
@@ -1197,7 +1214,7 @@ final class BrowserWebExtensionsManager: NSObject {
             let newContextIdentifier = Self.contextIdentifier(for: prepared.logicalID)
             if let newContext = loadedContexts.first(where: { $0.uniqueIdentifier == newContextIdentifier }) {
                 cancelPermissionPrompts(for: newContext)
-                _ = try? controller.unload(newContext)
+                _ = try? unloadContext(newContext)
                 loadedContexts.removeAll { $0 === newContext }
                 managedRecordIDsByContextIdentifier.removeValue(forKey: newContextIdentifier)
             }
@@ -1241,7 +1258,7 @@ final class BrowserWebExtensionsManager: NSObject {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let version = webExtension.version?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard webExtension.errors.isEmpty,
+        guard !Self.hasFatalManifestError(webExtension.errors),
               !webExtension.manifest.isEmpty,
               webExtension.manifestVersion > 0,
               !displayName.isEmpty,
@@ -1388,7 +1405,7 @@ final class BrowserWebExtensionsManager: NSObject {
                     throw BrowserWebExtensionManagementError.stateChanged
                 }
             } catch {
-                _ = try? controller.unload(newContext)
+                _ = try? unloadContext(newContext)
                 loadedContexts.removeAll { $0 === newContext }
                 managedRecordIDsByContextIdentifier.removeValue(forKey: newContext.uniqueIdentifier)
                 await restoreAuthoritativeManagedRecord(managementID: managementID)
@@ -1407,7 +1424,7 @@ final class BrowserWebExtensionsManager: NSObject {
                 await closePresentedPopups(
                     forExtensionIdentifier: context.uniqueIdentifier
                 )
-                try controller.unload(context)
+                try unloadContext(context)
                 loadedContexts.removeAll { $0 === context }
                 managedRecordIDsByContextIdentifier.removeValue(forKey: context.uniqueIdentifier)
             }
@@ -1445,7 +1462,7 @@ final class BrowserWebExtensionsManager: NSObject {
         if let context {
             cancelPermissionPrompts(for: context)
             await closePresentedPopups(forExtensionIdentifier: context.uniqueIdentifier)
-            try controller.unload(context)
+            try unloadContext(context)
             loadedContexts.removeAll { $0 === context }
             managedRecordIDsByContextIdentifier.removeValue(forKey: context.uniqueIdentifier)
         }
@@ -2554,6 +2571,7 @@ final class BrowserWebExtensionsManager: NSObject {
         }), let configuration = context.webViewConfiguration else {
             return nil
         }
+        registerExtensionPageConfiguration(configuration, for: context)
         return (context.baseURL, configuration)
     }
 
@@ -2562,9 +2580,48 @@ final class BrowserWebExtensionsManager: NSObject {
     ) -> Bool {
         guard configuration.webExtensionController === controller else { return false }
         let userContentController = configuration.userContentController
-        return loadedContexts.contains { context in
-            context.webViewConfiguration?.userContentController === userContentController
+        compactExtensionPageContentControllers()
+        guard let registration = extensionPageContentControllers[
+            ObjectIdentifier(userContentController)
+        ], registration.userContentController === userContentController else {
+            return false
         }
+        return loadedContexts.contains {
+            $0.uniqueIdentifier == registration.extensionIdentifier
+        }
+    }
+
+    private func registerExtensionPageConfiguration(
+        _ configuration: WKWebViewConfiguration,
+        for context: WKWebExtensionContext
+    ) {
+        compactExtensionPageContentControllers()
+        let userContentController = configuration.userContentController
+        extensionPageContentControllers[ObjectIdentifier(userContentController)] =
+            ExtensionPageContentControllerRegistration(
+                userContentController: userContentController,
+                extensionIdentifier: context.uniqueIdentifier
+            )
+    }
+
+    private func compactExtensionPageContentControllers() {
+        extensionPageContentControllers = extensionPageContentControllers.filter {
+            $0.value.userContentController != nil
+        }
+    }
+
+    private func removeExtensionPageConfigurations(
+        for context: WKWebExtensionContext
+    ) {
+        extensionPageContentControllers = extensionPageContentControllers.filter {
+            $0.value.userContentController != nil
+                && $0.value.extensionIdentifier != context.uniqueIdentifier
+        }
+    }
+
+    private func unloadContext(_ context: WKWebExtensionContext) throws {
+        try controller.unload(context)
+        removeExtensionPageConfigurations(for: context)
     }
 
     private static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
