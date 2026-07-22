@@ -1503,6 +1503,15 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/AliasedCaptureRealClockTests.swift",
+            "let realClock = ContinuousClock()\n"
+            "let work = { [clock = realClock] in\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/URLBlockCommentBeforeRealClockTests.swift",
             "/* See https://example.test for the fixture contract. */\n"
             "let clock = ContinuousClock()\n"
@@ -2105,6 +2114,16 @@ def _self_test() -> int:
             "}\n",
         ),
         (
+            "Packages/CmuxClock/Tests/AliasedCaptureVirtualClockTests.swift",
+            "func verifyVirtual() async {\n"
+            "    let testClock = TestRelayClock()\n"
+            "    let work = { [clock = testClock] in\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await clockEvents.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
             "Packages/CmuxClock/Tests/NestedInitializerVirtualClockTests.swift",
             "let clock = TestRelayClock(reference: { let fallback = ContinuousClock(); return fallback }())\n"
             "try await clock.sleep(until: deadline)\n"
@@ -2306,6 +2325,32 @@ def _self_test() -> int:
         failures.append(
             "POSITIVE cross-file real clock member: missing "
             f"{RULE_SLEEP_THEN_ASSERT!r} (got {sorted(cross_file_rules)})"
+        )
+
+    cross_target_sources = [
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/SplitFixture.swift",
+            "struct SplitFixture {\n"
+            "    let clock: ContinuousClock\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/SplitFixture+Refresh.swift",
+            "extension SplitFixture {\n"
+            "    func verifyRefresh() async {\n"
+            "        try await self.clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+        ),
+    ]
+    cross_target_rules = {
+        finding.rule for finding in scan_sources(cross_target_sources)
+    }
+    if RULE_SLEEP_THEN_ASSERT not in cross_target_rules:
+        failures.append(
+            "POSITIVE cross-directory test-target member: missing "
+            f"{RULE_SLEEP_THEN_ASSERT!r} (got {sorted(cross_target_rules)})"
         )
 
     cross_file_negatives = [
