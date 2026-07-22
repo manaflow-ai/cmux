@@ -145,7 +145,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
-              -only-testing:cmuxTests/BrowserWebExtensionsManagerTests/sameSessionSafariAppReinstallUsesFreshStorageIdentity \
+              "-only-testing:cmuxTests/BrowserWebExtensionsManagerTests/sameSessionSafariAppReinstallUsesFreshStorageIdentity()" \
               test 2>&1
           }
 
