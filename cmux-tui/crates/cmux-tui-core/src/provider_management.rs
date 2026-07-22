@@ -4,7 +4,7 @@
 
 use std::fmt;
 #[cfg(target_os = "linux")]
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, Read, Write};
 #[cfg(target_os = "linux")]
 use std::path::Path;
 #[cfg(target_os = "linux")]
@@ -14,6 +14,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
+#[cfg(target_os = "linux")]
+use zeroize::Zeroizing;
 
 use crate::{
     Mux, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
@@ -22,7 +24,7 @@ use crate::{
 
 pub const PROTOCOL_VERSION: u32 = 1;
 #[cfg(target_os = "linux")]
-const MAX_MESSAGE_BYTES: u64 = 8 * 1024;
+const MAX_MESSAGE_BYTES: usize = 8 * 1024;
 #[cfg(target_os = "linux")]
 const IO_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -151,17 +153,35 @@ fn handle_request(mux: &Mux, peer_uid: u32, bytes: &[u8]) -> Response {
 }
 
 #[cfg(target_os = "linux")]
-fn read_message(reader: impl Read) -> io::Result<SensitiveBytes> {
-    let mut bytes = Vec::new();
-    BufReader::new(reader).take(MAX_MESSAGE_BYTES + 1).read_until(b'\n', &mut bytes)?;
-    if bytes.len() as u64 > MAX_MESSAGE_BYTES {
-        bytes.zeroize();
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "management request is too large"));
+fn read_message(mut reader: impl Read) -> io::Result<SensitiveBytes> {
+    // Read exactly one frame byte at a time. This root-only management path is
+    // intentionally bounded to 8 KiB, and avoiding read-ahead means no hidden
+    // library allocation can retain a credential or bytes from the next frame.
+    let mut bytes = SensitiveBytes(Vec::with_capacity(MAX_MESSAGE_BYTES + 1));
+    let mut byte = Zeroizing::new([0_u8; 1]);
+    loop {
+        match reader.read(&mut *byte) {
+            Ok(0) => break,
+            Ok(1) => {
+                let value = byte[0];
+                byte.zeroize();
+                if value == b'\n' {
+                    break;
+                }
+                bytes.0.push(value);
+                if bytes.0.len() > MAX_MESSAGE_BYTES {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "management request is too large",
+                    ));
+                }
+            }
+            Ok(_) => unreachable!("a one-byte read cannot return more than one byte"),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
     }
-    if bytes.last() == Some(&b'\n') {
-        bytes.pop();
-    }
-    Ok(SensitiveBytes(bytes))
+    Ok(bytes)
 }
 
 #[cfg(target_os = "linux")]
@@ -389,7 +409,7 @@ mod tests {
 
         assert_eq!(reader.position(), line.len() as u64, "reader copied bytes after the frame");
         assert!(
-            message.0.capacity() >= (MAX_MESSAGE_BYTES + 1) as usize,
+            message.0.capacity() >= MAX_MESSAGE_BYTES + 1,
             "sensitive message storage could reallocate without scrubbing the old allocation"
         );
         assert_eq!(message.0, line.as_bytes()[..line.len() - 1]);
