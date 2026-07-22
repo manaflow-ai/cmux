@@ -1352,6 +1352,55 @@ func tmuxShellCommandText(positional []string, cwd string) string {
 	return strings.Join(pieces, " && ") + "\r"
 }
 
+// tmuxShellInvokedStartCommand mirrors CMUXCLI.tmuxShellInvokedStartCommand
+// (CLI/CMUXCLI+TmuxCompatSupport.swift): a pane start-command handed to
+// surface.respawn is exec'd by the surface as a single executable, but tmux
+// shell-commands are arbitrary shell expressions (`cd <dir> && env … claude …`),
+// so every command is run through `/bin/sh -c '<command>'`. See issue #6447
+// and the Swift doc comment for the full rationale.
+func tmuxShellInvokedStartCommand(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return command
+	}
+	return "/bin/sh -c " + tmuxShellQuote(trimmed)
+}
+
+// tmuxRespawnStartCommand mirrors CMUXCLI.tmuxRespawnStartCommand: like
+// tmuxShellInvokedStartCommand, but first exports prependEnv inside the
+// wrapping shell so the respawned process inherits those variables. With an
+// empty prependEnv it is byte-for-byte identical to
+// tmuxShellInvokedStartCommand.
+func tmuxRespawnStartCommand(command string, prependEnv [][2]string) string {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return command
+	}
+	if len(prependEnv) == 0 {
+		return tmuxShellInvokedStartCommand(trimmed)
+	}
+	exports := make([]string, 0, len(prependEnv))
+	for _, pair := range prependEnv {
+		exports = append(exports, "export "+pair[0]+"="+tmuxShellQuote(pair[1]))
+	}
+	return tmuxShellInvokedStartCommand(strings.Join(exports, "; ") + "; " + trimmed)
+}
+
+// tmuxClaudeTeamsRespawnEnvironment mirrors
+// CMUXCLI.tmuxClaudeTeamsRespawnEnvironment: teammate panes are respawned by
+// cmux's surface layer, so they do not inherit the launcher environment, and
+// a teammate that hits Claude Code's interactive trust prompt hangs forever
+// (issue #6447). CLAUDE_CODE_SANDBOXED=1 is re-supplied only when the
+// claude-teams launcher recorded the user's explicit
+// --dangerously-skip-permissions opt-in in CMUX_CLAUDE_TEAMS_SANDBOXED; see
+// the Swift doc comment for the safety rationale.
+func tmuxClaudeTeamsRespawnEnvironment() [][2]string {
+	if os.Getenv("CMUX_CLAUDE_TEAMS_SANDBOXED") != "1" {
+		return nil
+	}
+	return [][2]string{{"CLAUDE_CODE_SANDBOXED", "1"}}
+}
+
 // --- Wait-for (filesystem-based signaling) ---
 
 func tmuxWaitForSignalPath(name string) string {
@@ -1389,6 +1438,8 @@ func dispatchTmuxCommand(rc *rpcContext, command string, args []string) error {
 		return tmuxKillWindow(rc, args)
 	case "kill-pane", "killp":
 		return tmuxKillPane(rc, args)
+	case "respawn-pane", "respawnp":
+		return tmuxRespawnPane(rc, args)
 	case "send-keys", "send":
 		return tmuxSendKeys(rc, args)
 	case "capture-pane", "capturep":
@@ -1645,6 +1696,68 @@ func tmuxKillPane(rc *rpcContext, args []string) error {
 	// Re-equalize after removal
 	rc.call("workspace.equalize_splits", map[string]any{"workspace_id": wsId, "orientation": "vertical"})
 	return nil
+}
+
+// tmuxRespawnPane mirrors the Swift CLI's respawn-pane/respawnp handling
+// (CLI/cmux.swift): resolve the target surface and forward to the existing
+// surface.respawn RPC. Claude Code >= 2.1.183 starts agent-team teammate
+// panes with `split-window … cat` followed by `respawn-pane -k …`, so this
+// must work over the remote daemon too (issue #7014).
+func tmuxRespawnPane(rc *rpcContext, args []string) error {
+	p := parseTmuxArgs(args, []string{"-c", "-t"}, []string{"-k"})
+	if !p.hasFlag("-k") {
+		return fmt.Errorf("respawn-pane requires -k in cmux tmux compatibility mode")
+	}
+	wsId, _, surfId, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
+	if err != nil {
+		return err
+	}
+	commandText := strings.TrimSpace(strings.Join(p.positional, " "))
+	if commandText == "" {
+		commandText = tmuxStoredStartCommand(rc, wsId, surfId)
+	}
+	if commandText == "" {
+		commandText = "exec ${SHELL:-/bin/sh} -l"
+	}
+	params := map[string]any{
+		"workspace_id": wsId,
+		"surface_id":   surfId,
+		// The pane process command is shell-invoked (issue #6447) while the
+		// raw command is kept as display/persistence metadata.
+		"command":            tmuxRespawnStartCommand(commandText, tmuxClaudeTeamsRespawnEnvironment()),
+		"tmux_start_command": commandText,
+	}
+	if cwd := tmuxNormalizePath(p.value("-c")); cwd != "" {
+		params["working_directory"] = cwd
+	}
+	_, err = rc.call("surface.respawn", params)
+	return err
+}
+
+// tmuxStoredStartCommand mirrors CMUXCLI.tmuxStoredStartCommand: the start
+// command the surface was launched with, as recorded by the app.
+func tmuxStoredStartCommand(rc *rpcContext, workspaceId string, surfaceId string) string {
+	payload, err := rc.call("surface.list", map[string]any{"workspace_id": workspaceId})
+	if err != nil {
+		return ""
+	}
+	surfaces, _ := payload["surfaces"].([]any)
+	for _, s := range surfaces {
+		surface, _ := s.(map[string]any)
+		if surface == nil {
+			continue
+		}
+		if id, _ := surface["id"].(string); id != surfaceId {
+			continue
+		}
+		for _, key := range []string{"tmux_start_command", "pane_start_command", "initial_command"} {
+			if value, _ := surface[key].(string); strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+		return ""
+	}
+	return ""
 }
 
 func tmuxSendKeys(rc *rpcContext, args []string) error {
