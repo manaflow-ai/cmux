@@ -989,12 +989,14 @@ impl MachineController for StaticMachineController {
                 let machine = self.runtime.connect_machine(&target)?;
                 self.switch(machine)
             }
-            MachineRequest::Create => Ok(self.notice("This machine catalog cannot create VMs")),
+            MachineRequest::Create => {
+                Ok(self.notice(localization::catalog().sidebar.machine_catalog_create_unsupported))
+            }
             MachineRequest::SelectProviderScope(_)
             | MachineRequest::InvokeProviderAction { .. }
-            | MachineRequest::ReconnectProvider => {
-                Ok(self.notice("This machine catalog has no provider actions"))
-            }
+            | MachineRequest::ReconnectProvider => Ok(self.notice(
+                localization::catalog().sidebar.machine_catalog_provider_actions_unsupported,
+            )),
             MachineRequest::CreateManagedIsolatedWorkspace(_)
             | MachineRequest::CreateManagedHostWorkspace(_)
             | MachineRequest::RenameManagedMachine { .. }

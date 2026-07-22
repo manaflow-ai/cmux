@@ -407,6 +407,7 @@ pub struct RemoteSession {
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
     capabilities: Mutex<HashSet<String>>,
     provider_workspace_authority: Option<BearerToken>,
+    provider_workspaces_guarded: AtomicBool,
 }
 
 /// Receive complete JSON protocol messages from one transport.
@@ -543,6 +544,7 @@ impl RemoteSession {
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             capabilities: Mutex::new(HashSet::new()),
             provider_workspace_authority,
+            provider_workspaces_guarded: AtomicBool::new(false),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -585,6 +587,22 @@ impl RemoteSession {
 
     pub(super) fn provider_workspace_authority(&self) -> Option<&BearerToken> {
         self.provider_workspace_authority.as_ref()
+    }
+
+    pub(super) fn confirm_provider_workspace_guard(&self) -> anyhow::Result<()> {
+        if self.shutdown.load(Ordering::Acquire) {
+            return Err(RemoteRequestError::Shutdown.into());
+        }
+        self.provider_workspaces_guarded.store(true, Ordering::Release);
+        if self.shutdown.load(Ordering::Acquire) {
+            self.provider_workspaces_guarded.store(false, Ordering::Release);
+            return Err(RemoteRequestError::Shutdown.into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn provider_workspaces_are_guarded(&self) -> bool {
+        self.provider_workspaces_guarded.load(Ordering::Acquire)
     }
 
     fn emit(&self, event: MuxEvent) {
@@ -1021,6 +1039,7 @@ impl RemoteSession {
 
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
+        self.provider_workspaces_guarded.store(false, Ordering::Release);
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
         for (_, sender) in pending {
             let _ = sender.send(json!({"shutdown": true}));
@@ -1412,6 +1431,7 @@ fn test_session_with_provider_context(
         surface_overflow_recovery: Mutex::new(HashMap::new()),
         capabilities: Mutex::new(capabilities),
         provider_workspace_authority,
+        provider_workspaces_guarded: AtomicBool::new(false),
     })
 }
 
@@ -1579,6 +1599,7 @@ mod tests {
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             capabilities: Mutex::new(capabilities),
             provider_workspace_authority,
+            provider_workspaces_guarded: AtomicBool::new(false),
         })
     }
 
