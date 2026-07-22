@@ -14509,6 +14509,72 @@ mod tests {
     }
 
     #[test]
+    fn missing_provider_workspace_mirror_surfaces_an_explicit_error() {
+        let mux = Mux::new("managed-workspace-missing-mirror-test", SurfaceOptions::default());
+        mux.create_empty_workspace(
+            Some("work".into()),
+            Some("00000000-0000-4000-8000-000000000004".into()),
+            None,
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+
+        for mutation in [
+            ManagedWorkspaceSessionMutation::Rename {
+                workspace_key: "00000000-0000-4000-8000-000000000099".into(),
+                name: "renamed".into(),
+            },
+            ManagedWorkspaceSessionMutation::Close {
+                workspace_key: "00000000-0000-4000-8000-000000000099".into(),
+            },
+        ] {
+            app.status_message = None;
+            app.apply_managed_workspace_session_mutation(mutation);
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some(localization::catalog().sidebar.managed_workspace_unavailable)
+            );
+        }
+    }
+
+    #[test]
+    fn rejected_provider_workspace_mirror_commit_surfaces_the_session_error() {
+        let mux = Mux::new("managed-workspace-rejected-mirror-test", SurfaceOptions::default());
+        let placement = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let stale_key = "00000000-0000-4000-8000-000000000099";
+        app.tree.workspaces[0].key = stale_key.into();
+
+        app.apply_managed_workspace_session_mutation(ManagedWorkspaceSessionMutation::Rename {
+            workspace_key: stale_key.into(),
+            name: "renamed".into(),
+        });
+        app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert!(
+            app.status_message.as_deref().is_some_and(|message| {
+                message.starts_with("session operation failed:")
+                    && message.contains("workspace id and key")
+            }),
+            "unexpected status: {:?}",
+            app.status_message
+        );
+        assert!(app.tree.workspaces.iter().any(|workspace| workspace.id == placement.workspace));
+    }
+
+    #[test]
     fn provider_success_commits_through_the_managed_workspace_boundary() {
         let mux = Mux::new("managed-workspace-provider-success-test", SurfaceOptions::default());
         let workspace_key = "00000000-0000-4000-8000-000000000004";

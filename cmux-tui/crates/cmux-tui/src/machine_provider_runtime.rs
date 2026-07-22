@@ -1640,6 +1640,39 @@ mod tests {
     }
 
     #[test]
+    fn provider_reconnect_replacement_commits_as_provider_active() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (_first_stream, _first_reader) = serve_initial_snapshot(
+                &listener,
+                snapshot(1, "Before reconnect", protocol::MachineStatus::Running),
+            );
+            let mut disconnected =
+                snapshot(2, "After reconnect", protocol::MachineStatus::Sleeping);
+            disconnected.machines.clear();
+            disconnected.selected_machine_id = None;
+            let (_second_stream, _second_reader) = serve_initial_snapshot(&listener, disconnected);
+            finished.recv_timeout(Duration::from_secs(2)).unwrap();
+        });
+        let connector = Arc::new(UnixProviderConnector::new(socket.path.clone(), token()));
+        let mut controller =
+            ProviderMachineController::connect_with(connector, Vec::new(), false).unwrap();
+
+        let result = controller.perform_request(MachineRequest::ReconnectProvider).unwrap();
+        assert!(result.replacement.is_some());
+        let committed = controller.commit_replacement();
+
+        controller.abort_replacement();
+        controller.close();
+        finish.send(()).unwrap();
+        server.join().unwrap();
+        assert!(committed.is_ok(), "provider replacement did not commit: {committed:?}");
+        assert_eq!(controller.active_local, None);
+    }
+
+    #[test]
     fn local_overlay_switches_to_a_real_client_local_mux() {
         let provider_socket = TestProviderSocket::bind();
         let listener = provider_socket.listener();
