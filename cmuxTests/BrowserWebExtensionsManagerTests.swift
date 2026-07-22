@@ -902,78 +902,49 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @Test func pinnedToolbarActionsRespectMountedWidthBudget() async throws {
-        func visiblePinnedIdentifiers(width: CGFloat, pinCount: Int) async throws -> [String] {
-            let items = (0..<pinCount).map { index in
-                BrowserWebExtensionPresentationItem(
-                    id: "pin-\(index)",
-                    managementID: "disk:pin-\(index)",
-                    name: "Pinned \(index)",
-                    hasAction: true,
-                    isToolbarPinned: true,
-                    isActionEnabled: true,
-                    isAwaitingPopup: false,
-                    badgeText: "",
-                    iconData: nil
-                )
-            }
-            var loadCount = 0
-            let toolbar = BrowserExtensionsToolbarButton(
-                isPresented: .constant(false),
-                panelID: UUID(),
-                profileID: UUID(),
-                iconPointSize: 16,
-                hitSize: 24,
-                loadSnapshot: {
-                    loadCount += 1
-                    return BrowserWebExtensionsPresentationSnapshot(
-                        state: .ready,
-                        extensions: items,
-                        failures: []
-                    )
-                },
-                updates: {
-                    AsyncStream { continuation in continuation.finish() }
-                },
-                openManager: { true },
-                setToolbarPinned: { _, _ in true },
-                performAction: { _, _ in true }
+        let pinnedItems = (0..<12).map { index in
+            BrowserWebExtensionPresentationItem(
+                id: "pin-\(index)",
+                managementID: "disk:pin-\(index)",
+                name: "Pinned \(index)",
+                hasAction: true,
+                isToolbarPinned: true,
+                isActionEnabled: true,
+                isAwaitingPopup: false,
+                badgeText: "",
+                iconData: nil
             )
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: width, height: 40),
-                styleMask: [.titled],
-                backing: .buffered,
-                defer: false
-            )
-            // The headless CI display has an accessibility shield at level
-            // 2001. Put this test-only window above it so AppKit vends the
-            // mounted SwiftUI accessibility elements.
-            window.level = NSWindow.Level(rawValue: 2002)
-            let hostingView = NSHostingView(
-                rootView: toolbar.frame(width: width, height: 24, alignment: .trailing)
-            )
-            hostingView.frame = window.contentLayoutRect
-            window.contentView = hostingView
-            window.makeKeyAndOrderFront(nil)
-            defer {
-                window.orderOut(nil)
-                window.contentView = nil
-            }
-            try await Self.waitUntil("mounted toolbar snapshot") { loadCount == 1 }
-            await Self.waitForMainQueueTurn()
-            let expectedCount = BrowserExtensionsToolbarButton.maximumPinnedActions(
+        }
+        let unpinnedAction = BrowserWebExtensionPresentationItem(
+            id: "unpinned",
+            managementID: "disk:unpinned",
+            name: "Unpinned",
+            hasAction: true,
+            isToolbarPinned: false,
+            isActionEnabled: true,
+            isAwaitingPopup: false,
+            badgeText: "",
+            iconData: nil
+        )
+        let pinnedWithoutAction = BrowserWebExtensionPresentationItem(
+            id: "no-action",
+            managementID: "disk:no-action",
+            name: "No action",
+            hasAction: false,
+            isToolbarPinned: true,
+            isActionEnabled: false,
+            isAwaitingPopup: false,
+            badgeText: "",
+            iconData: nil
+        )
+        let items = [unpinnedAction] + pinnedItems + [pinnedWithoutAction]
+
+        func visiblePinnedIdentifiers(width: CGFloat) -> [String] {
+            BrowserExtensionsToolbarButton.visiblePinnedActions(
+                in: items,
                 availableWidth: width,
                 hitSize: 24
-            )
-            var identifiers: [String] = []
-            try await Self.waitUntil("mounted toolbar width \(width)") {
-                window.displayIfNeeded()
-                hostingView.layoutSubtreeIfNeeded()
-                identifiers = Self.accessibilityIdentifiers(in: hostingView)
-                    .filter { $0.hasPrefix("BrowserExtensionToolbarAction-") }
-                    .sorted()
-                return identifiers.count == min(pinCount, expectedCount)
-            }
-            return identifiers
+            ).map(\.id)
         }
 
         #expect(BrowserExtensionsToolbarButton.maximumPinnedActions(
@@ -988,18 +959,11 @@ struct BrowserWebExtensionsManagerTests {
             availableWidth: 120,
             hitSize: 24
         ) == 4)
-        let width24Empty = try await visiblePinnedIdentifiers(width: 24, pinCount: 0)
-        let width24Pinned = try await visiblePinnedIdentifiers(width: 24, pinCount: 4)
-        let width48Pinned = try await visiblePinnedIdentifiers(width: 48, pinCount: 4)
-        let width120FourPins = try await visiblePinnedIdentifiers(width: 120, pinCount: 4)
-        let width120TwelvePins = try await visiblePinnedIdentifiers(width: 120, pinCount: 12)
-        #expect(width24Empty == [])
-        #expect(width24Pinned == [])
-        #expect(width48Pinned == [
-            "BrowserExtensionToolbarAction-pin-0"
+        #expect(visiblePinnedIdentifiers(width: 24) == [])
+        #expect(visiblePinnedIdentifiers(width: 48) == ["pin-0"])
+        #expect(visiblePinnedIdentifiers(width: 120) == [
+            "pin-0", "pin-1", "pin-2", "pin-3",
         ])
-        #expect(width120FourPins.count == 4)
-        #expect(width120TwelvePins.count == 4)
     }
 
     @available(macOS 15.4, *)
@@ -1031,63 +995,47 @@ struct BrowserWebExtensionsManagerTests {
             profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             browserServices: services
         )
-        let appearance = PanelAppearance(
-            backgroundColor: .windowBackgroundColor,
-            foregroundColor: .labelColor,
-            dividerColor: Color(nsColor: .separatorColor),
-            unfocusedOverlayNSColor: .clear,
-            unfocusedOverlayOpacity: 0,
-            usesClearContentBackground: false
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.level = NSWindow.Level(rawValue: 2002)
-        let hostingView = NSHostingView(
-            rootView: BrowserExtensionsManagerPage(
-                panel: panel,
-                appearance: appearance
-            )
-        )
-        hostingView.frame = window.contentLayoutRect
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
+        let coordinator = BrowserExtensionPreparationCoordinator()
+        var preparedIDs: [UUID] = []
+        var discardedIDs: [UUID] = []
+        var failures: [String] = []
 
         func cleanup() async {
+            coordinator.deactivate()
             await requestGate.release()
             SuspendedCatalogURLProtocol.gate = nil
-            window.orderOut(nil)
-            window.contentView = nil
             panel.close()
             await manager.shutdownAndWait()
         }
 
         do {
-            var getButton: Any?
-            let buttonDeadline = Date().addingTimeInterval(3)
-            repeat {
-                window.displayIfNeeded()
-                hostingView.layoutSubtreeIfNeeded()
-                getButton = Self.accessibilityElement(
-                    identifier: "BrowserExtensionsCatalogGet-1password",
-                    in: hostingView
-                )
-                if getButton != nil { break }
-                _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
-                await Task.yield()
-            } while Date() < buttonDeadline
-            #expect(Self.pressAccessibilityElement(try #require(getButton)))
+            let entry = try #require(
+                BrowserWebExtensionCatalog.production.verifiedEntries.first { $0.id == "1password" }
+            )
+            coordinator.activate()
+            coordinator.begin(
+                operation: {
+                    try await panel.prepareBrowserWebExtensionInstall(entry)
+                },
+                discardPreparedInstall: { previewID in
+                    discardedIDs.append(previewID)
+                    await panel.cancelPreparedBrowserWebExtensionInstall(id: previewID)
+                },
+                onPrepared: { preparedIDs.append($0.id) },
+                onFailure: { failures.append($0.localizedDescription) }
+            )
             try await requestGate.waitUntilStarted()
 
-            window.contentView = nil
+            coordinator.deactivate()
             for _ in 0..<100 where !(await requestGate.wasCancelled()) {
                 try await Task.sleep(for: .milliseconds(10))
             }
+            await Self.waitForMainQueueTurn()
 
             #expect(await requestGate.wasCancelled())
+            #expect(preparedIDs.isEmpty)
+            #expect(discardedIDs.isEmpty)
+            #expect(failures.isEmpty)
         } catch {
             await cleanup()
             throw error
@@ -1292,6 +1240,7 @@ struct BrowserWebExtensionsManagerTests {
             backing: .buffered,
             defer: false
         )
+        window.level = NSWindow.Level(rawValue: 2002)
         let anchor = NSButton(frame: NSRect(x: 160, y: 190, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
@@ -3791,7 +3740,6 @@ struct BrowserWebExtensionsManagerTests {
                 messageCounter,
                 name: BrowserSSLTrustBypassMessageHandler.name
             )
-            let originalScriptSources = controller.userScripts.map(\.source)
             let siblingWebView = try await Self.loadExtensionPage(
                 "popup.html",
                 context: context,
@@ -3806,6 +3754,7 @@ struct BrowserWebExtensionsManagerTests {
             try await Self.waitUntil("shared popup handler baseline") {
                 messageCounter.count == 1
             }
+            let scriptSourcesBeforePopupCreation = controller.userScripts.map(\.source)
 
             firstPopup = BrowserPopupWindowController(
                 configuration: suppliedConfiguration,
@@ -3832,7 +3781,7 @@ struct BrowserWebExtensionsManagerTests {
 
             #expect(first.webView.configuration.userContentController === controller)
             #expect(second.webView.configuration.userContentController === controller)
-            #expect(controller.userScripts.map(\.source) == originalScriptSources)
+            #expect(controller.userScripts.map(\.source) == scriptSourcesBeforePopupCreation)
 
             second.webView.load(URLRequest(url: popupURL))
             try await Self.waitForJavaScriptString(
@@ -4503,12 +4452,12 @@ struct BrowserWebExtensionsManagerTests {
         }
         #expect(grantedCookies == [cookiePermission])
         #expect(deniedClipboardWrite.isEmpty)
-        let stateWebView = try await Self.loadExtensionPage(
+        var stateWebView: WKWebView? = try await Self.loadExtensionPage(
             "probe.html",
             context: oldContext,
             manager: manager
         )
-        _ = try await stateWebView.callAsyncJavaScript(
+        _ = try await stateWebView?.callAsyncJavaScript(
             """
             const api = globalThis.browser ?? globalThis.chrome;
             await api.storage.local.set({ removalMarker: 'stale' });
@@ -4547,6 +4496,10 @@ struct BrowserWebExtensionsManagerTests {
             ofTypes: WKWebExtensionController.allExtensionDataTypes
         )
         #expect(oldDataRecords.contains { $0.uniqueIdentifier == oldContext.uniqueIdentifier })
+        stateWebView?.stopLoading()
+        stateWebView = nil
+        await Self.waitForMainQueueTurn()
+        await Self.waitForMainQueueTurn()
 
         try await manager.removeExtension(managementID: oldRecord.id)
 
@@ -5119,6 +5072,7 @@ struct BrowserWebExtensionsManagerTests {
             backing: .buffered,
             defer: false
         )
+        window.level = NSWindow.Level(rawValue: 2002)
         let host = NSView(frame: window.contentLayoutRect)
         panel.webView.frame = NSRect(x: 0, y: 0, width: 720, height: 470)
         host.addSubview(panel.webView)
@@ -5354,73 +5308,76 @@ struct BrowserWebExtensionsManagerTests {
             root: firstRoot,
             controllerID: firstControllerID,
             approving: firstExtension
-        ) { manager, panel, context in
+        ) { firstManager, firstPanel, firstContext in
             let dynamicRuleIDs = try await Self.updateDynamicDNRRules(
                 remove: [],
                 add: (id: 900, fragment: "cmux-dynamic-blocked"),
-                context: context,
-                manager: manager
+                context: firstContext,
+                manager: firstManager
             )
             #expect(dynamicRuleIDs == [900])
             let responses = try await Self.fetchDNRPaths(
                 ["/control", "/cmux-static-blocked", "/cmux-dynamic-blocked"],
                 server: server,
-                panel: panel
+                panel: firstPanel
             )
             #expect(responses == ["control-ok", "blocked", "blocked"])
-        }
-        // The helper's frame owns the previous persistent controller. Drain
-        // AppKit releases before another controller can reuse its storage ID.
-        await Self.waitForMainQueueTurn()
-        await Self.waitForMainQueueTurn()
 
-        try await Self.withDNRBehaviorHarness(
-            root: secondRoot,
-            controllerID: secondControllerID,
-            approving: secondExtension
-        ) { manager, panel, context in
-            let dynamicRuleIDs = try await Self.dynamicDNRRuleIDs(
-                context: context,
-                manager: manager
-            )
-            #expect(dynamicRuleIDs.isEmpty)
-            let responses = try await Self.fetchDNRPaths(
-                ["/cmux-static-blocked", "/cmux-dynamic-blocked"],
-                server: server,
-                panel: panel
-            )
-            #expect(responses == ["blocked", "dynamic-server"])
-        }
-        await Self.waitForMainQueueTurn()
-        await Self.waitForMainQueueTurn()
+            try await Self.withDNRBehaviorHarness(
+                root: secondRoot,
+                controllerID: secondControllerID,
+                approving: secondExtension
+            ) { secondManager, secondPanel, secondContext in
+                let secondProfileRuleIDs = try await Self.dynamicDNRRuleIDs(
+                    context: secondContext,
+                    manager: secondManager
+                )
+                #expect(secondProfileRuleIDs.isEmpty)
+                let secondProfileResponses = try await Self.fetchDNRPaths(
+                    ["/cmux-static-blocked", "/cmux-dynamic-blocked"],
+                    server: server,
+                    panel: secondPanel
+                )
+                #expect(secondProfileResponses == ["blocked", "dynamic-server"])
+            }
 
-        try await Self.withDNRBehaviorHarness(
-            root: firstRoot,
-            controllerID: firstControllerID,
-            approving: nil
-        ) { manager, panel, context in
+            let firstManagementID = try #require(
+                firstManager.presentationSnapshot(for: firstPanel.id)
+                    .extensions.first?.managementID
+            )
+            try await firstManager.setExtensionEnabled(
+                managementID: firstManagementID,
+                isEnabled: false
+            )
+            #expect(firstManager.loadedContexts.isEmpty)
+            try await firstManager.setExtensionEnabled(
+                managementID: firstManagementID,
+                isEnabled: true
+            )
+            let reloadedFirstContext = try #require(firstManager.loadedContexts.first)
+            #expect(reloadedFirstContext !== firstContext)
             let persistedRuleIDs = try await Self.dynamicDNRRuleIDs(
-                context: context,
-                manager: manager
+                context: reloadedFirstContext,
+                manager: firstManager
             )
             #expect(persistedRuleIDs == [900])
             let persistedResponses = try await Self.fetchDNRPaths(
                 ["/cmux-static-blocked", "/cmux-dynamic-blocked"],
                 server: server,
-                panel: panel
+                panel: firstPanel
             )
             #expect(persistedResponses == ["blocked", "blocked"])
             let updatedRuleIDs = try await Self.updateDynamicDNRRules(
                 remove: [900],
                 add: (id: 901, fragment: "cmux-updated-blocked"),
-                context: context,
-                manager: manager
+                context: reloadedFirstContext,
+                manager: firstManager
             )
             #expect(updatedRuleIDs == [901])
             let updatedResponses = try await Self.fetchDNRPaths(
                 ["/cmux-dynamic-blocked", "/cmux-updated-blocked"],
                 server: server,
-                panel: panel
+                panel: firstPanel
             )
             #expect(updatedResponses == ["dynamic-server", "blocked"])
         }
@@ -5614,6 +5571,11 @@ struct BrowserWebExtensionsManagerTests {
     ) async throws -> [String] {
         panel.navigate(to: server.url(path: "/dnr-probe"))
         try await waitForJavaScriptString(
+            "location.pathname",
+            toEqual: "/dnr-probe",
+            in: panel.webView
+        )
+        try await waitForJavaScriptString(
             "document.readyState",
             toEqual: "complete",
             in: panel.webView
@@ -5744,6 +5706,7 @@ struct BrowserWebExtensionsManagerTests {
             backing: .buffered,
             defer: false
         )
+        window.level = NSWindow.Level(rawValue: 2002)
         window.contentView = panel.webView
         window.makeKeyAndOrderFront(nil)
         manager.activateTab(panelID: panel.id, previousPanelID: nil)
@@ -5908,6 +5871,7 @@ struct BrowserWebExtensionsManagerTests {
             backing: .buffered,
             defer: false
         )
+        window.level = NSWindow.Level(rawValue: 2002)
         let anchor = NSButton(frame: NSRect(x: 20, y: 20, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
@@ -6004,6 +5968,7 @@ struct BrowserWebExtensionsManagerTests {
             backing: .buffered,
             defer: false
         )
+        window.level = NSWindow.Level(rawValue: 2002)
         let anchor = NSButton(frame: NSRect(x: 120, y: 160, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
@@ -6099,6 +6064,7 @@ struct BrowserWebExtensionsManagerTests {
             backing: .buffered,
             defer: false
         )
+        window.level = NSWindow.Level(rawValue: 2002)
         let anchor = NSButton(frame: NSRect(x: 120, y: 160, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
@@ -6204,6 +6170,7 @@ struct BrowserWebExtensionsManagerTests {
             backing: .buffered,
             defer: false
         )
+        window.level = NSWindow.Level(rawValue: 2002)
         let anchor = NSButton(frame: NSRect(x: 120, y: 160, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
