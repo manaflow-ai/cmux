@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -34,6 +35,7 @@ struct WorkspaceDetailView: View {
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(ToastCenter.self) private var toasts
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -72,6 +74,7 @@ struct WorkspaceDetailView: View {
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
     @State var visibleArtifactCount = 0
+    @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
     #endif
@@ -80,6 +83,12 @@ struct WorkspaceDetailView: View {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
     #if os(iOS)
+    var terminalFilesChipEnabled: Bool {
+        displaySettings.terminalFilesChipEnabled
+    }
+    var terminalFolderTapEnabled: Bool {
+        displaySettings.terminalFolderTapEnabled
+    }
     var activeSurface: WorkspaceActiveSurface {
         WorkspaceActiveSurface.derive(
             isChatMode: isChatMode,
@@ -165,38 +174,80 @@ struct WorkspaceDetailView: View {
     }
 
     private var workspaceTitleToolbarMenu: some View {
-        WorkspaceTitleMenu(
+        let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
             hasChatToggle: shouldShowChatToggle,
             isEnabled: hasTitleMenuActions,
-            menuContent: { titleMenuContent }
-        ) {
-            toolbarTitleLabel
-        }
+            workspaceName: workspace.name,
+            hasUnread: workspace.hasUnread,
+            canRenameWorkspace: renameWorkspace != nil,
+            canToggleReadState: setWorkspaceUnread != nil,
+            canCloseWorkspace: closeWorkspace != nil,
+            labelToken: toolbarTitleLabelToken,
+            terminalTheme: store.activeTerminalTheme
+        )
+        return WorkspaceTitleMenu(
+            value: value,
+            menuContent: {
+                WorkspaceTitleMenuContent(
+                    workspaceName: value.workspaceName,
+                    hasUnread: value.hasUnread,
+                    canRenameWorkspace: value.canRenameWorkspace,
+                    canToggleReadState: value.canToggleReadState,
+                    canCloseWorkspace: value.canCloseWorkspace,
+                    presentRename: presentRenameFromMenu,
+                    toggleReadState: toggleWorkspaceReadStateFromMenu,
+                    requestClose: requestCloseWorkspaceFromMenu
+                )
+            },
+            label: {
+                switch value.labelToken {
+                case .chat(
+                    let descriptor,
+                    let agentState,
+                    let isConnected,
+                    let titleOverride,
+                    let subtitle
+                ):
+                    ChatSessionHeaderView(
+                        descriptor: descriptor,
+                        agentState: agentState,
+                        isConnected: isConnected,
+                        titleOverride: titleOverride,
+                        subtitle: subtitle,
+                        style: .toolbarCompact
+                    )
+                case .browser(let title):
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(value.terminalTheme.terminalChromeForegroundColor)
+                case .standard(let title, let subtitle):
+                    WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
+                }
+            }
+        )
+        .equatable()
     }
-    @ViewBuilder
-    private var toolbarTitleLabel: some View {
+
+    private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
         if isChatMode,
            let session = chosenChatSession,
            let conversation = chatConversationStores[session.id] {
-            ChatSessionHeaderView(
+            return .chat(
                 descriptor: conversation.descriptor,
                 agentState: conversation.agentState,
                 isConnected: conversation.isConnected,
                 titleOverride: workspace.name,
-                subtitle: tabName(for: session),
-                style: .toolbarCompact
+                subtitle: tabName(for: session)
             )
         } else if let browser = activeBrowser {
-            Text(browser.title ?? workspace.name)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
+            return .browser(title: browser.title ?? workspace.name)
         } else {
-            WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
+            return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
     }
     #endif
@@ -264,15 +315,19 @@ struct WorkspaceDetailView: View {
             store.activeTerminalTheme.terminalBackgroundColor
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
-        .sheet(item: $selectedTerminalArtifact) { selection in
-            ChatArtifactViewerSheet(path: selection.path, scope: .terminal)
-                .environment(
-                    \.chatArtifactLoader,
-                    terminalArtifactLoader(
-                        workspaceID: selection.workspaceID,
-                        surfaceID: selection.surfaceID
+        .navigationDestination(isPresented: terminalArtifactIsPresented) {
+            if let selectedTerminalArtifact {
+                ChatArtifactViewerDestination(
+                    path: selectedTerminalArtifact.path,
+                    scope: selectedTerminalArtifact.usesSessionAuthorization ? .chat : .terminal
+                ) {
+                    self.selectedTerminalArtifact = nil
+                }
+                    .environment(
+                        \.chatArtifactLoader,
+                        artifactLoader(for: selectedTerminalArtifact)
                     )
-                )
+            }
         }
         #else
         .background(store.activeTerminalTheme.terminalBackgroundColor)
@@ -289,6 +344,15 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private var terminalArtifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selectedTerminalArtifact != nil },
+            set: { isPresented in
+                if !isPresented { selectedTerminalArtifact = nil }
+            }
+        )
+    }
+
     func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
         guard let source = store.makeChatEventSource() else {
             return .unsupported(cache: terminalArtifactThumbnailCache)
@@ -297,6 +361,7 @@ struct WorkspaceDetailView: View {
             terminalWorkspaceID: workspaceID,
             terminalSurfaceID: surfaceID,
             supportsArtifacts: store.supportsTerminalArtifacts,
+            supportsDirectoryBrowsing: store.supportsTerminalArtifactList,
             cache: terminalArtifactThumbnailCache,
             stat: { path in
                 try await source.terminalArtifactStat(
@@ -313,6 +378,14 @@ struct WorkspaceDetailView: View {
                     progress: progress
                 )
             },
+            stream: { path, onChunk in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    onChunk: onChunk
+                )
+            },
             thumbnail: { path, maxDimension in
                 try await source.terminalArtifactThumbnail(
                     workspaceID: workspaceID,
@@ -320,7 +393,32 @@ struct WorkspaceDetailView: View {
                     path: path,
                     maxDimension: maxDimension
                 )
+            },
+            list: { path in
+                try await source.terminalArtifactList(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path
+                )
             }
+        )
+    }
+
+    private func artifactLoader(for selection: TerminalArtifactSelection) -> ChatArtifactLoader {
+        guard let sessionID = selection.sessionID else {
+            return terminalArtifactLoader(
+                workspaceID: selection.workspaceID,
+                surfaceID: selection.surfaceID
+            )
+        }
+        guard store.supportsChatArtifacts,
+              let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: sessionID,
+            cache: terminalArtifactThumbnailCache
         )
     }
     #endif
@@ -342,18 +440,6 @@ struct WorkspaceDetailView: View {
                 action: backButtonConfiguration.action
             )
         }
-    }
-
-    var titleMenuContent: some View {
-        WorkspaceTitleMenuContent(
-            workspace: workspace,
-            canRenameWorkspace: renameWorkspace != nil,
-            canToggleReadState: setWorkspaceUnread != nil,
-            canCloseWorkspace: closeWorkspace != nil,
-            presentRename: presentRenameFromMenu,
-            toggleReadState: toggleWorkspaceReadStateFromMenu,
-            requestClose: requestCloseWorkspaceFromMenu
-        )
     }
 
     #endif
@@ -547,8 +633,17 @@ struct WorkspaceDetailView: View {
             isSubmittingFeedback = false
             switch outcome {
             case .sentToAgent, .emailed:
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
                 isFeedbackComposerPresented = false
+                if toasts.isEnabled {
+                    // The toast supplies the success haptic; presenting after
+                    // the composer dismisses keeps it the single confirmation.
+                    toasts.present(.success(L10n.string(
+                        "mobile.feedback.sentToast",
+                        defaultValue: "Feedback sent"
+                    )))
+                } else {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             case .failed:
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
                 feedbackErrorMessage = L10n.string(

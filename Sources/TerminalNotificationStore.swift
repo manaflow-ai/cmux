@@ -289,6 +289,14 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private static let notificationFeedCompactionDiscardedBytes = maximumNotificationFeedContentBytes / 4
 
+    /// Invalidates the paired phone's notification feed without sending any
+    /// notification content in the event frame. The phone fetches the
+    /// authoritative snapshot through `notification.feed.list`.
+    static let feedChangedEventTopic = "notification.feed.changed"
+
+    /// Durable chronological history for the paired-phone notification feed.
+    private(set) var notificationFeedHistory: NotificationFeedHistoryStore
+
     /// The number of unread notification *entries* — the count the iOS app icon
     /// badge mirrors. The phone's banners mirror notification entries, so its
     /// badge counts exactly those. (The Mac Dock badge additionally counts
@@ -745,6 +753,14 @@ final class TerminalNotificationStore: ObservableObject {
     private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
 
     private init() {
+        notificationFeedHistory = NotificationFeedHistoryStore(
+            fileURL: NotificationFeedHistoryStore.defaultFileURL()
+        ) { revision in
+            MobileHostService.emitEvent(
+                topic: Self.feedChangedEventTopic,
+                payload: ["revision": revision]
+            )
+        }
         indexes = Self.buildIndexes(for: notifications)
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -1715,6 +1731,7 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
+        notificationFeedHistory.record(notification, supersededIDs: [])
         commitCooldownReservation(cooldownReservation, at: acceptedAt)
 #if DEBUG
         cmuxDebugLog(
@@ -2195,40 +2212,86 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markRead(id: UUID) {
+        _ = markNotificationFeedRead(ids: [id])
+    }
+
+    /// Marks chronological-feed records read and mirrors matching active Mac
+    /// notifications through the existing banner, badge, and dismiss-sync path.
+    @discardableResult
+    func markNotificationFeedRead(ids: Set<UUID>) -> Int {
+        let marked = notificationFeedHistory.markRead(ids: ids)
+        guard !ids.isEmpty else { return marked }
         var updated = Array(notifications)
-        guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
-        guard !updated[index].isRead else { return }
-        let before = updated[index]
-        let drainedSuperseded = supersededPhoneDismissesForRowAction(before)
-        updated[index].isRead = true
-        deferredUnreadNavigationIds.removeAll { $0 == id }
-        commitReadStateChange(from: before, to: updated[index], in: updated)
-        externalBannerOwnership.clear(id: id)
-        center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
-        emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: drainedSuperseded)
+        var activeIDs: [String] = []
+        var drainedSuperseded: [String] = []
+        var readChanges: [(before: TerminalNotification, after: TerminalNotification)] = []
+        for index in updated.indices where ids.contains(updated[index].id) && !updated[index].isRead {
+            let before = updated[index]
+            updated[index].isRead = true
+            readChanges.append((before, updated[index]))
+            activeIDs.append(updated[index].id.uuidString)
+            drainedSuperseded.append(contentsOf: supersededPhoneDismissesForRowAction(before))
+        }
+        if !activeIDs.isEmpty {
+            deferredUnreadNavigationIds.removeAll { ids.contains($0) }
+            if readChanges.count == 1, let change = readChanges.first {
+                commitReadStateChange(from: change.before, to: change.after, in: updated)
+            } else {
+                replaceNotificationFeed(updated)
+            }
+            externalBannerOwnership.clear(ids: activeIDs)
+            center.removeDeliveredNotificationsOffMain(withIdentifiers: activeIDs)
+            emitNotificationsDismissed(
+                ids: activeIDs,
+                drainedSuperseded: drainedSuperseded
+            )
+        }
+        return max(marked, readChanges.count)
     }
 
     func markUnread(id: UUID) {
+        _ = markNotificationFeedUnread(ids: [id])
+    }
+
+    /// Marks chronological-feed records unread and mirrors matching active Mac
+    /// notifications without redelivering their system banners.
+    @discardableResult
+    func markNotificationFeedUnread(ids: Set<UUID>) -> Int {
+        let marked = notificationFeedHistory.markUnread(ids: ids)
+        guard !ids.isEmpty else { return marked }
         var updated = Array(notifications)
-        guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
-        guard updated[index].isRead else { return }
-        let before = updated[index]
-        let tabId = updated[index].tabId
-        updated[index].isRead = false
-        removeDismissTombstones(ids: [id])
-        deferredUnreadNavigationIds.removeAll { $0 == id }
-        commitReadStateChange(from: before, to: updated[index], in: updated)
+        var tabIDs = Set<UUID>()
+        var unreadChanges: [(before: TerminalNotification, after: TerminalNotification)] = []
+        for index in updated.indices where ids.contains(updated[index].id) && updated[index].isRead {
+            let before = updated[index]
+            updated[index].isRead = false
+            unreadChanges.append((before, updated[index]))
+            tabIDs.insert(updated[index].tabId)
+        }
+        if !tabIDs.isEmpty {
+            removeDismissTombstones(ids: Array(ids))
+            deferredUnreadNavigationIds.removeAll { ids.contains($0) }
+            if unreadChanges.count == 1, let change = unreadChanges.first {
+                commitReadStateChange(from: change.before, to: change.after, in: updated)
+            } else {
+                replaceNotificationFeed(updated)
+            }
+        }
         // The notification itself now provides the workspace unread indicator. Clear any
         // existing manual or restored workspace unread state for the same tab so we don't
         // double-count it. (Mirrors what markLatestNotificationAsOldestUnread does for the
         // manual flag — restored hints are a one-time signal from a previous session and
         // should also defer to the concrete unread notification.)
-        setWorkspaceManualUnread(false, forTabId: tabId)
-        setWorkspaceRestoredUnread(false, forTabId: tabId)
+        for tabID in tabIDs {
+            setWorkspaceManualUnread(false, forTabId: tabID)
+            setWorkspaceRestoredUnread(false, forTabId: tabID)
+        }
+        return max(marked, unreadChanges.count)
     }
 
     func markRead(forTabId tabId: UUID) {
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil)
+        notificationFeedHistory.markRead(inWorkspace: tabId)
         var updated = Array(notifications)
         var idsToClear: [String] = []
         for index in updated.indices {
@@ -2259,6 +2322,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: surfaceId)
+        notificationFeedHistory.markRead(inWorkspace: tabId, surfaceId: surfaceId)
         var updated = Array(notifications)
         var idsToClear: [String] = []
         var supersededDrained = supersededPhoneDismissBuffer.flush(
@@ -2318,6 +2382,7 @@ final class TerminalNotificationStore: ObservableObject {
         deferredUnreadNavigationIds.removeAll { $0 == notificationId }
         deferredUnreadNavigationIds.append(notificationId)
         setWorkspaceManualUnread(false, forTabId: tabId)
+        notificationFeedHistory.markUnread(ids: [notificationId])
         commitReadStateChange(from: before, to: updated[index], in: updated)
         return notificationId
     }
@@ -2352,6 +2417,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markAllRead() {
+        notificationFeedHistory.markAllRead()
         var updated = Array(notifications)
         var idsToClear: [String] = []
         var tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds
@@ -2387,6 +2453,7 @@ final class TerminalNotificationStore: ObservableObject {
         updated.removeAll { $0.id == id }
         guard updated.count != originalCount else { return }
         let drainedSuperseded = removed.map(supersededPhoneDismissesForRowAction) ?? []
+        notificationFeedHistory.markRead(ids: [id])
         replaceNotificationFeed(updated)
         externalBannerOwnership.clear(id: id)
         if let removed {
@@ -2414,6 +2481,7 @@ final class TerminalNotificationStore: ObservableObject {
         for notification in removed {
             drainedSuperseded.append(contentsOf: supersededPhoneDismissesForRowAction(notification))
         }
+        notificationFeedHistory.markRead(ids: Set(removed.map(\.id)))
         replaceNotificationFeed(retained)
         let ids = removed.map { $0.id.uuidString }
         externalBannerOwnership.clear(ids: ids)
@@ -2449,7 +2517,13 @@ final class TerminalNotificationStore: ObservableObject {
             merged: merged,
             restoredOwnerIDs: restoredExternalBannerOwnerIDs
         )
-        if merged != existing { replaceNotificationFeed(merged) }
+        guard merged != existing else { return }
+        replaceNotificationFeed(merged)
+        for notification in merged {
+            notificationFeedHistory.record(notification, supersededIDs: [])
+        }
+        let mergedIDs = Set(merged.map(\.id))
+        notificationFeedHistory.markRead(ids: Set(existing.map(\.id)).subtracting(mergedIDs))
     }
 
     func transferSessionNotificationState(fromTabId: UUID, toTabId: UUID, panelIdMap: [UUID: UUID]) {
@@ -2458,6 +2532,13 @@ final class TerminalNotificationStore: ObservableObject {
             toTabId: toTabId,
             panelIdMap: panelIdMap
         )
+        for surfaceId in panelIdMap.keys {
+            notificationFeedHistory.rebindSurface(
+                fromTabId: fromTabId,
+                toTabId: toTabId,
+                surfaceId: surfaceId
+            )
+        }
         let manual = Self.replacingWorkspaceId(in: manualUnreadWorkspaceIds, from: fromTabId, to: toTabId)
         if manual != manualUnreadWorkspaceIds { manualUnreadWorkspaceIds = manual }
         let panel = Self.replacingWorkspaceId(in: panelDerivedUnreadWorkspaceIds, from: fromTabId, to: toTabId)
@@ -2531,6 +2612,9 @@ final class TerminalNotificationStore: ObservableObject {
             !restoredUnreadWorkspaceIds.isEmpty else { return }
         let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.map(\.tabId))
         let ids = notifications.map { $0.id.uuidString }
+        notificationFeedHistory.markRead(
+            ids: Set(ids.compactMap { UUID(uuidString: $0) })
+        )
         replaceNotificationsForClear([])
         externalBannerOwnership.clearAll()
         clearWorkspaceManualUnread()
@@ -2590,6 +2674,9 @@ final class TerminalNotificationStore: ObservableObject {
         }
         guard !idsToClear.isEmpty || hadFocusedReadIndicator || hadRestoredWorkspaceUnread else { return }
         if !idsToClear.isEmpty {
+            notificationFeedHistory.markRead(
+                ids: Set(idsToClear.compactMap { UUID(uuidString: $0) })
+            )
             replaceNotificationsForClear(updated)
         }
         if surfaceId == nil {
@@ -2621,7 +2708,11 @@ final class TerminalNotificationStore: ObservableObject {
             toTabId: destinationTabId,
             surfaceId: surfaceId
         )
-
+        notificationFeedHistory.rebindSurface(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
         var didMoveNotification = false
         let hasUnreadSourceConfinedNotification = notifications.contains {
             !$0.isRead &&
@@ -2718,6 +2809,9 @@ final class TerminalNotificationStore: ObservableObject {
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         guard !idsToClear.isEmpty || hadFocusedReadIndicator else { return }
         if !idsToClear.isEmpty {
+            notificationFeedHistory.markRead(
+                ids: Set(idsToClear.compactMap { UUID(uuidString: $0) })
+            )
             replaceNotificationsForClear(updated)
         }
         clearFocusedReadIndicator(forTabId: tabId)
@@ -2996,7 +3090,14 @@ final class TerminalNotificationStore: ObservableObject {
         let notifications = Array(notificationSequence)
         TerminalMutationBus.shared.discardPendingNotifications()
         deferredUnreadNavigationIds.removeAll()
+        notificationFeedHistory = NotificationFeedHistoryStore(fileURL: nil) { revision in
+            MobileHostService.emitEvent(
+                topic: Self.feedChangedEventTopic,
+                payload: ["revision": revision]
+            )
+        }
         replaceNotificationFeed(notifications)
+        notificationFeedHistory.reconcileActiveNotifications(Array(self.notifications))
         externalBannerOwnership.resetAssumingOwners(from: Array(self.notifications))
         clearWorkspaceManualUnread()
         clearPanelDerivedWorkspaceUnread()

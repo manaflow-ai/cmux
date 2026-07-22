@@ -4,7 +4,7 @@ The command schema is transport-independent. Protocol v5 introduced the Unix dom
 
 ## Protocol Negotiation
 
-Protocol-v7 servers report `protocol:7` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. In particular, a client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment.
+The current server reports `protocol:9` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9.
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
@@ -129,7 +129,7 @@ Static and server-issued reconnect credentials use this transport-level preamble
 {"auth":{"token":"replace-with-a-secret"}}
 ```
 
-The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, or incorrect preamble closes the connection with WebSocket policy code `1008` before dispatch.
+The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, oversized, or incorrect authentication or pairing frame closes the connection with WebSocket policy code `1008` before dispatch. Pre-authentication frames are capped at 4 KiB, and authenticated protocol frames are capped at 4 MiB.
 
 The listener permits one pending request per source address, five starts per minute per address, 16 pending challenges, 64 total sockets, and 4 MiB frames. Pairing expires after 60 seconds and at most 64 reconnect credentials remain valid in memory.
 
@@ -142,7 +142,7 @@ By default the listener accepts only an IP loopback address such as `127.0.0.1` 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 8 |
+| since | proposed protocol 10 |
 
 HTTP is opt-in. The server binds localhost by default when enabled:
 
@@ -215,7 +215,7 @@ The attach ordering contract is identical to the socket `attach-surface` command
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 8 |
+| since | proposed protocol 10 |
 
 When HTTP is enabled securely, the server mints one token per mux session at:
 

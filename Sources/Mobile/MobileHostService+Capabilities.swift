@@ -1,6 +1,8 @@
 import Foundation
 
 extension MobileHostService {
+    nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
+
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
     /// cache, the network status gate, and `TerminalController`'s
@@ -19,12 +21,15 @@ extension MobileHostService {
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
+            "notification.feed.v1",
             "notification.reconcile.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
+            "terminal.render_grid.verified_replay.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "terminal.artifact.v1",
+            "terminal.artifact.list.v1",
             "workspace.actions.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
@@ -32,7 +37,12 @@ extension MobileHostService {
             "workspace.group_actions.v1",
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
+            "workspace.task_create.v1",
+            "workspace.directory_browse.v1",
+            "workspace.directory_search.v1",
+            "workspace.directory_search.v2",
             "chat.artifact.v1",
+            "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +

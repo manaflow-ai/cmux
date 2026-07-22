@@ -6,8 +6,14 @@ public actor CmxIrohOnlineAdmissionRegistry {
     public typealias InvalidationHandler = @Sendable () async -> Void
 
     private struct Snapshot: Sendable {
+        let id: UUID
         let response: CmxIrohDiscoveryResponse
         let fetchedAt: Date
+    }
+
+    private struct SnapshotRead: Sendable {
+        let snapshot: Snapshot
+        let reusedCachedSnapshot: Bool
     }
 
     private struct Refresh: Sendable {
@@ -133,10 +139,10 @@ public actor CmxIrohOnlineAdmissionRegistry {
         guard !isDenied(lease), !isExpired(lease) else { return .denied }
         let revision = policyRevision
         do {
-            let online = try await currentSnapshot()
-            guard policyRevision == revision,
-                  !isDenied(lease),
-                  validate(online.response, lease: lease, learnDenial: true) else {
+            guard let online = try await validatedSnapshot(
+                for: lease,
+                policyRevision: revision
+            ) else {
                 await invalidateDeniedMonitors()
                 return .denied
             }
@@ -256,10 +262,10 @@ public actor CmxIrohOnlineAdmissionRegistry {
         }
         let revision = policyRevision
         do {
-            let online = try await currentSnapshot()
-            guard policyRevision == revision,
-                  !isDenied(lease),
-                  validate(online.response, lease: lease, learnDenial: true) else {
+            guard let online = try await validatedSnapshot(
+                for: lease,
+                policyRevision: revision
+            ) else {
                 await invalidateDeniedMonitors()
                 return .terminal
             }
@@ -276,12 +282,50 @@ public actor CmxIrohOnlineAdmissionRegistry {
         }
     }
 
-    private func currentSnapshot() async throws -> Snapshot {
+    private func validatedSnapshot(
+        for lease: CmxIrohOnlineAdmissionLease,
+        policyRevision expectedRevision: UInt64
+    ) async throws -> Snapshot? {
+        let initial = try await currentSnapshot()
+        guard policyRevision == expectedRevision, !isDenied(lease) else {
+            return nil
+        }
+        if validate(
+            initial.snapshot.response,
+            lease: lease,
+            learnDenial: !initial.reusedCachedSnapshot
+        ) {
+            return initial.snapshot
+        }
+        guard initial.reusedCachedSnapshot else { return nil }
+
+        let refreshed = try await currentSnapshot(
+            excludingCachedSnapshotID: initial.snapshot.id
+        )
+        guard policyRevision == expectedRevision,
+              !isDenied(lease),
+              validate(
+                  refreshed.snapshot.response,
+                  lease: lease,
+                  learnDenial: true
+              ) else {
+            return nil
+        }
+        return refreshed.snapshot
+    }
+
+    private func currentSnapshot(
+        excludingCachedSnapshotID excludedSnapshotID: UUID? = nil
+    ) async throws -> SnapshotRead {
         let now = clock.now()
         if let snapshot,
+           snapshot.id != excludedSnapshotID,
            now >= snapshot.fetchedAt,
            now.timeIntervalSince(snapshot.fetchedAt) < Self.maximumOnlineSnapshotAge {
-            return snapshot
+            return SnapshotRead(
+                snapshot: snapshot,
+                reusedCachedSnapshot: excludedSnapshotID == nil
+            )
         }
         let operation: Refresh
         if let refresh {
@@ -298,12 +342,16 @@ public actor CmxIrohOnlineAdmissionRegistry {
         do {
             let response = try await operation.task.value
             let fetchedAt = clock.now()
-            let current = Snapshot(response: response, fetchedAt: fetchedAt)
+            let current = Snapshot(
+                id: operation.id,
+                response: response,
+                fetchedAt: fetchedAt
+            )
             if refresh?.id == operation.id {
                 refresh = nil
                 snapshot = current
             }
-            return current
+            return SnapshotRead(snapshot: current, reusedCachedSnapshot: false)
         } catch {
             if refresh?.id == operation.id { refresh = nil }
             throw error

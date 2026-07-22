@@ -15,11 +15,10 @@ These defaults come from `Keys::default`.
 | `Ctrl-b t` | New PTY tab in the active pane |
 | `Alt-t` | New PTY tab in the active pane |
 | `Ctrl-b B` | Open the browser-tab URL prompt |
-| `Alt-n` | Smart split into a new pane |
+| `Alt-n` | Create a pane with Zellij's default vertical auto-layout |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
-| `Ctrl-b 1` through `Ctrl-b 9` | Select visible screen 1 through 9 |
-| `Ctrl-b 0` | Select visible screen 10 |
+| `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
 | `Ctrl-b %` | Split the active pane right |
 | `Ctrl-b "` | Split the active pane down |
 | `Ctrl-b x` | Close the active pane |
@@ -56,7 +55,9 @@ These defaults come from `Keys::default`.
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
-The screen bindings intentionally use tmux verbs: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are visibly numbered from 1, so `Ctrl-b 1` selects the first visible screen and `Ctrl-b 0` selects the tenth visible screen.
+Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
+
+The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"` in `cmux-tui.json`.
 
@@ -70,7 +71,7 @@ In the workspaces view, Up/Down move the selection and Enter activates it. Any n
 
 ## Modeless Alt Layer
 
-Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` is the default zellij-style smart split binding.
+Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded.
 
 Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kill switch only removes defaults; Alt chords explicitly configured in `cmux-tui.json` still work.
 
@@ -78,7 +79,7 @@ Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a 
 
 ## Number Selection
 
-`0` through `9` are regular configurable screen-selection bindings. The old `Ctrl-b 1` through `Ctrl-b 9` tab selectors can be restored with `select-tab-1` through `select-tab-9`.
+`0` through `9` are regular configurable screen-selection bindings. Zero-based tab selectors are available as `select-tab-0` through `select-tab-9`; they are unbound by default because the number keys select screens.
 
 ## Remapping
 
@@ -93,8 +94,8 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "alt_shortcuts": false,
     "new-tab": ["t", "alt+t"],
     "new-pane-smart": "alt+n",
+    "select-screen-0": "0",
     "select-screen-1": "1",
-    "select-screen-2": "2",
     "next-screen": ["n", "alt+]"],
     "prev-screen": ["p", "alt+["],
     "focus-left": ["h", "left", "alt+h", "alt+left"],
@@ -102,7 +103,7 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "rename-screen": ",",
     "close-pane": "x",
     "close-tab": "X",
-    "select-tab-1": "none"
+    "select-tab-0": "none"
   }
 }
 ```
@@ -115,6 +116,7 @@ new_browser_tab
 new-pane-smart
 next-tab
 prev-tab
+select-tab-0
 select-tab-1
 select-tab-2
 select-tab-3

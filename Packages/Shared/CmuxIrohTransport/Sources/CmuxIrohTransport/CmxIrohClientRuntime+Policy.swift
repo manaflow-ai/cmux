@@ -20,6 +20,9 @@ extension CmxIrohClientRuntime {
         let publicHints = Array(address.pathHints.compactMap {
             $0.publicDisclosure(at: now())
         }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
+        let directPorts = CmxIrohDirectPorts(
+            localDirectAddresses: await endpoint.localDirectAddresses()
+        )
         let payload = try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
@@ -31,6 +34,7 @@ extension CmxIrohClientRuntime {
             pairingEnabled: false,
             capabilities: configuration.capabilities,
             pathHints: publicHints,
+            directPorts: directPorts,
             now: now()
         )
         let expectation = try CmxIrohLocalBindingExpectation(
@@ -147,17 +151,32 @@ extension CmxIrohClientRuntime {
                 localBinding: policy.binding
             )
         }
-        let provider = CmxIrohRegistryContextProvider(
-            supervisor: supervisor,
-            broker: broker,
-            localBindingExpectation: policy.expectation,
-            managedRelayURLs: managedRelayURLs,
-            allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
-            networkPathSnapshot: networkPathSnapshot,
-            offlinePolicy: offlinePolicy,
-            lanFallback: lanFallback,
-            now: now
-        )
+        let provider: CmxIrohRegistryContextProvider
+        if let registryContextProvider {
+            await registryContextProvider.updatePolicy(
+                localBindingExpectation: policy.expectation,
+                managedRelayURLs: managedRelayURLs,
+                allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
+                offlinePolicy: offlinePolicy,
+                verifiedDiscovery: policy.discovery
+            )
+            provider = registryContextProvider
+        } else {
+            provider = CmxIrohRegistryContextProvider(
+                supervisor: supervisor,
+                broker: broker,
+                localBindingExpectation: policy.expectation,
+                managedRelayURLs: managedRelayURLs,
+                allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
+                networkPathSnapshot: networkPathSnapshot,
+                offlinePolicy: offlinePolicy,
+                lanFallback: lanFallback,
+                customPrivateFallback: customPrivateFallback,
+                verifiedDiscovery: policy.discovery,
+                now: now
+            )
+            registryContextProvider = provider
+        }
         await contextRouter.install(provider)
         localBinding = policy.binding
 
@@ -177,6 +196,7 @@ extension CmxIrohClientRuntime {
                 broker: broker,
                 managedRelayURLs: managedRelayURLs,
                 selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
+                automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
                 credentialDidInstall: { [handleRelayCredential] response in
                     await handleRelayCredential(response, policy.binding)
                 }
@@ -186,13 +206,17 @@ extension CmxIrohClientRuntime {
 
         let bootstrap = startRelays ? configuration.cachedRelayCredential : nil
         if startRelays || bootstrap != nil {
+            let requiresRelayReadiness = !protocolConfiguration
+                .allowsNATTraversalAfterAdmission
             do {
                 try await coordinator.activate(
                     bindingID: policy.binding.bindingID,
                     endpointIdentity: policy.binding.endpointID,
-                    bootstrap: bootstrap
+                    bootstrap: bootstrap,
+                    waitForInitialCredential: requiresRelayReadiness
                 )
             } catch {
+                if requiresRelayReadiness { throw error }
                 // Registration remains authoritative; direct paths remain usable.
             }
         }

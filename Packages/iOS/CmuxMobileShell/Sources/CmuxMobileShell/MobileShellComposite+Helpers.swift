@@ -15,11 +15,12 @@ extension MobileShellComposite {
     }
 
     static func diagnosticSurfaceHandle(_ surfaceID: String) -> UInt32 {
-        var hash: UInt32 = 2_166_136_261
-        for byte in surfaceID.utf8 {
-            hash = (hash ^ UInt32(byte)) &* 16_777_619
-        }
-        return hash
+        // Swift's Hasher is randomly seeded for each process. The same surface
+        // remains correlatable inside one report, but the exported number cannot
+        // become a stable cross-launch identifier.
+        var hasher = Hasher()
+        hasher.combine(surfaceID)
+        return UInt32(truncatingIfNeeded: hasher.finalize())
     }
 
     static func workspaceActionCapabilities(

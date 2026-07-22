@@ -50,16 +50,10 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
-        // Arc-feel: paint the selection highlight on press, before the
-        // click tracking loop and the model round trip confirm it.
-        if clickedRow >= 0 {
-            let hitView = superview.flatMap { hitTest($0.convert(event.locationInWindow, from: nil)) }
-            workspaceController?.previewSelection(
-                row: clickedRow,
-                modifiers: event.modifierFlags,
-                hitView: hitView
-            )
-        }
+        // No selection paint on press: the highlight applies on down-then-up
+        // (owner ruling). The action fires on mouse-up and paints the
+        // optimistic treatment there, so a press that becomes a drag or a
+        // cancelled click never shows a speculative highlight at all.
         super.mouseDown(with: event)
         if event.clickCount == 2, clickedRow < 0 {
             workspaceController?.doubleClickEmptyArea()

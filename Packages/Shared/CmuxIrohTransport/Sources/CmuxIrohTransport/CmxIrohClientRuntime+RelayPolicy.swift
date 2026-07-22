@@ -70,17 +70,30 @@ extension CmxIrohClientRuntime {
                 localBinding: binding
             )
         }
-        let provider = CmxIrohRegistryContextProvider(
-            supervisor: supervisor,
-            broker: broker,
-            localBindingExpectation: expectation,
-            managedRelayURLs: replacementManagedURLs,
-            allowedRouteRelayURLs: profile.allowedRelayURLs,
-            networkPathSnapshot: networkPathSnapshot,
-            offlinePolicy: offlinePolicy,
-            lanFallback: lanFallback,
-            now: now
-        )
+        let provider: CmxIrohRegistryContextProvider
+        if let registryContextProvider {
+            await registryContextProvider.updatePolicy(
+                localBindingExpectation: expectation,
+                managedRelayURLs: replacementManagedURLs,
+                allowedRouteRelayURLs: profile.allowedRelayURLs,
+                offlinePolicy: offlinePolicy
+            )
+            provider = registryContextProvider
+        } else {
+            provider = CmxIrohRegistryContextProvider(
+                supervisor: supervisor,
+                broker: broker,
+                localBindingExpectation: expectation,
+                managedRelayURLs: replacementManagedURLs,
+                allowedRouteRelayURLs: profile.allowedRelayURLs,
+                networkPathSnapshot: networkPathSnapshot,
+                offlinePolicy: offlinePolicy,
+                lanFallback: lanFallback,
+                customPrivateFallback: customPrivateFallback,
+                now: now
+            )
+            registryContextProvider = provider
+        }
         await contextRouter.install(provider)
         try requireCurrent(revision)
 
@@ -93,6 +106,7 @@ extension CmxIrohClientRuntime {
             broker: broker,
             managedRelayURLs: replacementManagedURLs,
             selectedRelayURLs: profile.allowedRelayURLs,
+            automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
             credentialDidInstall: { [handleRelayCredential] response in
                 await handleRelayCredential(response, binding)
             }

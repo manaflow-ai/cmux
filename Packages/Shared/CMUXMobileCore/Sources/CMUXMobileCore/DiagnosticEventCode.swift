@@ -96,4 +96,81 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// the keyboard toggle no longer dismisses the composer (the composer
     /// survives a keyboard-down), so this records the tap for trace completeness.
     case composerKeyboardToggleWhilePresented = 24
+
+    // MARK: App transport lifecycle
+
+    /// A transport dial started. `a` is ``DiagnosticTransportKind`` and `c` is
+    /// the positive, process-local attempt ID shared by the matching dial
+    /// outcome event.
+    case transportDialStarted = 25
+    /// A transport dial connected. Payload follows ``transportDialStarted``.
+    case transportDialConnected = 26
+    /// A transport dial failed. `a` is ``DiagnosticTransportKind``, `b` is
+    /// ``DiagnosticFailureKind``, and `c` is the matching local attempt ID.
+    case transportDialFailed = 27
+    /// The remote host identity passed authenticated endpoint validation.
+    case hostAuthenticated = 28
+    /// The authenticated RPC session completed its readiness handshake.
+    case rpcReady = 29
+    /// Connection recovery started after a previously usable session degraded.
+    case recoveryStarted = 30
+    /// Connection recovery restored a usable session.
+    case recoverySucceeded = 31
+    /// Connection recovery exhausted its current attempt. `b`, when present,
+    /// is ``DiagnosticFailureKind``.
+    case recoveryFailed = 32
+    /// The local Iroh endpoint started initialization.
+    case endpointStarting = 33
+    /// The local Iroh endpoint became active.
+    case endpointActive = 34
+    /// The local Iroh endpoint stopped.
+    case endpointStopped = 35
+    /// The local Iroh endpoint failed to start or remain active. `b`, when
+    /// present, is ``DiagnosticFailureKind``.
+    case endpointFailed = 36
+    /// A signed relay-policy refresh started.
+    case relayPolicyRefreshStarted = 37
+    /// A signed relay policy was validated and installed.
+    case relayPolicyRefreshSucceeded = 38
+    /// A relay-policy refresh failed. `b`, when present, is
+    /// ``DiagnosticFailureKind``.
+    case relayPolicyRefreshFailed = 39
+    /// The selected network path changed. `a` is ``DiagnosticPathKind``. The
+    /// foreground control session wins over background and feature sessions.
+    case selectedPathChanged = 40
+    /// An established app-transport session closed. `a`, when present, is
+    /// ``DiagnosticTransportKind``; `b`, when present, is
+    /// ``DiagnosticFailureKind``; and `c`, when present, is the positive,
+    /// process-local session ID shared with ``transportSessionLifecycle``.
+    /// Absence of `b`, or `.none`, means an expected closure.
+    case sessionClosed = 41
+    /// No authenticated route was usable. `b`, when present, is
+    /// ``DiagnosticFailureKind``.
+    case routeUnavailable = 42
+    /// A bounded retry was scheduled. `ms` is the delay before retry.
+    case retryScheduled = 43
+    /// Same-account or local-route discovery started.
+    case discoveryStarted = 44
+    /// Discovery produced at least one authenticated candidate.
+    case discoverySucceeded = 45
+    /// Discovery failed to produce an authenticated candidate. `b`, when
+    /// present, is ``DiagnosticFailureKind``.
+    case discoveryFailed = 46
+    /// The host admitted the authenticated client to an RPC session.
+    case admissionSucceeded = 47
+    /// Host admission rejected or failed. `b`, when present, is
+    /// ``DiagnosticFailureKind``.
+    case admissionFailed = 48
+    /// The remote host identity or secure channel failed authentication. `b`,
+    /// when present, is ``DiagnosticFailureKind``.
+    case hostAuthenticationFailed = 49
+    /// The authenticated RPC session failed before or after readiness. `b`,
+    /// when present, is ``DiagnosticFailureKind``.
+    case rpcFailed = 50
+    /// An admitted transport session was established or removed from its local
+    /// pool. `a` is ``DiagnosticSessionLifecycleKind``, `b` is the local
+    /// ``CmxTransportSessionPurpose`` raw value, and `c` is a positive,
+    /// process-local session correlation ID. The event contains no peer or route
+    /// identity.
+    case transportSessionLifecycle = 51
 }

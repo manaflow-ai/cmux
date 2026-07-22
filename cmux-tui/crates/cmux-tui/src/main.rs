@@ -12,6 +12,7 @@ mod cli;
 mod config;
 mod host_colors;
 mod keys;
+mod localization;
 mod plugin_manager;
 mod pty_input;
 mod session;
@@ -71,8 +72,9 @@ OPTIONS:
   -V, --version      Print the cmux-tui version.
 
 KEYS (prefix: Ctrl-b)
-  t  new tab in pane   B    new browser tab    Tab/BackTab  next/prev tab
-  1-9  select screen
+  t  new tab in pane   B    new browser tab    Alt-n  auto-layout new pane
+  Tab/BackTab  next/prev tab
+  0-9  select screen
   %  split right       \"  split down          x/X  close pane/tab
   ,  rename screen     $    rename workspace   c    new screen
   n/p  next/prev screen
@@ -91,15 +93,15 @@ MOUSE
   screen entries to switch screens (+ for a new screen).
 
 CLI VERBS
-  identify, ping, set-client-info, list-clients, detach-client,
+  identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,
   reload-config, set-window-title, clear-window-title,
   list-workspaces, export-layout, apply-layout, send,
   read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
-  new-screen, split, set-ratio, pane-neighbor, focus-direction,
+  new-screen, new-pane, split, set-ratio, set-split-ratio, pane-neighbor, focus-direction,
   swap-pane, zoom-pane, process-info, set-default-colors,
   close-surface, close-pane, close-screen, close-workspace,
   rename-pane, rename-surface, rename-screen, rename-workspace,
-  resize-surface, focus-pane, select-tab, select-screen,
+  resize-surface, release-surface-size, focus-pane, select-tab, select-screen,
   select-workspace, move-tab, move-workspace, scroll-surface,
   subscribe, attach-surface, wait-for, run, send-key, copy, ids,
   notify, list-agents, report-agent
@@ -123,6 +125,16 @@ struct Args {
     ws_token: Option<String>,
     ws_insecure_bind: bool,
     term: Option<String>,
+}
+
+impl Args {
+    fn should_attach_existing(&self, ws_addr: &Option<String>, ws_token: &Option<String>) -> bool {
+        !self.headless
+            && ws_addr.is_none()
+            && ws_token.is_none()
+            && !self.ws_insecure_bind
+            && self.term.is_none()
+    }
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
@@ -178,11 +190,19 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
 }
 
 fn version_string() -> String {
-    // CI artifact builds stamp the commit so binaries in cloud snapshots are
-    // traceable back to a cmux revision; local builds report the crate version.
-    match option_env!("CMUX_TUI_BUILD_COMMIT").or(option_env!("CMUX_MUX_BUILD_COMMIT")) {
-        Some(commit) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
-        None => env!("CARGO_PKG_VERSION").to_string(),
+    // Packaged builds stamp both source identities so artifact validation can
+    // reject a cmux binary built against a different Ghostty checkout before
+    // it enters an app bundle. Local builds report the crate version alone.
+    let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
+        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+        .filter(|commit| !commit.is_empty());
+    let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
+    match (commit, ghostty) {
+        (Some(commit), Some(ghostty)) => {
+            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
+        }
+        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
+        (None, _) => env!("CARGO_PKG_VERSION").to_string(),
     }
 }
 
@@ -212,17 +232,27 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
-    let mut surface_options = SurfaceOptions::default();
     let config = config::load();
-    let ws_addr = args.ws.or(config.server.ws.clone());
-    let ws_token = args.ws_token.or(config.server.ws_token.clone());
+    let ws_addr = args.ws.clone().or(config.server.ws.clone());
+    let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
+    // Compute the socket path up front so a normal interactive launch can
+    // reuse an existing local session and surface children inherit it.
+    let socket_path = args
+        .socket
+        .clone()
+        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    if args.should_attach_existing(&ws_addr, &ws_token)
+        && socket_path.exists()
+        && let Ok(remote) = RemoteSession::connect(&socket_path)
+    {
+        return run_tui(Session::Remote(remote), args.session);
+    }
+
+    let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
         surface_options.term = term;
     }
-    // Compute the socket path up front so surface children inherit it.
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 

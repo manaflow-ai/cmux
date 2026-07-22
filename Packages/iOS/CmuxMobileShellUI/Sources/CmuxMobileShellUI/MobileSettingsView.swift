@@ -2,6 +2,7 @@
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 
@@ -20,6 +21,7 @@ struct MobileSettingsView: View {
     @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
     let rescanQR: (() -> Void)?
+    let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
     /// where the "Switch Mac" entry is hidden.
@@ -39,10 +41,16 @@ struct MobileSettingsView: View {
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
+    @State private var showingToastGallery = false
+    @Environment(ToastCenter.self) private var toasts
+    /// Seconds between tapping "Run Toast Demo" and the first toast, so you
+    /// can navigate to any screen (terminal, chat) and watch it play there.
+    @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
     #endif
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        @Bindable var toasts = toasts
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -126,8 +134,11 @@ struct MobileSettingsView: View {
                         showingOnboarding = true
                     } label: {
                         Label(
-                            L10n.string("mobile.settings.howPairingWorks", defaultValue: "How Pairing Works"),
-                            systemImage: "questionmark.circle"
+                            L10n.string(
+                                "mobile.settings.viewIntroductionAgain",
+                                defaultValue: "View Introduction Again"
+                            ),
+                            systemImage: "sparkles"
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
@@ -156,6 +167,14 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
 
+                    Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.terminalFolderTap",
+                            defaultValue: "Open Folders on Tap"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
+
                     Button {
                         showingShortcuts = true
                     } label: {
@@ -165,6 +184,32 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+                }
+
+                Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
+                    Toggle(isOn: $displaySettings.taskComposerEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.taskComposer",
+                            defaultValue: "New Task Composer"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTaskComposer")
+
+                    Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.terminalFilesChip",
+                            defaultValue: "Terminal Files Chip"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
+
+                    Toggle(isOn: $toasts.isEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.beta.toasts",
+                            defaultValue: "Toasts"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastsEnabled")
                 }
 
                 #if DEBUG
@@ -187,6 +232,44 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
+                    Button {
+                        showingToastGallery = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.toastGallery", defaultValue: "Toast Gallery"),
+                            systemImage: "rectangle.portrait.topthird.inset.filled"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastGallery")
+                    Button {
+                        ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
+                        dismiss()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
+                            systemImage: "play.rectangle"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastDemo")
+                    Stepper(value: $toastDemoDelaySeconds, in: 0...30) {
+                        HStack {
+                            Text(L10n.string(
+                                "mobile.settings.toastDemoDelay",
+                                defaultValue: "Toast Demo Delay"
+                            ))
+                            Spacer()
+                            Text(String.localizedStringWithFormat(
+                                L10n.string(
+                                    "mobile.settings.toastDemoDelayValueFormat",
+                                    defaultValue: "%d s"
+                                ),
+                                toastDemoDelaySeconds
+                            ))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastDemoDelay")
 
                     debugLayoutSlider(
                         title: L10n.string(
@@ -216,9 +299,35 @@ struct MobileSettingsView: View {
                         identifier: "MobileSettingsProfilePictureSize"
                     )
                 }
+
+                Section(L10n.string(
+                    "mobile.settings.cmuxLabs",
+                    defaultValue: "CMUX Labs"
+                )) {
+                    NavigationLink {
+                        TaskComposerShellIconLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.shellIconLab",
+                                defaultValue: "Shell Icon Lab"
+                            ),
+                            systemImage: "terminal"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsShellIconLab")
+                }
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Toggle(isOn: $displaySettings.showMissingFiles) {
+                        Text(L10n.string(
+                            "mobile.settings.showMissingFiles",
+                            defaultValue: "Show missing files"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsShowMissingFiles")
+
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }
@@ -235,7 +344,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsPreviewLines")
                 }
 
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
+                Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
                     Button {
                         Task {
                             if notificationsEnabled {
@@ -248,8 +357,8 @@ struct MobileSettingsView: View {
                     } label: {
                         Label(
                             notificationsEnabled
-                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
-                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
+                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Push Alerts")
+                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me When Agents Need Me"),
                             systemImage: notificationsEnabled ? "bell.slash" : "bell"
                         )
                     }
@@ -318,6 +427,9 @@ struct MobileSettingsView: View {
             .fullScreenCover(isPresented: $showingTerminalDemo) {
                 TerminalLogDemoScreen()
             }
+            .sheet(isPresented: $showingToastGallery) {
+                ToastGalleryView()
+            }
             #endif
             .sheet(isPresented: $showingHostPicker) {
                 if let store {
@@ -325,13 +437,25 @@ struct MobileSettingsView: View {
                 }
             }
             .sheet(isPresented: $showingOnboarding) {
-                // Re-entry from Settings: walk the explainer again. `onComplete`
-                // only dismisses; it never touches the persisted seen flag. No
-                // current blocker is highlighted, since reaching Settings means the
-                // user got past every setup gate.
+                // Re-entry never writes first-run progress. The final scene reads
+                // live connection state and can reopen pairing from offline Settings.
                 OnboardingFlowView(
-                    onComplete: { showingOnboarding = false },
-                    setupHelpHighlight: setupHelpHighlight
+                    initialStage: .agents,
+                    context: .replay,
+                    isAuthenticated: true,
+                    connectionPhase: OnboardingConnectionPhase(
+                        isMacReady: store?.connectionState == .connected,
+                        isSearching: store?.isReconnectingStoredMac == true,
+                        didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
+                    ),
+                    onReachedConnection: {},
+                    onSkip: { showingOnboarding = false },
+                    onRetryConnection: retryAutomaticConnection,
+                    onStartFallbackPairing: {
+                        showingOnboarding = false
+                        startPairingScanner?()
+                    },
+                    onComplete: { showingOnboarding = false }
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
@@ -353,6 +477,14 @@ struct MobileSettingsView: View {
             enabled.caseInsensitiveCompare("NO") != .orderedSame
         default:
             true
+        }
+    }
+
+    private func retryAutomaticConnection() {
+        guard let store else { return }
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
         }
     }
 

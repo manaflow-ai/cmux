@@ -418,6 +418,9 @@ final class CmuxSettingsFileStore {
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let mobileSection = root["mobile"] as? [String: Any] {
+            parseMobileSection(mobileSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let markdownSection = root["markdown"] as? [String: Any] {
             parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -575,8 +578,7 @@ final class CmuxSettingsFileStore {
         applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyTerminalScrollSpeedSetting(from: section, assign: { snapshot.managedUserDefaults[$0] = .double($1) }, logInvalid: { logInvalid($0, sourcePath: sourcePath) })
         if let value = jsonDouble(section["sessionContentMaxWidth"]) {
-            if value >= SessionContentWidthSettings.minimumWidth,
-               value <= SessionContentWidthSettings.maximumWidth {
+            if value.isFinite, value >= SessionContentWidthSettings.minimumWidth {
                 snapshot.managedUserDefaults[SessionContentWidthSettings.maxWidthKey] = .double(
                     SessionContentWidthSettings().clampedMaximumWidth(value)
                 )
@@ -693,42 +695,6 @@ final class CmuxSettingsFileStore {
             } else {
                 logInvalid("terminal.textBoxSubmitActions", sourcePath: sourcePath)
             }
-        }
-    }
-
-    private func parseMarkdownSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        // Accept numeric doubles (e.g. 15 or 15.0) and round to integer points,
-        // matching the integer `markdown.fontSize` catalog/UI representation.
-        if let value = jsonDouble(section["fontSize"]) {
-            if value >= MarkdownFontSizeSettings.minimumPointSize,
-               value <= MarkdownFontSizeSettings.maximumPointSize {
-                snapshot.managedUserDefaults[MarkdownFontSizeSettings.key] = .int(Int(value.rounded()))
-            } else {
-                logInvalid("markdown.fontSize", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("fontSize") {
-            logInvalid("markdown.fontSize", sourcePath: sourcePath)
-        }
-
-        if let value = jsonString(section["fontFamily"]) {
-            snapshot.managedUserDefaults[MarkdownFontFamily.key] = .string(MarkdownFontFamily.normalized(value))
-        } else if section.keys.contains("fontFamily") {
-            logInvalid("markdown.fontFamily", sourcePath: sourcePath)
-        }
-
-        if let value = jsonDouble(section["maxWidth"]) {
-            if value >= MarkdownMaxWidthSettings.minimumCSSPixels,
-               value <= MarkdownMaxWidthSettings.maximumCSSPixels {
-                snapshot.managedUserDefaults[MarkdownMaxWidthSettings.key] = .int(Int(value.rounded()))
-            } else {
-                logInvalid("markdown.maxWidth", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("maxWidth") {
-            logInvalid("markdown.maxWidth", sourcePath: sourcePath)
         }
     }
 
@@ -1838,7 +1804,7 @@ final class CmuxSettingsFileStore {
         return number.intValue
     }
 
-    private func jsonDouble(_ rawValue: Any?) -> Double? {
+    func jsonDouble(_ rawValue: Any?) -> Double? {
         guard let number = rawValue as? NSNumber else { return nil }
         guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         return number.doubleValue

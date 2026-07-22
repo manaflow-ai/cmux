@@ -17,8 +17,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
     private let nameField = NSTextField(labelWithString: "")
-    private let unreadBadgeView = NSView()
-    private let unreadBadgeLabel = NSTextField(labelWithString: "")
+    // Direct-draw badge (shared with workspace rows): NSTextField's
+    // intrinsic insets shift single digits off the circle's optical center.
+    private let unreadBadgeView = SidebarRowUnreadBadgeView()
+    private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
     private let plusButton = SidebarHeaderGlyphButton()
     private let topDropIndicator = NSView()
     private let bottomDropIndicator = NSView()
@@ -71,10 +73,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         nameField.cell?.truncatesLastVisibleLine = true
         addSubview(nameField)
 
-        unreadBadgeView.wantsLayer = true
-        unreadBadgeLabel.alignment = .center
-        unreadBadgeLabel.textColor = .white
-        unreadBadgeView.addSubview(unreadBadgeLabel)
         addSubview(unreadBadgeView)
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
@@ -92,6 +90,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        model = nil
+        hintPill.resetForReuse()
     }
 
     // MARK: Configure
@@ -116,6 +120,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
     private func applyModel(_ model: SidebarGroupHeaderRowModel) {
+        // Legacy parity: no implicit layer actions on content/color changes.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
 
@@ -159,12 +167,16 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
-            unreadBadgeLabel.stringValue = "\(model.anchorUnreadCount)"
-            unreadBadgeLabel.font = .systemFont(
+            unreadBadgeFont = .systemFont(
                 ofSize: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
                 weight: .semibold
             )
-            unreadBadgeView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+            unreadBadgeView.configure(
+                count: model.anchorUnreadCount,
+                fillColor: .controlAccentColor,
+                textColor: .white,
+                font: unreadBadgeFont
+            )
             unreadBadgeView.setAccessibilityLabel(String.localizedStringWithFormat(
                 String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                 model.anchorUnreadCount
@@ -193,8 +205,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         hintPill.configure(
             text: model.shortcutHintText,
-            fontSize: GlobalFontMagnification.scaledSize(10, percent: percent),
-            emphasis: model.isAnchorActive ? 1.0 : 0.9
+            fontSize: GlobalFontMagnification.scaledSize(9, percent: percent),
+            emphasis: model.isAnchorActive ? 1.0 : 0.9,
+            representedIdentity: model.groupId
         )
 
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -206,6 +219,44 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private func updatePlusVisibility() {
         let showsHint = model?.shortcutHintText != nil
         plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !showsHint)
+    }
+
+    /// Authoritative hover enforcement: the controller sweeps visible cells
+    /// so hover-revealed chrome cannot strand on rows the pointer left
+    /// (row-index/id races during churn made per-transition repaints miss).
+    func enforcePointerHovering(_ hovering: Bool) {
+        guard isPointerHovering != hovering else { return }
+        isPointerHovering = hovering
+        updatePlusVisibility()
+    }
+
+    /// Optimistic press treatment: paints the anchor-active header visuals
+    /// instantly (group clicks focus the anchor workspace); the next
+    /// authoritative configure reconciles.
+    func showOptimisticAnchorActive() {
+        guard let model, !model.isAnchorActive else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        CATransaction.commit()
+        nameField.textColor = .labelColor
+    }
+
+    /// Inverse of the press treatment: previewing a different row must peel a
+    /// pending header's optimistic anchor-active visuals. The authoritative
+    /// apply reconfigures only rows whose model changed, and a replaced
+    /// preview never changes this header's model — without an explicit clear
+    /// the painted treatment would linger indefinitely.
+    func clearOptimisticAnchorActive() {
+        guard let model, !model.isAnchorActive else { return }
+        applyModel(model)
+    }
+
+    /// True when a press at this view should not repaint selection (chevron
+    /// toggles collapse, plus creates a workspace — neither selects).
+    func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
+        hitView === chevronButton || hitView.isDescendant(of: chevronButton)
+            || hitView === plusButton || hitView.isDescendant(of: plusButton)
     }
 
     // MARK: Layout
@@ -226,6 +277,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     override func layout() {
         super.layout()
         guard let model else { return }
+        // No implicit actions during manual layout (legacy parity —
+        // geometry snaps, never interpolates).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
@@ -253,7 +309,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         var badgeSize = NSSize.zero
         if !unreadBadgeView.isHidden {
-            let textSize = unreadBadgeLabel.intrinsicContentSize
+            let textSize = NSString(string: "\(model.anchorUnreadCount)")
+                .size(withAttributes: [.font: unreadBadgeFont])
             badgeSize = NSSize(
                 width: ceil(textSize.width) + metrics.unreadHorizontalPadding * 2,
                 height: ceil(textSize.height) + metrics.unreadVerticalPadding * 2
@@ -279,11 +336,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 width: badgeSize.width,
                 height: badgeSize.height
             )
-            unreadBadgeView.layer?.cornerRadius = badgeSize.height / 2
-            unreadBadgeLabel.frame = unreadBadgeView.bounds.insetBy(
-                dx: metrics.unreadHorizontalPadding,
-                dy: metrics.unreadVerticalPadding
-            )
+            unreadBadgeView.needsDisplay = true
         }
 
         let indicatorX: CGFloat = 8
@@ -541,26 +594,46 @@ final class SidebarHeaderGlyphButton: NSButton {
     }
 }
 
-/// AppKit rendition of the sidebar shortcut-hint capsule (material + stroke +
-/// shadow), shown only while modifier-hold digit hints are active.
+/// AppKit rendition of the sidebar shortcut-hint capsule. The outer view owns
+/// the shadow while the inner visual-effect view clips material to the capsule;
+/// putting both on one unclipped layer leaves a square material background.
 @MainActor
-final class SidebarShortcutHintPillView: NSVisualEffectView {
-    private let label = NSTextField(labelWithString: "")
-    private var emphasis: Double = 1.0
+final class SidebarShortcutHintPillView: NSView {
+    private static let horizontalPadding: CGFloat = 4
+    private static let visibilityAnimationKey = "shortcutHintVisibility"
 
-    init() {
+    private let materialView = NSVisualEffectView()
+    private let label = NSTextField(labelWithString: "")
+    private let reduceMotionProvider: () -> Bool
+    private var emphasis: Double = 1.0
+    private var representedIdentity: UUID?
+    private var isRevealed = false
+    private var visibilityGeneration: UInt64 = 0
+
+    init(
+        reduceMotionProvider: @escaping () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+    ) {
+        self.reduceMotionProvider = reduceMotionProvider
         super.init(frame: .zero)
-        material = .popover
-        state = .active
-        blendingMode = .withinWindow
         wantsLayer = true
-        layer?.borderWidth = 0.8
         layer?.shadowOpacity = 1
         layer?.shadowRadius = 2
         layer?.shadowOffset = CGSize(width: 0, height: -1)
+
+        materialView.material = .popover
+        materialView.state = .active
+        materialView.blendingMode = .withinWindow
+        materialView.wantsLayer = true
+        materialView.layer?.masksToBounds = true
+        materialView.layer?.borderWidth = 0.8
+        addSubview(materialView)
+
         label.alignment = .center
         label.lineBreakMode = .byClipping
-        addSubview(label)
+        materialView.addSubview(label)
+        layer?.opacity = 0
         isHidden = true
     }
 
@@ -568,29 +641,130 @@ final class SidebarShortcutHintPillView: NSVisualEffectView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(text: String?, fontSize: CGFloat, emphasis: Double) {
+    func configure(
+        text: String?,
+        fontSize: CGFloat,
+        emphasis: Double,
+        representedIdentity: UUID? = nil
+    ) {
+        let identityChanged = self.representedIdentity != representedIdentity
+        self.representedIdentity = representedIdentity
         guard let text else {
-            isHidden = true
+            setRevealed(false, animated: !identityChanged)
             return
         }
         self.emphasis = emphasis
-        isHidden = false
         label.stringValue = text
         label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
         label.textColor = .labelColor
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
+        materialView.layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
+        setRevealed(true, animated: !identityChanged)
     }
 
     func fittingPillSize() -> NSSize {
         guard !isHidden else { return .zero }
-        let textSize = label.intrinsicContentSize
-        return NSSize(width: ceil(textSize.width) + 12, height: ceil(textSize.height) + 4)
+        let textSize = label.sidebarNaturalCellSize
+        return NSSize(
+            width: ceil(textSize.width) + Self.horizontalPadding * 2,
+            height: ceil(textSize.height) + 4
+        )
     }
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
-        label.frame = bounds.insetBy(dx: 6, dy: 2)
+        let radius = bounds.height / 2
+        materialView.frame = bounds
+        materialView.layer?.cornerRadius = radius
+        label.frame = materialView.bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
+        layer?.shadowPath = CGPath(
+            roundedRect: bounds,
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
+        )
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func resetForReuse() {
+        representedIdentity = nil
+        isRevealed = false
+        visibilityGeneration &+= 1
+        applyImmediateVisibility(false)
+        label.stringValue = ""
+    }
+
+    private func setRevealed(_ revealed: Bool, animated: Bool = true) {
+        if !animated {
+            isRevealed = revealed
+            visibilityGeneration &+= 1
+            applyImmediateVisibility(revealed)
+            return
+        }
+        guard isRevealed != revealed else { return }
+        isRevealed = revealed
+        visibilityGeneration &+= 1
+        let generation = visibilityGeneration
+
+        if reduceMotionProvider() {
+            applyImmediateVisibility(revealed)
+            return
+        }
+
+        if revealed {
+            if isHidden {
+                layer?.opacity = 0
+                isHidden = false
+            }
+            animateOpacity(to: 1, generation: generation)
+        } else {
+            guard !isHidden else {
+                layer?.opacity = 0
+                return
+            }
+            animateOpacity(to: 0, generation: generation, hidesWhenFinished: true)
+        }
+    }
+
+    private func applyImmediateVisibility(_ revealed: Bool) {
+        layer?.removeAnimation(forKey: Self.visibilityAnimationKey)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.opacity = revealed ? 1 : 0
+        CATransaction.commit()
+        isHidden = !revealed
+    }
+
+    private func animateOpacity(
+        to value: Float,
+        generation: UInt64,
+        hidesWhenFinished: Bool = false
+    ) {
+        guard let layer else { return }
+        let currentOpacity = layer.presentation()?.opacity ?? layer.opacity
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = currentOpacity
+        animation.toValue = value
+        animation.duration = ShortcutHintAnimation.visibilityDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if hidesWhenFinished {
+            CATransaction.setCompletionBlock { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.visibilityGeneration == generation,
+                          !self.isRevealed else { return }
+                    self.isHidden = true
+                }
+            }
+        }
+        layer.opacity = value
+        layer.add(animation, forKey: Self.visibilityAnimationKey)
+        CATransaction.commit()
     }
 }

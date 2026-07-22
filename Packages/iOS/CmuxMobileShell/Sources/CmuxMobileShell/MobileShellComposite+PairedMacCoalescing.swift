@@ -3,6 +3,48 @@ internal import CmuxMobilePairedMac
 internal import CmuxMobileShellModel
 
 extension MobileShellComposite {
+    /// Select one authoritative stored row per physical device identifier.
+    ///
+    /// UUID spellings share a lowercase identity, while opaque identifiers stay
+    /// case-sensitive. The freshest row owns all routes and metadata; no route
+    /// or customization fields are merged from an older alias.
+    static func coalescePairedMacsByCanonicalDeviceID(
+        _ macs: [MobilePairedMac]
+    ) -> [MobilePairedMac] {
+        var selectedByDeviceID: [String: MobilePairedMac] = [:]
+        var deviceOrder: [String] = []
+
+        for mac in macs where !mac.macDeviceID.isEmpty {
+            let canonicalDeviceID = cmxCanonicalDeviceID(mac.macDeviceID)
+            guard let selected = selectedByDeviceID[canonicalDeviceID] else {
+                selectedByDeviceID[canonicalDeviceID] = mac
+                deviceOrder.append(canonicalDeviceID)
+                continue
+            }
+            let shouldReplace: Bool
+            let candidateUsesCanonicalSpelling = mac.macDeviceID == canonicalDeviceID
+            let selectedUsesCanonicalSpelling = selected.macDeviceID == canonicalDeviceID
+            if mac.lastSeenAt != selected.lastSeenAt {
+                shouldReplace = mac.lastSeenAt > selected.lastSeenAt
+            } else if candidateUsesCanonicalSpelling != selectedUsesCanonicalSpelling {
+                shouldReplace = candidateUsesCanonicalSpelling
+            } else if mac.isActive != selected.isActive {
+                shouldReplace = mac.isActive
+            } else {
+                shouldReplace = mac.id < selected.id
+            }
+            if shouldReplace {
+                selectedByDeviceID[canonicalDeviceID] = mac
+            }
+        }
+
+        return deviceOrder.compactMap { deviceID in
+            guard var selected = selectedByDeviceID[deviceID] else { return nil }
+            selected.macDeviceID = deviceID
+            return selected
+        }
+    }
+
     /// Collapse duplicate paired-Mac rows that have the same Mac-reported name
     /// and dial the same host/port.
     ///
@@ -42,6 +84,57 @@ extension MobileShellComposite {
                 (orderByKey[lhs.key] ?? .max) < (orderByKey[rhs.key] ?? .max)
             }
             .map(\.value)
+    }
+
+    /// Selects one logical client for each cryptographic Iroh endpoint.
+    ///
+    /// Presentation coalescing intentionally includes the reported name and
+    /// instance tag, but the Iroh server admits only one authoritative control
+    /// connection per EndpointID. Stale stored rows must therefore share one
+    /// connection owner even when their presentation metadata differs.
+    static func coalescePairedMacsByIrohEndpointAuthority(
+        _ macs: [MobilePairedMac],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> [MobilePairedMac] {
+        var selectedByKey: [String: MobilePairedMac] = [:]
+        var orderByKey: [String: Int] = [:]
+
+        for (index, mac) in macs.enumerated() {
+            let key = irohEndpointID(
+                for: mac,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback
+            ).map { "iroh-authority:\($0)" } ?? "device:\(mac.id)"
+            orderByKey[key] = min(orderByKey[key] ?? index, index)
+            guard let existing = selectedByKey[key] else {
+                selectedByKey[key] = mac
+                continue
+            }
+            selectedByKey[key] = mac.sortsBeforeDuplicate(existing) ? mac : existing
+        }
+
+        return selectedByKey
+            .sorted { lhs, rhs in
+                (orderByKey[lhs.key] ?? .max) < (orderByKey[rhs.key] ?? .max)
+            }
+            .map(\.value)
+    }
+
+    static func irohEndpointID(
+        for mac: MobilePairedMac,
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> String? {
+        let reconnectRoutes = storedReconnectRoutes(
+            mac.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        )
+        guard case let .peer(identity, _)? = reconnectRoutes.first?.endpoint else {
+            return nil
+        }
+        return identity.endpointID
     }
 
     static func macDeviceIDsForLogicalPairedMac(
