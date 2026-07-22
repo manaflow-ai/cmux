@@ -34,7 +34,7 @@ const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 
 /// An opaque per-mux credential provisioned by the external machine
 /// provider. Debug output is deliberately redacted.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct ProviderWorkspaceAuthority(Box<str>);
 
 impl ProviderWorkspaceAuthority {
@@ -52,8 +52,61 @@ impl ProviderWorkspaceAuthority {
         Ok(Self(value.into_boxed_str()))
     }
 
-    fn expose(&self) -> &[u8] {
+    pub(crate) fn expose(&self) -> &[u8] {
         self.0.as_bytes()
+    }
+}
+
+/// Public, non-secret state exposed by the provider management socket.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ProviderWorkspaceAuthorityStatus {
+    pub managed: bool,
+    pub mux_generation: Option<String>,
+    pub authority_generation: u64,
+    pub authority_installed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderWorkspaceAuthorityUpdateError {
+    Unmanaged,
+    MuxGenerationMismatch,
+    ExpectedGenerationMismatch,
+    GenerationConflict,
+    InvalidGeneration,
+}
+
+impl fmt::Display for ProviderWorkspaceAuthorityUpdateError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Unmanaged => "workspace lifecycle is not provider-managed",
+            Self::MuxGenerationMismatch => "mux generation does not match the running process",
+            Self::ExpectedGenerationMismatch => "authority generation changed concurrently",
+            Self::GenerationConflict => {
+                "authority generation already contains a different credential"
+            }
+            Self::InvalidGeneration => "authority generation must advance by exactly one",
+        })
+    }
+}
+
+impl std::error::Error for ProviderWorkspaceAuthorityUpdateError {}
+
+#[derive(Default)]
+struct ProviderWorkspaceState {
+    managed: bool,
+    mux_generation: Option<Box<str>>,
+    authority_generation: u64,
+    authority: Option<ProviderWorkspaceAuthority>,
+}
+
+impl ProviderWorkspaceState {
+    fn status(&self) -> ProviderWorkspaceAuthorityStatus {
+        ProviderWorkspaceAuthorityStatus {
+            managed: self.managed,
+            mux_generation: self.mux_generation.as_deref().map(str::to_owned),
+            authority_generation: self.authority_generation,
+            authority_installed: self.authority.is_some(),
+        }
     }
 }
 
@@ -80,6 +133,15 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
         );
     }
     difference == 0
+}
+
+fn validate_mux_generation(value: &str) -> anyhow::Result<()> {
+    if value.len() != 32
+        || !value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        anyhow::bail!("mux generation must be 32 lowercase hexadecimal characters");
+    }
+    Ok(())
 }
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
@@ -377,6 +439,12 @@ enum TreeCloseTarget {
     Screen(ScreenId),
 }
 
+enum WorkspaceMutationAuthority<'a> {
+    Ordinary,
+    TrustedProvider,
+    ProviderCredential(&'a str),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppliedPane {
     pub pane: PaneId,
@@ -577,8 +645,7 @@ pub struct Mux {
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<LatestClientSize>,
-    provider_managed_workspaces: Mutex<bool>,
-    provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
+    provider_workspace: Mutex<ProviderWorkspaceState>,
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
@@ -618,7 +685,12 @@ impl Mux {
     }
 
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
-        Self::new_with_test_surface_runtime(session, surface_options, None, false)
+        Self::new_with_test_surface_runtime(
+            session,
+            surface_options,
+            ProviderWorkspaceState::default(),
+            false,
+        )
     }
 
     /// Builds a mux whose workspace lifecycle is provider-owned from its
@@ -629,13 +701,45 @@ impl Mux {
         surface_options: SurfaceOptions,
         authority: ProviderWorkspaceAuthority,
     ) -> Arc<Self> {
-        Self::new_with_test_surface_runtime(session, surface_options, Some(authority), false)
+        Self::new_with_test_surface_runtime(
+            session,
+            surface_options,
+            ProviderWorkspaceState {
+                managed: true,
+                mux_generation: None,
+                authority_generation: 1,
+                authority: Some(authority),
+            },
+            false,
+        )
+    }
+
+    /// Builds a provider-owned mux whose authority will be installed through
+    /// the root-only management socket before lifecycle mutations are allowed.
+    pub fn new_provider_managed_pending(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        mux_generation: impl Into<String>,
+    ) -> anyhow::Result<Arc<Self>> {
+        let mux_generation = mux_generation.into();
+        validate_mux_generation(&mux_generation)?;
+        Ok(Self::new_with_test_surface_runtime(
+            session,
+            surface_options,
+            ProviderWorkspaceState {
+                managed: true,
+                mux_generation: Some(mux_generation.into_boxed_str()),
+                authority_generation: 0,
+                authority: None,
+            },
+            false,
+        ))
     }
 
     fn new_with_test_surface_runtime(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
-        provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
+        provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> Arc<Self> {
         let session = session.into();
@@ -660,8 +764,7 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(LatestClientSize::default()),
-            provider_managed_workspaces: Mutex::new(provider_workspace_authority.is_some()),
-            provider_workspace_authority,
+            provider_workspace: Mutex::new(provider_workspace),
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
@@ -701,7 +804,12 @@ impl Mux {
         session: impl Into<String>,
         surface_options: SurfaceOptions,
     ) -> Arc<Self> {
-        Self::new_with_test_surface_runtime(session, surface_options, None, true)
+        Self::new_with_test_surface_runtime(
+            session,
+            surface_options,
+            ProviderWorkspaceState::default(),
+            true,
+        )
     }
 
     #[cfg(test)]
@@ -710,7 +818,38 @@ impl Mux {
         surface_options: SurfaceOptions,
         authority: ProviderWorkspaceAuthority,
     ) -> Arc<Self> {
-        Self::new_with_test_surface_runtime(session, surface_options, Some(authority), true)
+        Self::new_with_test_surface_runtime(
+            session,
+            surface_options,
+            ProviderWorkspaceState {
+                managed: true,
+                mux_generation: None,
+                authority_generation: 1,
+                authority: Some(authority),
+            },
+            true,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_provider_managed_pending_for_test(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        mux_generation: &str,
+    ) -> Arc<Self> {
+        let mux = Self::new_with_test_surface_runtime(
+            session,
+            surface_options,
+            ProviderWorkspaceState {
+                managed: true,
+                mux_generation: Some(mux_generation.into()),
+                authority_generation: 0,
+                authority: None,
+            },
+            true,
+        );
+        validate_mux_generation(mux_generation).unwrap();
+        mux
     }
 
     fn next_id(&self) -> u64 {
@@ -790,11 +929,58 @@ impl Mux {
     /// provider for this mux generation. The transition is intentionally
     /// one-way so a stale frontend cannot reopen ordinary mutation paths.
     pub fn mark_workspaces_provider_managed_internal(&self) {
-        *self.provider_managed_workspaces.lock().unwrap() = true;
+        self.provider_workspace.lock().unwrap().managed = true;
     }
 
     pub fn workspaces_are_provider_managed(&self) -> bool {
-        *self.provider_managed_workspaces.lock().unwrap()
+        self.provider_workspace.lock().unwrap().managed
+    }
+
+    pub fn provider_workspace_authority_status(&self) -> ProviderWorkspaceAuthorityStatus {
+        self.provider_workspace.lock().unwrap().status()
+    }
+
+    pub fn install_or_rotate_provider_workspace_authority(
+        &self,
+        mux_generation: &str,
+        expected_authority_generation: u64,
+        authority_generation: u64,
+        authority: ProviderWorkspaceAuthority,
+    ) -> Result<ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError> {
+        let mut state = self.provider_workspace.lock().unwrap();
+        if !state.managed || state.mux_generation.is_none() {
+            return Err(ProviderWorkspaceAuthorityUpdateError::Unmanaged);
+        }
+        if state.mux_generation.as_deref() != Some(mux_generation) {
+            return Err(ProviderWorkspaceAuthorityUpdateError::MuxGenerationMismatch);
+        }
+
+        if authority_generation == state.authority_generation {
+            let identical = state
+                .authority
+                .as_ref()
+                .is_some_and(|installed| constant_time_eq(authority.expose(), installed.expose()));
+            return if identical {
+                Ok(state.status())
+            } else {
+                Err(ProviderWorkspaceAuthorityUpdateError::GenerationConflict)
+            };
+        }
+
+        if expected_authority_generation != state.authority_generation {
+            return Err(ProviderWorkspaceAuthorityUpdateError::ExpectedGenerationMismatch);
+        }
+        let valid_initial_install = state.authority_generation == 0
+            && state.authority.is_none()
+            && authority_generation > 0;
+        let valid_rotation = state.authority.is_some()
+            && authority_generation == state.authority_generation.saturating_add(1);
+        if !valid_initial_install && !valid_rotation {
+            return Err(ProviderWorkspaceAuthorityUpdateError::InvalidGeneration);
+        }
+        state.authority_generation = authority_generation;
+        state.authority = Some(authority);
+        Ok(state.status())
     }
 
     /// Validates the secret provisioned for this provider-owned mux
@@ -802,7 +988,10 @@ impl Mux {
     /// the control socket cannot be used to probe whether a value was set.
     pub fn authorize_provider_workspace_authority(&self, provided: &str) -> anyhow::Result<()> {
         let authorized = self
-            .provider_workspace_authority
+            .provider_workspace
+            .lock()
+            .unwrap()
+            .authority
             .as_ref()
             .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.expose()));
         if !authorized {
@@ -813,19 +1002,28 @@ impl Mux {
 
     fn authorize_workspace_lifecycle_mutation(
         &self,
-        provider_authorized: bool,
+        authorization: WorkspaceMutationAuthority<'_>,
         operation: &str,
-    ) -> anyhow::Result<MutexGuard<'_, bool>> {
-        let authority = self.provider_managed_workspaces.lock().unwrap();
-        if *authority && !provider_authorized {
+    ) -> anyhow::Result<MutexGuard<'_, ProviderWorkspaceState>> {
+        let authority = self.provider_workspace.lock().unwrap();
+        if authority.managed && matches!(authorization, WorkspaceMutationAuthority::Ordinary) {
             anyhow::bail!(
                 "cannot {operation} a provider-managed workspace directly; use the managed workspace lifecycle controls"
             );
         }
-        if !*authority && provider_authorized {
+        if !authority.managed && !matches!(authorization, WorkspaceMutationAuthority::Ordinary) {
             anyhow::bail!(
                 "cannot apply provider workspace {operation}; this session is not provider-managed"
             );
+        }
+        if let WorkspaceMutationAuthority::ProviderCredential(provided) = authorization {
+            let authorized = authority
+                .authority
+                .as_ref()
+                .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.expose()));
+            if !authorized {
+                anyhow::bail!("invalid provider workspace authority");
+            }
         }
         Ok(authority)
     }
@@ -3436,7 +3634,12 @@ impl Mux {
         key: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
-        self.close_workspace_selector_with_authority(id, key, expected_revision, false)
+        self.close_workspace_selector_with_authority(
+            id,
+            key,
+            expected_revision,
+            WorkspaceMutationAuthority::Ordinary,
+        )
     }
 
     pub fn close_provider_managed_workspace(
@@ -3445,7 +3648,28 @@ impl Mux {
         key: &str,
     ) -> anyhow::Result<Option<u64>> {
         Ok(self
-            .close_workspace_selector_with_authority(Some(id), Some(key), None, true)?
+            .close_workspace_selector_with_authority(
+                Some(id),
+                Some(key),
+                None,
+                WorkspaceMutationAuthority::TrustedProvider,
+            )?
+            .map(|(_, _, revision)| revision))
+    }
+
+    pub(crate) fn close_provider_managed_workspace_authorized(
+        &self,
+        id: WorkspaceId,
+        key: &str,
+        authority: &str,
+    ) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .close_workspace_selector_with_authority(
+                Some(id),
+                Some(key),
+                None,
+                WorkspaceMutationAuthority::ProviderCredential(authority),
+            )?
             .map(|(_, _, revision)| revision))
     }
 
@@ -3454,10 +3678,9 @@ impl Mux {
         id: Option<WorkspaceId>,
         key: Option<&str>,
         expected_revision: Option<u64>,
-        provider_authorized: bool,
+        authorization: WorkspaceMutationAuthority<'_>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
-        let authority =
-            self.authorize_workspace_lifecycle_mutation(provider_authorized, "close")?;
+        let authority = self.authorize_workspace_lifecycle_mutation(authorization, "close")?;
         let notifications = self.surface_notifications();
         loop {
             let target = {
@@ -3556,7 +3779,13 @@ impl Mux {
         name: String,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
-        self.rename_workspace_selector_with_authority(id, key, name, expected_revision, false)
+        self.rename_workspace_selector_with_authority(
+            id,
+            key,
+            name,
+            expected_revision,
+            WorkspaceMutationAuthority::Ordinary,
+        )
     }
 
     pub fn rename_provider_managed_workspace(
@@ -3566,7 +3795,31 @@ impl Mux {
         name: String,
     ) -> anyhow::Result<Option<u64>> {
         Ok(self
-            .rename_workspace_selector_with_authority(Some(id), Some(key), name, None, true)?
+            .rename_workspace_selector_with_authority(
+                Some(id),
+                Some(key),
+                name,
+                None,
+                WorkspaceMutationAuthority::TrustedProvider,
+            )?
+            .map(|(_, _, revision)| revision))
+    }
+
+    pub(crate) fn rename_provider_managed_workspace_authorized(
+        &self,
+        id: WorkspaceId,
+        key: &str,
+        name: String,
+        authority: &str,
+    ) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .rename_workspace_selector_with_authority(
+                Some(id),
+                Some(key),
+                name,
+                None,
+                WorkspaceMutationAuthority::ProviderCredential(authority),
+            )?
             .map(|(_, _, revision)| revision))
     }
 
@@ -3576,10 +3829,9 @@ impl Mux {
         key: Option<&str>,
         name: String,
         expected_revision: Option<u64>,
-        provider_authorized: bool,
+        authorization: WorkspaceMutationAuthority<'_>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
-        let authority =
-            self.authorize_workspace_lifecycle_mutation(provider_authorized, "rename")?;
+        let authority = self.authorize_workspace_lifecycle_mutation(authorization, "rename")?;
         Self::validate_workspace_name(&name)?;
         let notifications = self.surface_notifications();
         let (target, key, renamed) = {
@@ -7541,5 +7793,139 @@ mod tests {
                 vec![ws2, ws3, ws1]
             );
         });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn live_authority_install_and_rotation_preserve_open_pty() {
+        const MUX_GENERATION: &str = "0123456789abcdef0123456789abcdef";
+        const AUTHORITY_ONE: &str = "live-authority-one-00000000000000000001";
+        const AUTHORITY_TWO: &str = "live-authority-two-00000000000000000002";
+
+        fn wait_for_text(surface: &Surface, needle: &str) {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let text =
+                    surface.with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+                if text.contains(needle) {
+                    return;
+                }
+                assert!(Instant::now() < deadline, "PTY did not emit {needle:?}; output: {text:?}");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+
+        let mux = Mux::new_provider_managed_pending(
+            "authority-pty-test",
+            SurfaceOptions::default(),
+            MUX_GENERATION,
+        )
+        .unwrap();
+        let workspace = mux.create_empty_workspace(Some("pty".into()), None, None).unwrap();
+        let (surface, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                Some(vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "while IFS= read -r line; do printf 'authority-test:%s\\n' \"$line\"; done"
+                        .into(),
+                ]),
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        let process_id = surface.process_id();
+        surface.write_bytes(b"before\n").unwrap();
+        wait_for_text(&surface, "authority-test:before");
+
+        mux.install_or_rotate_provider_workspace_authority(
+            MUX_GENERATION,
+            0,
+            41,
+            ProviderWorkspaceAuthority::new(AUTHORITY_ONE).unwrap(),
+        )
+        .unwrap();
+        mux.install_or_rotate_provider_workspace_authority(
+            MUX_GENERATION,
+            41,
+            42,
+            ProviderWorkspaceAuthority::new(AUTHORITY_TWO).unwrap(),
+        )
+        .unwrap();
+
+        surface.write_bytes(b"after\n").unwrap();
+        wait_for_text(&surface, "authority-test:after");
+        assert_eq!(surface.process_id(), process_id);
+        assert!(!surface.is_dead());
+        mux.shutdown();
+    }
+
+    #[test]
+    fn authority_rotation_waits_for_an_authorized_lifecycle_mutation() {
+        const MUX_GENERATION: &str = "0123456789abcdef0123456789abcdef";
+        const AUTHORITY_ONE: &str = "locked-authority-one-0000000000000000001";
+        const AUTHORITY_TWO: &str = "locked-authority-two-0000000000000000002";
+
+        let mux = Mux::new_provider_managed_pending_for_test(
+            "authority-lock-test",
+            SurfaceOptions::default(),
+            MUX_GENERATION,
+        );
+        mux.install_or_rotate_provider_workspace_authority(
+            MUX_GENERATION,
+            0,
+            1,
+            ProviderWorkspaceAuthority::new(AUTHORITY_ONE).unwrap(),
+        )
+        .unwrap();
+        let workspace = mux.create_empty_workspace(Some("managed".into()), None, None).unwrap();
+        let (locked_tx, locked_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.workspace_close_after_selector_resolution.lock().unwrap() =
+            Some(Arc::new(move || {
+                locked_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+            }));
+
+        let close = std::thread::spawn({
+            let mux = mux.clone();
+            let key = workspace.key.clone();
+            move || {
+                mux.close_provider_managed_workspace_authorized(
+                    workspace.workspace,
+                    &key,
+                    AUTHORITY_ONE,
+                )
+                .unwrap()
+            }
+        });
+        locked_rx.recv().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (rotated_tx, rotated_rx) = std::sync::mpsc::sync_channel(1);
+        let rotate = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                started_tx.send(()).unwrap();
+                let result = mux.install_or_rotate_provider_workspace_authority(
+                    MUX_GENERATION,
+                    1,
+                    2,
+                    ProviderWorkspaceAuthority::new(AUTHORITY_TWO).unwrap(),
+                );
+                rotated_tx.send(()).unwrap();
+                result
+            }
+        });
+        started_rx.recv().unwrap();
+        assert!(rotated_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        release_tx.send(()).unwrap();
+        assert_eq!(close.join().unwrap(), Some(2));
+        rotate.join().unwrap().unwrap();
+        rotated_rx.recv().unwrap();
+        mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
+        *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
     }
 }

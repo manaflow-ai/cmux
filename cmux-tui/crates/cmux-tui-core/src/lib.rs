@@ -13,6 +13,7 @@ mod event_bus;
 mod model;
 mod mux;
 mod pairing;
+pub mod provider_management;
 mod short_id;
 mod surface;
 
@@ -31,7 +32,8 @@ pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
-    NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority, RunPlacement,
+    NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
+    ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, RunPlacement,
     SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
     TreeDelta, TreeDeltaKind, WorkspacePlacement, ZoomMode, ZoomState,
 };
