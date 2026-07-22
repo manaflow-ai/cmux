@@ -44,4 +44,74 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         self.timestamp = timestamp
         self.agentEventTime = agentEventTime
     }
+
+    /// Determines whether an incoming status row should replace the current row.
+    ///
+    /// Agent rows use `agentEventTime` to order detached hook deliveries, so an
+    /// older agent event cannot overwrite a newer status even if it arrives later.
+    public static func replacementDecision(
+        current: SidebarStatusEntry?,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: SidebarMetadataFormat,
+        agentEventTime: TimeInterval? = nil
+    ) -> SidebarStatusEntryReplacementDecision {
+        guard let current else { return .replace }
+        let payloadMatches = current.key == key &&
+            current.value == value &&
+            current.icon == icon &&
+            current.color == color &&
+            current.url == url &&
+            current.priority == priority &&
+            current.format == format
+        if let currentAgentEventTime = current.agentEventTime {
+            guard let agentEventTime else { return .stale }
+            if agentEventTime < currentAgentEventTime {
+                return .stale
+            }
+        }
+        if payloadMatches, current.agentEventTime == agentEventTime {
+            return .unchanged
+        }
+        return .replace
+    }
+
+    /// Returns true only when `replacementDecision` chooses `.replace`.
+    public static func shouldReplace(
+        current: SidebarStatusEntry?,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: SidebarMetadataFormat,
+        agentEventTime: TimeInterval? = nil
+    ) -> Bool {
+        replacementDecision(
+            current: current,
+            key: key,
+            value: value,
+            icon: icon,
+            color: color,
+            url: url,
+            priority: priority,
+            format: format,
+            agentEventTime: agentEventTime
+        ) == .replace
+    }
+}
+
+/// Replacement result for a sidebar status row mutation.
+public enum SidebarStatusEntryReplacementDecision: Equatable, Sendable {
+    /// Apply the incoming row.
+    case replace
+    /// Drop the mutation because it is identical to the current row.
+    case unchanged
+    /// Drop the mutation because it is older than the current agent row.
+    case stale
 }

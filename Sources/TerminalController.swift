@@ -575,67 +575,6 @@ class TerminalController {
     }
 #endif
 
-    enum SidebarStatusEntryReplacementDecision: Equatable {
-        case replace
-        case unchanged
-        case stale
-    }
-
-    nonisolated static func statusEntryReplacementDecision(
-        current: SidebarStatusEntry?,
-        key: String,
-        value: String,
-        icon: String?,
-        color: String?,
-        url: URL?,
-        priority: Int,
-        format: SidebarMetadataFormat,
-        agentEventTime: TimeInterval? = nil
-    ) -> SidebarStatusEntryReplacementDecision {
-        guard let current else { return .replace }
-        let payloadMatches = current.key == key &&
-            current.value == value &&
-            current.icon == icon &&
-            current.color == color &&
-            current.url == url &&
-            current.priority == priority &&
-            current.format == format
-        if let currentAgentEventTime = current.agentEventTime {
-            guard let agentEventTime else { return .stale }
-            if agentEventTime < currentAgentEventTime {
-                return .stale
-            }
-        }
-        if payloadMatches, current.agentEventTime == agentEventTime {
-            return .unchanged
-        }
-        return .replace
-    }
-
-    nonisolated static func shouldReplaceStatusEntry(
-        current: SidebarStatusEntry?,
-        key: String,
-        value: String,
-        icon: String?,
-        color: String?,
-        url: URL?,
-        priority: Int,
-        format: SidebarMetadataFormat,
-        agentEventTime: TimeInterval? = nil
-    ) -> Bool {
-        statusEntryReplacementDecision(
-            current: current,
-            key: key,
-            value: value,
-            icon: icon,
-            color: color,
-            url: url,
-            priority: priority,
-            format: format,
-            agentEventTime: agentEventTime
-        ) == .replace
-    }
-
     nonisolated static func shouldReplaceMetadataBlock(
         current: SidebarMetadataBlock?,
         key: String,
@@ -13815,7 +13754,7 @@ class TerminalController {
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            let replacementDecision = Self.statusEntryReplacementDecision(
+            let replacementDecision = SidebarStatusEntry.replacementDecision(
                 current: tab.statusEntries[key],
                 key: key,
                 value: value,

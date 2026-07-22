@@ -31,7 +31,7 @@ extension TerminalController: ControlSidebarContext {
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
-            let replacementDecision = Self.statusEntryReplacementDecision(
+            let replacementDecision = SidebarStatusEntry.replacementDecision(
                 current: tab.statusEntries[key],
                 key: key,
                 value: value,

@@ -49,7 +49,7 @@ extension Workspace {
             return
         }
         guard let current = statusEntries[statusKey] else { return }
-        guard TerminalController.shouldReplaceStatusEntry(
+        guard SidebarStatusEntry.shouldReplace(
             current: current,
             key: statusKey,
             value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),

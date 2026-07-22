@@ -1092,7 +1092,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
             timestamp: Date(timeIntervalSince1970: 123)
         )
         XCTAssertFalse(
-            TerminalController.shouldReplaceStatusEntry(
+            SidebarStatusEntry.shouldReplace(
                 current: current,
                 key: "agent",
                 value: "idle",
@@ -1114,7 +1114,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
             timestamp: Date(timeIntervalSince1970: 123)
         )
         XCTAssertTrue(
-            TerminalController.shouldReplaceStatusEntry(
+            SidebarStatusEntry.shouldReplace(
                 current: current,
                 key: "agent",
                 value: "running",
@@ -1138,7 +1138,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            TerminalController.shouldReplaceStatusEntry(
+            SidebarStatusEntry.shouldReplace(
                 current: current,
                 key: "agent",
                 value: "Idle",
@@ -1162,7 +1162,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            TerminalController.shouldReplaceStatusEntry(
+            SidebarStatusEntry.shouldReplace(
                 current: current,
                 key: "agent",
                 value: "Running",
@@ -1187,7 +1187,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            TerminalController.statusEntryReplacementDecision(
+            SidebarStatusEntry.replacementDecision(
                 current: current,
                 key: "agent",
                 value: "Idle",
