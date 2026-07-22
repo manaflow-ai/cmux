@@ -36,6 +36,37 @@ struct AppDelegateOversizedFrameRestoreTests {
     }
 
     @Test
+    func replacementDisplayPreservesAlreadyVisibleSavedFrameCoordinates() throws {
+        let builtInDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            stableID: "uuid:BUILTIN",
+            frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_512, height: 944)
+        )
+        let replacementDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 3,
+            stableID: "uuid:NEW-EXTERNAL",
+            frame: CGRect(x: 1_512, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 1_512, y: 0, width: 2_560, height: 1_415)
+        )
+        let savedFrame = CGRect(x: 1_700, y: 100, width: 900, height: 700)
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: SessionRectSnapshot(savedFrame),
+            display: SessionDisplaySnapshot(
+                displayID: 2,
+                stableID: "uuid:OLD-EXTERNAL",
+                frame: SessionRectSnapshot(replacementDisplay.frame),
+                visibleFrame: SessionRectSnapshot(replacementDisplay.visibleFrame)
+            ),
+            availableDisplays: [builtInDisplay, replacementDisplay],
+            fallbackDisplay: builtInDisplay
+        ))
+
+        #expect(restored == savedFrame)
+        #expect(replacementDisplay.visibleFrame.contains(restored))
+    }
+
+    @Test
     func oversizedSavedFrameClampsToItsDisplay() throws {
         let visible = CGRect(x: 0, y: 0, width: 1_512, height: 944)
         let display = AppDelegate.SessionDisplayGeometry(
