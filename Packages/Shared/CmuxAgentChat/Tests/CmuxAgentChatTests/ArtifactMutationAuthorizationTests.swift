@@ -60,6 +60,68 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.provenance == .referenced)
     }
 
+    @Test("Codex custom-tool failure text without an exit status remains read-only")
+    func codexCustomToolFailureWithoutExitStatusIsReference() throws {
+        let patch = "*** Begin Patch\n*** Add File: /tmp/generated.md\n+draft\n*** End Patch"
+        let call = codexLine(type: "response_item", payload: [
+            "type": "custom_tool_call",
+            "name": "apply_patch",
+            "input": patch,
+            "call_id": "custom-patch",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "custom_tool_call_output",
+            "call_id": "custom-patch",
+            "output": "Script failed\napply_patch verification failed: context did not match",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifact = try #require(indexedArtifacts(result).first)
+
+        #expect(artifact.path.hasSuffix("/tmp/generated.md"))
+        #expect(artifact.provenance == .referenced)
+        guard case .toolUse(let toolUse) = try #require(result.messages.first).kind else {
+            Issue.record("Expected a completed tool use")
+            return
+        }
+        #expect(toolUse.status == .failed)
+    }
+
+    @Test("Successful shell output targets are created but shell inputs remain references")
+    func successfulShellMutationClassifiesOnlyOutputTargetAsCreated() throws {
+        let renderCall = codexLine(type: "response_item", payload: [
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": #"{"cmd":"python3 render.py --output /tmp/rendered.html"}"#,
+            "call_id": "render",
+        ])
+        let renderOutput = codexLine(type: "response_item", payload: [
+            "type": "function_call_output",
+            "call_id": "render",
+            "output": "Process exited with code 0\nOutput:\nrender complete",
+        ])
+        let readCall = codexLine(type: "response_item", payload: [
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": #"{"cmd":"cat /tmp/existing.md"}"#,
+            "call_id": "read",
+        ])
+        let readOutput = codexLine(type: "response_item", payload: [
+            "type": "function_call_output",
+            "call_id": "read",
+            "output": "Process exited with code 0\nOutput:\nexisting contents",
+        ])
+
+        let result = CodexTranscriptParser().parse(
+            lines: [renderCall, renderOutput, readCall, readOutput],
+            startingSeq: 0
+        )
+        let artifacts = indexedArtifacts(result)
+
+        #expect(artifacts.first { $0.path.hasSuffix("/tmp/rendered.html") }?.provenance == .created)
+        #expect(artifacts.first { $0.path.hasSuffix("/tmp/existing.md") }?.provenance == .referenced)
+    }
+
     @Test("Failed sidechain mutations do not grant created provenance")
     func failedSidechainMutationIsReference() throws {
         let invocation = claudeLine(type: "assistant", content: [[
