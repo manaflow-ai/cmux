@@ -332,6 +332,65 @@ struct AuthEnvironmentTests {
         #expect(state.workspaceId == nil)
     }
 
+    @MainActor
+    @Test("Window unregister evicts pricing and Pro welcome workspace reuse entries")
+    func windowUnregisterEvictsProWorkspaceReuseEntries() {
+        let appDelegate = AppDelegate()
+        let closedWindowId = UUID()
+        let remainingWindowId = UUID()
+        let closedPricingWorkspaceId = UUID()
+        let closedWelcomeWorkspaceId = UUID()
+        let remainingPricingWorkspaceId = UUID()
+        let remainingWelcomeWorkspaceId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+
+        _ = appDelegate.registerMainWindowContextForTesting(
+            windowId: closedWindowId,
+            tabManager: manager
+        )
+        appDelegate.proPricingWorkspaceReuseState.recordCreatedWorkspace(
+            id: closedPricingWorkspaceId,
+            scope: .window(closedWindowId)
+        )
+        appDelegate.proWelcomeWorkspaceReuseState.recordCreatedWorkspace(
+            id: closedWelcomeWorkspaceId,
+            scope: .window(closedWindowId)
+        )
+        appDelegate.proPricingWorkspaceReuseState.recordCreatedWorkspace(
+            id: remainingPricingWorkspaceId,
+            scope: .window(remainingWindowId)
+        )
+        appDelegate.proWelcomeWorkspaceReuseState.recordCreatedWorkspace(
+            id: remainingWelcomeWorkspaceId,
+            scope: .window(remainingWindowId)
+        )
+        defer {
+            appDelegate.proPricingWorkspaceReuseState.clear(scope: .window(closedWindowId))
+            appDelegate.proWelcomeWorkspaceReuseState.clear(scope: .window(closedWindowId))
+            appDelegate.proPricingWorkspaceReuseState.clear(scope: .window(remainingWindowId))
+            appDelegate.proWelcomeWorkspaceReuseState.clear(scope: .window(remainingWindowId))
+        }
+
+        appDelegate.unregisterMainWindowContextForTesting(windowId: closedWindowId)
+
+        #expect(appDelegate.proPricingWorkspaceReuseState.reusableWorkspaceID(
+            scope: .window(closedWindowId),
+            exists: { _ in true }
+        ) == nil)
+        #expect(appDelegate.proWelcomeWorkspaceReuseState.reusableWorkspaceID(
+            scope: .window(closedWindowId),
+            exists: { _ in true }
+        ) == nil)
+        #expect(appDelegate.proPricingWorkspaceReuseState.reusableWorkspaceID(
+            scope: .window(remainingWindowId),
+            exists: { _ in true }
+        ) == remainingPricingWorkspaceId)
+        #expect(appDelegate.proWelcomeWorkspaceReuseState.reusableWorkspaceID(
+            scope: .window(remainingWindowId),
+            exists: { _ in true }
+        ) == remainingWelcomeWorkspaceId)
+    }
+
     @Test("Pro welcome checklist automatic presentation requires Pro plan, feature flag, and unseen defaults")
     func proWelcomeChecklistAutomaticPresentationRequiresAllGates() {
         #expect(ProWelcomeChecklistPresenter.shouldPresentAutomatically(isPro: true, seen: false, flagEnabled: true))

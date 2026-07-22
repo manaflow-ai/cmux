@@ -311,6 +311,115 @@ struct CommandPaletteControlRegistrationTests {
         #expect(fallbackWindowID == windowA)
     }
 
+    @Test func windowDockWorkspaceRoutingUsesTheOwningWindowSelection() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let appDelegate = AppDelegate()
+        let callerManager = TabManager(autoWelcomeIfNeeded: false)
+        let targetManager = TabManager(autoWelcomeIfNeeded: false)
+        let firstTargetWorkspace = try #require(targetManager.tabs.first)
+        let selectedTargetWorkspace = targetManager.addWorkspace(
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+        let item = CommandPaletteControlRequestItem(
+            id: "palette.fixture",
+            title: "Fixture",
+            subtitle: "Tests",
+            shortcutHint: nil,
+            keywords: ["fixture"],
+            dismissOnRun: true,
+            arguments: []
+        )
+        var callerHandlerCalls = 0
+        var handledWorkspaceIDs: [UUID?] = []
+        let callerWindowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: callerManager,
+            commandPaletteControlHandler: { request in
+                callerHandlerCalls += 1
+                request.complete(.ran(item, result: .completed))
+            }
+        )
+        let targetWindowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: targetManager,
+            commandPaletteControlHandler: { request in
+                handledWorkspaceIDs.append(
+                    targetManager.selectedWorkspace?.id ?? targetManager.tabs.first?.id
+                )
+                request.complete(.ran(item, result: .completed))
+            }
+        )
+        AppDelegate.shared = appDelegate
+        TerminalController.shared.setActiveTabManager(callerManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: callerWindowID)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: targetWindowID)
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let ownerRouting = routing(workspaceID: targetWindowID)
+        #expect(
+            TerminalController.shared.controlInlineVSCodeWorkspace(
+                routing: ownerRouting,
+                tabManager: targetManager
+            )?.id == selectedTargetWorkspace.id
+        )
+        let ownerRun = TerminalController.shared.controlCommandPaletteRun(
+            routing: ownerRouting,
+            commandID: item.id,
+            arguments: [:],
+            workingDirectory: nil
+        )
+        guard case .completed(let ownerWindowID, _) = ownerRun else {
+            Issue.record("Expected Dock owner routing to run in its owning window")
+            return
+        }
+        #expect(ownerWindowID == targetWindowID)
+        #expect(handledWorkspaceIDs == [selectedTargetWorkspace.id])
+
+        targetManager.selectedTabId = nil
+        let aliasRouting = routing(
+            windowID: targetWindowID,
+            workspaceID: AppDelegate.windowDockAliasWorkspaceId
+        )
+        #expect(
+            TerminalController.shared.controlInlineVSCodeWorkspace(
+                routing: aliasRouting,
+                tabManager: targetManager
+            )?.id == firstTargetWorkspace.id
+        )
+        let aliasRun = TerminalController.shared.controlCommandPaletteRun(
+            routing: aliasRouting,
+            commandID: item.id,
+            arguments: [:],
+            workingDirectory: nil
+        )
+        guard case .completed(let aliasWindowID, _) = aliasRun else {
+            Issue.record("Expected Dock alias routing to run in its owning window")
+            return
+        }
+        #expect(aliasWindowID == targetWindowID)
+        #expect(handledWorkspaceIDs == [selectedTargetWorkspace.id, firstTargetWorkspace.id])
+
+        let unrelatedRouting = routing(workspaceID: UUID())
+        #expect(
+            TerminalController.shared.controlInlineVSCodeWorkspace(
+                routing: unrelatedRouting,
+                tabManager: targetManager
+            ) == nil
+        )
+        #expect(
+            TerminalController.shared.controlCommandPaletteRun(
+                routing: unrelatedRouting,
+                commandID: item.id,
+                arguments: [:],
+                workingDirectory: nil
+            ) == .windowNotFound
+        )
+        #expect(callerHandlerCalls == 0)
+    }
+
     private func routing(
         windowID: UUID? = nil,
         groupID: UUID? = nil,
