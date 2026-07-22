@@ -339,6 +339,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B7380102B7380102B7380102 /* BrowserPortalOmnibarSuggestionsConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7380101B7380101B7380101 /* BrowserPortalOmnibarSuggestionsConfiguration.swift */; };
 		B7380104B7380104B7380104 /* BrowserPortalOmnibarSuggestionsHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7380103B7380103B7380103 /* BrowserPortalOmnibarSuggestionsHostingView.swift */; };
 		B7380004B7380004B7380004 /* BrowserPortalOmnibarSuggestionsOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7380003B7380003B7380003 /* BrowserPortalOmnibarSuggestionsOverlay.swift */; };
+		C8657002C8657002C8657002 /* BrowserPortalRemoteNavigationRevealTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8657001C8657001C8657001 /* BrowserPortalRemoteNavigationRevealTests.swift */; };
 		B424PWRS000000000000PW01 /* BrowserPortalWebViewRenderingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PWRS000000000000PW02 /* BrowserPortalWebViewRenderingState.swift */; };
 		B4245003000000000000PW01 /* BrowserPrewarmedWebViewPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */; };
 		B6585001B6585001B658PW01 /* BrowserPrewarmedWebViewPoolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */; };
@@ -2575,6 +2576,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B7380101B7380101B7380101 /* BrowserPortalOmnibarSuggestionsConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalOmnibarSuggestionsConfiguration.swift; sourceTree = "<group>"; };
 		B7380103B7380103B7380103 /* BrowserPortalOmnibarSuggestionsHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalOmnibarSuggestionsHostingView.swift; sourceTree = "<group>"; };
 		B7380003B7380003B7380003 /* BrowserPortalOmnibarSuggestionsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalOmnibarSuggestionsOverlay.swift; sourceTree = "<group>"; };
+		C8657001C8657001C8657001 /* BrowserPortalRemoteNavigationRevealTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalRemoteNavigationRevealTests.swift; sourceTree = "<group>"; };
 		B424PWRS000000000000PW02 /* BrowserPortalWebViewRenderingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalWebViewRenderingState.swift; sourceTree = "<group>"; };
 		B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPrewarmedWebViewPool.swift; sourceTree = "<group>"; };
 		B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPrewarmedWebViewPoolTests.swift; sourceTree = "<group>"; };
@@ -6243,6 +6245,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C42660040000000000000002 /* BrowserPDFPreviewActionRegressionTests.swift */,
 					C42660050000000000000002 /* BrowserPDFPreviewActionUnitTests.swift */,
 					C0DE78950000000000000002 /* BrowserPortalFirstRevealScrollTests.swift */,
+					C8657001C8657001C8657001 /* BrowserPortalRemoteNavigationRevealTests.swift */,
 					C0DE62600000000000000002 /* BrowserWindowPortalRegistryNotificationTests.swift */,
 					19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */,
 					48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */,
@@ -8698,6 +8701,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C42660040000000000000001 /* BrowserPDFPreviewActionRegressionTests.swift in Sources */,
 				C42660050000000000000001 /* BrowserPDFPreviewActionUnitTests.swift in Sources */,
 				C0DE78950000000000000001 /* BrowserPortalFirstRevealScrollTests.swift in Sources */,
+				C8657002C8657002C8657002 /* BrowserPortalRemoteNavigationRevealTests.swift in Sources */,
 				B6585001B6585001B658PW01 /* BrowserPrewarmedWebViewPoolTests.swift in Sources */,
 				C2035A060000000000000001 /* BrowserSSLTrustBypassStateTests.swift in Sources */,
 				C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */,
