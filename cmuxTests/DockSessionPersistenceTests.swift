@@ -13,7 +13,9 @@ struct DockSessionPersistenceTests {
     func snapshotRoundTripPreservesLayoutAndPanelState() throws {
         let terminalID = UUID()
         let browserID = UUID()
+        let secondaryBrowserID = UUID()
         let profileID = UUID()
+        let sourceWorkspaceID = UUID()
         let agent = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "dock-agent-session",
@@ -87,6 +89,30 @@ struct DockSessionPersistenceTests {
             filePreview: nil,
             rightSidebarTool: nil
         )
+        let secondaryBrowser = SessionPanelSnapshot(
+            id: secondaryBrowserID,
+            type: .browser,
+            title: "Reference",
+            customTitle: nil,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: nil,
+            browser: SessionBrowserPanelSnapshot(
+                urlString: "https://example.com/reference",
+                profileID: nil,
+                shouldRenderWebView: true,
+                pageZoom: 1,
+                developerToolsVisible: false,
+                backHistoryURLStrings: [],
+                forwardHistoryURLStrings: []
+            ),
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
         let dock = SessionSplitContainerSnapshot(
             focusedPanelId: browserID,
             layout: .split(SessionSplitLayoutSnapshot(
@@ -97,11 +123,12 @@ struct DockSessionPersistenceTests {
                     selectedPanelId: browserID
                 )),
                 second: .pane(SessionPaneLayoutSnapshot(
-                    panelIds: [browserID, terminalID],
-                    selectedPanelId: terminalID
+                    panelIds: [secondaryBrowserID],
+                    selectedPanelId: secondaryBrowserID
                 ))
             )),
-            panels: [terminal, browser]
+            panels: [terminal, browser, secondaryBrowser],
+            sourceWorkspaceIdsByPanelId: [terminalID: sourceWorkspaceID]
         )
         let snapshot = makeAppSnapshot(workspaceDock: dock, windowDock: dock)
 
@@ -112,11 +139,12 @@ struct DockSessionPersistenceTests {
 
         #expect(decodedWorkspaceDock.focusedPanelId == browserID)
         #expect(decodedWindowDock.focusedPanelId == browserID)
+        #expect(decodedWorkspaceDock.sourceWorkspaceIdsByPanelId?[terminalID] == sourceWorkspaceID)
         guard case .split(let decodedLayout) = decodedWorkspaceDock.layout else {
             Issue.record("Expected restored Dock split layout")
             return
         }
-        #expect(decodedLayout.orientation == .horizontal)
+        #expect(decodedLayout.orientation.rawValue == SessionSplitOrientation.horizontal.rawValue)
         #expect(decodedLayout.dividerPosition == 0.37)
         guard case .pane(let firstPane) = decodedLayout.first else {
             Issue.record("Expected first restored Dock pane")
@@ -181,6 +209,13 @@ struct DockSessionPersistenceTests {
             layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
             panels: []
         ))
+        store.applyConfigurationIdentityForTesting(DockConfigIdentity(
+            sourcePath: nil,
+            baseDirectory: root.path
+        ))
+
+        #expect(store.panels.isEmpty)
+        #expect(store.hasAppliedConfigurationSeed)
 
         let generation = store.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
         let config = DockConfigResolution(

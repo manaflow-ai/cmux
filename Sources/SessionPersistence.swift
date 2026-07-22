@@ -1783,8 +1783,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// `true` when the workspace opted out of the status feature (None); absent for the default (feature engaged), so old manifests decode unchanged.
     var taskStatusHidden: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
+    var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
-
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
@@ -1807,13 +1807,13 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
 
 extension SessionWorkspaceSnapshot {
     var hasRestorablePanels: Bool {
-        !panels.isEmpty
+        !panels.isEmpty || dock != nil
     }
 }
 
 extension SessionWindowSnapshot {
     var hasRestorablePanels: Bool {
-        tabManager.workspaces.contains { $0.hasRestorablePanels }
+        dock != nil || tabManager.workspaces.contains { $0.hasRestorablePanels }
     }
 }
 
@@ -1832,8 +1832,8 @@ struct SessionWindowSnapshot: Codable, Sendable {
     /// Per-display-configuration remembered frames (LRU ring). Optional and
     /// additive so older persisted snapshots decode unchanged.
     var configFrames: [SessionConfigFrameEntry]? = nil
+    var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
-
 struct AppSessionSnapshot: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval

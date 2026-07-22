@@ -158,7 +158,7 @@ extension TerminalController: ControlSurfaceContext {
                     v2NonEmptyString($0.surface.debugTmuxStartCommand())
                 },
                 isTerminal: terminalPanel != nil,
-                resumeBinding: nil
+                resumeBinding: controlResumeBinding(from: dock.surfaceResumeBinding(panelId: panel.id))
             )
         }
 

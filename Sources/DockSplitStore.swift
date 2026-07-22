@@ -38,12 +38,16 @@ final class DockSplitStore: BonsplitDelegate {
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
-    private var hasLoadedConfiguration = false
-    private var configurationLoadTask: Task<Void, Never>?
-    private var configurationIdentityTask: Task<Void, Never>?
-    private var configurationLoadGeneration = 0
-    private var configurationIdentityGeneration = 0
-    private var configurationLoadRootDirectory: String?
+    @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
+    @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    @ObservationIgnored var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    var hasLoadedConfiguration = false
+    var configurationLoadTask: Task<Void, Never>?
+    var configurationIdentityTask: Task<Void, Never>?
+    var configurationLoadGeneration = 0
+    var configurationIdentityGeneration = 0
+    var configurationLoadRootDirectory: String?
     private var configurationSeedSuppressionGeneration: Int?
     private var activeConfigURL: URL?
     private var rootDirectoryOverride: String?
@@ -64,6 +68,7 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating
     private let settings: any SettingsReading
     private let settingsCatalog = SettingCatalog()
+    let agentSessionAutoResumeDefaults: UserDefaults
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
@@ -80,7 +85,8 @@ final class DockSplitStore: BonsplitDelegate {
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
-        settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard)
+        settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
+        agentSessionAutoResumeDefaults: UserDefaults = .standard
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
@@ -88,6 +94,7 @@ final class DockSplitStore: BonsplitDelegate {
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
         self.settings = settings
+        self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
             settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
@@ -135,6 +142,7 @@ final class DockSplitStore: BonsplitDelegate {
     // MARK: - Lookups
 
     func currentRemoteBrowserSettings() -> DockRemoteBrowserSettings { remoteBrowserSettingsProvider() }
+    func isBrowserAvailable() -> Bool { browserAvailabilityProvider() }
 
     func panel(for tabId: TabID) -> (any Panel)? {
         guard let panelId = surfaceIdToPanelId[tabId] else { return nil }
@@ -438,6 +446,11 @@ final class DockSplitStore: BonsplitDelegate {
         configurationLoadRootDirectory = rootDirectory; configurationLoadTask = Task {}
         return configurationLoadGeneration
     }
+
+    func applyConfigurationIdentityForTesting(_ identity: DockConfigIdentity) {
+        configurationIdentityGeneration += 1
+        applyConfigurationIdentity(identity, generation: configurationIdentityGeneration)
+    }
 #endif
 
     // MARK: - Panel construction
@@ -566,6 +579,9 @@ final class DockSplitStore: BonsplitDelegate {
     // MARK: - Tab metadata subscriptions
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
+        if let terminal = panel as? TerminalPanel {
+            configureAgentHibernationResume(for: terminal)
+        }
         if let browser = panel as? BrowserPanel {
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
@@ -630,6 +646,7 @@ final class DockSplitStore: BonsplitDelegate {
             panelCancellables.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
+            clearSessionRestoreState(panelId: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }
     }
@@ -662,29 +679,6 @@ final class DockSplitStore: BonsplitDelegate {
         reload()
     }
 
-    private func removeAllPanels() {
-        let tabIds = Set(bonsplitController.allTabIds)
-        pendingCloseConfirmDockTabIds.removeAll(); tabCloseButtonCloseDockTabIds.removeAll()
-        forceCloseDockTabIds.formUnion(tabIds)
-        defer { forceCloseDockTabIds.subtract(tabIds) }
-        for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
-        collapseToSingleEmptyPane()
-        reconcilePanels()
-        for panel in panels.values { panel.close() }
-        panels.removeAll(); surfaceIdToPanelId.removeAll()
-        detachedSurfaceTransfersByPanelId.removeAll()
-        panelCancellables.values.forEach { $0.cancel() }
-        panelCancellables.removeAll()
-    }
-
-    private func cancelConfigurationTasks() {
-        configurationLoadGeneration += 1
-        configurationIdentityGeneration += 1
-        configurationLoadTask?.cancel()
-        configurationIdentityTask?.cancel()
-        configurationLoadTask = nil; configurationIdentityTask = nil; configurationLoadRootDirectory = nil
-    }
-
     private func startConfigurationLoad(replacingPanels: Bool) {
         configurationLoadGeneration += 1
         let generation = configurationLoadGeneration
@@ -707,6 +701,11 @@ final class DockSplitStore: BonsplitDelegate {
     private func applyConfigurationIdentity(_ current: DockConfigIdentity, generation: Int) {
         guard generation == configurationIdentityGeneration else { return }
         configurationIdentityTask = nil
+        if lastLoadedConfigIdentity == nil, hasAppliedConfigurationSeed {
+            lastLoadedConfigIdentity = current
+            resolvedBaseDirectory = current.baseDirectory
+            return
+        }
         guard current.requiresPanelReload(comparedTo: lastLoadedConfigIdentity) else {
             lastLoadedConfigIdentity = current
             resolvedBaseDirectory = current.baseDirectory
