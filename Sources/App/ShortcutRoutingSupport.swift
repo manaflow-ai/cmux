@@ -762,20 +762,37 @@ func shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
 }
 
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+    cmuxOwningGhosttyView(for: responder, includingHostedSurfaceDescendants: false)
+}
+
+func cmuxTerminalKeyEquivalentOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+    cmuxOwningGhosttyView(for: responder, includingHostedSurfaceDescendants: true)
+}
+
+private func cmuxOwningGhosttyView(
+    for responder: NSResponder?,
+    includingHostedSurfaceDescendants: Bool
+) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {
         return ghosttyView
     }
 
     if let view = responder as? NSView,
-       let ghosttyView = cmuxOwningGhosttyView(for: view) {
+       let ghosttyView = cmuxOwningGhosttyView(
+           for: view,
+           includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+       ) {
         return ghosttyView
     }
 
     if let textView = responder as? NSTextView {
         if textView.isFieldEditor,
            let ownerView = cmuxFieldEditorOwnerView(textView),
-           let ghosttyView = cmuxOwningGhosttyView(for: ownerView) {
+           let ghosttyView = cmuxOwningGhosttyView(
+               for: ownerView,
+               includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+           ) {
             return ghosttyView
         }
     }
@@ -786,7 +803,10 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
             return ghosttyView
         }
         if let view = next as? NSView,
-           let ghosttyView = cmuxOwningGhosttyView(for: view) {
+           let ghosttyView = cmuxOwningGhosttyView(
+               for: view,
+               includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+           ) {
             return ghosttyView
         }
         current = next.nextResponder
@@ -809,7 +829,10 @@ func cmuxFieldEditorOwnerView(_ editor: NSTextView) -> NSView? {
     return editor.superview
 }
 
-private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
+private func cmuxOwningGhosttyView(
+    for view: NSView,
+    includingHostedSurfaceDescendants: Bool
+) -> GhosttyNSView? {
     if let ghosttyView = view as? GhosttyNSView {
         return ghosttyView
     }
@@ -818,6 +841,10 @@ private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
     while let candidate = current {
         if let ghosttyView = candidate as? GhosttyNSView {
             return ghosttyView
+        }
+        if includingHostedSurfaceDescendants,
+           let hostedView = candidate as? GhosttySurfaceScrollView {
+            return hostedView.surfaceView
         }
         current = candidate.superview
     }

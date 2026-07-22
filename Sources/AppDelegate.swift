@@ -6728,6 +6728,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarIntentActive = keyboardFocusCoordinator(for: window)?.activeRightSidebarMode != nil
         guard let responder = window.firstResponder else { return sidebarIntentActive }
         if isRightSidebarFocusResponder(responder, in: window) { return true }
+        if sidebarIntentActive {
+            if responder is NSWindow { return true }
+            if cmuxTerminalKeyEquivalentOwningGhosttyView(for: responder) != nil {
+                return true
+            }
+        }
         if terminalKeyboardFocusRequest(for: responder) != nil { return false }
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let panelId = ghosttyView.terminalSurface?.id else { return false }
@@ -16934,7 +16940,7 @@ private extension NSWindow {
         // When a terminal owns first responder, bypass SwiftUI's hosting view:
         // after browser focus churn it can claim key equivalents without firing.
         // Non-Command keys go to Ghostty; Command keys go to the main menu.
-        let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
+        let firstResponderGhosttyView = cmuxTerminalKeyEquivalentOwningGhosttyView(for: self.firstResponder)
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
