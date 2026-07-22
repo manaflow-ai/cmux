@@ -7175,15 +7175,25 @@ mod tests {
             )
             .unwrap();
 
-        assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)),
-            Ok(MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::TabAdded, surface, .. }))
-                if surface == Some(second.id)
-        ));
-        assert!(matches!(
-            events.recv_timeout(Duration::from_secs(1)),
-            Ok(MuxEvent::TreeSelectionChanged)
-        ));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut saw_added = false;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let event = events.recv_timeout(remaining).expect("tab events arrive before timeout");
+            match event {
+                MuxEvent::TreeDelta(TreeDelta {
+                    kind: TreeDeltaKind::TabAdded, surface, ..
+                }) if surface == Some(second.id) => saw_added = true,
+                MuxEvent::TreeSelectionChanged if saw_added => break,
+                MuxEvent::TreeSelectionChanged => {
+                    panic!("selection resync arrived before the tab-added delta")
+                }
+                _ => {
+                    // The browser worker may emit state telemetry between the
+                    // synchronous tree events. It does not affect their order.
+                }
+            }
+        }
         first.kill();
         second.kill();
     }
