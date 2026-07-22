@@ -12,25 +12,12 @@ extension CMUXCLI {
         let (argumentOptions, positional) = parseRepeatedOption(afterWindow, name: "--arg")
         let arguments = try parsePaletteActionArguments(argumentOptions)
         let explicitWindowRaw = windowOption ?? windowOverride
-        let environment = ProcessInfo.processInfo.environment
-        let callerWorkspaceRaw = explicitWindowRaw == nil
-            ? nonEmptyPaletteRoutingValue(environment["CMUX_WORKSPACE_ID"])
-            : nil
-        let windowRaw = explicitWindowRaw
-            ?? (callerWorkspaceRaw == nil
-                ? nonEmptyPaletteRoutingValue(environment["CMUX_WINDOW_ID"])
-                : nil)
         var params: [String: Any] = [:]
-        if let windowID = try normalizeWindowHandle(windowRaw, client: client) {
-            params["window_id"] = windowID
-        }
-        if let workspaceID = try normalizeWorkspaceHandle(
-            callerWorkspaceRaw,
+        try applyWindowOrCallerContext(
+            to: &params,
             client: client,
-            windowHandle: nil
-        ) {
-            params["workspace_id"] = workspaceID
-        }
+            windowRaw: explicitWindowRaw
+        )
 
         let subcommand = positional.first?.lowercased() ?? "list"
         switch subcommand {
@@ -92,12 +79,6 @@ extension CMUXCLI {
         }
     }
 
-    private func nonEmptyPaletteRoutingValue(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     func runInlineVSCodeCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -130,18 +111,19 @@ extension CMUXCLI {
             isDirectory: true
         ).standardizedFileURL.path
         let windowRaw = windowOption ?? windowOverride
-        let windowID = try normalizeWindowHandle(windowRaw, client: client)
-        let workspaceRaw = workspaceOption
-            ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-        let workspaceID = try normalizeWorkspaceHandle(
-            workspaceRaw,
-            client: client,
-            windowHandle: windowID
-        )
-
         var params: [String: Any] = ["path": absolutePath]
-        if let windowID { params["window_id"] = windowID }
-        if let workspaceID { params["workspace_id"] = workspaceID }
+        if workspaceOption == nil, windowRaw == nil {
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
+        } else {
+            let windowID = try normalizeWindowHandle(windowRaw, client: client)
+            let workspaceID = try normalizeWorkspaceHandle(
+                workspaceOption,
+                client: client,
+                windowHandle: windowID
+            )
+            if let windowID { params["window_id"] = windowID }
+            if let workspaceID { params["workspace_id"] = workspaceID }
+        }
         let payload = try client.sendV2(method: "vscode.open", params: params)
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))

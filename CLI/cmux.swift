@@ -17099,7 +17099,7 @@ struct CMUXCLI {
         optionValue(args, name: "--window") ?? windowOverride
     }
 
-    private func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
+    func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
         if let windowHandle = try normalizeWindowHandle(windowRaw, client: client) {
             params["window_id"] = windowHandle
             return
@@ -17113,6 +17113,11 @@ struct CMUXCLI {
         let surfaceHandle = try normalizeSurfaceHandle(env["CMUX_SURFACE_ID"], client: client, workspaceHandle: workspaceHandle)
         if let surfaceHandle {
             params["surface_id"] = surfaceHandle
+        }
+        if workspaceHandle == nil,
+           surfaceHandle == nil,
+           let windowHandle = try normalizeWindowHandle(env["CMUX_WINDOW_ID"], client: client) {
+            params["window_id"] = windowHandle
         }
     }
 
