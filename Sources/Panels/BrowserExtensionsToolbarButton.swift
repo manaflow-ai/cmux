@@ -25,7 +25,8 @@ struct BrowserExtensionsToolbarButton: View {
     var body: some View {
         GeometryReader { proxy in
             toolbarContent(
-                maximumPinnedActions: Self.maximumPinnedActions(
+                actions: Self.visiblePinnedActions(
+                    in: snapshot.extensions,
                     availableWidth: proxy.size.width,
                     hitSize: hitSize
                 )
@@ -101,9 +102,23 @@ struct BrowserExtensionsToolbarButton: View {
         return min(4, max(0, Int(availableWidth / hitSize) - 1))
     }
 
-    private func toolbarContent(maximumPinnedActions: Int) -> some View {
+    static func visiblePinnedActions(
+        in extensions: [BrowserWebExtensionPresentationItem],
+        availableWidth: CGFloat,
+        hitSize: CGFloat
+    ) -> [BrowserWebExtensionPresentationItem] {
+        let maximumCount = maximumPinnedActions(
+            availableWidth: availableWidth,
+            hitSize: hitSize
+        )
+        return Array(extensions.lazy
+            .filter { $0.hasAction && $0.isToolbarPinned }
+            .prefix(maximumCount))
+    }
+
+    private func toolbarContent(actions: [BrowserWebExtensionPresentationItem]) -> some View {
         HStack(spacing: 0) {
-            ForEach(Array(pinnedActions.prefix(maximumPinnedActions))) { item in
+            ForEach(actions) { item in
                 BrowserExtensionToolbarActionButton(
                     item: item,
                     iconPointSize: iconPointSize,
@@ -429,6 +444,62 @@ private struct BrowserExtensionExternalAppItem: Identifiable {
     let appStoreURL: URL
 }
 
+@MainActor
+final class BrowserExtensionPreparationCoordinator {
+    private(set) var isActive = false
+    private var generation = 0
+    private var task: Task<Void, Never>?
+
+    func activate() {
+        isActive = true
+    }
+
+    func deactivate() {
+        isActive = false
+        generation &+= 1
+        task?.cancel()
+        task = nil
+    }
+
+    func begin(
+        operation: @escaping @MainActor () async throws -> BrowserWebExtensionInstallPreview,
+        discardPreparedInstall: @escaping @MainActor (UUID) async -> Void,
+        onPrepared: @escaping @MainActor (BrowserWebExtensionInstallPreview) -> Void,
+        onFailure: @escaping @MainActor (any Error) -> Void,
+        onCancelled: @escaping @MainActor () -> Void = {}
+    ) {
+        guard isActive else { return }
+        task?.cancel()
+        generation &+= 1
+        let operationGeneration = generation
+        task = Task { @MainActor [weak self] in
+            do {
+                let preview = try await operation()
+                guard let self,
+                      self.isActive,
+                      !Task.isCancelled,
+                      operationGeneration == self.generation else {
+                    await discardPreparedInstall(preview.id)
+                    return
+                }
+                onPrepared(preview)
+            } catch is CancellationError {
+                guard let self,
+                      self.isActive,
+                      operationGeneration == self.generation else { return }
+                onCancelled()
+            } catch {
+                guard let self,
+                      self.isActive,
+                      operationGeneration == self.generation else { return }
+                onFailure(error)
+            }
+            guard let self, operationGeneration == self.generation else { return }
+            self.task = nil
+        }
+    }
+}
+
 struct BrowserExtensionsManagerPage: View {
     @ObservedObject var panel: BrowserPanel
     let appearance: PanelAppearance
@@ -441,9 +512,7 @@ struct BrowserExtensionsManagerPage: View {
     @State private var preparedInstall: BrowserWebExtensionInstallPreview?
     @State private var pendingPreparedInstallID: UUID?
     @State private var removalCandidate: BrowserWebExtensionPresentationItem?
-    @State private var preparationTask: Task<Void, Never>?
-    @State private var preparationGeneration = 0
-    @State private var isManagerPageActive = false
+    @State private var preparationCoordinator = BrowserExtensionPreparationCoordinator()
 
     static func discoverTrustedLocalApps(
         applicationsDirectories: [URL] = [
@@ -643,13 +712,13 @@ struct BrowserExtensionsManagerPage: View {
         .environment(\.colorScheme, cmuxReadableColorScheme(for: appearance.backgroundColor))
         .accessibilityIdentifier("BrowserExtensionsManagerPage")
         .onAppear {
-            isManagerPageActive = true
+            preparationCoordinator.activate()
         }
         .onDisappear {
-            isManagerPageActive = false
-            preparationGeneration &+= 1
-            preparationTask?.cancel()
-            preparationTask = nil
+            preparationCoordinator.deactivate()
+            installStatus = nil
+            installingCatalogID = nil
+            installingLocalAppID = nil
             let previewID = pendingPreparedInstallID
             pendingPreparedInstallID = nil
             preparedInstall = nil
@@ -709,7 +778,7 @@ struct BrowserExtensionsManagerPage: View {
         picker.begin { response in
             guard response == .OK,
                   let source = picker.url,
-                  isManagerPageActive else { return }
+                  preparationCoordinator.isActive else { return }
             beginPreparation {
                 try await panel.prepareBrowserWebExtensionInstall(from: source)
             }
@@ -738,39 +807,34 @@ struct BrowserExtensionsManagerPage: View {
     private func beginPreparation(
         _ operation: @escaping @MainActor () async throws -> BrowserWebExtensionInstallPreview
     ) {
-        guard isManagerPageActive else { return }
-        preparationTask?.cancel()
-        preparationGeneration &+= 1
-        let generation = preparationGeneration
+        guard preparationCoordinator.isActive else { return }
         installStatus = .installing
-        preparationTask = Task { @MainActor in
-            do {
-                let preview = try await operation()
-                guard !Task.isCancelled,
-                      isManagerPageActive,
-                      generation == preparationGeneration else {
-                    await panel.cancelPreparedBrowserWebExtensionInstall(id: preview.id)
-                    return
-                }
+        preparationCoordinator.begin(
+            operation: operation,
+            discardPreparedInstall: { previewID in
+                await panel.cancelPreparedBrowserWebExtensionInstall(id: previewID)
+            },
+            onPrepared: { preview in
                 presentPreparedInstall(preview)
                 installStatus = nil
-            } catch is CancellationError {
-                // Page teardown owns cancellation and must not publish an error
-                // into a view that is no longer reachable.
-            } catch {
-                guard isManagerPageActive,
-                      generation == preparationGeneration else { return }
+                installingCatalogID = nil
+                installingLocalAppID = nil
+            },
+            onFailure: { error in
                 if error as? BrowserWebExtensionManagementError == .upToDate {
                     installStatus = .upToDate
                 } else {
                     installStatus = .failed(error.localizedDescription)
                 }
+                installingCatalogID = nil
+                installingLocalAppID = nil
+            },
+            onCancelled: {
+                installStatus = nil
+                installingCatalogID = nil
+                installingLocalAppID = nil
             }
-            guard generation == preparationGeneration else { return }
-            installingCatalogID = nil
-            installingLocalAppID = nil
-            preparationTask = nil
-        }
+        )
     }
 
     @MainActor
