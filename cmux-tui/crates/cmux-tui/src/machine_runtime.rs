@@ -236,6 +236,8 @@ fn ssh_arguments(
         OsString::from("-o"),
         OsString::from("ForwardAgent=no"),
         OsString::from("-o"),
+        OsString::from("ForwardX11=no"),
+        OsString::from("-o"),
         OsString::from("ClearAllForwardings=yes"),
     ];
     if let Some(port) = port {
