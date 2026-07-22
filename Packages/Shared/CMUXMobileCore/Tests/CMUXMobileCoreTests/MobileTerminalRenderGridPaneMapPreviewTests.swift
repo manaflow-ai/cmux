@@ -92,6 +92,54 @@ import Testing
         #expect(rows.last == "end")
     }
 
+    @Test func completePreviewKeepsShortTerminalContentAtTheTop() throws {
+        let preview = try Self.frame(
+            columns: 4,
+            rowCount: 40,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "top"),
+                .init(row: 2, column: 0, text: "end"),
+            ]
+        ).paneMapPreview()
+
+        #expect(preview.firstSourceRow == 0)
+        #expect(preview.rows.count == 40)
+        #expect(preview.textRows[0] == "top ")
+        #expect(preview.textRows[2] == "end ")
+        #expect(preview.textRows[39] == "    ")
+    }
+
+    @Test func completePreviewPreservesTUIStylesAndWideGlyphContinuations() throws {
+        let styles: [MobileTerminalRenderGridFrame.Style] = [
+            .default,
+            .init(id: 1, foreground: "#00ff00", background: "#001100", bold: true),
+            .init(id: 2, inverse: true),
+        ]
+        let frame = try MobileTerminalRenderGridFrame(
+            surfaceID: "terminal-preview",
+            stateSeq: 1,
+            columns: 6,
+            rows: 2,
+            styles: styles,
+            rowSpans: [
+                .init(row: 0, column: 0, styleID: 1, text: "界A", cellWidth: 3),
+                .init(row: 1, column: 1, styleID: 2, text: "BOX"),
+            ]
+        )
+
+        let preview = frame.paneMapPreview()
+
+        #expect(preview.rows[0][0].text == "界")
+        #expect(preview.rows[0][0].styleID == 1)
+        #expect(preview.rows[0][0].columnSpan == 2)
+        #expect(preview.rows[0][1].text.isEmpty)
+        #expect(preview.rows[0][1].styleID == 1)
+        #expect(preview.rows[0][1].columnSpan == 0)
+        #expect(preview.rows[1][1].styleID == 2)
+        #expect(preview.stylesByID[1]?.background == "#001100")
+        #expect(preview.stylesByID[2]?.inverse == true)
+    }
+
     private static func frame(
         columns: Int,
         rowCount: Int,

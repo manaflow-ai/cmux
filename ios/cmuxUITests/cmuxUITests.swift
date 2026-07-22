@@ -1561,8 +1561,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.otherElements["MobileSurfaceDeck"].waitForExistence(timeout: 4))
 
-        let leftDeckGroup = app.descendants(matching: .any)[
-            "MobileSurfaceDeckPane-preview-pane-left"
+        let leftTopDeckGroup = app.descendants(matching: .any)[
+            "MobileSurfaceDeckPane-preview-pane-left-top"
+        ]
+        let leftBottomDeckGroup = app.descendants(matching: .any)[
+            "MobileSurfaceDeckPane-preview-pane-left-bottom"
         ]
         let testsDeckGroup = app.descendants(matching: .any)[
             "MobileSurfaceDeckPane-preview-pane-tests"
@@ -1570,12 +1573,13 @@ final class cmuxUITests: XCTestCase {
         let serverDeckGroup = app.descendants(matching: .any)[
             "MobileSurfaceDeckPane-preview-pane-server"
         ]
-        XCTAssertTrue(leftDeckGroup.exists)
+        XCTAssertTrue(leftTopDeckGroup.exists)
+        XCTAssertTrue(leftBottomDeckGroup.exists)
         XCTAssertTrue(testsDeckGroup.exists)
         XCTAssertTrue(serverDeckGroup.exists)
         XCTAssertTrue(
             app.descendants(matching: .any)[
-                "MobileSurfaceDeckPaneNumber-preview-pane-left"
+                "MobileSurfaceDeckPaneNumber-preview-pane-left-top"
             ].exists
         )
         XCTAssertEqual(
@@ -1588,18 +1592,25 @@ final class cmuxUITests: XCTestCase {
 
         let overlay = app.otherElements["MobilePaneMapOverlay"]
         XCTAssertTrue(overlay.waitForExistence(timeout: 4))
-        let leftPane = app.descendants(matching: .any)["MobilePaneMapPane-preview-pane-left"]
+        let leftTopPane = app.descendants(matching: .any)[
+            "MobilePaneMapPane-preview-pane-left-top"
+        ]
+        let leftBottomPane = app.descendants(matching: .any)[
+            "MobilePaneMapPane-preview-pane-left-bottom"
+        ]
         let testsPane = app.descendants(matching: .any)["MobilePaneMapPane-preview-pane-tests"]
         let serverPane = app.descendants(matching: .any)["MobilePaneMapPane-preview-pane-server"]
-        XCTAssertTrue(leftPane.waitForExistence(timeout: 2))
+        XCTAssertTrue(leftTopPane.waitForExistence(timeout: 2))
+        XCTAssertTrue(leftBottomPane.exists)
         XCTAssertTrue(testsPane.exists)
         XCTAssertTrue(serverPane.exists)
-        XCTAssertLessThan(leftPane.frame.midX, testsPane.frame.midX)
+        XCTAssertLessThan(leftTopPane.frame.midX, testsPane.frame.midX)
+        XCTAssertLessThan(leftTopPane.frame.midY, leftBottomPane.frame.midY)
         XCTAssertLessThan(testsPane.frame.midY, serverPane.frame.midY)
-        XCTAssertEqual(leftPane.value as? String, "Focused on Mac")
+        XCTAssertEqual(leftTopPane.value as? String, "Focused on Mac")
         XCTAssertTrue(
             app.descendants(matching: .any)[
-                "MobilePaneMapPaneNumber-preview-pane-left"
+                "MobilePaneMapPaneNumber-preview-pane-left-top"
             ].exists
         )
 
@@ -1611,10 +1622,60 @@ final class cmuxUITests: XCTestCase {
         tap(app.buttons["MobilePaneMapTab-preview-zsh"], in: app)
         let zshTile = app.buttons["MobilePaneMapTile-preview-zsh"]
         XCTAssertTrue(zshTile.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["MobilePaneMapCaption-preview-zsh"].exists)
+        XCTAssertTrue(overlay.exists, "Switching tabs must stay inside the pane map")
         tap(zshTile, in: app)
 
         XCTAssertTrue(overlay.waitForNonExistence(timeout: 4))
         XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-preview-zsh"].isSelected)
+    }
+
+    @MainActor
+    func testPanesPreviewReordersCardsAndPinchZoomsTerminal() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_PANES_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
+        tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
+
+        let overlay = app.otherElements["MobilePaneMapOverlay"]
+        XCTAssertTrue(overlay.waitForExistence(timeout: 4))
+        let leftTopPane = app.descendants(matching: .any)[
+            "MobilePaneMapPane-preview-pane-left-top"
+        ]
+        let testsPane = app.descendants(matching: .any)["MobilePaneMapPane-preview-pane-tests"]
+        XCTAssertTrue(leftTopPane.waitForExistence(timeout: 2))
+        XCTAssertTrue(testsPane.exists)
+
+        let originalLeftTopFrame = leftTopPane.frame
+        let dragStart = leftTopPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let dragEnd = testsPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        dragStart.press(
+            forDuration: 0.8,
+            thenDragTo: dragEnd,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.5
+        )
+        let reordered = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                block: { _, _ in leftTopPane.frame.midX > originalLeftTopFrame.midX + 20 }
+            ),
+            object: leftTopPane
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [reordered], timeout: 4),
+            .completed,
+            "Dragging a pane card must move it into the destination layout slot"
+        )
+
+        let claudeTile = app.buttons["MobilePaneMapTile-preview-claude"]
+        XCTAssertTrue(claudeTile.waitForExistence(timeout: 2))
+        claudeTile.pinch(withScale: 2, velocity: 2)
+
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-preview-claude"].isSelected)
     }
 
     @MainActor
