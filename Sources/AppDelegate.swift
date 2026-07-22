@@ -3560,6 +3560,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     minHeight: minHeight
                 )
             }
+        } else if availableDisplays.contains(where: { $0.visibleFrame.intersects(frame) }) {
+            resolvedFrame = frame
         } else if let fallbackDisplay,
                   let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {
             resolvedFrame = remappedFrame(
@@ -3581,10 +3583,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolvedFrame = frame
         }
 
-        // Display identity decides whether the saved coordinates can be reused
-        // or must first be remapped. Visibility is a separate invariant: every
-        // restored candidate passes through the same fit core used after live
-        // display-topology changes.
+        // Display identity and overlap with current displays decide whether the
+        // saved coordinates can be reused or must first be remapped. Visibility
+        // is a separate invariant: every restored candidate passes through the
+        // same fit core used after live display-topology changes.
         return MainWindowVisibleFrameFitCore().fittedFrame(
             for: resolvedFrame,
             displays: availableDisplays,
