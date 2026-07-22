@@ -11,6 +11,13 @@ final class AgentGUIService {
         let requiresPagingRestart: Bool
     }
 
+    struct ArtifactSessionContext: Equatable {
+        let sessionID: String
+        let agentKind: AgentKind
+        let transcriptPath: String
+        let workingDirectory: String?
+    }
+
     // Assigned once during app startup before control-socket requests can arrive.
     nonisolated(unsafe) static private(set) var shared: AgentGUIService?
 
@@ -404,6 +411,25 @@ final class AgentGUIService {
             self.handleJournalEvents(events, sessionID: sessionID)
         }
         return pipeline
+    }
+
+    func artifactSessionContext(sessionID: String) -> ArtifactSessionContext? {
+        let id = AgentSessionID(rawValue: sessionID)
+        guard let snapshot = reducer.snapshot(for: id),
+              let transcriptPath = transcriptResolver.transcriptPath(
+                sessionID: id,
+                kind: snapshot.kind,
+                cwd: snapshot.cwd,
+                evidencePath: reducer.evidence(for: id)?.transcriptPath
+              ) else {
+            return nil
+        }
+        return ArtifactSessionContext(
+            sessionID: sessionID,
+            agentKind: snapshot.kind,
+            transcriptPath: transcriptPath,
+            workingDirectory: snapshot.cwd
+        )
     }
 
     private func indexProcessIdentity(for sessionID: AgentSessionID) {

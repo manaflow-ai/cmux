@@ -7,6 +7,13 @@ private enum TerminalControllerChatArtifactIndexProvider {
     static let ordering = ChatArtifactGalleryOrderingCache()
 }
 
+private struct TerminalControllerChatArtifactSessionContext {
+    let sessionID: String
+    let agentKind: ChatAgentKind
+    let transcriptPath: String
+    let workingDirectory: String?
+}
+
 extension TerminalController {
     func v2MobileChatArtifactGallery(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -72,18 +79,16 @@ extension TerminalController {
     func mobileChatArtifactIndexedSession(
         sessionID: String
     ) async throws -> (sessionID: String, snapshot: AgentChatArtifactIndex.Snapshot)? {
-        guard let service = agentChatTranscriptService,
-              let record = service.sessionRecord(sessionID: sessionID),
-              let transcriptPath = service.resolver.transcriptPath(for: record) else {
+        guard let context = mobileChatArtifactSessionContext(sessionID: sessionID) else {
             return nil
         }
         let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
-            sessionID: record.sessionID,
-            agentKind: record.agentKind,
-            transcriptPath: transcriptPath,
-            workingDirectory: record.workingDirectory
+            sessionID: context.sessionID,
+            agentKind: context.agentKind,
+            transcriptPath: context.transcriptPath,
+            workingDirectory: context.workingDirectory
         )
-        return (record.sessionID, snapshot)
+        return (context.sessionID, snapshot)
     }
 
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {
@@ -270,21 +275,15 @@ extension TerminalController {
                 data: nil
             ))
         }
-        guard let service = agentChatTranscriptService else {
-            return .failure(.err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil))
-        }
-        guard let record = service.sessionRecord(sessionID: sessionID) else {
-            return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
-        }
-        guard let transcriptPath = service.resolver.transcriptPath(for: record) else {
+        guard let context = mobileChatArtifactSessionContext(sessionID: sessionID) else {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
         do {
             let pathResult = try await TerminalControllerChatArtifactIndexProvider.shared.canonicalPath(
-                sessionID: record.sessionID,
-                agentKind: record.agentKind,
-                transcriptPath: transcriptPath,
-                workingDirectory: record.workingDirectory,
+                sessionID: context.sessionID,
+                agentKind: context.agentKind,
+                transcriptPath: context.transcriptPath,
+                workingDirectory: context.workingDirectory,
                 requestedPath: requestedPath,
                 operation: operation.indexOperation,
                 directoryAccessMode: mobileArtifactDirectoryAccessMode()
@@ -309,6 +308,30 @@ extension TerminalController {
         } catch {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
+    }
+
+    private func mobileChatArtifactSessionContext(
+        sessionID: String
+    ) -> TerminalControllerChatArtifactSessionContext? {
+        if let context = AgentGUIService.shared?.artifactSessionContext(sessionID: sessionID) {
+            return TerminalControllerChatArtifactSessionContext(
+                sessionID: context.sessionID,
+                agentKind: ChatAgentKind(source: context.agentKind.rawValue),
+                transcriptPath: context.transcriptPath,
+                workingDirectory: context.workingDirectory
+            )
+        }
+        guard let service = agentChatTranscriptService,
+              let record = service.sessionRecord(sessionID: sessionID),
+              let transcriptPath = service.resolver.transcriptPath(for: record) else {
+            return nil
+        }
+        return TerminalControllerChatArtifactSessionContext(
+            sessionID: record.sessionID,
+            agentKind: record.agentKind,
+            transcriptPath: transcriptPath,
+            workingDirectory: record.workingDirectory
+        )
     }
 
     /// Resolves the persisted mobile folder setting into the shared scope policy.
