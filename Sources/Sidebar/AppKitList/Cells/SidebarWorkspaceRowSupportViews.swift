@@ -49,6 +49,8 @@ final class SidebarRowMarkdownTextView: NSTextView, NSTextViewDelegate {
     private var onOpenURL: ((URL) -> Void)?
     private var lineHeight: CGFloat = 0
 
+    override var acceptsFirstResponder: Bool { false }
+
     init() {
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
