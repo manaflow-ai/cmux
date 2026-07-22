@@ -3,6 +3,7 @@ import Bonsplit
 @testable import CmuxBrowser
 import CryptoKit
 import Foundation
+import Network
 import os
 import Testing
 import WebKit
@@ -139,6 +140,13 @@ struct BrowserWebExtensionsManagerTests {
             }
         }
 
+        func load(_ request: URLRequest, in webView: WKWebView) async throws {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                webView.load(request)
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             finish(.success(()))
         }
@@ -164,6 +172,111 @@ struct BrowserWebExtensionsManagerTests {
             self.continuation = nil
             continuation.resume(with: result)
         }
+    }
+
+    private final class ExtensionHTTPFixtureServer {
+        enum ServerError: Error {
+            case listenerDidNotBecomeReady
+            case listenerPortUnavailable
+        }
+
+        private let listener: NWListener
+        private let queue = DispatchQueue(label: "cmux.web-extension-fixture-http")
+        private let lock = NSLock()
+        private let routes: [String: (contentType: String, body: String)]
+        private var requestCounts: [String: Int] = [:]
+        private(set) var port: UInt16 = 0
+
+        init(routes: [String: (contentType: String, body: String)]) throws {
+            self.routes = routes
+            let parameters = NWParameters.tcp
+            parameters.requiredLocalEndpoint = .hostPort(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: .any
+            )
+            listener = try NWListener(using: parameters)
+            let ready = DispatchSemaphore(value: 0)
+            listener.stateUpdateHandler = { state in
+                if case .ready = state { ready.signal() }
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.handle(connection)
+            }
+            listener.start(queue: queue)
+            guard ready.wait(timeout: .now() + 2) == .success else {
+                throw ServerError.listenerDidNotBecomeReady
+            }
+            guard let port = listener.port?.rawValue else {
+                throw ServerError.listenerPortUnavailable
+            }
+            self.port = port
+        }
+
+        func url(path: String) -> URL {
+            URL(string: "http://127.0.0.1:\(port)\(path)")!
+        }
+
+        func requestCount(for path: String) -> Int {
+            lock.withLock { requestCounts[path, default: 0] }
+        }
+
+        func stop() {
+            listener.cancel()
+        }
+
+        private func handle(_ connection: NWConnection) {
+            connection.start(queue: queue)
+            receiveRequest(on: connection)
+        }
+
+        private func receiveRequest(on connection: NWConnection, buffer: Data = Data()) {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, error in
+                guard let self else { return }
+                if error != nil {
+                    connection.cancel()
+                    return
+                }
+                var nextBuffer = buffer
+                if let data { nextBuffer.append(data) }
+                guard let request = String(data: nextBuffer, encoding: .utf8),
+                      request.contains("\r\n\r\n") else {
+                    self.receiveRequest(on: connection, buffer: nextBuffer)
+                    return
+                }
+                let requestLine = request.split(separator: "\r\n", maxSplits: 1).first ?? ""
+                let rawPath = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+                let path = rawPath.split(separator: "?", maxSplits: 1).first.map(String.init) ?? rawPath
+                self.lock.withLock { self.requestCounts[path, default: 0] += 1 }
+                self.sendResponse(self.routes[path], on: connection)
+            }
+        }
+
+        private func sendResponse(
+            _ route: (contentType: String, body: String)?,
+            on connection: NWConnection
+        ) {
+            let status = route == nil ? "404 Not Found" : "200 OK"
+            let contentType = route?.contentType ?? "text/plain; charset=utf-8"
+            let body = route?.body ?? "not found"
+            let bodyData = Data(body.utf8)
+            let response = Data("""
+            HTTP/1.1 \(status)\r
+            Content-Type: \(contentType)\r
+            Content-Length: \(bodyData.count)\r
+            Cache-Control: no-store\r
+            Connection: close\r
+            \r
+            """.utf8) + bodyData
+            connection.send(content: response, completion: .contentProcessed { _ in
+                connection.cancel()
+            })
+        }
+    }
+
+    private enum BehaviorFixtureError: Error {
+        case timedOutWaitingForJavaScript(String)
+        case missingExtensionPageConfiguration
+        case invalidJavaScriptResult
     }
 
     private final class RejectingCreateTabDelegate: BonsplitDelegate {
@@ -203,6 +316,58 @@ struct BrowserWebExtensionsManagerTests {
         let data = try JSONSerialization.data(withJSONObject: manifest)
         try data.write(to: dir.appendingPathComponent("manifest.json"))
         return dir
+    }
+
+    private static func waitForJavaScriptString(
+        _ script: String,
+        toEqual expected: String,
+        in webView: WKWebView,
+        timeout: Duration = .seconds(8)
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if let value = try? await webView.evaluateJavaScript(script) as? String,
+               value == expected {
+                return
+            }
+            try await clock.sleep(for: .milliseconds(20))
+        }
+        throw BehaviorFixtureError.timedOutWaitingForJavaScript(expected)
+    }
+
+    private static func waitUntil(
+        _ label: String,
+        timeout: Duration = .seconds(8),
+        condition: @MainActor () -> Bool
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if condition() { return }
+            try await clock.sleep(for: .milliseconds(20))
+        }
+        throw BehaviorFixtureError.timedOutWaitingForJavaScript(label)
+    }
+
+    @available(macOS 15.4, *)
+    private static func loadExtensionPage(
+        _ relativePath: String,
+        context: WKWebExtensionContext,
+        manager: BrowserWebExtensionsManager
+    ) async throws -> WKWebView {
+        let url = context.baseURL.appendingPathComponent(relativePath)
+        guard let pageConfiguration = manager.pageConfiguration(for: url) else {
+            throw BehaviorFixtureError.missingExtensionPageConfiguration
+        }
+        let webView = WKWebView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240),
+            configuration: pageConfiguration.configuration
+        )
+        let waiter = WebViewLoadWaiter()
+        webView.navigationDelegate = waiter
+        try await waiter.load(URLRequest(url: url), in: webView)
+        return webView
     }
 
     private static func writeSafariExtensionFixture(
@@ -1550,6 +1715,11 @@ struct BrowserWebExtensionsManagerTests {
         for actionKey in ["action", "browser_action", "page_action"] {
             var manifest = Self.minimalManifest
             manifest["name"] = actionKey
+            if actionKey != "action" {
+                manifest["manifest_version"] = 2
+                manifest["permissions"] = ["storage", "*://example.com/*"]
+                manifest.removeValue(forKey: "host_permissions")
+            }
             manifest[actionKey] = [
                 "default_title": actionKey,
                 "default_popup": "popup.html",
@@ -1597,6 +1767,128 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.loadedContexts.allSatisfy { context in
             context.action(for: tab)?.presentsPopup == true
         })
+    }
+
+    @available(macOS 15.4, *)
+    @Test func tabOrderSingleMoveResolverIdentifiesFrontAndBackMoves() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+
+        #expect(BrowserWebExtensionsManager.movedPanelIDForSingleMove(
+            previous: [a, b, c],
+            current: [b, c, a]
+        ) == a)
+        #expect(BrowserWebExtensionsManager.movedPanelIDForSingleMove(
+            previous: [a, b, c],
+            current: [c, a, b]
+        ) == c)
+        #expect(BrowserWebExtensionsManager.movedPanelIDForSingleMove(
+            previous: [a, b, c],
+            current: [a, b, c]
+        ) == nil)
+    }
+
+    @Test func flatExtensionTabIndexResolvesToNeighborInsertionPlan() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+
+        #expect(BrowserWebExtensionTabInsertionPlan.resolve(
+            index: 0,
+            orderedPanelIDs: [a, b, c]
+        ) == .before(a))
+        #expect(BrowserWebExtensionTabInsertionPlan.resolve(
+            index: 2,
+            orderedPanelIDs: [a, b, c]
+        ) == .before(c))
+        #expect(BrowserWebExtensionTabInsertionPlan.resolve(
+            index: 3,
+            orderedPanelIDs: [a, b, c]
+        ) == .after(c))
+        #expect(BrowserWebExtensionTabInsertionPlan.resolve(
+            index: 0,
+            orderedPanelIDs: []
+        ) == .fallbackEnd)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func workspaceExtensionTabInsertionUsesFlatOrderAcrossPanes() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let rootPane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let first = try #require(workspace.newBrowserSurface(
+            inPane: rootPane,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        let second = try #require(workspace.newBrowserSplit(
+            from: first.id,
+            orientation: .horizontal,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        let manager = try #require(services.webExtensionsManager)
+        let owner = try #require(manager.registrationOwner(for: first.id))
+        let browserPanelIDs = {
+            workspace.orderedPanelIds.filter { workspace.panels[$0] is BrowserPanel }
+        }
+        #expect(browserPanelIDs() == [first.id, second.id])
+
+        let inserted = try #require(owner.createTab(1, false, false))
+        #expect(browserPanelIDs() == [first.id, inserted.id, second.id])
+        #expect(workspace.paneId(forPanelId: inserted.id) == workspace.paneId(forPanelId: second.id))
+
+        let appended = try #require(owner.createTab(NSNotFound, false, false))
+        #expect(browserPanelIDs().last == appended.id)
+        #expect(workspace.paneId(forPanelId: appended.id) == workspace.paneId(forPanelId: second.id))
+    }
+
+    @available(macOS 15.4, *)
+    @Test func dockExtensionTabInsertionUsesFlatOrderAcrossPanes() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let services = BrowserServices(extensionDirectory: root)
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            browserServices: services,
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let firstID = try #require(store.newSurface(
+            kind: .browser,
+            inPane: rootPane,
+            focus: false
+        ))
+        let secondID = try #require(store.newSplit(
+            kind: .browser,
+            orientation: .horizontal,
+            insertFirst: false,
+            sourcePanelId: firstID,
+            focus: false
+        ))
+        let manager = try #require(services.webExtensionsManager)
+        let owner = try #require(manager.registrationOwner(for: firstID))
+        let browserPanelIDs = {
+            store.bonsplitController.allTabIds.compactMap { tabID -> UUID? in
+                guard let panel = store.panel(for: tabID) as? BrowserPanel else { return nil }
+                return panel.id
+            }
+        }
+        #expect(browserPanelIDs() == [firstID, secondID])
+
+        let inserted = try #require(owner.createTab(1, false, false))
+        #expect(browserPanelIDs() == [firstID, inserted.id, secondID])
+        #expect(store.paneId(forPanelId: inserted.id) == store.paneId(forPanelId: secondID))
+
+        let appended = try #require(owner.createTab(NSNotFound, false, false))
+        #expect(browserPanelIDs().last == appended.id)
+        #expect(store.paneId(forPanelId: appended.id) == store.paneId(forPanelId: secondID))
     }
 
     @available(macOS 15.4, *)
@@ -2286,6 +2578,62 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func switchingProfileFromExtensionPageRestoresNormalPageBindings() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let alternateProfile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Extension page switch \(UUID().uuidString.prefix(6))"
+        ))
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: alternateProfile.id) }
+        let extensionDirectory = try Self.writeExtension(
+            named: "profile-extension-page",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: extensionDirectory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<html><body>extension profile probe</body></html>".write(
+            to: extensionDirectory.appendingPathComponent("probe.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = BrowserPanel(
+            workspaceId: workspace.id,
+            browserServices: services
+        )
+        services.registerBrowserPanel(panel, workspace: workspace)
+        defer {
+            services.unregisterBrowserPanel(id: panel.id)
+            panel.close()
+        }
+        let defaultManager = try #require(services.webExtensionsManager)
+        try await defaultManager.approveInstalledCandidate(extensionDirectory)
+        await defaultManager.loadExtensions()
+        let context = try #require(defaultManager.loadedContexts.first)
+        #expect(panel.hasNormalPageBindingsForTesting)
+
+        panel.navigate(to: context.baseURL.appendingPathComponent("probe.html"))
+        try await Self.waitForJavaScriptString(
+            "document.body?.textContent?.trim() || ''",
+            toEqual: "extension profile probe",
+            in: panel.webView
+        )
+        #expect(!panel.hasNormalPageBindingsForTesting)
+
+        #expect(panel.switchToProfile(alternateProfile.id))
+
+        #expect(panel.webView.configuration.webExtensionController
+            === services.webExtensionsManager(for: alternateProfile.id).controller)
+        #expect(panel.hasNormalPageBindingsForTesting)
+    }
+
+    @available(macOS 15.4, *)
     @Test func deletingActiveProfilePreservesPanelRegistrationForReplacementProfile() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2454,6 +2802,101 @@ struct BrowserWebExtensionsManagerTests {
         ))
         #expect(freshPopup.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore)
         #expect(freshPopup.configuration.webExtensionController === alternateManager.controller)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func standalonePopupIsRegisteredAsExtensionPopupWindowUntilClose() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try Self.writeExtension(
+            named: "standalone-popup-registration",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = BrowserPanel(
+            workspaceId: workspace.id,
+            browserServices: services
+        )
+        services.registerBrowserPanel(panel, workspace: workspace)
+        defer {
+            services.unregisterBrowserPanel(id: panel.id)
+            panel.close()
+        }
+        let manager = try #require(services.webExtensionsManager)
+        try await manager.approveInstalledCandidate(source)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let popup = BrowserPopupWindowController(
+            configuration: WKWebViewConfiguration(),
+            windowFeatures: WKWindowFeatures(),
+            browserContext: panel.popupBrowserContext,
+            openerPanel: panel
+        )
+
+        let popupWindow = try #require(manager
+            .webExtensionController(manager.controller, openWindowsFor: context)
+            .first(where: { window in
+                window.windowType(for: context) == .popup
+                    && (window.tabs?(for: context) ?? []).contains(where: {
+                        $0.webView?(for: context) === popup.webView
+                    })
+            }))
+        #expect(popupWindow.activeTab?(for: context)?.webView?(for: context) === popup.webView)
+
+        popup.closePopup()
+        for _ in 0..<4 { await Task.yield() }
+
+        #expect(!manager
+            .webExtensionController(manager.controller, openWindowsFor: context)
+            .contains(where: { $0.windowType(for: context) == .popup }))
+    }
+
+    @available(macOS 15.4, *)
+    @Test func standalonePopupRetainsItsCapturedProfileRuntimeAcrossOpenerSwitch() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let popupProfile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Popup runtime \(UUID().uuidString.prefix(6))"
+        ))
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: popupProfile.id) }
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = BrowserPanel(
+            workspaceId: workspace.id,
+            profileID: popupProfile.id,
+            browserServices: services
+        )
+        services.registerBrowserPanel(panel, workspace: workspace)
+        defer {
+            services.unregisterBrowserPanel(id: panel.id)
+            panel.close()
+        }
+        let popupManager = services.webExtensionsManager(for: popupProfile.id)
+        let popup = BrowserPopupWindowController(
+            configuration: WKWebViewConfiguration(),
+            windowFeatures: WKWindowFeatures(),
+            browserContext: panel.popupBrowserContext,
+            openerPanel: panel
+        )
+
+        #expect(panel.switchToProfile(BrowserProfileStore.shared.builtInDefaultProfileID))
+        #expect(services.hasRetainedWebExtensionsManagerForTesting(profileID: popupProfile.id))
+        #expect(!popupManager.isShutDown)
+
+        popup.closePopup()
+        for _ in 0..<4 { await Task.yield() }
+
+        #expect(!services.hasRetainedWebExtensionsManagerForTesting(profileID: popupProfile.id))
+        #expect(popupManager.isShutDown)
     }
 
     @available(macOS 15.4, *)
@@ -2677,8 +3120,12 @@ struct BrowserWebExtensionsManagerTests {
             focus: false,
             creationPolicy: .restoration
         ))
-        let managerPage = try #require(workspace.openBrowserExtensionsManager(from: source.id))
         let manager = try #require(services.webExtensionsManager)
+        let openEventsBeforeManagerPage = manager.debugDidOpenTabEventCount
+        let closeEventsBeforeManagerPage = manager.debugDidCloseTabEventCount
+        let managerPage = try #require(workspace.openBrowserExtensionsManager(from: source.id))
+        #expect(manager.debugDidOpenTabEventCount == openEventsBeforeManagerPage)
+        #expect(manager.debugDidCloseTabEventCount == closeEventsBeforeManagerPage)
 
         let registeredWebViews = {
             manager.webExtensionController(manager.controller, openWindowsFor: extensionContext)
@@ -2690,6 +3137,8 @@ struct BrowserWebExtensionsManagerTests {
         managerPage.navigate(to: try #require(URL(string: "https://example.com")))
 
         #expect(registeredWebViews().contains(managerPage.webView))
+        #expect(manager.debugDidOpenTabEventCount == openEventsBeforeManagerPage + 1)
+        #expect(manager.debugDidCloseTabEventCount == closeEventsBeforeManagerPage)
     }
 
     @available(macOS 15.4, *)
@@ -3083,6 +3532,714 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func mv2BackgroundPageMessagesContentScriptOnFirstLoadAndReload() async throws {
+        try await Self.assertBackgroundMessagingFixture(manifestVersion: 2)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func mv3ServiceWorkerActionMessagesContentScriptOnFirstLoadAndReload() async throws {
+        try await Self.assertBackgroundMessagingFixture(manifestVersion: 3)
+    }
+
+    @available(macOS 15.4, *)
+    private static func assertBackgroundMessagingFixture(manifestVersion: Int) async throws {
+        let root = try makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let server = try ExtensionHTTPFixtureServer(routes: [
+            "/probe": ("text/html; charset=utf-8", "<html><body>runtime probe</body></html>"),
+        ])
+        defer { server.stop() }
+        let fixtureKind = manifestVersion == 2 ? "mv2" : "mv3"
+        let fixtureName = "\(fixtureKind)-behavior-\(UUID().uuidString)"
+        var manifest: [String: Any] = [
+            "manifest_version": manifestVersion,
+            "name": fixtureName,
+            "version": "1.0",
+            "content_scripts": [[
+                "matches": ["http://127.0.0.1/*"],
+                "js": ["content.js"],
+            ]],
+        ]
+        if manifestVersion == 2 {
+            manifest["permissions"] = ["storage", "tabs", "http://127.0.0.1/*"]
+            manifest["background"] = ["page": "background.html"]
+            manifest["browser_action"] = ["default_title": "MV2 behavior probe"]
+        } else {
+            manifest["permissions"] = ["storage", "tabs"]
+            manifest["host_permissions"] = ["http://127.0.0.1/*"]
+            manifest["background"] = ["service_worker": "background.js"]
+            manifest["action"] = ["default_title": "MV3 behavior probe"]
+        }
+        let extensionDirectory = try writeExtension(
+            named: fixtureName,
+            in: root,
+            manifest: manifest
+        )
+        try """
+        const api = globalThis.browser ?? globalThis.chrome;
+        api.runtime.onMessage.addListener((message, sender) => {
+          if (message?.type !== 'cmux-runtime-probe') return undefined;
+          return api.storage.local.set({ backgroundKind: '\(fixtureKind)' }).then(() => ({
+            kind: '\(fixtureKind)',
+            hasTab: Boolean(sender.tab && Number.isInteger(sender.tab.id)),
+          }));
+        });
+        """.write(
+            to: extensionDirectory.appendingPathComponent("background.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        if manifestVersion == 2 {
+            try "<script src=\"background.js\"></script>".write(
+                to: extensionDirectory.appendingPathComponent("background.html"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        try """
+        (async () => {
+          const api = globalThis.browser ?? globalThis.chrome;
+          const response = await api.runtime.sendMessage({ type: 'cmux-runtime-probe' });
+          const stored = await api.storage.local.get('contentRuns');
+          const runs = Number(stored.contentRuns || 0) + 1;
+          await api.storage.local.set({ contentRuns: runs });
+          document.documentElement.dataset.cmuxRuntime =
+            `${response.kind}:${response.hasTab}:${runs}`;
+        })().catch((error) => {
+          document.documentElement.dataset.cmuxRuntime = `error:${String(error)}`;
+        });
+        """.write(
+            to: extensionDirectory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            browserServices: services
+        )
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPriority: { 2 },
+            focusPanel: { _ in }
+        )
+        defer {
+            manager.unregister(panelID: panel.id)
+            panel.close()
+            manager.shutdown()
+        }
+        try await manager.approveInstalledCandidate(extensionDirectory)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let tab = try #require(manager
+            .webExtensionController(manager.controller, openWindowsFor: context)
+            .flatMap { $0.tabs?(for: context) ?? [] }
+            .first)
+        let action = try #require(context.action(for: tab))
+        #expect(action.isEnabled)
+
+        panel.navigate(to: server.url(path: "/probe"))
+        try await waitForJavaScriptString(
+            "document.documentElement.dataset.cmuxRuntime || ''",
+            toEqual: "\(fixtureKind):true:1",
+            in: panel.webView
+        )
+        _ = panel.reload()
+        try await waitForJavaScriptString(
+            "document.documentElement.dataset.cmuxRuntime || ''",
+            toEqual: "\(fixtureKind):true:2",
+            in: panel.webView
+        )
+        #expect(server.requestCount(for: "/probe") == 2)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func actionPopupMessagesBackgroundAndActiveContentScript() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let server = try ExtensionHTTPFixtureServer(routes: [
+            "/popup-probe": (
+                "text/html; charset=utf-8",
+                "<html><body>popup messaging probe</body></html>"
+            ),
+        ])
+        defer { server.stop() }
+        let fixtureName = "popup-message-\(UUID().uuidString)"
+        let extensionDirectory = try Self.writeExtension(
+            named: fixtureName,
+            in: root,
+            manifest: [
+                "manifest_version": 3,
+                "name": fixtureName,
+                "version": "1.0",
+                "permissions": ["tabs"],
+                "host_permissions": ["http://127.0.0.1/*"],
+                "background": ["service_worker": "background.js"],
+                "content_scripts": [[
+                    "matches": ["http://127.0.0.1/*"],
+                    "js": ["content.js"],
+                ]],
+                "action": ["default_popup": "popup.html"],
+            ]
+        )
+        try """
+        const api = globalThis.browser ?? globalThis.chrome;
+        api.runtime.onMessage.addListener(async (message) => {
+          if (message?.type !== 'cmux-popup-start') return undefined;
+          const tabs = await api.tabs.query({ active: true });
+          const target = tabs.find((tab) => /^https?:/.test(tab.url || '')) ?? tabs[0];
+          if (!target) return { delivered: false, reason: 'missing-tab' };
+          const reply = await api.tabs.sendMessage(target.id, { type: 'cmux-popup-to-content' });
+          return { delivered: reply?.ack === 'content' };
+        });
+        """.write(
+            to: extensionDirectory.appendingPathComponent("background.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        const api = globalThis.browser ?? globalThis.chrome;
+        api.runtime.onMessage.addListener((message) => {
+          if (message?.type !== 'cmux-popup-to-content') return undefined;
+          document.documentElement.dataset.cmuxPopupReceiver = 'delivered';
+          return Promise.resolve({ ack: 'content' });
+        });
+        document.documentElement.dataset.cmuxPopupReceiver = 'ready';
+        """.write(
+            to: extensionDirectory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<html><body><script src=\"popup.js\"></script></body></html>".write(
+            to: extensionDirectory.appendingPathComponent("popup.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        const api = globalThis.browser ?? globalThis.chrome;
+        api.runtime.sendMessage({ type: 'cmux-popup-start' }).then((response) => {
+          document.documentElement.dataset.cmuxPopup = response?.delivered ? 'delivered' : 'failed';
+        }).catch((error) => {
+          document.documentElement.dataset.cmuxPopup = `error:${String(error)}`;
+        });
+        """.write(
+            to: extensionDirectory.appendingPathComponent("popup.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            browserServices: services
+        )
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPriority: { 2 },
+            focusPanel: { _ in }
+        )
+        defer {
+            manager.unregister(panelID: panel.id)
+            panel.close()
+            manager.shutdown()
+        }
+        try await manager.approveInstalledCandidate(extensionDirectory)
+        await manager.loadExtensions()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 200, y: 200, width: 720, height: 520),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentLayoutRect)
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 720, height: 470)
+        host.addSubview(panel.webView)
+        let anchor = NSButton(frame: NSRect(x: 640, y: 480, width: 40, height: 24))
+        host.addSubview(anchor)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        manager.activateTab(panelID: panel.id, previousPanelID: nil)
+
+        panel.navigate(to: server.url(path: "/popup-probe"))
+        try await Self.waitForJavaScriptString(
+            "document.documentElement.dataset.cmuxPopupReceiver || ''",
+            toEqual: "ready",
+            in: panel.webView
+        )
+        let context = try #require(manager.loadedContexts.first)
+        let tab = try #require(manager
+            .webExtensionController(manager.controller, openWindowsFor: context)
+            .flatMap { $0.tabs?(for: context) ?? [] }
+            .first)
+        let action = try #require(context.action(for: tab))
+
+        #expect(manager.performAction(
+            uniqueIdentifier: context.uniqueIdentifier,
+            in: panel,
+            anchorView: anchor
+        ))
+        try await Self.waitUntil("action popup presentation") {
+            action.popupPopover?.isShown == true && action.popupWebView != nil
+        }
+        let popupWebView = try #require(action.popupWebView)
+        try await Self.waitForJavaScriptString(
+            "document.documentElement.dataset.cmuxPopup || ''",
+            toEqual: "delivered",
+            in: popupWebView
+        )
+        try await Self.waitForJavaScriptString(
+            "document.documentElement.dataset.cmuxPopupReceiver || ''",
+            toEqual: "delivered",
+            in: panel.webView
+        )
+        action.popupPopover?.performClose(nil)
+        for _ in 0..<4 { await Task.yield() }
+        #expect(action.popupPopover?.isShown != true)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func browserStorageLocalPersistsWhileSessionClearsAndBothRemainProfileIsolated() async throws {
+        let firstRoot = try Self.makeExtensionsRoot()
+        let secondRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: firstRoot)
+            try? FileManager.default.removeItem(at: secondRoot)
+        }
+        let firstExtension = try Self.writeStorageBehaviorExtension(in: firstRoot)
+        let secondExtension = try Self.writeStorageBehaviorExtension(in: secondRoot)
+        let firstControllerID = UUID()
+        let secondControllerID = UUID()
+
+        try await Self.setStorageBehaviorValues(
+            marker: "first-profile",
+            extensionDirectory: firstExtension,
+            root: firstRoot,
+            controllerID: firstControllerID
+        )
+        try await Self.setStorageBehaviorValues(
+            marker: "second-profile",
+            extensionDirectory: secondExtension,
+            root: secondRoot,
+            controllerID: secondControllerID
+        )
+
+        let firstValues = try await Self.readStorageBehaviorValues(
+            root: firstRoot,
+            controllerID: firstControllerID
+        )
+        let secondValues = try await Self.readStorageBehaviorValues(
+            root: secondRoot,
+            controllerID: secondControllerID
+        )
+        #expect(firstValues.local == "first-profile")
+        #expect(secondValues.local == "second-profile")
+        #expect(firstValues.session == nil)
+        #expect(secondValues.session == nil)
+    }
+
+    @available(macOS 15.4, *)
+    private static func writeStorageBehaviorExtension(in root: URL) throws -> URL {
+        let directory = try writeExtension(
+            named: "storage-behavior",
+            in: root,
+            manifest: [
+                "manifest_version": 3,
+                "name": "Storage behavior fixture",
+                "version": "1.0",
+                "permissions": ["storage"],
+            ]
+        )
+        try "<html><body>storage behavior</body></html>".write(
+            to: directory.appendingPathComponent("probe.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        return directory
+    }
+
+    @available(macOS 15.4, *)
+    private static func setStorageBehaviorValues(
+        marker: String,
+        extensionDirectory: URL,
+        root: URL,
+        controllerID: UUID
+    ) async throws {
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerIdentifier: controllerID
+        )
+        try await manager.approveInstalledCandidate(extensionDirectory)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let webView = try await loadExtensionPage(
+            "probe.html",
+            context: context,
+            manager: manager
+        )
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const api = globalThis.browser ?? globalThis.chrome;
+            await api.storage.local.set({ profileMarker: marker });
+            await api.storage.session.set({ sessionMarker: marker });
+            const local = await api.storage.local.get('profileMarker');
+            const session = await api.storage.session.get('sessionMarker');
+            return {
+              local: local.profileMarker ?? null,
+              session: session.sessionMarker ?? null,
+            };
+            """,
+            arguments: ["marker": marker],
+            in: nil,
+            contentWorld: .page
+        )
+        guard let values = result as? [String: Any],
+              values["local"] as? String == marker,
+              values["session"] as? String == marker else {
+            throw BehaviorFixtureError.invalidJavaScriptResult
+        }
+        manager.shutdown()
+    }
+
+    @available(macOS 15.4, *)
+    private static func readStorageBehaviorValues(
+        root: URL,
+        controllerID: UUID
+    ) async throws -> (local: String?, session: String?) {
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerIdentifier: controllerID
+        )
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let webView = try await loadExtensionPage(
+            "probe.html",
+            context: context,
+            manager: manager
+        )
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const api = globalThis.browser ?? globalThis.chrome;
+            const local = await api.storage.local.get('profileMarker');
+            const session = await api.storage.session.get('sessionMarker');
+            return {
+              local: local.profileMarker ?? null,
+              session: session.sessionMarker ?? null,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        manager.shutdown()
+        guard let values = result as? [String: Any] else {
+            throw BehaviorFixtureError.invalidJavaScriptResult
+        }
+        return (
+            values["local"] as? String,
+            values["session"] as? String
+        )
+    }
+
+    @available(macOS 15.4, *)
+    @Test func declarativeRulesPersistUpdateAndRemainProfileIsolated() async throws {
+        let firstRoot = try Self.makeExtensionsRoot()
+        let secondRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: firstRoot)
+            try? FileManager.default.removeItem(at: secondRoot)
+        }
+        let server = try ExtensionHTTPFixtureServer(routes: [
+            "/dnr-probe": ("text/html; charset=utf-8", "<html><body>dnr probe</body></html>"),
+            "/control": ("text/plain; charset=utf-8", "control-ok"),
+            "/cmux-static-blocked": ("text/plain; charset=utf-8", "static-server"),
+            "/cmux-dynamic-blocked": ("text/plain; charset=utf-8", "dynamic-server"),
+            "/cmux-updated-blocked": ("text/plain; charset=utf-8", "updated-server"),
+        ])
+        defer { server.stop() }
+        let firstExtension = try Self.writeDNRBehaviorExtension(in: firstRoot)
+        let secondExtension = try Self.writeDNRBehaviorExtension(in: secondRoot)
+        let firstControllerID = UUID()
+        let secondControllerID = UUID()
+
+        try await Self.withDNRBehaviorHarness(
+            root: firstRoot,
+            controllerID: firstControllerID,
+            approving: firstExtension
+        ) { manager, panel, context in
+            #expect(try await Self.updateDynamicDNRRules(
+                remove: [],
+                add: (id: 900, fragment: "cmux-dynamic-blocked"),
+                context: context,
+                manager: manager
+            ) == [900])
+            #expect(try await Self.fetchDNRPaths(
+                ["/control", "/cmux-static-blocked", "/cmux-dynamic-blocked"],
+                server: server,
+                panel: panel
+            ) == ["control-ok", "blocked", "blocked"])
+        }
+
+        try await Self.withDNRBehaviorHarness(
+            root: secondRoot,
+            controllerID: secondControllerID,
+            approving: secondExtension
+        ) { manager, panel, context in
+            #expect(try await Self.dynamicDNRRuleIDs(context: context, manager: manager).isEmpty)
+            #expect(try await Self.fetchDNRPaths(
+                ["/cmux-static-blocked", "/cmux-dynamic-blocked"],
+                server: server,
+                panel: panel
+            ) == ["blocked", "dynamic-server"])
+        }
+
+        try await Self.withDNRBehaviorHarness(
+            root: firstRoot,
+            controllerID: firstControllerID,
+            approving: nil
+        ) { manager, panel, context in
+            #expect(try await Self.dynamicDNRRuleIDs(context: context, manager: manager) == [900])
+            #expect(try await Self.fetchDNRPaths(
+                ["/cmux-static-blocked", "/cmux-dynamic-blocked"],
+                server: server,
+                panel: panel
+            ) == ["blocked", "blocked"])
+            #expect(try await Self.updateDynamicDNRRules(
+                remove: [900],
+                add: (id: 901, fragment: "cmux-updated-blocked"),
+                context: context,
+                manager: manager
+            ) == [901])
+            #expect(try await Self.fetchDNRPaths(
+                ["/cmux-dynamic-blocked", "/cmux-updated-blocked"],
+                server: server,
+                panel: panel
+            ) == ["dynamic-server", "blocked"])
+        }
+
+        #expect(server.requestCount(for: "/control") == 1)
+        #expect(server.requestCount(for: "/cmux-static-blocked") == 0)
+        #expect(server.requestCount(for: "/cmux-dynamic-blocked") == 2)
+        #expect(server.requestCount(for: "/cmux-updated-blocked") == 0)
+    }
+
+    @available(macOS 15.4, *)
+    private static func writeDNRBehaviorExtension(in root: URL) throws -> URL {
+        let directory = try writeExtension(
+            named: "dnr-behavior",
+            in: root,
+            manifest: [
+                "manifest_version": 3,
+                "name": "DNR behavior fixture",
+                "version": "1.0",
+                "permissions": ["declarativeNetRequest"],
+                "host_permissions": ["http://127.0.0.1/*"],
+                "background": ["service_worker": "background.js"],
+                "declarative_net_request": [
+                    "rule_resources": [[
+                        "id": "cmux_rules",
+                        "enabled": true,
+                        "path": "rules.json",
+                    ]],
+                ],
+            ]
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("background.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<html><body>dnr extension probe</body></html>".write(
+            to: directory.appendingPathComponent("probe.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let rules: [[String: Any]] = [[
+            "id": 1,
+            "priority": 1,
+            "action": ["type": "block"],
+            "condition": [
+                "urlFilter": "cmux-static-blocked",
+                "resourceTypes": ["xmlhttprequest"],
+            ],
+        ]]
+        try JSONSerialization.data(withJSONObject: rules).write(
+            to: directory.appendingPathComponent("rules.json")
+        )
+        return directory
+    }
+
+    @available(macOS 15.4, *)
+    private static func withDNRBehaviorHarness<T>(
+        root: URL,
+        controllerID: UUID,
+        approving extensionDirectory: URL?,
+        operation: @MainActor (
+            BrowserWebExtensionsManager,
+            BrowserPanel,
+            WKWebExtensionContext
+        ) async throws -> T
+    ) async throws -> T {
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerIdentifier: controllerID,
+            profileID: profileID
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            browserServices: services
+        )
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        defer {
+            manager.unregister(panelID: panel.id)
+            panel.close()
+            manager.shutdown()
+        }
+        if let extensionDirectory {
+            try await manager.approveInstalledCandidate(extensionDirectory)
+        }
+        await manager.loadExtensions()
+        #expect(manager.loadErrors.isEmpty)
+        return try await operation(manager, panel, try #require(manager.loadedContexts.first))
+    }
+
+    @available(macOS 15.4, *)
+    private static func dynamicDNRRuleIDs(
+        context: WKWebExtensionContext,
+        manager: BrowserWebExtensionsManager
+    ) async throws -> [Int] {
+        let webView = try await loadExtensionPage(
+            "probe.html",
+            context: context,
+            manager: manager
+        )
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const api = globalThis.browser ?? globalThis.chrome;
+            return (await api.declarativeNetRequest.getDynamicRules())
+              .map((rule) => rule.id)
+              .sort((left, right) => left - right);
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        guard let numbers = result as? [NSNumber] else {
+            throw BehaviorFixtureError.invalidJavaScriptResult
+        }
+        return numbers.map(\.intValue)
+    }
+
+    @available(macOS 15.4, *)
+    private static func updateDynamicDNRRules(
+        remove ruleIDs: [Int],
+        add rule: (id: Int, fragment: String),
+        context: WKWebExtensionContext,
+        manager: BrowserWebExtensionsManager
+    ) async throws -> [Int] {
+        let webView = try await loadExtensionPage(
+            "probe.html",
+            context: context,
+            manager: manager
+        )
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const api = globalThis.browser ?? globalThis.chrome;
+            await api.declarativeNetRequest.updateDynamicRules({
+              removeRuleIds: ruleIDs,
+              addRules: [{
+                id: ruleID,
+                priority: 1,
+                action: { type: 'block' },
+                condition: {
+                  urlFilter: fragment,
+                  resourceTypes: ['xmlhttprequest'],
+                },
+              }],
+            });
+            return (await api.declarativeNetRequest.getDynamicRules())
+              .map((item) => item.id)
+              .sort((left, right) => left - right);
+            """,
+            arguments: [
+                "ruleIDs": ruleIDs,
+                "ruleID": rule.id,
+                "fragment": rule.fragment,
+            ],
+            in: nil,
+            contentWorld: .page
+        )
+        guard let numbers = result as? [NSNumber] else {
+            throw BehaviorFixtureError.invalidJavaScriptResult
+        }
+        return numbers.map(\.intValue)
+    }
+
+    @available(macOS 15.4, *)
+    private static func fetchDNRPaths(
+        _ paths: [String],
+        server: ExtensionHTTPFixtureServer,
+        panel: BrowserPanel
+    ) async throws -> [String] {
+        panel.navigate(to: server.url(path: "/dnr-probe"))
+        try await waitForJavaScriptString(
+            "document.readyState",
+            toEqual: "complete",
+            in: panel.webView
+        )
+        let result = try await panel.webView.callAsyncJavaScript(
+            """
+            return await Promise.all(paths.map(async (path) => {
+              try {
+                const response = await fetch(path, { cache: 'no-store' });
+                return await response.text();
+              } catch (_) {
+                return 'blocked';
+              }
+            }));
+            """,
+            arguments: ["paths": paths],
+            in: nil,
+            contentWorld: .page
+        )
+        guard let values = result as? [String] else {
+            throw BehaviorFixtureError.invalidJavaScriptResult
+        }
+        return values
+    }
+
+    @available(macOS 15.4, *)
     @Test func noPopupMV2ActionOpensBrowserOnlyWelcomeInNewActiveTab() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -3446,6 +4603,99 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func movingShownPopupTabToNewOwnerPreservesItsAdapterUntilClose() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["action"] = ["default_popup": "popup.html"]
+        let directory = try Self.writeExtension(
+            named: "popup-owner-move-probe",
+            in: root,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<main>Popup owner move</main>".write(
+            to: directory.appendingPathComponent("popup.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let panel = BrowserPanel(workspaceId: UUID())
+        let firstOwnerID = UUID()
+        let secondOwnerID = UUID()
+        manager.register(
+            panel: panel,
+            ownerID: firstOwnerID,
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        defer {
+            manager.unregister(panelID: panel.id)
+            manager.shutdown()
+            panel.close()
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 200, y: 200, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let anchor = NSButton(frame: NSRect(x: 120, y: 160, width: 40, height: 24))
+        window.contentView?.addSubview(anchor)
+        window.orderFront(nil)
+        defer { window.close() }
+
+        let context = try #require(manager.loadedContexts.first)
+        let tab = try #require(manager
+            .webExtensionController(manager.controller, openWindowsFor: context)
+            .flatMap { $0.tabs?(for: context) ?? [] }
+            .first)
+        let action = try #require(context.action(for: tab))
+        #expect(manager.performAction(
+            uniqueIdentifier: context.uniqueIdentifier,
+            in: panel,
+            anchorView: anchor
+        ))
+        manager.webExtensionController(
+            manager.controller,
+            presentActionPopup: action,
+            for: context
+        ) { error in
+            #expect(error == nil)
+        }
+        let popover = try #require(action.popupPopover)
+        #expect(popover.isShown)
+
+        manager.register(
+            panel: panel,
+            ownerID: secondOwnerID,
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+
+        #expect(manager.registrationOwner(for: panel.id)?.id == secondOwnerID)
+        #expect(popover.isShown)
+        let normalWindows = manager
+            .webExtensionController(manager.controller, openWindowsFor: context)
+            .compactMap { $0 as? BrowserWebExtensionWindowAdapter }
+        #expect(normalWindows.map(\.ownerID) == [secondOwnerID])
+
+        popover.performClose(nil)
+        for _ in 0..<4 { await Task.yield() }
+        #expect(!popover.isShown)
+    }
+
+    @available(macOS 15.4, *)
     @Test func mv2DefaultActionUpdateHandsPendingClickToDynamicPopupExactlyOnce() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -3676,12 +4926,16 @@ struct BrowserWebExtensionsManagerTests {
         }
         #expect(store.focusedPanelId == secondPanelID)
 
+        let openEventsBeforeManagerPage = manager.debugDidOpenTabEventCount
+        let closeEventsBeforeManagerPage = manager.debugDidCloseTabEventCount
         let managerPage = try #require(store.openBrowserExtensionsManager(from: secondPanelID))
         #expect(managerPage !== secondPanel)
         #expect(managerPage.internalPage == .extensions)
         #expect(secondPanel.internalPage == nil)
         #expect(store.browserPanel(for: managerPage.id) === managerPage)
         #expect(store.openBrowserExtensionsManager(from: secondPanelID) === managerPage)
+        #expect(manager.debugDidOpenTabEventCount == openEventsBeforeManagerPage)
+        #expect(manager.debugDidCloseTabEventCount == closeEventsBeforeManagerPage)
 
         #expect(store.closePanel(firstPanelID, force: true))
         let remainingTabs = manager
