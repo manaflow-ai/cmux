@@ -1959,20 +1959,27 @@ mod tests {
     #[test]
     fn tab_labels_are_numbers_except_agents() {
         let tabs = Tabs::default();
-        assert_eq!(tab_label(&tabs, 0, "", None), "1");
-        assert_eq!(tab_label(&tabs, 1, "zsh", None), "2");
-        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "3");
+        assert_eq!(tab_label(&tabs, 0, "", None), "0");
+        assert_eq!(tab_label(&tabs, 1, "zsh", None), "1");
+        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "2");
         // Recognized agent programs surface in the label.
-        assert_eq!(tab_label(&tabs, 0, "claude", None), "1 claude");
-        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "4 codex");
-        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "5 opencode");
+        assert_eq!(tab_label(&tabs, 0, "claude", None), "0 claude");
+        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "3 codex");
+        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "4 opencode");
         // "pi" matches only as a word, not inside other words.
-        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "6");
-        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "6 pi");
+        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "5");
+        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "5 pi");
         assert_eq!(tab_label(&tabs, 5, "pi chat", Some("api")), "api");
 
         let titled = Tabs { show_titles: true, ..Tabs::default() };
-        assert_eq!(tab_label(&titled, 1, "zsh", None), "2 zsh");
+        assert_eq!(tab_label(&titled, 1, "zsh", None), "1 zsh");
+    }
+
+    #[test]
+    fn tab_selection_actions_use_zero_based_indexes() {
+        assert_eq!(Action::SelectTab(0).tab_index(), Some(0));
+        assert_eq!(Action::SelectTab(9).tab_index(), Some(9));
+        assert_eq!(Action::SelectTab(10).tab_index(), None);
     }
 
     #[test]
@@ -2007,6 +2014,7 @@ mod tests {
                     "rename-pane": "r",
                     "focus-left": ["left", "alt+h"],
                     "next-tab": "none",
+                    "select-tab-0": "q",
                     "browser-edit-url": "u"
                 }
             }"##,
@@ -2040,6 +2048,10 @@ mod tests {
             Some(Action::RenameTab)
         );
         assert_eq!(config.keys.action_for(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)), None);
+        assert_eq!(
+            config.keys.action_for(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            Some(Action::SelectTab(0))
+        );
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
             Some(Action::BrowserEditUrl)

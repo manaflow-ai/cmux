@@ -6415,6 +6415,7 @@ mod tests {
 
         let (ws0, ws1, pane1, surface1) = mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 2);
+            assert_eq!(s.workspaces[0].name, "0");
             assert_eq!(s.workspaces[1].name, "dev");
             assert_eq!(s.active_workspace, 1);
             let pane = s.workspaces[1].screens[0].active_pane;
