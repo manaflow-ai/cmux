@@ -24,6 +24,7 @@ private final class FilePreviewQLItem: NSObject, QLPreviewItem {
 final class FilePreviewQuickLookSession {
     private let liveViews = NSHashTable<NSView>.weakObjects()
     private var item: FilePreviewQLItem?
+    private var itemRevision: Int?
 
     deinit {
         // AppKit teardown is performed explicitly by close() on the main actor.
@@ -70,6 +71,7 @@ final class FilePreviewQuickLookSession {
         Self.releaseView(view)
         if liveViews.allObjects.isEmpty {
             item = nil
+            itemRevision = nil
         }
     }
 
@@ -79,6 +81,7 @@ final class FilePreviewQuickLookSession {
         }
         liveViews.removeAllObjects()
         item = nil
+        itemRevision = nil
     }
 
     private static func makeView() -> NSView {
@@ -104,7 +107,11 @@ final class FilePreviewQuickLookSession {
         if let container = view as? FilePreviewQuickLookContainerView,
            let previewView = container.livePreviewView() {
             panel.attachPreviewFocus(root: container, primaryResponder: previewView, intent: .quickLook)
-            previewView.previewItem = previewItem(for: panel.fileURL, title: panel.displayTitle)
+            previewView.previewItem = previewItem(
+                for: panel.fileURL,
+                title: panel.displayTitle,
+                revision: panel.previewRevision
+            )
         }
         FilePreviewNativeBackground.applyRootLayer(
             to: view,
@@ -113,12 +120,13 @@ final class FilePreviewQuickLookSession {
         )
     }
 
-    private func previewItem(for url: URL, title: String) -> FilePreviewQLItem {
-        if let item, item.url == url, item.title == title {
+    private func previewItem(for url: URL, title: String, revision: Int) -> FilePreviewQLItem {
+        if let item, item.url == url, item.title == title, itemRevision == revision {
             return item
         }
         let next = FilePreviewQLItem(url: url, title: title)
         item = next
+        itemRevision = revision
         return next
     }
 }

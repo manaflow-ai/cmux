@@ -12,6 +12,7 @@ final class FilePreviewMediaSession {
         }
     )
     private var currentURL: URL?
+    private var currentRevision: Int?
     private var player: AVPlayer?
 
     deinit {
@@ -58,6 +59,7 @@ final class FilePreviewMediaSession {
         viewSession.close()
         player = nil
         currentURL = nil
+        currentRevision = nil
     }
 
     private static func makeView() -> AVPlayerView {
@@ -82,13 +84,14 @@ final class FilePreviewMediaSession {
             drawsBackground: drawsBackground
         )
         panel.attachPreviewFocus(root: view, primaryResponder: view, intent: .mediaPlayer)
-        updatePlayer(in: view, url: panel.fileURL)
+        updatePlayer(in: view, url: panel.fileURL, revision: panel.previewRevision)
     }
 
-    private func updatePlayer(in playerView: AVPlayerView, url: URL) {
-        guard currentURL != url else { return }
+    private func updatePlayer(in playerView: AVPlayerView, url: URL, revision: Int) {
+        guard currentURL != url || currentRevision != revision else { return }
         player?.pause()
         currentURL = url
+        currentRevision = revision
         let player = AVPlayer(url: url)
         self.player = player
         playerView.player = player

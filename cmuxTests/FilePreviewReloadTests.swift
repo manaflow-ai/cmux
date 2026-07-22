@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import Testing
@@ -39,6 +40,106 @@ struct FilePreviewReloadTests {
 
         #expect(await firstMatch(updatedContent, in: contentChanges))
         #expect(panel.textContent == updatedContent)
+        #expect(!panel.isDirty)
+    }
+
+    @Test("The manual refresh path reloads a text preview")
+    func manualRefreshReloadsTextPreview() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-manual-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "before\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        try "after\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        await panel.reloadFromDisk().value
+
+        #expect(panel.textContent == "after\n")
+        #expect(!panel.isDirty)
+    }
+
+    @Test("Refreshing a dirty text preview preserves unsaved edits")
+    func manualRefreshPreservesDirtyText() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-dirty-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "on disk\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        panel.updateTextContent("unsaved edits\n")
+
+        try "changed on disk\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        await panel.reloadFromDisk().value
+
+        #expect(panel.textContent == "unsaved edits\n")
+        #expect(panel.isDirty)
+    }
+
+    @Test("The manual refresh path replaces a cached Quick Look item")
+    func manualRefreshReplacesQuickLookItem() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-manual-\(UUID().uuidString).bin")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data([0x00, 0x01]).write(to: fileURL)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        #expect(panel.previewMode == .quickLook)
+
+        let view = panel.nativeViewSessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        let container = try #require(view as? FilePreviewQuickLookContainerView)
+        let firstItem = try #require(container.livePreviewView()?.previewItem as AnyObject?)
+
+        try Data([0x02, 0x03]).write(to: fileURL)
+        await panel.reloadFromDisk().value
+        panel.nativeViewSessions.quickLook.update(
+            view,
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+
+        let refreshedItem = try #require(container.livePreviewView()?.previewItem as AnyObject?)
+        #expect(refreshedItem !== firstItem)
+    }
+
+    @Test("Markdown manual refresh rereads the file")
+    func markdownManualRefreshRereadsFile() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-markdown-manual-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "# Before\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        try "# After\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        panel.reloadFromDisk()
+
+        #expect(panel.content == "# After\n")
         #expect(!panel.isDirty)
     }
 

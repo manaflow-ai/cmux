@@ -268,6 +268,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         }
     }
 
+    /// Re-reads the file without discarding an unsaved TextEdit buffer.
+    func reloadFromDisk() {
+        loadFileContent(replacingDirtyContent: false)
+    }
+
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
     }

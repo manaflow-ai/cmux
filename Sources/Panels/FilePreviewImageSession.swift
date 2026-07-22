@@ -60,6 +60,6 @@ final class FilePreviewImageSession {
         view.isHidden = !isVisibleInUI
         view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         view.setPanel(panel)
-        view.setURL(panel.fileURL)
+        view.setURL(panel.fileURL, revision: panel.previewRevision)
     }
 }
