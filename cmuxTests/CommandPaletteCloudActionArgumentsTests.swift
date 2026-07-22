@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCommandPalette
 import CmuxSettings
 import Foundation
@@ -10,7 +11,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Command palette cloud action arguments")
+@Suite("Command palette cloud action arguments", .serialized)
 struct CommandPaletteCloudActionArgumentsTests {
     @Test func restoreDeclaresSnapshotIdentifier() throws {
         let restore = try #require(
@@ -20,6 +21,135 @@ struct CommandPaletteCloudActionArgumentsTests {
         )
 
         #expect(restore.arguments == [CmuxActionArgumentDefinition(name: "snapshot_id")])
+    }
+
+    @Test func explicitCloudCommandTabManagerWinsOverTheActiveWindow() throws {
+        let appDelegate = AppDelegate()
+        let activeManager = TabManager(autoWelcomeIfNeeded: false)
+        let targetManager = TabManager(autoWelcomeIfNeeded: false)
+        let activeWindowID = UUID()
+        let targetWindowID = UUID()
+        let activeWindow = testWindow()
+        let targetWindow = testWindow()
+        _ = appDelegate.registerMainWindow(
+            activeWindow,
+            windowId: activeWindowID,
+            tabManager: activeManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        _ = appDelegate.registerMainWindow(
+            targetWindow,
+            windowId: targetWindowID,
+            tabManager: targetManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.tabManager = activeManager
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowID)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: targetWindowID)
+            activeWindow.close()
+            targetWindow.close()
+        }
+
+        let explicitContext = try #require(appDelegate.cloudVMCommandContext(
+            tabManager: targetManager,
+            preferredWindow: nil,
+            debugSource: "test.palette.cloud.explicitTarget"
+        ))
+        #expect(explicitContext.tabManager === targetManager)
+    }
+
+    @Test func proWorkspaceReuseKeepsIndependentWindowTargets() {
+        var reuseState = ProUpgradeWorkspaceReuseState()
+        let windowA = UUID()
+        let windowB = UUID()
+        let workspaceA = UUID()
+        let workspaceB = UUID()
+
+        reuseState.recordCreatedWorkspace(id: workspaceA, scope: .window(windowA))
+        reuseState.recordCreatedWorkspace(id: workspaceB, scope: .window(windowB))
+
+        #expect(
+            reuseState.reusableWorkspaceID(scope: .window(windowA)) { $0 == workspaceA }
+                == workspaceA
+        )
+        #expect(
+            reuseState.reusableWorkspaceID(scope: .window(windowB)) { $0 == workspaceB }
+                == workspaceB
+        )
+    }
+
+    @Test func proWorkspaceLookupDoesNotEscapeTheExplicitTabManager() throws {
+        let appDelegate = AppDelegate()
+        let managerA = TabManager(autoWelcomeIfNeeded: false)
+        let managerB = TabManager(autoWelcomeIfNeeded: false)
+        let workspaceA = try #require(managerA.tabs.first)
+
+        #expect(appDelegate.proUpgradeWorkspaceExists(
+            workspaceId: workspaceA.id,
+            tabManager: managerA
+        ))
+        #expect(!appDelegate.proUpgradeWorkspaceExists(
+            workspaceId: workspaceA.id,
+            tabManager: managerB
+        ))
+    }
+
+    @Test func browserOpenUsesTheExplicitTabManager() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let appDelegate = AppDelegate()
+        let activeManager = TabManager(autoWelcomeIfNeeded: false)
+        let targetManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = activeManager
+        let targetWindowID = UUID()
+        let targetWindow = testWindow()
+        _ = appDelegate.registerMainWindow(
+            targetWindow,
+            windowId: targetWindowID,
+            tabManager: targetManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: targetWindowID)
+            targetWindow.close()
+        }
+        let activeWorkspace = try #require(activeManager.selectedWorkspace)
+        let targetWorkspace = try #require(targetManager.selectedWorkspace)
+        let activeBrowserCount = activeWorkspace.panels.values.filter { $0 is BrowserPanel }.count
+        let targetBrowserCount = targetWorkspace.panels.values.filter { $0 is BrowserPanel }.count
+
+        #expect(appDelegate.openBrowserAndFocusAddressBar(tabManager: targetManager) != nil)
+        #expect(activeWorkspace.panels.values.filter { $0 is BrowserPanel }.count == activeBrowserCount)
+        #expect(targetWorkspace.panels.values.filter { $0 is BrowserPanel }.count == targetBrowserCount + 1)
+    }
+
+    @Test func browserOpenRejectsAnUnregisteredExplicitTabManager() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let appDelegate = AppDelegate()
+        let staleManager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(staleManager.selectedWorkspace)
+        let browserCount = workspace.panels.values.filter { $0 is BrowserPanel }.count
+
+        #expect(appDelegate.openBrowserAndFocusAddressBar(tabManager: staleManager) == nil)
+        #expect(workspace.panels.values.filter { $0 is BrowserPanel }.count == browserCount)
+    }
+
+    private func testWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
     }
 }
 
