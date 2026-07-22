@@ -225,6 +225,10 @@ extension TerminalController {
         guard case .success(let resolved) = resolution else {
             return resolution.failureResult
         }
+        return await v2MobileChatArtifactSave(resolved: resolved)
+    }
+
+    func v2MobileChatArtifactSave(resolved: ResolvedChatArtifact) async -> V2CallResult {
         guard let service = agentChatTranscriptService,
               let record = service.sessionRecord(sessionID: resolved.sessionID) else {
             return mobileChatArtifactError(.notFound, path: resolved.requestedPath)
@@ -247,7 +251,7 @@ extension TerminalController {
         }
     }
 
-    private enum ChatArtifactOperation {
+    enum ChatArtifactOperation {
         case file
         case list
 
@@ -261,13 +265,13 @@ extension TerminalController {
         }
     }
 
-    private struct ResolvedChatArtifact: Sendable {
+    struct ResolvedChatArtifact: Sendable {
         let sessionID: String
         let requestedPath: String
         let canonicalPath: String
     }
 
-    private enum ChatArtifactResolution {
+    enum ChatArtifactResolution {
         case success(ResolvedChatArtifact)
         case failure(V2CallResult)
 
@@ -281,7 +285,7 @@ extension TerminalController {
         }
     }
 
-    private func mobileChatArtifactResolution(
+    func mobileChatArtifactResolution(
         params: [String: Any],
         operation: ChatArtifactOperation
     ) async -> ChatArtifactResolution {
