@@ -23,6 +23,7 @@ final class TeardownOrderRecorder: @unchecked Sendable {
     }
 
     private var waiters: [Waiter] = []
+    private var waiterRegistrationSignals: [CheckedContinuation<Void, Never>] = []
 
     /// The events recorded so far, in order.
     var events: [Event] {
@@ -80,10 +81,28 @@ final class TeardownOrderRecorder: @unchecked Sendable {
                         timeoutTask: timeoutTask
                     )
                 )
+                let registrationSignals = waiterRegistrationSignals
+                waiterRegistrationSignals.removeAll()
                 lock.unlock()
+                for signal in registrationSignals { signal.resume() }
             }
         } onCancel: {
             cancelWaiter(id: waiterID)
+        }
+    }
+
+    /// Suspends until an event-count waiter is installed. Tests use this to
+    /// cancel the registered waiter instead of racing its setup task.
+    func waitUntilEventWaiterIsRegistered() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if waiters.isEmpty {
+                waiterRegistrationSignals.append(continuation)
+                lock.unlock()
+            } else {
+                lock.unlock()
+                continuation.resume()
+            }
         }
     }
 
