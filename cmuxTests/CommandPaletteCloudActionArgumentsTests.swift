@@ -61,24 +61,28 @@ struct CommandPaletteCloudActionArgumentsTests {
         #expect(explicitContext.tabManager === targetManager)
     }
 
-    @Test func proWorkspaceReuseKeepsIndependentWindowTargets() {
-        var reuseState = ProUpgradeWorkspaceReuseState()
+    @Test func proWorkspaceReuseKeepsIndependentWindowTargets() throws {
+        let appDelegate = AppDelegate()
         let windowA = UUID()
         let windowB = UUID()
         let workspaceA = UUID()
         let workspaceB = UUID()
+        let managerA = TabManager(autoWelcomeIfNeeded: false)
+        let managerB = TabManager(autoWelcomeIfNeeded: false)
 
-        reuseState.recordCreatedWorkspace(id: workspaceA, scope: .window(windowA))
-        reuseState.recordCreatedWorkspace(id: workspaceB, scope: .window(windowB))
+        _ = appDelegate.registerMainWindowContextForTesting(windowId: windowA, tabManager: managerA)
+        _ = appDelegate.registerMainWindowContextForTesting(windowId: windowB, tabManager: managerB)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowA)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowB)
+        }
+        let contextA = try #require(appDelegate.mainWindowContext(for: managerA))
+        let contextB = try #require(appDelegate.mainWindowContext(for: managerB))
+        contextA.proPricingWorkspaceId = workspaceA
+        contextB.proPricingWorkspaceId = workspaceB
 
-        #expect(
-            reuseState.reusableWorkspaceID(scope: .window(windowA)) { $0 == workspaceA }
-                == workspaceA
-        )
-        #expect(
-            reuseState.reusableWorkspaceID(scope: .window(windowB)) { $0 == workspaceB }
-                == workspaceB
-        )
+        #expect(contextA.proPricingWorkspaceId == workspaceA)
+        #expect(contextB.proPricingWorkspaceId == workspaceB)
     }
 
     @Test func proWorkspaceLookupDoesNotEscapeTheExplicitTabManager() throws {
