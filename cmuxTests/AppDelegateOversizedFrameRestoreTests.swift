@@ -11,6 +11,31 @@ import Testing
 @MainActor
 struct AppDelegateOversizedFrameRestoreTests {
     @Test
+    func sameDisplaySavedFrameCutOffPastLeftEdgeIsFittedToVisibleFrame() throws {
+        let visible = CGRect(x: 0, y: 0, width: 1_512, height: 944)
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            stableID: "uuid:BUILTIN",
+            frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: visible
+        )
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: SessionRectSnapshot(CGRect(x: -240, y: 120, width: 900, height: 700)),
+            display: SessionDisplaySnapshot(
+                displayID: 1,
+                stableID: "uuid:BUILTIN",
+                frame: SessionRectSnapshot(display.frame),
+                visibleFrame: SessionRectSnapshot(visible)
+            ),
+            availableDisplays: [display],
+            fallbackDisplay: display
+        ))
+
+        #expect(restored == CGRect(x: 0, y: 120, width: 900, height: 700))
+        #expect(visible.contains(restored))
+    }
+
+    @Test
     func oversizedSavedFrameClampsToItsDisplay() throws {
         let visible = CGRect(x: 0, y: 0, width: 1_512, height: 944)
         let display = AppDelegate.SessionDisplayGeometry(
