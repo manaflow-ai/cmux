@@ -191,7 +191,8 @@ struct ControlCommandExecutionPolicyTests {
         // The v2 twins of the report family share the same single-hop worker
         // bodies (encode off-main), so they carry the same policy.
         for method in [
-            "surface.report_pwd", "surface.report_shell_state",
+            "surface.report_pwd", "surface.report_git_branch", "surface.clear_git_branch",
+            "surface.report_shell_state",
             "surface.report_tty", "surface.ports_kick",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)

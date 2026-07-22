@@ -61,6 +61,12 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // This is a localized image endpoint, but the default-locale URL is
+  // intentionally unprefixed to match the canonical social metadata URL.
+  if (pathname === "/opengraph-image" || pathname === "/opengraph-image/") {
+    return NextResponse.next();
+  }
+
   if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
     return NextResponse.next();
   }

@@ -13,8 +13,12 @@ actor TestIrohEventRecorder {
     }
 }
 
-actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
+actor TestIrohConnection: CmxIrohConnection,
+    CmxIrohConnectionContinuityIdentifying,
+    CmxIrohConnectionPathInspecting
+{
     private let peerIdentity: CmxIrohPeerIdentity
+    private let continuityID: UInt64
     private var bidirectionalStreams: [CmxIrohBidirectionalStream]
     private var receiveStreams: [any CmxIrohReceiveStream]
     private let natTraversalAuthorizationError: TestIrohTransportError?
@@ -40,6 +44,7 @@ actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
 
     init(
         remoteIdentity: CmxIrohPeerIdentity,
+        continuityID: UInt64 = 1,
         bidirectionalStreams: [CmxIrohBidirectionalStream],
         receiveStreams: [any CmxIrohReceiveStream] = [],
         natTraversalAuthorizationError: TestIrohTransportError? = nil,
@@ -49,6 +54,7 @@ actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
         reportsClosureToWaiters: Bool = true
     ) {
         peerIdentity = remoteIdentity
+        self.continuityID = continuityID
         self.bidirectionalStreams = bidirectionalStreams
         self.receiveStreams = receiveStreams
         self.natTraversalAuthorizationError = natTraversalAuthorizationError
@@ -69,6 +75,10 @@ actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
 
     func remoteIdentity() -> CmxIrohPeerIdentity {
         peerIdentity
+    }
+
+    func connectionContinuityID() -> UInt64 {
+        continuityID
     }
 
     func observedSelectedPath() -> CmxIrohObservedConnectionPath {

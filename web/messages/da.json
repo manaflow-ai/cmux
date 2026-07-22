@@ -745,6 +745,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Brug cmux mosh-tmux til roaming mellem netværk. Den åbner en fuldt integreret Mosh-terminal, der er tilsluttet en navngivet tmux-session; den erstatter ikke den native spejling af arbejdsområder, faner og opdelinger fra SSH tmux-kontroltilstand."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Kom i gang",
@@ -1493,10 +1496,16 @@
       "flagName": "Flag",
       "flagDesc": "Beskrivelse",
       "flagNameVal": "Indstil arbejdsområdets titel",
+      "flagCommand": "Kør kommandoteksten én gang i den første fjernterminal efter shell-start",
       "flagPort": "SSH-port (standard 22)",
       "flagIdentity": "Sti til identitetsfil",
       "flagSshOption": "Bestå vilkårlige SSH-indstillinger (f.eks. -o StrictHostKeyChecking=no)",
+      "flagTransport": "Interaktiv terminaltransport: ssh (standard) eller mosh",
       "flagNoFocus": "Opret arbejdsområdet uden at skifte til det",
+      "moshTitle": "Mosh-terminaltransport",
+      "moshDesc": "Brug cmux ssh user@remote --transport mosh, når den interaktive terminal skal overleve skift mellem Wi-Fi, VPN og hotspot samt slumretilstand og opvågning. Mosh bærer kun terminalens PTY; SSH håndterer fortsat fjernmetadata, opsætning og styring af cmux-tjenesten, browserproxy, overførsler og genoprettelse af forbindelsen.",
+      "moshFallback": "cmux kræver Mosh 1.4 eller nyere lokalt og kontrollerer den eksterne mosh-server før start. Hvis klienten mangler eller er inkompatibel, serveren mangler, eller fjernkontrollen mislykkes, forklarer cmux årsagen og fortsætter via SSH.",
+      "moshTmux": "Opret et Mosh-arbejdsområde, der opretter eller tilslutter en navngivet tmux-session (standard: main). Tmux-profilen bevares ved genoprettelse og app-sessionsgendannelse. Dette er en roaming tmux-terminal, ikke det native mirror fra cmux ssh-tmux. --session <name> vælger sessionen; øvrige flag matcher cmux mosh. Uden Mosh kører samme profil over SSH.",
       "deepLinksTitle": "SSH dybe links",
       "deepLinksDesc": "Brug cmux SSH-dybe links, når et websted eller et værktøj ønsker at tilbyde en Åbn i cmux-knap. Linket åbner cmux, viser en bekræftelsesprompt og kører derefter den tilsvarende cmux ssh-kommando, efter at brugeren har bekræftet.",
       "deepLinksWebFallbackDesc": "Brug cmux.com reserve-URL til webstedsknapper. Det åbner det oprindelige link og viser download, hvis cmux ikke er installeret.",

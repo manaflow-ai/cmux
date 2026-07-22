@@ -596,6 +596,170 @@
         }
       }
     },
+    "mobile.settings.terminalFolderTap" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Folders on Tap"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タップでフォルダを開く"
+          }
+        }
+      }
+    },
+    "mobile.common.actions" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Actions" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "操作" } }
+      }
+    },
+    "mobile.common.cancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
+      }
+    },
+    "mobile.common.edit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "編集" } }
+      }
+    },
+    "mobile.common.remove" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "削除" } }
+      }
+    },
+    "mobile.common.save" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存" } }
+      }
+    },
+    "mobile.iroh.private" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Private Networks" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートネットワーク" } }
+      }
+    },
+    "mobile.iroh.private.automatic" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Automatic" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "自動" } }
+      }
+    },
+    "mobile.iroh.private.custom.add" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add Private Addresses" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを追加" } }
+      }
+    },
+    "mobile.iroh.private.custom.addresses" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Numeric IP Addresses" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "数値形式のIPアドレス" } }
+      }
+    },
+    "mobile.iroh.private.custom.addresses.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter one IPv4 or IPv6 address per line, without a port. cmux combines it with the Mac's current broker-authenticated Iroh UDP port." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "IPv4またはIPv6アドレスをポートなしで1行に1つ入力してください。cmuxはそのアドレスを、ブローカーが認証したMacの現在のIroh UDPポートと組み合わせます。" } }
+      }
+    },
+    "mobile.iroh.private.custom.edit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit Private Addresses" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスを編集" } }
+      }
+    },
+    "mobile.iroh.private.custom.enabled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use These Addresses" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "これらのアドレスを使用" } }
+      }
+    },
+    "mobile.iroh.private.custom.mac" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } }
+      }
+    },
+    "mobile.iroh.private.custom.remove.confirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove these private addresses?" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "これらのプライベートアドレスを削除しますか？" } }
+      }
+    },
+    "mobile.iroh.private.custom.unnamedMac" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac" } }
+      }
+    },
+    "mobile.iroh.private.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Private addresses stay on this device and are fallback paths only. cmux pins the Mac's broker-authenticated Iroh EndpointID and current UDP port; an address never proves identity." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスはこのデバイス内にのみ保存され、フォールバック経路としてのみ使用されます。cmuxはブローカーが認証したMacのIroh EndpointIDと現在のUDPポートを固定します。アドレス自体を本人確認には使用しません。" } }
+      }
+    },
+    "mobile.iroh.private.lan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Local Network Discovery" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ローカルネットワーク検出" } }
+      }
+    },
+    "mobile.iroh.private.tailscale" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale Compatibility" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale互換性" } }
+      }
+    },
+    "mobile.iroh.private.tailscale.active" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "When Tailscale Is Active" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscaleが有効な場合" } }
+      }
+    },
+    "mobile.iroh.saveFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could Not Save Networking Settings" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ネットワーク設定を保存できませんでした" } }
+      }
+    },
+    "mobile.iroh.saveFailed.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Your previous networking configuration is still active. Check the values, then try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "以前のネットワーク設定は引き続き有効です。入力内容を確認して、もう一度お試しください。" } }
+      }
+    },
     "mobile.iroh.diagnostics.clear" : {
       "extractionState" : "manual",
       "localizations" : {

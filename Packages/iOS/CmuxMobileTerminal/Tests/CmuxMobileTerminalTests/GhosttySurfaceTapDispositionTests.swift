@@ -8,5 +8,6 @@ struct GhosttySurfaceTapDispositionTests {
     func inputFocus() {
         #expect(GhosttySurfaceTapDisposition.focusTerminal.shouldFocusTerminal)
         #expect(!GhosttySurfaceTapDisposition.openedArtifact.shouldFocusTerminal)
+        #expect(!GhosttySurfaceTapDisposition.ignored.shouldFocusTerminal)
     }
 }

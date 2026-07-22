@@ -74,6 +74,22 @@ struct CmxIrohSettingsSnapshotTests {
         #expect(secretBearingLabels(in: snapshot).isEmpty)
     }
 
+    @Test func debugTransportProjectionPreservesAllThreeVerificationModes() {
+        for mode in CmxIrohTransportVerificationMode.allCases {
+            let snapshot = CmxIrohSettingsSnapshot(
+                runtimeStatus: .active,
+                preference: .automatic,
+                managedRelays: [],
+                customRelays: [],
+                policySource: .server,
+                debugTransportVerificationMode: mode
+            )
+
+            #expect(snapshot.debugTransportVerificationMode == mode)
+            #expect(snapshot.debugRelayOnlyEnabled == (mode == .relayOnly))
+        }
+    }
+
     @Test func managedPreferenceRequiresOneToSixteenSafeRelayIdentifiers() throws {
         #expect(throws: CmxIrohRelayPreferenceDraftError.self) {
             try CmxIrohRelayPreferenceDraft.managed([]).validated()
