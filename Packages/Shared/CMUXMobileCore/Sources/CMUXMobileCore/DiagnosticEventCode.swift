@@ -173,4 +173,18 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// process-local session correlation ID. The event contains no peer or route
     /// identity.
     case transportSessionLifecycle = 51
+    /// The app's scene phase changed. `a` is ``DiagnosticAppLifecyclePhase``.
+    /// Session drops that follow a backgrounding within seconds are suspension
+    /// casualties, not network failures; this event makes that attributable.
+    case appLifecycleChanged = 52
+    /// Device reachability changed. `a` is 1 when a usable network path
+    /// exists, else 0. Correlates drops with WiFi/cellular transitions.
+    case reachabilityChanged = 53
+}
+
+/// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.
+public enum DiagnosticAppLifecyclePhase: Int, Sendable, Codable, CaseIterable {
+    case background = 0
+    case active = 1
+    case inactive = 2
 }

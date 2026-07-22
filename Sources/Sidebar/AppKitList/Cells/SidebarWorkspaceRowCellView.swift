@@ -241,6 +241,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        pumpCancellables.removeAll()
+        model = nil
+        hintPill.resetForReuse()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Detachment without a configure pass must not leave the status
@@ -507,8 +514,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Hint pill + indicators + dim/drag
         hintPill.configure(
             text: model.shortcutHintText,
-            fontSize: model.scaled(10),
-            emphasis: model.isActive ? 1.0 : 0.9
+            fontSize: model.scaled(9),
+            emphasis: model.isActive ? 1.0 : 0.9,
+            representedIdentity: model.workspaceId
         )
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
         bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
