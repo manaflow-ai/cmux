@@ -25,6 +25,7 @@ struct CMUXMobileRootView: View {
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// Persists the last durable milestone in first-run onboarding.
     @Bindable private var onboardingStore: MobileOnboardingStore
+    @State private var isStartingOnboardingConnection = false
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -386,7 +387,7 @@ struct CMUXMobileRootView: View {
     private var onboardingConnectionPhase: OnboardingConnectionPhase {
         OnboardingConnectionPhase(
             isMacReady: store.connectionState == .connected,
-            isSearching: store.isReconnectingStoredMac,
+            isSearching: isStartingOnboardingConnection || store.isReconnectingStoredMac,
             didFinishSearch: store.didFinishStoredMacReconnectAttempt
         )
     }
@@ -394,7 +395,12 @@ struct CMUXMobileRootView: View {
     private func markOnboardingReadyToConnect() {
         onboardingStore.markReadyToConnect()
         guard isAuthenticated, store.connectionState != .connected else { return }
-        retryAutomaticConnection()
+        let stackUserID = authManager.currentUser?.id
+        isStartingOnboardingConnection = true
+        Task {
+            defer { isStartingOnboardingConnection = false }
+            _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
+        }
     }
 
     private func completeOnboarding() {
