@@ -25,9 +25,17 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
         let continuation: CheckedContinuation<Void, any Error>
     }
 
+    private struct SleepWaiter {
+        let deadline: Instant?
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private let lock = NSLock()
     private var _now = Instant(offset: .zero)
-    private var sleepers: [Sleeper] = []
+    private var sleepers: [UUID: Sleeper] = [:]
+    private var cancelledSleeperIDs: Set<UUID> = []
+    private var sleepWaiters: [SleepWaiter] = []
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     var now: Instant {
         lock.lock()
@@ -38,33 +46,85 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
     var minimumResolution: Duration { .zero }
 
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        try Task.checkCancellation()
-        let readyNow: Bool = {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                if cancelledSleeperIDs.remove(id) != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if deadline <= _now {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
+                var matchedWaiters: [CheckedContinuation<Void, Never>] = []
+                sleepWaiters.removeAll { waiter in
+                    let matches = waiter.deadline == nil || waiter.deadline == deadline
+                    if matches { matchedWaiters.append(waiter.continuation) }
+                    return matches
+                }
+                lock.unlock()
+                for waiter in matchedWaiters { waiter.resume() }
+            }
+        } onCancel: {
             lock.lock()
-            defer { lock.unlock() }
-            return deadline <= _now
-        }()
-        if readyNow { return }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            let sleeper = sleepers.removeValue(forKey: id)
+            if sleeper == nil { cancelledSleeperIDs.insert(id) }
+            let waiters = sleepers.isEmpty ? idleWaiters : []
+            if sleepers.isEmpty { idleWaiters.removeAll() }
+            lock.unlock()
+            sleeper?.continuation.resume(throwing: CancellationError())
+            for waiter in waiters { waiter.resume() }
+        }
+    }
+
+    func waitUntilSleeping(for duration: Duration? = nil) async {
+        await withCheckedContinuation { continuation in
             lock.lock()
-            if deadline <= _now {
+            let deadline = duration.map { _now.advanced(by: $0) }
+            let alreadySleeping = sleepers.values.contains { sleeper in
+                deadline == nil || sleeper.deadline == deadline
+            }
+            if alreadySleeping {
                 lock.unlock()
                 continuation.resume()
-                return
+            } else {
+                sleepWaiters.append(SleepWaiter(deadline: deadline, continuation: continuation))
+                lock.unlock()
             }
-            sleepers.append(Sleeper(deadline: deadline, continuation: continuation))
-            lock.unlock()
         }
     }
 
     func advance(by duration: Duration) {
         lock.lock()
         _now = _now.advanced(by: duration)
-        let due = sleepers.filter { $0.deadline <= _now }
-        sleepers.removeAll { $0.deadline <= _now }
+        let dueIDs = sleepers.compactMap { id, sleeper in
+            sleeper.deadline <= _now ? id : nil
+        }
+        let due = dueIDs.compactMap { sleepers.removeValue(forKey: $0) }
+        let waiters = sleepers.isEmpty ? idleWaiters : []
+        if sleepers.isEmpty { idleWaiters.removeAll() }
         lock.unlock()
         for sleeper in due {
             sleeper.continuation.resume()
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitUntilIdle() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if sleepers.isEmpty {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                idleWaiters.append(continuation)
+                lock.unlock()
+            }
         }
     }
 }
