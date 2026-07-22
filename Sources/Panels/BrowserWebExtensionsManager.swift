@@ -2,6 +2,7 @@ import AppKit
 import CmuxBrowser
 import CryptoKit
 import Foundation
+import ImageIO
 import WebKit
 
 /// Loads Safari Web Extensions (WebExtension `manifest.json` bundles, the same
@@ -185,8 +186,9 @@ final class BrowserWebExtensionsManager: NSObject {
     """#
 
     typealias AppExtensionLoader = @MainActor (Bundle) async throws -> WKWebExtension
+    typealias ActionPerformer = @MainActor (WKWebExtensionContext, BrowserWebExtensionTabAdapter) -> Void
     typealias PopupHandoffDeadline = @MainActor @Sendable () async throws -> Void
-    typealias SafariAppVerifier = @Sendable (URL) throws -> BrowserWebExtensionSafariAppIdentity
+    typealias SafariAppVerifier = @Sendable (URL) async throws -> BrowserWebExtensionSafariAppIdentity
     typealias PostManagementCommitHook = @MainActor @Sendable () async throws -> Void
     typealias PermissionPromptPresenter = @MainActor @Sendable (
         BrowserWebExtensionPermissionRequest,
@@ -254,6 +256,7 @@ final class BrowserWebExtensionsManager: NSObject {
     private let postManagementCommitHook: PostManagementCommitHook
     private let catalogPackageRepository: BrowserWebExtensionCatalogPackageRepository
     private let appExtensionLoader: AppExtensionLoader
+    private let performExtensionAction: ActionPerformer
     private let waitForPopupHandoffDeadline: PopupHandoffDeadline
     private let verifySafariAppExtension: SafariAppVerifier
     private let presentPermissionPrompt: PermissionPromptPresenter
@@ -278,6 +281,7 @@ final class BrowserWebExtensionsManager: NSObject {
     private var dismissedPopupKeys = Set<ActionInvocationKey>()
     private var popupClosuresRequestedByActionButton = Set<ActionInvocationKey>()
     private var popupKeysByPopover: [ObjectIdentifier: ActionInvocationKey] = [:]
+    private var popupPlacementLocks: [ObjectIdentifier: BrowserWebExtensionPopupPlacementLock] = [:]
     private var popupWebViews: [String: WeakPopupWebView] = [:]
     private var actionUpdateFlushTask: Task<Void, Never>?
     private var pendingActionUpdates: [ActionUpdateKey: PendingActionUpdate] = [:]
@@ -314,7 +318,7 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     private struct PresentationIconCacheEntry {
-        let image: NSImage
+        let signature: String
         let data: Data?
     }
 
@@ -330,13 +334,18 @@ final class BrowserWebExtensionsManager: NSObject {
         profileRuntime: BrowserWebExtensionProfileRuntime? = nil,
         directoryRepository: BrowserWebExtensionDirectoryRepository = BrowserWebExtensionDirectoryRepository(),
         catalogPackageRepository: BrowserWebExtensionCatalogPackageRepository = BrowserWebExtensionCatalogPackageRepository(),
+        performExtensionAction: @escaping ActionPerformer = { context, tab in
+            context.performAction(for: tab)
+        },
         waitForPopupHandoffDeadline: @escaping PopupHandoffDeadline = {
             try await ContinuousClock().sleep(for: .seconds(3))
         },
         verifySafariAppExtension: @escaping SafariAppVerifier = { extensionURL in
-            try BrowserWebExtensionCodeSignatureVerifier()
-                .verifySafariExtension(at: extensionURL)
-                .identity
+            try await Task.detached(priority: .userInitiated) {
+                try BrowserWebExtensionCodeSignatureVerifier()
+                    .verifySafariExtension(at: extensionURL)
+                    .identity
+            }.value
         },
         permissionPromptPresenter: @escaping PermissionPromptPresenter = { request, window in
             await BrowserWebExtensionPermissionPromptPresenter().decision(
@@ -355,6 +364,7 @@ final class BrowserWebExtensionsManager: NSObject {
         self.postManagementCommitHook = postManagementCommitHook
         self.catalogPackageRepository = catalogPackageRepository
         self.appExtensionLoader = appExtensionLoader
+        self.performExtensionAction = performExtensionAction
         self.waitForPopupHandoffDeadline = waitForPopupHandoffDeadline
         self.verifySafariAppExtension = verifySafariAppExtension
         self.presentPermissionPrompt = permissionPromptPresenter
@@ -431,6 +441,8 @@ final class BrowserWebExtensionsManager: NSObject {
         dismissedPopupKeys.removeAll()
         popupClosuresRequestedByActionButton.removeAll()
         popupKeysByPopover.removeAll()
+        for placementLock in popupPlacementLocks.values { placementLock.stop() }
+        popupPlacementLocks.removeAll()
         popupWebViews.removeAll()
         for context in loadedContexts {
             _ = try? controller.unload(context)
@@ -688,7 +700,8 @@ final class BrowserWebExtensionsManager: NSObject {
                 cleanupURL: cleanupURL
             )
         case .appExtensionBundle(let reference):
-            _ = try verifySafariAppExtension(reference.bundleURL)
+            _ = try await verifySafariAppExtension(reference.bundleURL)
+            try requireActive()
             webExtension = try await self.webExtension(for: reference)
             try requireActive()
             expectedPackageDigest = nil
@@ -843,7 +856,8 @@ final class BrowserWebExtensionsManager: NSObject {
                     capabilityNotices: prepared.preview.capabilityNotices
                 )
             case .safariApp(let reference):
-                _ = try verifySafariAppExtension(reference.bundleURL)
+                _ = try await verifySafariAppExtension(reference.bundleURL)
+                try requireActive()
                 reviewedWebExtension = try await webExtension(for: reference)
                 try requireActive()
                 try validateReviewedManifest(reviewedWebExtension, against: prepared.preview)
@@ -869,12 +883,17 @@ final class BrowserWebExtensionsManager: NSObject {
                 try controller.unload(previousContext)
                 loadedContexts.removeAll { $0 === previousContext }
                 managedRecordIDsByContextIdentifier.removeValue(forKey: previousContext.uniqueIdentifier)
+                clearTransientState(
+                    forExtensionIdentifier: previousContext.uniqueIdentifier
+                )
             }
             // Safari apps can update while the review sheet is open. Verify the
-            // exact app and appex identity again in the same main-actor turn as
-            // controller loading.
+            // exact app and appex identity again immediately before controller
+            // loading. Verification suspends off-main so the UI and load
+            // deadline remain responsive.
             if let safariReference {
-                _ = try verifySafariAppExtension(safariReference.bundleURL)
+                _ = try await verifySafariAppExtension(safariReference.bundleURL)
+                try requireActive()
             }
             let context = try loadExtension(
                 reviewedWebExtension,
@@ -1064,6 +1083,11 @@ final class BrowserWebExtensionsManager: NSObject {
                 throw error
             }
             managedRecords[managementID] = record
+            if record.isToolbarPinned {
+                toolbarPinnedExtensionIdentifiers.insert(newContext.uniqueIdentifier)
+            } else {
+                toolbarPinnedExtensionIdentifiers.remove(newContext.uniqueIdentifier)
+            }
             clearManagedLoadFailure(for: record)
         } else {
             if let context {
@@ -1081,6 +1105,9 @@ final class BrowserWebExtensionsManager: NSObject {
             managedRecords[managementID] = record
             clearManagedLoadFailure(for: record)
             toolbarPinnedExtensionIdentifiers.remove(Self.contextIdentifier(for: managementID))
+            clearTransientState(
+                forExtensionIdentifier: Self.contextIdentifier(for: managementID)
+            )
         }
         profileRuntime.invalidateSnapshot()
     }
@@ -1109,7 +1136,7 @@ final class BrowserWebExtensionsManager: NSObject {
         }
         managedRecords.removeValue(forKey: managementID)
         toolbarPinnedExtensionIdentifiers.remove(identifier)
-        actionFailures = actionFailures.filter { $0.key.extensionIdentifier != identifier }
+        clearTransientState(forExtensionIdentifier: identifier)
         if !dataRecords.isEmpty {
             await controller.removeData(ofTypes: dataTypes, from: dataRecords)
         }
@@ -1162,7 +1189,8 @@ final class BrowserWebExtensionsManager: NSObject {
             }
             return try await prepareCatalogInstall(entry)
         case .safariApp(let reference):
-            _ = try verifySafariAppExtension(reference.bundleURL)
+            _ = try await verifySafariAppExtension(reference.bundleURL)
+            try requireActive()
             let candidate = try await webExtension(for: reference)
             guard candidate.version != record.version else {
                 throw BrowserWebExtensionManagementError.upToDate
@@ -1244,14 +1272,7 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func unregister(panelID: UUID) {
-        let handoffKeys = pendingActionInvocations.keys.filter { $0.panelID == panelID }
-        for key in handoffKeys {
-            cancelPopupHandoff(for: key)
-        }
-        pendingActionInvocations = pendingActionInvocations.filter { $0.key.panelID != panelID }
-        lastActionInvocations = lastActionInvocations.filter { $0.key.panelID != panelID }
-        pendingActionUpdates = pendingActionUpdates.filter { $0.key.panelID != panelID }
-        presentationIconCache = presentationIconCache.filter { $0.key.panelID != panelID }
+        clearTransientState(forPanelID: panelID)
         guard let tabAdapter = tabAdapters.removeValue(forKey: panelID) else { return }
         guard let windowAdapter = tabAdapter.windowAdapter else { return }
         if windowAdapter.lastReportedVisiblePanelIDs.contains(panelID) {
@@ -1262,6 +1283,80 @@ final class BrowserWebExtensionsManager: NSObject {
         if windowAdapter.tabAdapters.isEmpty {
             windowAdapters.removeValue(forKey: windowAdapter.ownerID)
             controller.didCloseWindow(windowAdapter)
+        }
+    }
+
+    private func clearTransientState(forPanelID panelID: UUID) {
+        let invocationKeys = Set(
+            pendingActionInvocations.keys.filter { $0.panelID == panelID }
+                + lastActionInvocations.keys.filter { $0.panelID == panelID }
+                + popupHandoffDeadlineTasks.keys.filter { $0.panelID == panelID }
+                + actionsAwaitingReadyPopup.filter { $0.panelID == panelID }
+                + expiredPopupHandoffs.filter { $0.panelID == panelID }
+                + dismissedPopupKeys.filter { $0.panelID == panelID }
+                + popupClosuresRequestedByActionButton.filter { $0.panelID == panelID }
+        )
+        let popoverEntries = popupKeysByPopover.filter { $0.value.panelID == panelID }
+        let extensionIdentifiers = Set(
+            invocationKeys.map(\.extensionIdentifier)
+                + popoverEntries.values.map(\.extensionIdentifier)
+        )
+        for key in invocationKeys {
+            popupHandoffDeadlineTasks.removeValue(forKey: key)?.cancel()
+            pendingActionInvocations.removeValue(forKey: key)
+            lastActionInvocations.removeValue(forKey: key)
+            actionsAwaitingReadyPopup.remove(key)
+            expiredPopupHandoffs.remove(key)
+            dismissedPopupKeys.remove(key)
+            popupClosuresRequestedByActionButton.remove(key)
+        }
+        for popoverID in popoverEntries.keys {
+            popupKeysByPopover.removeValue(forKey: popoverID)
+            popupPlacementLocks.removeValue(forKey: popoverID)?.stop()
+        }
+        for identifier in extensionIdentifiers {
+            popupWebViews.removeValue(forKey: identifier)
+        }
+        pendingActionUpdates = pendingActionUpdates.filter { $0.key.panelID != panelID }
+        presentationIconCache = presentationIconCache.filter { $0.key.panelID != panelID }
+        actionFailures = actionFailures.filter { $0.key.panelID != panelID }
+    }
+
+    private func clearTransientState(forExtensionIdentifier identifier: String) {
+        let invocationKeys = Set(
+            pendingActionInvocations.keys.filter { $0.extensionIdentifier == identifier }
+                + lastActionInvocations.keys.filter { $0.extensionIdentifier == identifier }
+                + popupHandoffDeadlineTasks.keys.filter { $0.extensionIdentifier == identifier }
+                + actionsAwaitingReadyPopup.filter { $0.extensionIdentifier == identifier }
+                + expiredPopupHandoffs.filter { $0.extensionIdentifier == identifier }
+                + dismissedPopupKeys.filter { $0.extensionIdentifier == identifier }
+                + popupClosuresRequestedByActionButton.filter { $0.extensionIdentifier == identifier }
+        )
+        for key in invocationKeys {
+            popupHandoffDeadlineTasks.removeValue(forKey: key)?.cancel()
+            pendingActionInvocations.removeValue(forKey: key)
+            lastActionInvocations.removeValue(forKey: key)
+            actionsAwaitingReadyPopup.remove(key)
+            expiredPopupHandoffs.remove(key)
+            dismissedPopupKeys.remove(key)
+            popupClosuresRequestedByActionButton.remove(key)
+        }
+        let popoverIDs = popupKeysByPopover.compactMap { popoverID, key in
+            key.extensionIdentifier == identifier ? popoverID : nil
+        }
+        for popoverID in popoverIDs {
+            popupKeysByPopover.removeValue(forKey: popoverID)
+            popupPlacementLocks.removeValue(forKey: popoverID)?.stop()
+        }
+        popupWebViews.removeValue(forKey: identifier)
+        pendingActionUpdates = pendingActionUpdates.filter {
+            $0.key.extensionIdentifier != identifier
+        }
+        presentationIconCache = presentationIconCache.filter {
+            $0.key.extensionIdentifier != identifier
+        }
+        actionFailures = actionFailures.filter {
+            $0.key.extensionIdentifier != identifier
         }
     }
 
@@ -1412,13 +1507,13 @@ final class BrowserWebExtensionsManager: NSObject {
         enqueueActionUpdate(action: action, context: context, panelID: panel.id)
         if action.presentsPopup {
             actionsAwaitingReadyPopup.insert(key)
-            context.performAction(for: tabAdapter)
+            performExtensionAction(context, tabAdapter)
             schedulePopupHandoffDeadline(for: key, invocationID: invocation.id)
             return true
         }
         // Some MV2 extensions install a popup only after handling the click.
         // Retain the anchor until `didUpdate` observes that transition.
-        context.performAction(for: tabAdapter)
+        performExtensionAction(context, tabAdapter)
         schedulePopupHandoffDeadline(for: key, invocationID: invocation.id)
         return true
     }
@@ -1519,14 +1614,16 @@ final class BrowserWebExtensionsManager: NSObject {
             )
             supportsNativeMessaging = false
         case .safariApp(let reference):
-            _ = try verifySafariAppExtension(reference.bundleURL)
+            _ = try await verifySafariAppExtension(reference.bundleURL)
+            try requireActive()
             installationName = reference.installationName
             webExtension = try await self.webExtension(for: reference)
             supportsNativeMessaging = true
         }
         try requireActive()
         if case .safariApp(let reference) = record.source {
-            _ = try verifySafariAppExtension(reference.bundleURL)
+            _ = try await verifySafariAppExtension(reference.bundleURL)
+            try requireActive()
         }
         return try loadExtension(
             webExtension,
@@ -2098,17 +2195,96 @@ final class BrowserWebExtensionsManager: NSObject {
             presentationIconCache.removeValue(forKey: cacheKey)
             return nil
         }
-        if let cached = presentationIconCache[cacheKey], cached.image === image {
-            return cached.data
-        }
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
-            presentationIconCache[cacheKey] = PresentationIconCacheEntry(image: image, data: nil)
+        guard let raster = BrowserWebExtensionPresentationIconEncoder.rasterize(
+            image,
+            size: size
+        ) else {
+            presentationIconCache.removeValue(forKey: cacheKey)
             return nil
         }
-        let data = bitmap.representation(using: .png, properties: [:])
-        presentationIconCache[cacheKey] = PresentationIconCacheEntry(image: image, data: data)
+        if let cached = presentationIconCache[cacheKey],
+           cached.signature == raster.signature {
+            return cached.data
+        }
+        let data = BrowserWebExtensionPresentationIconEncoder.pngData(for: raster.image)
+        presentationIconCache[cacheKey] = PresentationIconCacheEntry(
+            signature: raster.signature,
+            data: data
+        )
         return data
+    }
+}
+
+enum BrowserWebExtensionPresentationIconEncoder {
+    struct Raster {
+        let signature: String
+        let image: CGImage
+    }
+
+    static func rasterize(_ image: NSImage, size: CGSize) -> Raster? {
+        let pixelWidth = max(1, Int(size.width.rounded(.up)))
+        let pixelHeight = max(1, Int(size.height.rounded(.up)))
+        var proposedRect = NSRect(origin: .zero, size: image.size)
+        guard let sourceImage = image.cgImage(
+            forProposedRect: &proposedRect,
+            context: nil,
+            hints: nil
+        ), let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        let context = CGContext(
+            data: nil,
+            width: pixelWidth,
+            height: pixelHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: pixelWidth * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        context.clear(CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
+        context.interpolationQuality = .high
+        let scale = min(
+            CGFloat(pixelWidth) / CGFloat(sourceImage.width),
+            CGFloat(pixelHeight) / CGFloat(sourceImage.height)
+        )
+        let drawSize = CGSize(
+            width: CGFloat(sourceImage.width) * scale,
+            height: CGFloat(sourceImage.height) * scale
+        )
+        context.draw(sourceImage, in: CGRect(
+            x: (CGFloat(pixelWidth) - drawSize.width) / 2,
+            y: (CGFloat(pixelHeight) - drawSize.height) / 2,
+            width: drawSize.width,
+            height: drawSize.height
+        ))
+        guard let cgImage = context.makeImage(),
+              let providerData = cgImage.dataProvider?.data else { return nil }
+        let metadata = [
+            cgImage.width,
+            cgImage.height,
+            cgImage.bitsPerComponent,
+            cgImage.bitsPerPixel,
+            cgImage.bytesPerRow,
+            Int(cgImage.bitmapInfo.rawValue),
+        ].map(String.init).joined(separator: ":")
+        var hasher = SHA256()
+        hasher.update(data: Data(metadata.utf8))
+        hasher.update(data: providerData as Data)
+        let signature = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return Raster(signature: signature, image: cgImage)
+    }
+
+    static func pngData(for image: CGImage) -> Data? {
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output,
+            "public.png" as CFString,
+            1,
+            nil
+        ) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 }
 
@@ -2271,11 +2447,34 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
             }
             popover.behavior = .transient
             popover.delegate = self
+            popover.animates = false
+            guard let placementPlan = BrowserWebExtensionPopupPlacementLock.plan(
+                popover: popover,
+                anchorView: anchor.view,
+                anchorRect: anchor.rect
+            ) else {
+                throw BrowserWebExtensionActionError.missingPopupAnchor
+            }
+            if popover.contentSize.height > placementPlan.maximumContentHeight {
+                popover.contentSize.height = placementPlan.maximumContentHeight
+            }
             popover.show(
                 relativeTo: anchor.rect,
                 of: anchor.view,
-                preferredEdge: Self.actionPopupPreferredEdge
+                preferredEdge: placementPlan.preferredEdge
             )
+            let popoverID = ObjectIdentifier(popover)
+            guard let placementLock = BrowserWebExtensionPopupPlacementLock(
+                popover: popover,
+                anchorView: anchor.view,
+                anchorRect: anchor.rect,
+                side: placementPlan.side
+            ) else {
+                popover.performClose(nil)
+                throw BrowserWebExtensionActionError.missingPopupAnchor
+            }
+            popupPlacementLocks.removeValue(forKey: popoverID)?.stop()
+            popupPlacementLocks[popoverID] = placementLock
         }
         if let key {
             popupKeysByPopover[ObjectIdentifier(popover)] = key
@@ -2303,7 +2502,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
                 continue
             }
             actionsAwaitingReadyPopup.insert(key)
-            context.performAction(for: tabAdapter)
+            performExtensionAction(context, tabAdapter)
         }
     }
 
@@ -2603,6 +2802,105 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     }
 
 #if DEBUG
+    struct DebugTransientStateCounts: Equatable {
+        let pendingInvocations: Int
+        let lastInvocations: Int
+        let deadlineTasks: Int
+        let awaitingPopups: Int
+        let expiredPopups: Int
+        let dismissedPopups: Int
+        let closureRequests: Int
+        let popoverKeys: Int
+        let popupWebViews: Int
+        let pendingUpdates: Int
+        let iconCacheEntries: Int
+        let actionFailures: Int
+
+        var total: Int {
+            pendingInvocations + lastInvocations + deadlineTasks + awaitingPopups
+                + expiredPopups + dismissedPopups + closureRequests + popoverKeys
+                + popupWebViews + pendingUpdates + iconCacheEntries + actionFailures
+        }
+    }
+
+    func seedTransientStateForTesting(
+        panelID: UUID,
+        extensionIdentifier: String,
+        context: WKWebExtensionContext
+    ) -> (popover: NSPopover, webView: WKWebView) {
+        let invocationKey = ActionInvocationKey(
+            extensionIdentifier: extensionIdentifier,
+            panelID: panelID
+        )
+        let updateKey = ActionUpdateKey(
+            extensionIdentifier: extensionIdentifier,
+            panelID: panelID
+        )
+        let invocation = PendingActionInvocation(anchorView: nil, panelID: panelID)
+        pendingActionInvocations[invocationKey] = [invocation]
+        lastActionInvocations[invocationKey] = invocation
+        popupHandoffDeadlineTasks[invocationKey] = Task {}
+        actionsAwaitingReadyPopup.insert(invocationKey)
+        expiredPopupHandoffs.insert(invocationKey)
+        dismissedPopupKeys.insert(invocationKey)
+        popupClosuresRequestedByActionButton.insert(invocationKey)
+        let popover = NSPopover()
+        popupKeysByPopover[ObjectIdentifier(popover)] = invocationKey
+        let webView = WKWebView()
+        popupWebViews[extensionIdentifier] = WeakPopupWebView(webView)
+        pendingActionUpdates[updateKey] = PendingActionUpdate(action: nil, context: context)
+        presentationIconCache[updateKey] = PresentationIconCacheEntry(
+            signature: "test",
+            data: Data([0])
+        )
+        actionFailures[updateKey] = .actionUnavailable
+        return (popover, webView)
+    }
+
+    func seedPendingActionInvocationForTesting(
+        panelID: UUID,
+        extensionIdentifier: String,
+        anchorView: NSView?
+    ) {
+        let key = ActionInvocationKey(
+            extensionIdentifier: extensionIdentifier,
+            panelID: panelID
+        )
+        let invocation = PendingActionInvocation(
+            anchorView: anchorView,
+            panelID: panelID
+        )
+        cancelPopupHandoff(for: key)
+        pendingActionInvocations[key] = [invocation]
+        lastActionInvocations[key] = invocation
+    }
+
+    func transientStateCountsForTesting(
+        panelID: UUID,
+        extensionIdentifier: String
+    ) -> DebugTransientStateCounts {
+        let matchesInvocation: (ActionInvocationKey) -> Bool = {
+            $0.panelID == panelID && $0.extensionIdentifier == extensionIdentifier
+        }
+        let matchesUpdate: (ActionUpdateKey) -> Bool = {
+            $0.panelID == panelID && $0.extensionIdentifier == extensionIdentifier
+        }
+        return DebugTransientStateCounts(
+            pendingInvocations: pendingActionInvocations.keys.filter(matchesInvocation).count,
+            lastInvocations: lastActionInvocations.keys.filter(matchesInvocation).count,
+            deadlineTasks: popupHandoffDeadlineTasks.keys.filter(matchesInvocation).count,
+            awaitingPopups: actionsAwaitingReadyPopup.filter(matchesInvocation).count,
+            expiredPopups: expiredPopupHandoffs.filter(matchesInvocation).count,
+            dismissedPopups: dismissedPopupKeys.filter(matchesInvocation).count,
+            closureRequests: popupClosuresRequestedByActionButton.filter(matchesInvocation).count,
+            popoverKeys: popupKeysByPopover.values.filter(matchesInvocation).count,
+            popupWebViews: popupWebViews[extensionIdentifier]?.webView == nil ? 0 : 1,
+            pendingUpdates: pendingActionUpdates.keys.filter(matchesUpdate).count,
+            iconCacheEntries: presentationIconCache.keys.filter(matchesUpdate).count,
+            actionFailures: actionFailures.keys.filter(matchesUpdate).count
+        )
+    }
+
     var debugPreferredFocusedWindowOwnerID: UUID? {
         orderedWindowAdapters().first { $0.focusPriority() > 0 }?.ownerID
     }
@@ -2612,10 +2910,12 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
 @available(macOS 15.4, *)
 extension BrowserWebExtensionsManager: NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
-        guard let popover = notification.object as? NSPopover,
-              let key = popupKeysByPopover.removeValue(forKey: ObjectIdentifier(popover)) else {
+        guard let popover = notification.object as? NSPopover else {
             return
         }
+        let popoverID = ObjectIdentifier(popover)
+        popupPlacementLocks.removeValue(forKey: popoverID)?.stop()
+        guard let key = popupKeysByPopover.removeValue(forKey: popoverID) else { return }
         let anchor = lastActionInvocations[key]?.anchorView
         cancelPopupHandoff(for: key)
         guard popupClosuresRequestedByActionButton.remove(key) == nil else { return }
@@ -2627,6 +2927,198 @@ extension BrowserWebExtensionsManager: NSPopoverDelegate {
             return
         }
         dismissedPopupKeys.insert(key)
+    }
+}
+
+/// Keeps a WebExtension action popover on the browser side selected for the
+/// initial click. The side and bounded content size are chosen before `show`,
+/// then the lock is installed synchronously so later AppKit size changes reuse
+/// the same chosen-side origin instead of flipping edges.
+@MainActor
+final class BrowserWebExtensionPopupPlacementLock {
+    enum Side: Equatable {
+        case below
+        case above
+    }
+
+    struct Plan: Equatable {
+        let side: Side
+        let preferredEdge: NSRectEdge
+        let maximumContentHeight: CGFloat
+    }
+
+    private static let estimatedPopoverChromeHeight: CGFloat = 24
+    private weak var popupWindow: NSWindow?
+    private weak var popover: NSPopover?
+    private weak var anchorView: NSView?
+    private let anchorRect: NSRect
+    private let side: Side
+    private var observers: [NSObjectProtocol] = []
+    private var isApplyingFrame = false
+    private(set) var stabilizationCount = 0
+    private(set) var firstStabilizedFrame: NSRect?
+    private(set) var lastStabilizedFrame: NSRect?
+
+    init?(
+        popover: NSPopover,
+        anchorView: NSView,
+        anchorRect: NSRect,
+        side: Side
+    ) {
+        guard anchorView.window != nil,
+              let popupWindow = popover.contentViewController?.view.window else {
+            return nil
+        }
+        self.popupWindow = popupWindow
+        self.popover = popover
+        self.anchorView = anchorView
+        self.anchorRect = anchorRect
+        self.side = side
+
+        applyLockedFrame()
+        let center = NotificationCenter.default
+        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
+            observers.append(center.addObserver(
+                forName: name,
+                object: popupWindow,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.applyLockedFrame()
+                }
+            })
+        }
+        popupWindow.displayIfNeeded()
+    }
+
+    func stop() {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll()
+    }
+
+    private func applyLockedFrame() {
+        guard !isApplyingFrame,
+              let popupWindow,
+              let popover,
+              let anchorView,
+              let anchorWindow = anchorView.window else { return }
+        isApplyingFrame = true
+        defer { isApplyingFrame = false }
+
+        let anchorWindowRect = anchorView.convert(anchorRect, to: nil)
+        let anchorScreenRect = anchorWindow.convertToScreen(anchorWindowRect)
+        let visibleFrame = anchorWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        if let visibleFrame {
+            let availableHeight = Self.availableHeight(
+                for: side,
+                anchorScreenRect: anchorScreenRect,
+                visibleFrame: visibleFrame
+            )
+            let overflow = popupWindow.frame.height - availableHeight
+            if overflow > 0.5, popover.contentSize.height > 1 {
+                popover.contentSize.height = max(1, popover.contentSize.height - overflow)
+            }
+        }
+        let origin = Self.lockedOrigin(
+            side: side,
+            popupSize: popupWindow.frame.size,
+            anchorScreenRect: anchorScreenRect,
+            visibleFrame: visibleFrame
+        )
+        if abs(popupWindow.frame.origin.x - origin.x) > 0.5
+            || abs(popupWindow.frame.origin.y - origin.y) > 0.5 {
+            popupWindow.setFrameOrigin(origin)
+        }
+        stabilizationCount &+= 1
+        firstStabilizedFrame = firstStabilizedFrame ?? popupWindow.frame
+        lastStabilizedFrame = popupWindow.frame
+    }
+
+    static func plan(
+        popover: NSPopover,
+        anchorView: NSView,
+        anchorRect: NSRect
+    ) -> Plan? {
+        guard let anchorWindow = anchorView.window,
+              let visibleFrame = anchorWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame else {
+            return nil
+        }
+        let anchorWindowRect = anchorView.convert(anchorRect, to: nil)
+        let anchorScreenRect = anchorWindow.convertToScreen(anchorWindowRect)
+        return plan(
+            contentHeight: popover.contentSize.height,
+            anchorScreenRect: anchorScreenRect,
+            visibleFrame: visibleFrame
+        )
+    }
+
+    static func plan(
+        contentHeight: CGFloat,
+        anchorScreenRect: NSRect,
+        visibleFrame: NSRect
+    ) -> Plan {
+        let belowHeight = availableHeight(
+            for: .below,
+            anchorScreenRect: anchorScreenRect,
+            visibleFrame: visibleFrame
+        )
+        let aboveHeight = availableHeight(
+            for: .above,
+            anchorScreenRect: anchorScreenRect,
+            visibleFrame: visibleFrame
+        )
+        let requestedWindowHeight = contentHeight + estimatedPopoverChromeHeight
+        let side: Side
+        if requestedWindowHeight <= belowHeight {
+            side = .below
+        } else if requestedWindowHeight <= aboveHeight {
+            side = .above
+        } else {
+            side = belowHeight >= aboveHeight ? .below : .above
+        }
+        let available = side == .below ? belowHeight : aboveHeight
+        return Plan(
+            side: side,
+            preferredEdge: side == .below ? .minY : .maxY,
+            maximumContentHeight: max(1, available - estimatedPopoverChromeHeight)
+        )
+    }
+
+    static func lockedOrigin(
+        side: Side,
+        popupSize: NSSize,
+        anchorScreenRect: NSRect,
+        visibleFrame: NSRect?
+    ) -> NSPoint {
+        var x = anchorScreenRect.midX - popupSize.width / 2
+        if let visibleFrame {
+            x = min(
+                max(x, visibleFrame.minX),
+                max(visibleFrame.minX, visibleFrame.maxX - popupSize.width)
+            )
+        }
+        let y = switch side {
+        case .below:
+            anchorScreenRect.minY - popupSize.height
+        case .above:
+            anchorScreenRect.maxY
+        }
+        return NSPoint(x: x, y: y)
+    }
+
+    private static func availableHeight(
+        for side: Side,
+        anchorScreenRect: NSRect,
+        visibleFrame: NSRect
+    ) -> CGFloat {
+        switch side {
+        case .below:
+            max(0, anchorScreenRect.minY - visibleFrame.minY)
+        case .above:
+            max(0, visibleFrame.maxY - anchorScreenRect.maxY)
+        }
     }
 }
 

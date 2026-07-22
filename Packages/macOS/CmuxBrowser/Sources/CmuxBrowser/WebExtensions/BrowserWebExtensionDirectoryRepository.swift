@@ -62,6 +62,9 @@ public actor BrowserWebExtensionDirectoryRepository {
     private static let packageDigestFormatVersion: UInt32 = 1
     private let packageLimits: PackageLimits
     private var isShutDown = false
+#if DEBUG
+    private var managedPackageDigestRequestCount = 0
+#endif
 
     public init(packageLimits: PackageLimits = .standard) {
         self.packageLimits = packageLimits
@@ -146,7 +149,8 @@ public actor BrowserWebExtensionDirectoryRepository {
         return removed
     }
 
-    /// Validates every enabled record without exposing filesystem errors.
+    /// Resolves every enabled ledger record without exposing filesystem errors.
+    /// Package bytes are authenticated later, immediately before WebKit load.
     public func managedInstallations(
         in directory: URL
     ) throws -> BrowserWebExtensionManagedDiscovery {
@@ -156,20 +160,19 @@ public actor BrowserWebExtensionDirectoryRepository {
         for record in ledger.records.values.sorted(by: { $0.id < $1.id }) where record.isEnabled {
             let resourceURL: URL
             switch record.source {
-            case .directory(let filename, let digest),
-                 .catalogArchive(let filename, let digest, _):
+            case .directory(let filename, _),
+                 .catalogArchive(let filename, _, _):
                 let candidate = directory.appendingPathComponent(filename)
-                do {
-                    guard candidate.standardizedFileURL.deletingLastPathComponent()
+                guard candidate.standardizedFileURL.deletingLastPathComponent()
                         == directory.standardizedFileURL,
-                          try packageDigest(for: candidate).caseInsensitiveCompare(digest) == .orderedSame else {
-                        throw BrowserWebExtensionInstallError.integrityMismatch
-                    }
-                    resourceURL = candidate
-                } catch {
+                      FileManager.default.fileExists(atPath: candidate.path) else {
                     failures.append(.init(recordID: record.id, entryName: filename))
                     continue
                 }
+                // Integrity is checked exactly once, immediately before
+                // WKWebExtension reads this package. Discovery only resolves
+                // the ledger path so startup does not hash every package twice.
+                resourceURL = candidate
             case .safariApp(let reference):
                 resourceURL = reference.bundleURL
             }
@@ -183,8 +186,17 @@ public actor BrowserWebExtensionDirectoryRepository {
 
     /// Returns the bounded digest used by the management ledger.
     public func digestForManagedPackage(at candidate: URL) throws -> String {
-        try packageDigest(for: candidate)
+#if DEBUG
+        managedPackageDigestRequestCount += 1
+#endif
+        return try packageDigest(for: candidate)
     }
+
+#if DEBUG
+    public func managedPackageDigestRequestCountForTesting() -> Int {
+        managedPackageDigestRequestCount
+    }
+#endif
 
     private func requireActive() throws {
         guard !isShutDown else { throw CancellationError() }

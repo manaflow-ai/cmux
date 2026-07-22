@@ -435,21 +435,6 @@ struct BrowserExtensionsManagerPage: View {
                     sourceURL: verifiedIdentity.containingAppURL,
                     installedManagementID: "com.bitwarden.desktop.safari"
                 )
-            case "onepassword-safari-app":
-                BrowserExtensionLocalAppItem(
-                    id: "onepassword-safari-app",
-                    name: String(
-                        localized: "browser.extensions.localApp.onePassword.name",
-                        defaultValue: "1Password for Safari"
-                    ),
-                    detail: String(
-                        localized: "browser.extensions.localApp.onePassword.detail",
-                        defaultValue: "Use the signed Safari extension with the 1Password desktop bridge"
-                    ),
-                    icon: "key.fill",
-                    sourceURL: verifiedIdentity.containingAppURL,
-                    installedManagementID: "com.1password.safari.extension"
-                )
             case "ublock-origin-lite-safari-app":
                 BrowserExtensionLocalAppItem(
                     id: "ublock-origin-lite-safari-app",
@@ -474,6 +459,19 @@ struct BrowserExtensionsManagerPage: View {
     private var commonExtensions: [BrowserExtensionCatalogItem] {
         BrowserWebExtensionCatalog.production.verifiedEntries.compactMap { entry in
             switch entry.id {
+            case "1password":
+                return BrowserExtensionCatalogItem(
+                    entry: entry,
+                    name: String(
+                        localized: "browser.extensions.catalog.onePassword.name",
+                        defaultValue: "1Password"
+                    ),
+                    detail: String(
+                        localized: "browser.extensions.catalog.onePassword.detail",
+                        defaultValue: "Browser-only package without the 1Password desktop app connection"
+                    ),
+                    icon: "key.fill"
+                )
             default:
                 return nil
             }
@@ -491,23 +489,10 @@ struct BrowserExtensionsManagerPage: View {
                 ),
                 detail: String(
                     localized: "browser.extensions.externalApp.bitwarden.detail",
-                    defaultValue: "Install the signed Bitwarden app for native desktop integration"
+                    defaultValue: "Install the signed Bitwarden Safari extension"
                 ),
                 icon: "lock.shield",
                 appStoreURL: URL(string: "https://apps.apple.com/us/app/bitwarden/id1352778147?mt=12")!
-            ),
-            installedIDs.contains("onepassword-safari-app") ? nil : BrowserExtensionExternalAppItem(
-                id: "onepassword-safari-app-store",
-                name: String(
-                    localized: "browser.extensions.externalApp.onePassword.name",
-                    defaultValue: "1Password for Safari"
-                ),
-                detail: String(
-                    localized: "browser.extensions.externalApp.onePassword.detail",
-                    defaultValue: "Install the signed 1Password Safari extension with native desktop integration"
-                ),
-                icon: "key.fill",
-                appStoreURL: URL(string: "https://apps.apple.com/us/app/1password-for-safari/id1569813296?mt=12")!
             ),
             installedIDs.contains("ublock-origin-lite-safari-app") ? nil : BrowserExtensionExternalAppItem(
                 id: "ublock-origin-lite-app-store",
@@ -1657,7 +1642,7 @@ private struct BrowserExtensionIcon: View {
 
     var body: some View {
         Group {
-            if let data, let image = NSImage(data: data) {
+            if let data, let image = BrowserExtensionDecodedImageCache.image(for: data) {
                 Image(nsImage: image)
                     .resizable()
                     .renderingMode(.original)
@@ -1673,4 +1658,37 @@ private struct BrowserExtensionIcon: View {
         .clipped()
         .accessibilityHidden(true)
     }
+}
+
+@MainActor
+enum BrowserExtensionDecodedImageCache {
+    private static let cache: NSCache<NSData, NSImage> = {
+        let cache = NSCache<NSData, NSImage>()
+        cache.countLimit = 128
+        cache.totalCostLimit = 4 * 1024 * 1024
+        return cache
+    }()
+#if DEBUG
+    private(set) static var decodeCountForTesting = 0
+#endif
+
+    static func image(for data: Data) -> NSImage? {
+        let key = data as NSData
+        if let image = cache.object(forKey: key) {
+            return image
+        }
+        guard let image = NSImage(data: data) else { return nil }
+#if DEBUG
+        decodeCountForTesting += 1
+#endif
+        cache.setObject(image, forKey: key, cost: data.count)
+        return image
+    }
+
+#if DEBUG
+    static func removeAllForTesting() {
+        cache.removeAllObjects()
+        decodeCountForTesting = 0
+    }
+#endif
 }

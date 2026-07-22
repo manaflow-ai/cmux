@@ -132,7 +132,7 @@ struct BrowserWebExtensionRepositoryTests {
         #expect(discovery.failures.isEmpty)
     }
 
-    @Test func tamperedManagedPackageIsIsolatedWithSanitizedFailure() async throws {
+    @Test func discoveryDefersManagedPackageIntegrityCheckUntilLoad() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let extensionDirectory = root.appendingPathComponent("extension", isDirectory: true)
@@ -155,10 +155,11 @@ struct BrowserWebExtensionRepositoryTests {
 
         let discovery = try await repository.managedInstallations(in: root)
 
-        #expect(discovery.installations.isEmpty)
-        #expect(discovery.failures.count == 1)
-        #expect(discovery.failures.first?.recordID == record.id)
-        #expect(discovery.failures.first?.entryName == "extension")
+        #expect(discovery.installations.count == 1)
+        #expect(discovery.installations.first?.record.id == record.id)
+        #expect(discovery.failures.isEmpty)
+        let digestAfterTamper = try await repository.digestForManagedPackage(at: extensionDirectory)
+        #expect(digestAfterTamper != digest)
     }
 
     @Test func managedPackageDigestFramesPathsAndContentsUnambiguously() async throws {

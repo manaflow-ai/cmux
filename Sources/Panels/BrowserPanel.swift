@@ -7953,7 +7953,7 @@ extension BrowserPanel {
         guard let browserServices else {
             return AsyncStream { $0.finish() }
         }
-        return browserServices.webExtensionUpdates(profileID: profileID)
+        return browserServices.webExtensionUpdates(profileID: profileID, panelID: id)
     }
 
     func prepareBrowserWebExtensionInstall(

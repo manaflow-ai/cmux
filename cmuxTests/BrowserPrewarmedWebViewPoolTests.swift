@@ -99,6 +99,7 @@ struct BrowserPrewarmedWebViewPoolTests {
         harness.pool.discard(reason: "test-teardown")
     }
 
+    @available(macOS 15.4, *)
     @Test func prewarmWaitsForProfileExtensionsBeforeNavigation() async {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-prewarm-extension-test-\(UUID().uuidString)", isDirectory: true)

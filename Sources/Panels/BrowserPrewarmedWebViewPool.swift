@@ -160,6 +160,16 @@ final class BrowserPrewarmedWebViewPool: NSObject {
 #endif
     }
 
+    func discard(
+        profileID: UUID,
+        browserServices: BrowserServices,
+        reason: String
+    ) {
+        guard self.browserServices === browserServices,
+              entry?.profileID == profileID else { return }
+        discard(reason: reason)
+    }
+
     private func startNavigation(webView: CmuxWebView, request: URLRequest, profileID: UUID) {
         guard let browserServices else {
             startLoad(webView, request)

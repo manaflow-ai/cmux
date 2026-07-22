@@ -1,9 +1,8 @@
 import AppKit
 import Bonsplit
-import CmuxBrowser
+@testable import CmuxBrowser
 import CryptoKit
 import Foundation
-import ObjectiveC.runtime
 import os
 import Testing
 import WebKit
@@ -14,6 +13,7 @@ import WebKit
 @testable import cmux
 #endif
 
+@Suite(.serialized)
 @MainActor
 struct BrowserWebExtensionsManagerTests {
     private final class RuntimeLoadGate {
@@ -58,6 +58,28 @@ struct BrowserWebExtensionsManagerTests {
         }
     }
 
+    @MainActor
+    private final class NewTabGate {
+        private var isResolved = false
+        private var bufferedPanel: BrowserPanel?
+        private var continuation: CheckedContinuation<BrowserPanel?, Never>?
+
+        func wait() async -> BrowserPanel? {
+            if isResolved { return bufferedPanel }
+            return await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        }
+
+        func resume(returning panel: BrowserPanel?) {
+            guard !isResolved else { return }
+            isResolved = true
+            bufferedPanel = panel
+            continuation?.resume(returning: panel)
+            continuation = nil
+        }
+    }
+
     private actor InstallCommitGate {
         private var isEntered = false
         private var enteredContinuation: CheckedContinuation<Void, Never>?
@@ -74,6 +96,36 @@ struct BrowserWebExtensionsManagerTests {
             await withCheckedContinuation { continuation in
                 enteredContinuation = continuation
             }
+        }
+    }
+
+    private actor VerificationSuspensionGate {
+        private var enteredContinuation: CheckedContinuation<Void, Never>?
+        private var releaseContinuation: CheckedContinuation<Void, Never>?
+        private var isEntered = false
+        private var isReleased = false
+
+        func suspend() async {
+            isEntered = true
+            enteredContinuation?.resume()
+            enteredContinuation = nil
+            guard !isReleased else { return }
+            await withCheckedContinuation { continuation in
+                releaseContinuation = continuation
+            }
+        }
+
+        func waitUntilEntered() async {
+            guard !isEntered else { return }
+            await withCheckedContinuation { continuation in
+                enteredContinuation = continuation
+            }
+        }
+
+        func resume() {
+            isReleased = true
+            releaseContinuation?.resume()
+            releaseContinuation = nil
         }
     }
 
@@ -193,6 +245,7 @@ struct BrowserWebExtensionsManagerTests {
         return (app, appex, resources, trustMarker)
     }
 
+    @available(macOS 15.4, *)
     private static func assertFailedSafariAppLifecycle(tamper: Bool) async throws {
         let managedRoot = try makeExtensionsRoot()
         let appRoot = try makeExtensionsRoot()
@@ -333,6 +386,26 @@ struct BrowserWebExtensionsManagerTests {
         return try #require(color.usingColorSpace(.sRGB))
     }
 
+    private static func recordRawManagedPackageForLoadTesting(
+        _ package: URL,
+        in root: URL
+    ) async throws {
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let digest = try await repository.digestForManagedPackage(at: package)
+        try await repository.upsertManagedRecord(
+            BrowserWebExtensionManagedRecord(
+                id: package.lastPathComponent,
+                displayName: package.lastPathComponent,
+                version: "",
+                source: .directory(filename: package.lastPathComponent, digest: digest),
+                isEnabled: true,
+                grantedPermissions: [],
+                grantedMatchPatterns: []
+            ),
+            in: root
+        )
+    }
+
     @available(macOS 15.4, *)
     @Test func candidateDiscoveryFindsDirectoriesAndZipsOnly() throws {
         let root = try Self.makeExtensionsRoot()
@@ -346,8 +419,42 @@ struct BrowserWebExtensionsManagerTests {
         #expect(names == ["archive.zip", "sample"])
     }
 
-    @Test func productionCatalogPublishesNoUnverifiedPortablePackages() {
-        #expect(BrowserWebExtensionCatalog.production.verifiedEntries.isEmpty)
+    @Test func productionCatalogPinsOnlyVerifiedPortablePackages() throws {
+        let catalog = BrowserWebExtensionCatalog.production
+        let entry = try #require(catalog.entry(id: "1password"))
+
+        #expect(catalog.verifiedEntries.map(\.id) == ["1password"])
+        #expect(entry.version == "8.12.28.25")
+        #expect(
+            entry.packageURL.absoluteString
+                == "https://addons.mozilla.org/firefox/downloads/file/4899098/1password_x_password_manager-8.12.28.25.xpi"
+        )
+        #expect(
+            entry.packageSHA256
+                == "fc369b5ee7958a57c519aa37e7ba540ebe08d58b4bc976fab1ba2e91bc01bc25"
+        )
+    }
+
+    @Test func extensionRecommendationCopyIsLocalizedInEnglishAndJapanese() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repositoryRoot
+            .appendingPathComponent("Resources/Localizable.xcstrings"))
+        let catalog = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let strings = try #require(catalog["strings"] as? [String: Any])
+
+        for key in [
+            "browser.extensions.catalog.onePassword.detail",
+            "browser.extensions.externalApp.bitwarden.detail",
+        ] {
+            let entry = try #require(strings[key] as? [String: Any])
+            let localizations = try #require(entry["localizations"] as? [String: Any])
+            #expect((localizations["en"] as? [String: Any]) != nil)
+            #expect((localizations["ja"] as? [String: Any]) != nil)
+        }
     }
 
     @Test func managerHidesEmptyCatalogSection() {
@@ -355,6 +462,7 @@ struct BrowserWebExtensionsManagerTests {
         #expect(BrowserExtensionsManagerPage.shouldShowCatalog(entryCount: 1))
     }
 
+    @available(macOS 15.4, *)
     @Test func installedRecommendationsUseManagementIdentityInsteadOfContextShape() {
         let managementID = "com.example.safari-extension"
         let item = BrowserWebExtensionPresentationItem(
@@ -384,6 +492,7 @@ struct BrowserWebExtensionsManagerTests {
         ))
     }
 
+    @available(macOS 15.4, *)
     @Test func contextIdentifiersAreDeterministicAndCollisionResistant() {
         let spaced = BrowserWebExtensionsManager.contextIdentifier(for: "a b")
         let dashed = BrowserWebExtensionsManager.contextIdentifier(for: "a-b")
@@ -456,33 +565,210 @@ struct BrowserWebExtensionsManagerTests {
         #expect(BrowserWebExtensionsManager.actionPopupPreferredEdge == .minY)
     }
 
+    @available(macOS 15.4, *)
+    @Test func popupPlacementChoosesVisibleSideBeforePresentation() {
+        let visibleFrame = NSRect(x: 0, y: 0, width: 1_000, height: 800)
+        let toolbarAnchor = NSRect(x: 480, y: 730, width: 40, height: 24)
+        let bottomAnchor = NSRect(x: 480, y: 20, width: 40, height: 24)
+
+        let toolbarPlan = BrowserWebExtensionPopupPlacementLock.plan(
+            contentHeight: 300,
+            anchorScreenRect: toolbarAnchor,
+            visibleFrame: visibleFrame
+        )
+        let bottomPlan = BrowserWebExtensionPopupPlacementLock.plan(
+            contentHeight: 300,
+            anchorScreenRect: bottomAnchor,
+            visibleFrame: visibleFrame
+        )
+
+        #expect(toolbarPlan.side == .below)
+        #expect(toolbarPlan.preferredEdge == .minY)
+        #expect(bottomPlan.side == .above)
+        #expect(bottomPlan.preferredEdge == .maxY)
+        let belowOrigin = BrowserWebExtensionPopupPlacementLock.lockedOrigin(
+            side: toolbarPlan.side,
+            popupSize: NSSize(width: 300, height: 324),
+            anchorScreenRect: toolbarAnchor,
+            visibleFrame: visibleFrame
+        )
+        let aboveOrigin = BrowserWebExtensionPopupPlacementLock.lockedOrigin(
+            side: bottomPlan.side,
+            popupSize: NSSize(width: 300, height: 324),
+            anchorScreenRect: bottomAnchor,
+            visibleFrame: visibleFrame
+        )
+        #expect(belowOrigin.y + 324 == toolbarAnchor.minY)
+        #expect(aboveOrigin.y == bottomAnchor.maxY)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func popupPlacementKeepsItsChosenSideAcrossContentResizes() async throws {
+        let visibleFrame = try #require(NSScreen.main?.visibleFrame)
+        let window = NSWindow(
+            contentRect: NSRect(
+                x: visibleFrame.midX - 180,
+                y: visibleFrame.maxY - 300,
+                width: 360,
+                height: 240
+            ),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let anchor = NSButton(frame: NSRect(x: 160, y: 190, width: 40, height: 24))
+        window.contentView?.addSubview(anchor)
+        window.orderFront(nil)
+        defer { window.close() }
+        let contentController = NSViewController()
+        contentController.view = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 100))
+        let popover = NSPopover()
+        popover.contentViewController = contentController
+        popover.contentSize = NSSize(width: 280, height: 100)
+        popover.animates = false
+        let plan = try #require(BrowserWebExtensionPopupPlacementLock.plan(
+            popover: popover,
+            anchorView: anchor,
+            anchorRect: anchor.bounds
+        ))
+        #expect(plan.side == .below)
+        popover.show(
+            relativeTo: anchor.bounds,
+            of: anchor,
+            preferredEdge: plan.preferredEdge
+        )
+        let placementLock = try #require(BrowserWebExtensionPopupPlacementLock(
+            popover: popover,
+            anchorView: anchor,
+            anchorRect: anchor.bounds,
+            side: plan.side
+        ))
+        defer {
+            placementLock.stop()
+            popover.performClose(nil)
+        }
+        let anchorScreenRect = try #require(anchor.window).convertToScreen(
+            anchor.convert(anchor.bounds, to: nil)
+        )
+
+        for height in [180, 260, 120] {
+            popover.contentSize = NSSize(width: 280, height: height)
+            await Task.yield()
+            let frame = try #require(popover.contentViewController?.view.window?.frame)
+            #expect(frame.maxY <= anchorScreenRect.minY + 1)
+            #expect(frame.minY >= visibleFrame.minY - 1)
+        }
+        #expect(placementLock.stabilizationCount >= 2)
+        #expect(placementLock.firstStabilizedFrame != nil)
+        #expect(placementLock.lastStabilizedFrame != nil)
+    }
+
+    @Test func iconEncodingUsesStableBoundedAspectPreservingPixels() throws {
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        func makeImage(width: Int, height: Int, components: [CGFloat]) throws -> NSImage {
+            let context = try #require(CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            let color = try #require(CGColor(colorSpace: colorSpace, components: components))
+            context.setFillColor(color)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            let image = try #require(context.makeImage())
+            return NSImage(cgImage: image, size: NSSize(width: width, height: height))
+        }
+        let source = try makeImage(width: 64, height: 32, components: [0, 0, 1, 1])
+        let first = try #require(BrowserWebExtensionPresentationIconEncoder.rasterize(
+            source,
+            size: CGSize(width: 32, height: 32)
+        ))
+        let firstPNG = try #require(
+            BrowserWebExtensionPresentationIconEncoder.pngData(for: first.image)
+        )
+        let copy = try #require(NSImage(data: firstPNG))
+        let second = try #require(BrowserWebExtensionPresentationIconEncoder.rasterize(
+            copy,
+            size: CGSize(width: 32, height: 32)
+        ))
+        let changedImage = try makeImage(width: 64, height: 32, components: [1, 0, 0, 1])
+        let changed = try #require(BrowserWebExtensionPresentationIconEncoder.rasterize(
+            changedImage,
+            size: CGSize(width: 32, height: 32)
+        ))
+
+        #expect(first.image.width == 32)
+        #expect(first.image.height == 32)
+        #expect(first.signature == second.signature)
+        #expect(first.signature != changed.signature)
+        let bitmap = NSBitmapImageRep(cgImage: first.image)
+        let centerAlpha = try #require(bitmap.colorAt(x: 16, y: 16)).alphaComponent
+        let edgeAlpha = try #require(bitmap.colorAt(x: 16, y: 1)).alphaComponent
+        #expect(centerAlpha > 0.9)
+        #expect(edgeAlpha < 0.1)
+    }
+
+    @Test func decodedExtensionIconCacheReusesContentIdentity() throws {
+        let data = try Self.makeIconPNG(color: .systemBlue)
+        BrowserExtensionDecodedImageCache.removeAllForTesting()
+
+        let first = try #require(BrowserExtensionDecodedImageCache.image(for: data))
+        let second = try #require(BrowserExtensionDecodedImageCache.image(for: Data(data)))
+
+        #expect(first === second)
+        #expect(BrowserExtensionDecodedImageCache.decodeCountForTesting == 1)
+    }
+
     @Test func packageVerifierAcceptsPinnedDigestAndRejectsChangedBytes() throws {
         let data = Data("cmux".utf8)
         let digest = "548d4fabc56e7b556bbd7d01c3bcb6288fc8de3078dcb38fc3698fb3c26508c9"
+        let verifier = BrowserWebExtensionPackageVerifier()
 
-        try BrowserWebExtensionPackageVerifier.verify(data, expectedSHA256: digest)
+        try verifier.verify(data, expectedSHA256: digest)
         #expect(throws: BrowserWebExtensionCatalogInstallError.integrityMismatch) {
-            try BrowserWebExtensionPackageVerifier.verify(data + Data([0]), expectedSHA256: digest)
+            try verifier.verify(data + Data([0]), expectedSHA256: digest)
         }
     }
 
-    @Test func catalogPackageSessionRejectsDeclaredOversizedResponseBeforeBuffering() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [DeclaredOversizedWebExtensionURLProtocol.self]
-        let session = BrowserWebExtensionPackageSession(
-            configuration: configuration,
-            maximumResponseByteCount: 8
-        )
+    @Test func declaredOversizedResponseCancelsBeforeBuffering() throws {
         let url = try #require(URL(string: "https://extensions.example/package.zip"))
+        let response = try #require(HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Length": "9"]
+        ))
+        let cancellationCount = OSAllocatedUnfairLock(initialState: 0)
 
-        await confirmation("declared oversized package transfer was cancelled") { cancelled in
-            DeclaredOversizedWebExtensionURLProtocol.observeCancellation {
-                cancelled()
-            }
-            await #expect(throws: BrowserWebExtensionCatalogInstallError.packageTooLarge) {
-                _ = try await session.data(from: url)
-            }
+        #expect(throws: BrowserWebExtensionCatalogInstallError.packageTooLarge) {
+            try BrowserWebExtensionPackageSession.validateExpectedContentLength(
+                response,
+                maximumByteCount: 8,
+                cancel: { cancellationCount.withLock { $0 += 1 } }
+            )
         }
+        #expect(cancellationCount.withLock { $0 } == 1)
+    }
+
+    @Test func declaredResponseAtLimitDoesNotCancel() throws {
+        let url = try #require(URL(string: "https://extensions.example/package.zip"))
+        let response = try #require(HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Length": "8"]
+        ))
+        let cancellationCount = OSAllocatedUnfairLock(initialState: 0)
+
+        try BrowserWebExtensionPackageSession.validateExpectedContentLength(
+            response,
+            maximumByteCount: 8,
+            cancel: { cancellationCount.withLock { $0 += 1 } }
+        )
+        #expect(cancellationCount.withLock { $0 } == 0)
     }
 
     @Test func catalogPackageCollectorRejectsFirstBytePastLimitAndCancels() async throws {
@@ -655,7 +941,9 @@ struct BrowserWebExtensionsManagerTests {
         )
 
         #expect(webView.configuration.websiteDataStore === extensionDataStore)
-        #expect(webView.configuration.userContentController.userScripts.count == 1)
+        #expect(webView.configuration.userContentController.userScripts.contains {
+            $0.source == "window.extensionOwned = true"
+        })
     }
 
     @available(macOS 15.4, *)
@@ -679,7 +967,7 @@ struct BrowserWebExtensionsManagerTests {
 
         try await manager.approveInstalledCandidate(directory)
 
-        let ledger = root.appendingPathComponent(".cmux-approved-extensions.json")
+        let ledger = root.appendingPathComponent(".cmux-extension-management.json")
         let values = try ledger.resourceValues(forKeys: [.fileProtectionKey])
         #expect(values.fileProtection != .complete)
         #expect(try Data(contentsOf: ledger).isEmpty == false)
@@ -856,7 +1144,17 @@ struct BrowserWebExtensionsManagerTests {
         let receipt = try await manager.installExtension(from: source)
 
         #expect(receipt.name == "cmux test extension")
-        #expect(FileManager.default.fileExists(atPath: managedRoot.appendingPathComponent("sample/manifest.json").path))
+        let ledger = try await BrowserWebExtensionDirectoryRepository()
+            .managementLedger(in: managedRoot)
+        let record = try #require(ledger.records["sample"])
+        guard case .directory(let filename, _) = record.source else {
+            Issue.record("Expected an immutable managed directory")
+            return
+        }
+        #expect(FileManager.default.fileExists(
+            atPath: managedRoot.appendingPathComponent(filename)
+                .appendingPathComponent("manifest.json").path
+        ))
         #expect(manager.loadedContexts.count == 1)
         #expect(manager.presentationSnapshot().extensions.map(\.name) == ["cmux test extension"])
     }
@@ -980,9 +1278,18 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
+        let identity = BrowserWebExtensionSafariAppIdentity(
+            id: "password-manager-fixture",
+            appBundleIdentifier: "com.example.password-manager",
+            extensionBundleIdentifier: "com.example.password-manager.safari",
+            teamIdentifier: "TESTTEAM"
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
         let manager = BrowserWebExtensionsManager(
             directory: managedRoot,
             controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository,
+            verifySafariAppExtension: { _ in identity },
             appExtensionLoader: { _ in
                 try await WKWebExtension(resourceBaseURL: resources)
             }
@@ -995,18 +1302,13 @@ struct BrowserWebExtensionsManagerTests {
             "com.example.password-manager.safari",
             isDirectory: true
         ).path))
-        let referenceLedger = managedRoot.appendingPathComponent(
-            ".cmux-app-extension-bundles.json"
-        )
-        let references = try JSONDecoder().decode(
-            [BrowserWebExtensionAppExtensionReference].self,
-            from: Data(contentsOf: referenceLedger)
-        )
-        #expect(references == [.init(
+        let reference = BrowserWebExtensionAppExtensionReference(
             bundleURL: appex.standardizedFileURL,
             bundleIdentifier: "com.example.password-manager.safari",
             installationName: "com.example.password-manager.safari"
-        )])
+        )
+        let ledger = try await repository.managementLedger(in: managedRoot)
+        #expect(ledger.records["com.example.password-manager.safari"]?.source == .safariApp(reference))
         #expect(manager.loadedContexts.first?.uniqueIdentifier
             == BrowserWebExtensionsManager.contextIdentifier(
                 for: "com.example.password-manager.safari"
@@ -1020,6 +1322,7 @@ struct BrowserWebExtensionsManagerTests {
         let relaunchedManager = BrowserWebExtensionsManager(
             directory: managedRoot,
             controllerConfiguration: .nonPersistent(),
+            verifySafariAppExtension: { _ in identity },
             appExtensionLoader: { _ in
                 try await WKWebExtension(resourceBaseURL: resources)
             }
@@ -1041,6 +1344,174 @@ struct BrowserWebExtensionsManagerTests {
     @available(macOS 15.4, *)
     @Test func tamperedSafariAppRelaunchCanRetryAfterTrustIsRestored() async throws {
         try await Self.assertFailedSafariAppLifecycle(tamper: true)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func safariVerificationSuspendsOffMainAndDeadlineCancelsBeforeWebKitLoad() async throws {
+        let managedRoot = try Self.makeExtensionsRoot()
+        let appRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: managedRoot)
+            try? FileManager.default.removeItem(at: appRoot)
+        }
+        let bundleIdentifier = "com.example.deadline.safari"
+        let fixture = try Self.writeSafariExtensionFixture(
+            in: appRoot,
+            bundleIdentifier: bundleIdentifier
+        )
+        let identity = BrowserWebExtensionSafariAppIdentity(
+            id: "deadline-fixture",
+            appBundleIdentifier: "com.example.deadline",
+            extensionBundleIdentifier: bundleIdentifier,
+            teamIdentifier: "TESTTEAM"
+        )
+        let reference = BrowserWebExtensionAppExtensionReference(
+            bundleURL: fixture.appex,
+            bundleIdentifier: bundleIdentifier,
+            installationName: bundleIdentifier
+        )
+        let record = BrowserWebExtensionManagedRecord(
+            id: bundleIdentifier,
+            displayName: "Deadline fixture",
+            version: "1.0",
+            source: .safariApp(reference),
+            isEnabled: true,
+            grantedPermissions: [],
+            grantedMatchPatterns: []
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        try await repository.upsertManagedRecord(record, in: managedRoot)
+        let verificationGate = VerificationSuspensionGate()
+        let deadlineGate = RuntimeDeadlineGate()
+        let loaderCount = OSAllocatedUnfairLock(initialState: 0)
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: UUID(),
+            waitForDeadline: { try await deadlineGate.wait() }
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            profileRuntime: runtime,
+            directoryRepository: repository,
+            verifySafariAppExtension: { _ in
+                await verificationGate.suspend()
+                return identity
+            },
+            appExtensionLoader: { _ in
+                loaderCount.withLock { $0 += 1 }
+                return try await WKWebExtension(resourceBaseURL: fixture.resources)
+            }
+        )
+        var updates = runtime.updates().makeAsyncIterator()
+        _ = await updates.next()
+
+        manager.startLoading()
+        await verificationGate.waitUntilEntered()
+        deadlineGate.resume()
+        while runtime.phase != .degraded(.loadDeadlineExceeded) {
+            guard await updates.next() != nil else {
+                Issue.record("Runtime stream ended before the responsive deadline")
+                return
+            }
+        }
+
+        #expect(loaderCount.withLock { $0 } == 0)
+        #expect(manager.loadedContexts.isEmpty)
+        await verificationGate.resume()
+        for _ in 0..<4 { await Task.yield() }
+        #expect(loaderCount.withLock { $0 } == 0)
+        #expect(manager.loadedContexts.isEmpty)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func safariStartupPerformsBothStrictVerificationPasses() async throws {
+        let managedRoot = try Self.makeExtensionsRoot()
+        let appRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: managedRoot)
+            try? FileManager.default.removeItem(at: appRoot)
+        }
+        let bundleIdentifier = "com.example.double-check.safari"
+        let fixture = try Self.writeSafariExtensionFixture(
+            in: appRoot,
+            bundleIdentifier: bundleIdentifier
+        )
+        let identity = BrowserWebExtensionSafariAppIdentity(
+            id: "double-check-fixture",
+            appBundleIdentifier: "com.example.double-check",
+            extensionBundleIdentifier: bundleIdentifier,
+            teamIdentifier: "TESTTEAM"
+        )
+        let reference = BrowserWebExtensionAppExtensionReference(
+            bundleURL: fixture.appex,
+            bundleIdentifier: bundleIdentifier,
+            installationName: bundleIdentifier
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        try await repository.upsertManagedRecord(
+            BrowserWebExtensionManagedRecord(
+                id: bundleIdentifier,
+                displayName: "Double check fixture",
+                version: "1.0",
+                source: .safariApp(reference),
+                isEnabled: true,
+                grantedPermissions: [],
+                grantedMatchPatterns: []
+            ),
+            in: managedRoot
+        )
+        let verificationCount = OSAllocatedUnfairLock(initialState: 0)
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository,
+            verifySafariAppExtension: { _ in
+                verificationCount.withLock { $0 += 1 }
+                return identity
+            },
+            appExtensionLoader: { _ in
+                try await WKWebExtension(resourceBaseURL: fixture.resources)
+            }
+        )
+
+        await manager.loadExtensions()
+
+        #expect(manager.loadedContexts.count == 1)
+        #expect(verificationCount.withLock { $0 } == 2)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func startupHashesEachManagedPackageExactlyOnceBeforeLoad() async throws {
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: managedRoot) }
+        let source = try Self.writeExtension(
+            named: "single-digest",
+            in: managedRoot,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let setupManager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await setupManager.approveInstalledCandidate(source)
+        setupManager.shutdown()
+        let loadingRepository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: loadingRepository
+        )
+
+        await manager.loadExtensions()
+
+        #expect(manager.loadedContexts.count == 1)
+        let digestRequestCount = await loadingRepository.managedPackageDigestRequestCountForTesting()
+        #expect(digestRequestCount == 1)
     }
 
     @available(macOS 15.4, *)
@@ -1102,12 +1573,29 @@ struct BrowserWebExtensionsManagerTests {
         }
 
         await manager.loadExtensions()
+        let panel = BrowserPanel(workspaceId: UUID())
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        defer {
+            manager.unregister(panelID: panel.id)
+            panel.close()
+        }
+        let tabs = manager.loadedContexts.flatMap { context in
+            manager.webExtensionController(manager.controller, openWindowsFor: context)
+                .flatMap { $0.tabs?(for: context) ?? [] }
+        }
+        let tab = try #require(tabs.first)
 
         let items = manager.presentationSnapshot().extensions
+        let allHaveActions = items.allSatisfy { $0.hasAction }
         #expect(items.map(\.name) == ["action", "browser_action", "page_action"])
-        #expect(items.allSatisfy(\.hasAction))
+        #expect(allHaveActions)
         #expect(manager.loadedContexts.allSatisfy { context in
-            context.action(for: nil)?.presentsPopup == true
+            context.action(for: tab)?.presentsPopup == true
         })
     }
 
@@ -1149,6 +1637,52 @@ struct BrowserWebExtensionsManagerTests {
         #expect(relaunchedManager.presentationSnapshot().extensions.first?.isToolbarPinned == true)
         try await relaunchedManager.setToolbarActionPinned(false, uniqueIdentifier: identifier)
         #expect(relaunchedManager.presentationSnapshot().extensions.first?.isToolbarPinned == false)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func disablingAndReenablingRestoresThePersistedToolbarPin() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["action"] = ["default_title": "Pinned lifecycle action"]
+        let directory = try Self.writeExtension(
+            named: "pinned-lifecycle-action",
+            in: root,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let identifier = BrowserWebExtensionsManager.contextIdentifier(
+            for: "pinned-lifecycle-action"
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        try await manager.setToolbarActionPinned(true, uniqueIdentifier: identifier)
+
+        try await manager.setExtensionEnabled(
+            managementID: "pinned-lifecycle-action",
+            isEnabled: false
+        )
+        try await manager.setExtensionEnabled(
+            managementID: "pinned-lifecycle-action",
+            isEnabled: true
+        )
+
+        #expect(manager.presentationSnapshot().extensions.first?.isToolbarPinned == true)
+        manager.shutdown()
+        let relaunchedManager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        await relaunchedManager.loadExtensions()
+        #expect(relaunchedManager.presentationSnapshot().extensions.first?.isToolbarPinned == true)
     }
 
     @available(macOS 15.4, *)
@@ -1197,11 +1731,11 @@ struct BrowserWebExtensionsManagerTests {
             safariAppIdentities: []
         )
 
-        #expect(!BrowserWebExtensionsManager.trustedUpdateAvailable(
+        #expect(BrowserWebExtensionsManager.trustedUpdateAvailable(
             for: record,
             loadedVersion: entry.version,
             catalog: catalog
-        ))
+        ) == false)
     }
 
     @available(macOS 15.4, *)
@@ -1380,17 +1914,17 @@ struct BrowserWebExtensionsManagerTests {
         let beta = try #require(itemsByName["Arbitrary Beta"]?.iconData)
         let alphaColor = try Self.centerColor(in: alpha)
         let betaColor = try Self.centerColor(in: beta)
-        #expect(abs(alphaColor.redComponent) < 0.05)
-        #expect(abs(alphaColor.greenComponent) < 0.05)
-        #expect(abs(alphaColor.blueComponent - 1) < 0.05)
-        #expect(abs(betaColor.redComponent) < 0.05)
-        #expect(abs(betaColor.greenComponent - 1) < 0.05)
-        #expect(abs(betaColor.blueComponent) < 0.05)
+        #expect(alphaColor.blueComponent > 0.8)
+        #expect(alphaColor.blueComponent > alphaColor.redComponent + 0.5)
+        #expect(alphaColor.blueComponent > alphaColor.greenComponent + 0.5)
+        #expect(betaColor.greenComponent > 0.8)
+        #expect(betaColor.greenComponent > betaColor.redComponent + 0.5)
+        #expect(betaColor.greenComponent > betaColor.blueComponent + 0.5)
         #expect(itemsByName["Arbitrary Iconless"]?.iconData == nil)
     }
 
     @available(macOS 15.4, *)
-    @Test func duplicateInstallPreservesExistingExtension() async throws {
+    @Test func duplicateInstallIsAnIdempotentUpdateWithoutDuplicateState() async throws {
         let sourceRoot = try Self.makeExtensionsRoot()
         let managedRoot = try Self.makeExtensionsRoot()
         defer {
@@ -1400,12 +1934,17 @@ struct BrowserWebExtensionsManagerTests {
         let source = try Self.writeExtension(named: "sample", in: sourceRoot, manifest: Self.minimalManifest)
         try "// no-op".write(to: source.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
         let manager = BrowserWebExtensionsManager(directory: managedRoot, controllerConfiguration: .nonPersistent())
-        _ = try await manager.installExtension(from: source)
+        let firstReceipt = try await manager.installExtension(from: source)
+        let preview = try await manager.prepareInstall(from: source)
+        #expect(preview.isUpdate)
+        let secondReceipt = try await manager.confirmPreparedInstall(id: preview.id)
 
-        await #expect(throws: BrowserWebExtensionInstallError.self) {
-            _ = try await manager.installExtension(from: source)
-        }
+        #expect(firstReceipt.name == secondReceipt.name)
         #expect(manager.loadedContexts.count == 1)
+        let ledger = try await BrowserWebExtensionDirectoryRepository()
+            .managementLedger(in: managedRoot)
+        #expect(ledger.records.keys.sorted() == ["sample"])
+        #expect(BrowserWebExtensionsManager.candidateURLs(in: managedRoot).count == 1)
     }
 
     @available(macOS 15.4, *)
@@ -1512,9 +2051,12 @@ struct BrowserWebExtensionsManagerTests {
     @Test func trustedSafariAppsAreOptInSuggestions() {
         #expect(BrowserWebExtensionCatalog.production.safariAppIdentities.map(\.id) == [
             "bitwarden-safari-app",
-            "onepassword-safari-app",
             "ublock-origin-lite-safari-app",
         ])
+        #expect(BrowserWebExtensionCatalog.production.safariAppIdentities.allSatisfy {
+            !$0.appBundleIdentifier.localizedCaseInsensitiveContains("1password")
+                && !$0.extensionBundleIdentifier.localizedCaseInsensitiveContains("1password")
+        })
     }
 
     @available(macOS 15.4, *)
@@ -1535,7 +2077,7 @@ struct BrowserWebExtensionsManagerTests {
                 && script.isForMainFrameOnly == false
         })
         #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
-            "chrome.notifications"
+            "!namespace.notifications"
         ))
         #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
             "onClicked"
@@ -1547,7 +2089,7 @@ struct BrowserWebExtensionsManagerTests {
             "readystatechange"
         ))
         #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
-            "onCreatedNavigationTarget', {\n                configurable: false"
+            "Object.defineProperty(webNavigation, 'onCreatedNavigationTarget'"
         ))
         #expect(BrowserWebExtensionsManager.notificationsCompatibilityScriptSource.contains(
             "connectNative"
@@ -1700,7 +2242,11 @@ struct BrowserWebExtensionsManagerTests {
         let services = BrowserServices(extensionDirectory: root)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
-        let panel = BrowserPanel(workspaceId: workspace.id, browserServices: services)
+        let panel = BrowserPanel(
+            workspaceId: workspace.id,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+            browserServices: services
+        )
         services.registerBrowserPanel(panel, workspace: workspace)
         defer {
             services.unregisterBrowserPanel(id: panel.id)
@@ -1769,6 +2315,7 @@ struct BrowserWebExtensionsManagerTests {
         services.installWebExtensionsManagerForTesting(alternateManager, profileID: alternateProfile.id)
         let panel = BrowserPanel(
             workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             initialURL: try #require(URL(string: "https://example.com/profile-restore")),
             browserServices: services
         )
@@ -1986,6 +2533,7 @@ struct BrowserWebExtensionsManagerTests {
         #expect(executionCount == 1)
 
         loadGate.resume()
+        runtime.start { .ready }
         for await update in runtime.updates() {
             if update == .phaseChanged(.ready) { break }
         }
@@ -2207,6 +2755,115 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func unregisterAndRemovalClearEveryTransientExtensionReference() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try Self.writeExtension(
+            named: "transient-cleanup",
+            in: root,
+            manifest: Self.minimalManifest.merging([
+                "action": ["default_title": "Cleanup"]
+            ]) { _, new in new }
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(source)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        var retainedFixture: (popover: NSPopover, webView: WKWebView)? =
+            manager.seedTransientStateForTesting(
+                panelID: panel.id,
+                extensionIdentifier: context.uniqueIdentifier,
+                context: context
+            )
+        #expect(manager.transientStateCountsForTesting(
+            panelID: panel.id,
+            extensionIdentifier: context.uniqueIdentifier
+        ).total == 12)
+
+        manager.unregister(panelID: panel.id)
+
+        #expect(manager.transientStateCountsForTesting(
+            panelID: panel.id,
+            extensionIdentifier: context.uniqueIdentifier
+        ).total == 0)
+        retainedFixture = manager.seedTransientStateForTesting(
+            panelID: panel.id,
+            extensionIdentifier: context.uniqueIdentifier,
+            context: context
+        )
+        #expect(retainedFixture?.popover != nil)
+
+        try await manager.removeExtension(managementID: source.lastPathComponent)
+
+        #expect(manager.transientStateCountsForTesting(
+            panelID: panel.id,
+            extensionIdentifier: context.uniqueIdentifier
+        ).total == 0)
+        retainedFixture = nil
+    }
+
+    @available(macOS 15.4, *)
+    @Test func lastPanelReleasesNonDefaultRuntimeButKeepsDefaultRuntime() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Extension lifetime \(UUID().uuidString.prefix(6))"
+        ))
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: profile.id) }
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let alternatePanel = BrowserPanel(
+            workspaceId: workspace.id,
+            profileID: profile.id,
+            browserServices: services
+        )
+        services.registerBrowserPanel(alternatePanel, workspace: workspace)
+        var alternateManager: BrowserWebExtensionsManager? = services.webExtensionsManager(
+            for: profile.id
+        )
+        weak var weakAlternateManager = alternateManager
+        #expect(services.hasRetainedWebExtensionsManagerForTesting(profileID: profile.id))
+
+        services.unregisterBrowserPanel(id: alternatePanel.id)
+        alternatePanel.close()
+
+        #expect(alternateManager?.isShutDown == true)
+        #expect(!services.hasRetainedWebExtensionsManagerForTesting(profileID: profile.id))
+        alternateManager = nil
+        #expect(weakAlternateManager == nil)
+
+        let defaultPanel = BrowserPanel(
+            workspaceId: workspace.id,
+            browserServices: services
+        )
+        services.registerBrowserPanel(defaultPanel, workspace: workspace)
+        let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let defaultManager = try #require(services.webExtensionsManager)
+        services.unregisterBrowserPanel(id: defaultPanel.id)
+        defaultPanel.close()
+
+        #expect(!defaultManager.isShutDown)
+        #expect(services.hasRetainedWebExtensionsManagerForTesting(profileID: defaultProfileID))
+    }
+
+    @available(macOS 15.4, *)
     @Test func deletingProfileReleasesItsExtensionRuntime() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2292,55 +2949,7 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
-    @Test func loadingExtensionDoesNotEagerlyStartBackgroundContent() async throws {
-        let root = try Self.makeExtensionsRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        var manifest = Self.minimalManifest
-        manifest["background"] = ["service_worker": "background.js"]
-        let directory = try Self.writeExtension(
-            named: "background-load-probe",
-            in: root,
-            manifest: manifest
-        )
-        try "// no-op".write(
-            to: directory.appendingPathComponent("background.js"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let backgroundSelector = NSSelectorFromString("loadBackgroundContentWithCompletionHandler:")
-        let backgroundMethod = try #require(class_getInstanceMethod(
-            WKWebExtensionContext.self,
-            backgroundSelector
-        ))
-        let originalBackgroundImplementation = method_getImplementation(backgroundMethod)
-        let loadCount = OSAllocatedUnfairLock(initialState: 0)
-        let backgroundReplacement: @convention(block) (
-            WKWebExtensionContext,
-            @escaping (NSError?) -> Void
-        ) -> Void = { _, _ in
-            loadCount.withLock { $0 += 1 }
-        }
-        let backgroundReplacementImplementation = imp_implementationWithBlock(backgroundReplacement)
-        method_setImplementation(backgroundMethod, backgroundReplacementImplementation)
-        defer {
-            method_setImplementation(backgroundMethod, originalBackgroundImplementation)
-            imp_removeBlock(backgroundReplacementImplementation)
-        }
-
-        let manager = BrowserWebExtensionsManager(
-            directory: root,
-            controllerConfiguration: .nonPersistent()
-        )
-        try await manager.approveInstalledCandidate(directory)
-        await manager.loadExtensions()
-
-        #expect(manager.loadedContexts.count == 1)
-        #expect(loadCount.withLock { $0 } == 0)
-    }
-
-    @available(macOS 15.4, *)
-    @Test func actionInvocationDoesNotWaitForBackgroundLoadCallback() async throws {
+    @Test func actionInvocationDelegatesImmediatelyToTheWebKitPerformer() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         var manifest = Self.minimalManifest
@@ -2362,9 +2971,13 @@ struct BrowserWebExtensionsManagerTests {
             encoding: .utf8
         )
 
+        let performCount = OSAllocatedUnfairLock(initialState: 0)
         let manager = BrowserWebExtensionsManager(
             directory: root,
-            controllerConfiguration: .nonPersistent()
+            controllerConfiguration: .nonPersistent(),
+            performExtensionAction: { _, _ in
+                performCount.withLock { $0 += 1 }
+            }
         )
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
@@ -2378,64 +2991,172 @@ struct BrowserWebExtensionsManagerTests {
         )
         defer { manager.unregister(panelID: panel.id) }
 
-        let backgroundSelector = NSSelectorFromString("loadBackgroundContentWithCompletionHandler:")
-        let backgroundMethod = try #require(class_getInstanceMethod(
-            WKWebExtensionContext.self,
-            backgroundSelector
-        ))
-        let originalBackgroundImplementation = method_getImplementation(backgroundMethod)
-        let loadCount = OSAllocatedUnfairLock(initialState: 0)
-        let backgroundReplacement: @convention(block) (
-            WKWebExtensionContext,
-            @escaping (NSError?) -> Void
-        ) -> Void = { _, _ in
-            loadCount.withLock { $0 += 1 }
-        }
-        let backgroundReplacementImplementation = imp_implementationWithBlock(backgroundReplacement)
-        method_setImplementation(backgroundMethod, backgroundReplacementImplementation)
-
-        let actionSelector = NSSelectorFromString("performActionForTab:")
-        let actionMethod = try #require(class_getInstanceMethod(
-            WKWebExtensionContext.self,
-            actionSelector
-        ))
-        let originalActionImplementation = method_getImplementation(actionMethod)
-        let performCount = OSAllocatedUnfairLock(initialState: 0)
-        let actionReplacement: @convention(block) (WKWebExtensionContext, AnyObject?) -> Void = { _, _ in
-            performCount.withLock { $0 += 1 }
-        }
-        let actionReplacementImplementation = imp_implementationWithBlock(actionReplacement)
-        method_setImplementation(actionMethod, actionReplacementImplementation)
-        defer {
-            method_setImplementation(backgroundMethod, originalBackgroundImplementation)
-            imp_removeBlock(backgroundReplacementImplementation)
-            method_setImplementation(actionMethod, originalActionImplementation)
-            imp_removeBlock(actionReplacementImplementation)
-        }
-
         let context = try #require(manager.loadedContexts.first)
         #expect(manager.performAction(
             uniqueIdentifier: context.uniqueIdentifier,
             in: panel,
             anchorView: nil
         ))
-        #expect(loadCount.withLock { $0 } == 0)
         #expect(performCount.withLock { $0 } == 1)
     }
 
     @available(macOS 15.4, *)
-    @Test func extensionCanOpenTabFromToolbarAction() throws {
+    @Test func noPopupMV2ActionOpensBrowserOnlyWelcomeInNewActiveTab() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let manager = BrowserWebExtensionsManager(
-            directory: root,
-            controllerConfiguration: .nonPersistent()
+        let extensionDirectory = try Self.writeExtension(
+            named: "browser-only-welcome",
+            in: root,
+            manifest: [
+                "manifest_version": 2,
+                "name": "Browser-only welcome fixture",
+                "version": "1.0",
+                "permissions": ["tabs"],
+                "background": [
+                    "page": "background.html",
+                ],
+                "browser_action": ["default_title": "Open welcome"],
+            ]
         )
-        let selector = NSSelectorFromString(
-            "webExtensionController:openNewTabUsingConfiguration:forExtensionContext:completionHandler:"
+        try """
+        chrome.browserAction.onClicked.addListener(() => {
+          chrome.tabs.create({
+            active: true,
+            url: chrome.runtime.getURL("app/app.html#/page/welcome?language=en")
+          });
+        });
+        """.write(
+            to: extensionDirectory.appendingPathComponent("background.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<script src=\"background.js\"></script>".write(
+            to: extensionDirectory.appendingPathComponent("background.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let appDirectory = extensionDirectory.appendingPathComponent("app", isDirectory: true)
+        try FileManager.default.createDirectory(at: appDirectory, withIntermediateDirectories: true)
+        try "<title>Browser-only welcome</title>".write(
+            to: appDirectory.appendingPathComponent("app.html"),
+            atomically: true,
+            encoding: .utf8
         )
 
-        #expect(manager.responds(to: selector))
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
+        try await manager.approveInstalledCandidate(extensionDirectory)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            browserServices: services
+        )
+        let ownerID = UUID()
+        let newTabGate = NewTabGate()
+        var activePanelID: UUID? = panel.id
+        var createdPanels: [BrowserPanel] = []
+        var createRequests: [(index: Int, active: Bool, selected: Bool)] = []
+        manager.register(
+            panel: panel,
+            ownerID: ownerID,
+            activePanelID: { activePanelID },
+            focusPriority: { 2 },
+            focusPanel: { activePanelID = $0 },
+            orderedPanelIDs: { [panel.id] + createdPanels.map(\.id) },
+            createTab: { index, shouldBeActive, shouldAddToSelection in
+                createRequests.append((index, shouldBeActive, shouldAddToSelection))
+                let created = BrowserPanel(
+                    workspaceId: panel.workspaceId,
+                    profileID: profileID,
+                    browserServices: services
+                )
+                createdPanels.append(created)
+                manager.register(
+                    panel: created,
+                    ownerID: ownerID,
+                    activePanelID: { activePanelID },
+                    focusPanel: { activePanelID = $0 }
+                )
+                if shouldBeActive { activePanelID = created.id }
+                newTabGate.resume(returning: created)
+                return created
+            },
+            closePanel: { panelID in
+                guard let index = createdPanels.firstIndex(where: { $0.id == panelID }) else {
+                    return false
+                }
+                let removed = createdPanels.remove(at: index)
+                manager.unregister(panelID: removed.id)
+                removed.close()
+                return true
+            }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 200, y: 200, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = panel.webView
+        window.makeKeyAndOrderFront(nil)
+        manager.activateTab(panelID: panel.id, previousPanelID: nil)
+        defer {
+            window.close()
+            for created in createdPanels {
+                manager.unregister(panelID: created.id)
+                created.close()
+            }
+            manager.unregister(panelID: panel.id)
+            panel.close()
+            manager.shutdown()
+        }
+
+        let backgroundError = await withCheckedContinuation { continuation in
+            context.loadBackgroundContent { error in
+                continuation.resume(returning: error)
+            }
+        }
+        if let backgroundError { throw backgroundError }
+
+        try #require(manager.performAction(
+            uniqueIdentifier: context.uniqueIdentifier,
+            in: panel,
+            anchorView: nil
+        ))
+        let timeoutTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {
+                return
+            }
+            newTabGate.resume(returning: nil)
+        }
+        let resolvedPanel = await newTabGate.wait()
+        timeoutTask.cancel()
+        let created = try #require(resolvedPanel)
+        let request = try #require(createRequests.first)
+        #expect(request.active)
+        #expect(activePanelID == created.id)
+        #expect(created.webView.configuration.webExtensionController === manager.controller)
+
+        let openedURL = created.currentURLForTabDuplication
+            ?? created.pendingURLForWebExtension
+        let url = try #require(openedURL)
+        #expect(url.path == "/app/app.html")
+        #expect(url.fragment == "/page/welcome?language=en")
+        #expect(url.scheme == context.baseURL.scheme)
+        #expect(url.host == context.baseURL.host)
+
+        let item = try #require(manager.presentationSnapshot(for: panel.id).extensions.first)
+        #expect(item.actionFailure == nil)
     }
 
     @available(macOS 15.4, *)
@@ -2499,9 +3220,13 @@ struct BrowserWebExtensionsManagerTests {
             encoding: .utf8
         )
 
+        let performCount = OSAllocatedUnfairLock(initialState: 0)
         let manager = BrowserWebExtensionsManager(
             directory: root,
-            controllerConfiguration: .nonPersistent()
+            controllerConfiguration: .nonPersistent(),
+            performExtensionAction: { _, _ in
+                performCount.withLock { $0 += 1 }
+            }
         )
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
@@ -2526,28 +3251,15 @@ struct BrowserWebExtensionsManagerTests {
         window.orderFront(nil)
         defer { window.close() }
 
-        let actionSelector = NSSelectorFromString("performActionForTab:")
-        let actionMethod = try #require(class_getInstanceMethod(
-            WKWebExtensionContext.self,
-            actionSelector
-        ))
-        let originalActionImplementation = method_getImplementation(actionMethod)
-        let performCount = OSAllocatedUnfairLock(initialState: 0)
-        let actionReplacement: @convention(block) (WKWebExtensionContext, AnyObject?) -> Void = { _, _ in
-            performCount.withLock { $0 += 1 }
-        }
-        let actionReplacementImplementation = imp_implementationWithBlock(actionReplacement)
-        method_setImplementation(actionMethod, actionReplacementImplementation)
-        defer {
-            method_setImplementation(actionMethod, originalActionImplementation)
-            imp_removeBlock(actionReplacementImplementation)
-        }
-
         let context = try #require(manager.loadedContexts.first)
-        let tab = try #require(manager
-            .webExtensionController(manager.controller, openWindowsFor: context)
-            .flatMap { $0.tabs?(for: context) ?? [] }
-            .first)
+        let openWindows = manager.webExtensionController(
+            manager.controller,
+            openWindowsFor: context
+        )
+        let openTabs = openWindows.flatMap { window in
+            window.tabs?(for: context) ?? []
+        }
+        let tab = try #require(openTabs.first)
         let action = try #require(context.action(for: tab))
         let popover = try #require(action.popupPopover)
 
@@ -2571,27 +3283,16 @@ struct BrowserWebExtensionsManagerTests {
 
         #expect(presentationError == nil)
         #expect(popover.isShown)
-        #expect(popover.positioningView === anchor)
         #expect(popover.positioningRect == anchor.bounds)
         #expect(performCount.withLock { $0 } == 1)
     }
 
     @available(macOS 15.4, *)
-    @Test func mv2DefaultActionUpdateHandsFirstClickToDynamicPopupExactlyOnce() async throws {
+    @Test func mv2DefaultActionUpdateHandsPendingClickToDynamicPopupExactlyOnce() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let initialDirectory = try Self.writeExtension(
-            named: "mv2-dynamic-initial",
-            in: root,
-            manifest: [
-                "manifest_version": 2,
-                "name": "Dynamic popup fixture",
-                "version": "1.0",
-                "browser_action": [:],
-            ]
-        )
-        let updatedDirectory = try Self.writeExtension(
-            named: "mv2-dynamic-updated",
+        let directory = try Self.writeExtension(
+            named: "mv2-dynamic-popup",
             in: root,
             manifest: [
                 "manifest_version": 2,
@@ -2601,22 +3302,22 @@ struct BrowserWebExtensionsManagerTests {
             ]
         )
         try "<main>Dynamic popup ready</main>".write(
-            to: updatedDirectory.appendingPathComponent("popup.html"),
+            to: directory.appendingPathComponent("popup.html"),
             atomically: true,
             encoding: .utf8
         )
 
+        let performCount = OSAllocatedUnfairLock(initialState: 0)
         let manager = BrowserWebExtensionsManager(
             directory: root,
-            controllerConfiguration: .nonPersistent()
+            controllerConfiguration: .nonPersistent(),
+            performExtensionAction: { _, _ in
+                performCount.withLock { $0 += 1 }
+            }
         )
-        try await manager.approveInstalledCandidate(initialDirectory)
+        try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
-        let initialContext = try #require(manager.loadedContexts.first)
-        let updatedContext = WKWebExtensionContext(
-            for: try await WKWebExtension(resourceBaseURL: updatedDirectory)
-        )
-        updatedContext.uniqueIdentifier = initialContext.uniqueIdentifier
+        let context = try #require(manager.loadedContexts.first)
 
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
@@ -2638,70 +3339,55 @@ struct BrowserWebExtensionsManagerTests {
         window.orderFront(nil)
         defer { window.close() }
 
-        let actionSelector = NSSelectorFromString("performActionForTab:")
-        let actionMethod = try #require(class_getInstanceMethod(
-            WKWebExtensionContext.self,
-            actionSelector
-        ))
-        let originalActionImplementation = method_getImplementation(actionMethod)
-        let performCount = OSAllocatedUnfairLock(initialState: 0)
-        let actionReplacement: @convention(block) (WKWebExtensionContext, AnyObject?) -> Void = { _, _ in
-            performCount.withLock { $0 += 1 }
+        let openWindows = manager.webExtensionController(
+            manager.controller,
+            openWindowsFor: context
+        )
+        let openTabs = openWindows.flatMap { window in
+            window.tabs?(for: context) ?? []
         }
-        let actionReplacementImplementation = imp_implementationWithBlock(actionReplacement)
-        method_setImplementation(actionMethod, actionReplacementImplementation)
-        defer {
-            method_setImplementation(actionMethod, originalActionImplementation)
-            imp_removeBlock(actionReplacementImplementation)
-        }
-
-        let initialTab = try #require(manager
-            .webExtensionController(manager.controller, openWindowsFor: initialContext)
-            .flatMap { $0.tabs?(for: initialContext) ?? [] }
-            .first)
-        let initialAction = try #require(initialContext.action(for: initialTab))
-        #expect(!initialAction.presentsPopup)
-        #expect(manager.performAction(
-            uniqueIdentifier: initialContext.uniqueIdentifier,
-            in: panel,
+        let tab = try #require(openTabs.first)
+        let defaultUpdatedAction = try #require(context.action(for: nil))
+        #expect(defaultUpdatedAction.associatedTab == nil)
+        manager.seedPendingActionInvocationForTesting(
+            panelID: panel.id,
+            extensionIdentifier: context.uniqueIdentifier,
             anchorView: anchor
-        ))
+        )
+        manager.webExtensionController(
+            manager.controller,
+            didUpdate: defaultUpdatedAction,
+            forExtensionContext: context
+        )
+        manager.webExtensionController(
+            manager.controller,
+            didUpdate: defaultUpdatedAction,
+            forExtensionContext: context
+        )
         #expect(performCount.withLock { $0 } == 1)
 
-        let defaultUpdatedAction = try #require(updatedContext.action(for: nil))
-        #expect(defaultUpdatedAction.associatedTab == nil)
-        manager.webExtensionController(
-            manager.controller,
-            didUpdate: defaultUpdatedAction,
-            forExtensionContext: updatedContext
-        )
-        manager.webExtensionController(
-            manager.controller,
-            didUpdate: defaultUpdatedAction,
-            forExtensionContext: updatedContext
-        )
-        #expect(performCount.withLock { $0 } == 2)
-
-        let updatedAction = try #require(updatedContext.action(for: initialTab))
+        let updatedAction = try #require(context.action(for: tab))
         #expect(updatedAction.presentsPopup)
         var presentationError: (any Error)?
         manager.webExtensionController(
             manager.controller,
             presentActionPopup: updatedAction,
-            for: updatedContext
+            for: context
         ) { presentationError = $0 }
 
         #expect(presentationError == nil)
-        #expect(updatedAction.popupPopover?.isShown == true)
-        #expect(updatedAction.popupPopover?.positioningView === anchor)
-        #expect(performCount.withLock { $0 } == 2)
+        let updatedPopover = try #require(updatedAction.popupPopover)
+        defer { updatedPopover.performClose(nil) }
+        #expect(updatedPopover.isShown)
+        #expect(updatedPopover.positioningRect == anchor.bounds)
+        #expect(performCount.withLock { $0 } == 1)
 
         manager.webExtensionController(
             manager.controller,
             didUpdate: defaultUpdatedAction,
-            forExtensionContext: updatedContext
+            forExtensionContext: context
         )
-        #expect(performCount.withLock { $0 } == 2)
+        #expect(performCount.withLock { $0 } == 1)
     }
 
     @available(macOS 15.4, *)
@@ -2823,9 +3509,9 @@ struct BrowserWebExtensionsManagerTests {
         let secondTab = try #require(registeredTabs.first {
             $0.webView?(for: extensionContext) === secondPanel.webView
         })
-        let activate = try #require(secondTab.activate)
+        let secondTabAdapter = try #require(secondTab as? BrowserWebExtensionTabAdapter)
         await confirmation("Dock-owned extension tab activated") { activated in
-            activate(extensionContext) { error in
+            secondTabAdapter.activate(for: extensionContext) { error in
                 #expect(error == nil)
                 activated()
             }
@@ -3199,7 +3885,7 @@ struct BrowserWebExtensionsManagerTests {
         try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
 
         let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
-        try await manager.approveInstalledCandidate(broken)
+        try await Self.recordRawManagedPackageForLoadTesting(broken, in: root)
         try await manager.approveInstalledCandidate(dir)
         await manager.loadExtensions()
 
@@ -3224,7 +3910,7 @@ struct BrowserWebExtensionsManagerTests {
             directory: root,
             controllerConfiguration: .nonPersistent()
         )
-        try await manager.approveInstalledCandidate(broken)
+        try await Self.recordRawManagedPackageForLoadTesting(broken, in: root)
 
         await manager.loadExtensions()
 
@@ -3282,52 +3968,6 @@ struct BrowserWebExtensionsManagerTests {
             BrowserWebExtensionsManager.contextIdentifier(for: "healthy"),
         ])
         #expect(manager.loadErrors.map { $0.url.lastPathComponent } == ["damaged"])
-    }
-}
-
-private final class DeclaredOversizedWebExtensionURLProtocol: URLProtocol, @unchecked Sendable {
-    private static let cancellationObserver = WebExtensionURLProtocolCancellationObserver()
-
-    static func observeCancellation(_ observer: @escaping @Sendable () -> Void) {
-        cancellationObserver.install(observer)
-    }
-
-    override class func canInit(with _: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        guard let url = request.url,
-              let response = HTTPURLResponse(
-                  url: url,
-                  statusCode: 200,
-                  httpVersion: "HTTP/1.1",
-                  headerFields: ["Content-Length": "9"]
-              ) else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-    }
-
-    override func stopLoading() {
-        Self.cancellationObserver.fire()
-    }
-}
-
-private final class WebExtensionURLProtocolCancellationObserver: @unchecked Sendable {
-    private let lock = NSLock()
-    private var observer: (@Sendable () -> Void)?
-
-    func install(_ observer: @escaping @Sendable () -> Void) {
-        lock.withLock { self.observer = observer }
-    }
-
-    func fire() {
-        let observer = lock.withLock { () -> (@Sendable () -> Void)? in
-            defer { self.observer = nil }
-            return self.observer
-        }
-        observer?()
     }
 }
 

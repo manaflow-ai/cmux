@@ -1,6 +1,6 @@
 public import Foundation
 
-/// Validated durable extension records discovered for one profile.
+/// Path-resolved durable extension records discovered for one profile.
 public struct BrowserWebExtensionManagedDiscovery: Sendable {
     /// A record paired with its current package or Safari extension URL.
     public struct Installation: Sendable {
