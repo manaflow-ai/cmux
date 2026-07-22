@@ -128,6 +128,51 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["window_id"] == nil)
     }
 
+    @Test func paletteShorthandRejectsAnEmptyActionID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-palempty-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"status":"completed"}}"#
+        )
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "palette", ""],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status != 0)
+        #expect(responder.receivedRequests.isEmpty)
+    }
+
+    @Test func paletteRunSanitizesTheActionIDInTextOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-palsafeid-\(UUID().uuidString.prefix(8)).sock"
+        let actionID = "palette.\u{001B}[31mred\u{0007}"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"status":"completed","command":{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":null,"keywords":[],"dismiss_on_run":true}}}"#
+        )
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "palette", "run", actionID],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        #expect(result.stdout.contains("palette."))
+        #expect(!result.stdout.contains("\u{001B}"))
+        #expect(!result.stdout.contains("\u{0007}"))
+    }
+
     @Test func paletteRunReportsQueuedOutcomeTruthfully() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-palqueue-\(UUID().uuidString.prefix(8)).sock"
