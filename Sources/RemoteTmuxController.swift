@@ -265,9 +265,8 @@ final class RemoteTmuxController {
     /// created and released only on a successful connect.
     var loginOffers = RemoteTmuxLoginOffers()
 
-    /// Hosts with an authentication wait already running, so folding a repeat
-    /// auth-required into an existing offer does not start a second poll loop.
-    /// Hosts with a login waiter running, and the task doing the waiting.
+    /// Hosts with a login waiter running, and the task doing the waiting. Folding a repeat
+    /// auth-required into an existing offer must not start a second waiter.
     ///
     /// The task is held rather than fire-and-forget so it can be cancelled: a waiter that
     /// outlives the offer it was created for keeps probing a master nobody is waiting on, and
@@ -805,7 +804,7 @@ final class RemoteTmuxController {
     /// server/session — only the local control clients and masters.
     func detachAll() {
         // No waiter may outlive the mirrors it was waiting for.
-        for key in authWaitTasks.keys { cancelAuthWait(host: key) }
+        for key in Array(authWaitTasks.keys) { cancelAuthWait(host: key) }
         let connections = Array(connectionsByHostSession.keys).compactMap { removeCachedConnection(forKey: $0) }
         for connection in connections { connection.stop() }
         // Fire-and-forget `ssh -O exit` per endpoint: it hits the local control

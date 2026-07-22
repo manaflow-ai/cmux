@@ -460,7 +460,7 @@ extension RemoteTmuxController {
     ///   connection goes back to retrying, and a later failure offers a fresh login. Left
     ///   parked instead, that host would have no route back short of restarting cmux.
     ///
-    /// The interval backs off because a person is slow and each probe forks an `ssh`.
+    /// The wait ends on an event, so there is no interval to tune and no dead time behind one.
     private func awaitAuthenticationThenResume(host: RemoteTmuxHost) {
         let key = host.connectionHash
         let transport = transport(for: host)
