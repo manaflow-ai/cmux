@@ -134,14 +134,16 @@ struct KimiRestorableAgentTests {
         #expect(decoded.forkCommand == "'custom-kimi' '--fork' 'custom-session'")
     }
 
-    @Test("Kimi hook sessions are discovered and produce a resume command")
+    @Test("Kimi hook sessions resume from their launch directory namespace")
     func hookSessionLoadsIntoResumePipeline() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-kimi-restore-\(UUID().uuidString)", isDirectory: true)
-        let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
+        let launchWorkingDirectory = root.appendingPathComponent("launch-repo", isDirectory: true)
+        let runtimeWorkingDirectory = root.appendingPathComponent("runtime-worktree", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
-        try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: launchWorkingDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: runtimeWorkingDirectory, withIntermediateDirectories: true)
 
         let workspaceID = UUID()
         let panelID = UUID()
@@ -156,7 +158,15 @@ struct KimiRestorableAgentTests {
                         "sessionId": sessionID,
                         "workspaceId": workspaceID.uuidString,
                         "surfaceId": panelID.uuidString,
-                        "cwd": workingDirectory.path,
+                        "cwd": runtimeWorkingDirectory.path,
+                        "launchCommand": [
+                            "launcher": "kimi",
+                            "executablePath": "/Users/example/.local/bin/kimi",
+                            "arguments": ["/Users/example/.local/bin/kimi"],
+                            "workingDirectory": launchWorkingDirectory.path,
+                            "capturedAt": 1_750_000_000.0,
+                            "source": "test",
+                        ],
                         "isRestorable": true,
                         "updatedAt": 1_750_000_000.0,
                     ],
@@ -177,10 +187,79 @@ struct KimiRestorableAgentTests {
         #expect(snapshot.kind.rawValue == "kimi")
         #expect(snapshot.registration?.id == "kimi")
         #expect(snapshot.sessionId == sessionID)
-        #expect(snapshot.workingDirectory == workingDirectory.path)
+        #expect(snapshot.workingDirectory == launchWorkingDirectory.path)
 
         let resumeCommand = try #require(snapshot.resumeCommand)
-        #expect(resumeCommand.contains("'kimi' '--resume' '\(sessionID)'"))
-        #expect(resumeCommand.hasPrefix("cd -- '\(workingDirectory.path)'"))
+        #expect(resumeCommand.contains("'/Users/example/.local/bin/kimi' '--resume' '\(sessionID)'"))
+        #expect(resumeCommand.hasPrefix("cd -- '\(launchWorkingDirectory.path)'"))
+    }
+
+    @Test("Custom Kimi registrations preserve their runtime working directory")
+    func customKimiRegistrationKeepsRuntimeDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-custom-kimi-restore-\(UUID().uuidString)", isDirectory: true)
+        let launchWorkingDirectory = root.appendingPathComponent("launch-repo", isDirectory: true)
+        let runtimeWorkingDirectory = root.appendingPathComponent("runtime-worktree", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: launchWorkingDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: runtimeWorkingDirectory, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "custom-kimi-session"
+        let stateDirectory = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fileManager.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        let store = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1,
+                "sessions": [
+                    sessionID: [
+                        "sessionId": sessionID,
+                        "workspaceId": workspaceID.uuidString,
+                        "surfaceId": panelID.uuidString,
+                        "cwd": runtimeWorkingDirectory.path,
+                        "launchCommand": [
+                            "launcher": "kimi",
+                            "executablePath": "/Users/example/.local/bin/custom-kimi",
+                            "arguments": ["/Users/example/.local/bin/custom-kimi"],
+                            "workingDirectory": launchWorkingDirectory.path,
+                            "capturedAt": 1_750_000_000.0,
+                            "source": "test",
+                        ],
+                        "isRestorable": true,
+                        "updatedAt": 1_750_000_000.0,
+                    ],
+                ],
+            ],
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try store.write(
+            to: stateDirectory.appendingPathComponent("kimi-hook-sessions.json", isDirectory: false),
+            options: .atomic
+        )
+        let customRegistration = CmuxVaultAgentRegistration(
+            id: "kimi",
+            name: "Custom Kimi",
+            detect: CmuxVaultAgentDetectRule(processName: "custom-kimi"),
+            sessionIdSource: .argvOption("--resume"),
+            resumeCommand: "custom-kimi --resume {{sessionId}}"
+        )
+        let registry = CmuxVaultAgentRegistry(registrations: [customRegistration])
+
+        let snapshot = try #require(
+            RestorableAgentSessionIndex.load(
+                homeDirectory: root.path,
+                fileManager: fileManager,
+                registry: registry,
+                detectedSnapshots: [:],
+                processArgumentsProvider: { _ in nil }
+            ).snapshot(workspaceId: workspaceID, panelId: panelID)
+        )
+        #expect(snapshot.registration == customRegistration)
+        #expect(snapshot.workingDirectory == runtimeWorkingDirectory.path)
+
+        let resumeCommand = try #require(snapshot.resumeCommand)
+        #expect(resumeCommand.hasPrefix("cd -- '\(runtimeWorkingDirectory.path)'"))
     }
 }
