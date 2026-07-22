@@ -88,6 +88,10 @@ extension TerminalSurface {
             protectedStartupEnvironmentKeys.insert(key)
         }
 
+        if let resolvedUserShell = engine.resolvedUserShell {
+            setManagedEnvironmentValue("SHELL", resolvedUserShell)
+        }
+
         let socketPath = spawnPolicyProvider.controlSocketPath()
         Self.applyManagedCmuxContextEnvironment(
             Self.cmuxContextEnvironment(
@@ -210,11 +214,8 @@ extension TerminalSurface {
                 protectedKeys: &protectedStartupEnvironmentKeys
             )
 
-            let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
-                ?? getenv("SHELL").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["SHELL"]
-                ?? "/bin/zsh"
-            if let command = Self.applyManagedShellSpecificStartupEnvironment(
+            if let shell = engine.resolvedUserShell,
+               let command = Self.applyManagedShellSpecificStartupEnvironment(
                 shell: shell,
                 integrationDir: integrationDir,
                 userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,

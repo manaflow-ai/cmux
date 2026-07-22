@@ -16,4 +16,7 @@ public protocol TerminalEngineHosting: AnyObject {
     /// The user's effective `shell-integration` Ghostty config value
     /// (`"detect"`, `"none"`, or an explicit shell).
     var userGhosttyShellIntegrationMode: String { get }
+
+    /// The executable user shell resolved before Ghostty config finalization.
+    var resolvedUserShell: String? { get }
 }
