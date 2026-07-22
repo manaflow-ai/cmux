@@ -995,6 +995,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
 		827300000000000000000004 /* KimiHookConfigLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827300000000000000000003 /* KimiHookConfigLocationTests.swift */; };
 		858200000000000000000002 /* KimiRestorableAgentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000001 /* KimiRestorableAgentTests.swift */; };
+		8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */; };
 		87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */; };
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
@@ -3117,6 +3118,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		827300000000000000000003 /* KimiHookConfigLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiHookConfigLocationTests.swift; sourceTree = "<group>"; };
 		858200000000000000000001 /* KimiRestorableAgentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiRestorableAgentTests.swift; sourceTree = "<group>"; };
+		8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiResumeReviewRegressionTests.swift; sourceTree = "<group>"; };
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -6208,6 +6210,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */,
 					827300000000000000000003 /* KimiHookConfigLocationTests.swift */,
 					858200000000000000000001 /* KimiRestorableAgentTests.swift */,
+					8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */,
 				C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */,
 				F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */,
 				E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */,
@@ -8701,6 +8704,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */,
 				827300000000000000000004 /* KimiHookConfigLocationTests.swift in Sources */,
 				858200000000000000000002 /* KimiRestorableAgentTests.swift in Sources */,
+				8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */,
 				87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */,
 				A7C0F0010000000000000002 /* MacPairedMacBackupPublisherScopeTests.swift in Sources */,
 				6512F0C06512F0C06512F002 /* MainWindowFocusRestoreTests.swift in Sources */,
