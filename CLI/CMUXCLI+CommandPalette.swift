@@ -106,7 +106,11 @@ extension CMUXCLI {
         windowOverride: String?
     ) throws {
         let (workspaceOption, afterWorkspace) = parseOption(commandArgs, name: "--workspace")
-        let (windowOption, positional) = parseOption(afterWorkspace, name: "--window")
+        let (windowOption, afterWindow) = parseOption(afterWorkspace, name: "--window")
+        var positional = afterWindow
+        if positional.first == "--" {
+            positional.removeFirst()
+        }
         let pathTokens: [String]
         if positional.first?.lowercased() == "open" {
             pathTokens = Array(positional.dropFirst())
