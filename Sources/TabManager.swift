@@ -985,7 +985,7 @@ class TabManager: ObservableObject {
         workingDirectory: String?,
         portOrdinal: Int,
         configTemplate: CmuxSurfaceConfigTemplate?,
-        detachedSurface: DetachedSurfaceTransfer
+        detachedSurface: Workspace.DetachedSurfaceTransfer
     ) -> Workspace {
         Workspace(
             title: title,
