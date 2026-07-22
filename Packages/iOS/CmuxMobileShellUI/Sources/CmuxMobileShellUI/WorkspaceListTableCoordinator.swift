@@ -41,6 +41,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
     private var configuredItemsByID: [String: WorkspaceListTableItem]
+    private(set) var isDragSessionActive = false
+    private var dropIntoTarget: (
+        sessionIdentifier: ObjectIdentifier,
+        headerIndexPath: IndexPath,
+        groupID: MobileWorkspaceGroupPreview.ID,
+        workspaceID: MobileWorkspacePreview.ID
+    )?
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -144,6 +151,19 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         dataSource.apply(snapshot, animatingDifferences: false)
     }
 
+    private func setDragSessionActive(_ active: Bool) {
+        guard isDragSessionActive != active, let dataSource else { return }
+        isDragSessionActive = active
+        var snapshot = dataSource.snapshot()
+        let footerItems = snapshot.itemIdentifiers.filter { item in
+            if case .groupFooter = item { return true }
+            return false
+        }
+        guard !footerItems.isEmpty else { return }
+        snapshot.reconfigureItems(footerItems)
+        dataSource.apply(snapshot, animatingDifferences: false)
+    }
+
     func tableView(
         _ tableView: UITableView,
         itemsForBeginning session: UIDragSession,
@@ -161,11 +181,22 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         return [dragItem]
     }
 
+    func tableView(_ tableView: UITableView, dragSessionWillBegin session: UIDragSession) {
+        dropIntoTarget = nil
+        setDragSessionActive(true)
+    }
+
+    func tableView(_ tableView: UITableView, dragSessionDidEnd session: UIDragSession) {
+        dropIntoTarget = nil
+        setDragSessionActive(false)
+    }
+
     func tableView(
         _ tableView: UITableView,
         dropSessionDidUpdate session: UIDropSession,
         withDestinationIndexPath destinationIndexPath: IndexPath?
     ) -> UITableViewDropProposal {
+        dropIntoTarget = nil
         guard
             configuration.enablesReorder,
             configuration.moveRows != nil,
@@ -178,16 +209,105 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
            destinationIndexPath.row < chromePrefixCount {
             return UITableViewDropProposal(operation: .forbidden)
         }
+
+        let location = session.location(in: tableView)
+        let hitIndexPath = tableView.indexPathForRow(at: location)
+        let hitItem = hitIndexPath.flatMap { dataSource?.itemIdentifier(for: $0) }
+        let draggedItem = session.items.first?.localObject as? WorkspaceListTableItem
+        let rowRect = hitIndexPath.map { tableView.rectForRow(at: $0) } ?? .zero
+        let canDropIntoGroup: Bool
+        if case .groupHeader(let groupID) = hitItem,
+           case .workspace(let workspaceID, _) = draggedItem {
+            canDropIntoGroup = configuration.canDropIntoGroup?(workspaceID, groupID) == true
+        } else {
+            canDropIntoGroup = false
+        }
+        let decision = WorkspaceListDropProposalPolicy().decision(
+            hitItem: hitItem,
+            draggedItem: draggedItem,
+            yOffset: location.y - rowRect.minY,
+            rowHeight: rowRect.height,
+            canDropIntoGroup: canDropIntoGroup
+        )
+        switch decision {
+        case .into:
+            guard
+                let hitIndexPath,
+                case .groupHeader(let groupID) = hitItem,
+                case .workspace(let workspaceID, _) = draggedItem
+            else {
+                return UITableViewDropProposal(
+                    operation: .move,
+                    intent: .insertAtDestinationIndexPath
+                )
+            }
+            dropIntoTarget = (
+                sessionIdentifier: ObjectIdentifier(session),
+                headerIndexPath: hitIndexPath,
+                groupID: groupID,
+                workspaceID: workspaceID
+            )
+            return UITableViewDropProposal(
+                operation: .move,
+                intent: .insertIntoDestinationIndexPath
+            )
+        case .insertAt:
+            break
+        case .forbidden:
+            return UITableViewDropProposal(operation: .forbidden)
+        }
         return UITableViewDropProposal(
             operation: .move,
             intent: .insertAtDestinationIndexPath
         )
     }
 
+    func tableView(_ tableView: UITableView, dropSessionDidEnd session: UIDropSession) {
+        dropIntoTarget = nil
+    }
+
     func tableView(
         _ tableView: UITableView,
         performDropWith coordinator: UITableViewDropCoordinator
     ) {
+        let intoTarget = dropIntoTarget
+        dropIntoTarget = nil
+        if let intoTarget,
+           intoTarget.sessionIdentifier == ObjectIdentifier(coordinator.session),
+           coordinator.proposal.intent == .insertIntoDestinationIndexPath,
+           configuration.enablesReorder,
+           configuration.moveRows != nil,
+           let dropIntoGroup = configuration.dropIntoGroup,
+           coordinator.items.count == 1,
+           let dropItem = coordinator.items.first,
+           let sourceIndexPath = dropItem.sourceIndexPath,
+           let destinationIndexPath = coordinator.destinationIndexPath,
+           destinationIndexPath == intoTarget.headerIndexPath,
+           let draggedItem = dropItem.dragItem.localObject as? WorkspaceListTableItem,
+           case .workspace(let workspaceID, _) = draggedItem,
+           workspaceID == intoTarget.workspaceID,
+           configuration.items.indices.contains(sourceIndexPath.row),
+           configuration.items[sourceIndexPath.row] == draggedItem,
+           dataSource?.itemIdentifier(for: destinationIndexPath)
+               == .groupHeader(intoTarget.groupID),
+           isMovable(draggedItem) {
+            let cellBounds = tableView.cellForRow(at: destinationIndexPath)?.bounds
+                ?? CGRect(origin: .zero, size: tableView.rectForRow(at: destinationIndexPath).size)
+            let targetRect = CGRect(
+                x: cellBounds.midX - 1,
+                y: cellBounds.midY - 1,
+                width: 2,
+                height: 2
+            )
+            dropIntoGroup(workspaceID, intoTarget.groupID)
+            coordinator.drop(
+                dropItem.dragItem,
+                intoRowAt: destinationIndexPath,
+                rect: targetRect
+            )
+            return
+        }
+
         guard
             configuration.enablesReorder,
             let moveRows = configuration.moveRows,
@@ -503,7 +623,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             )
         case .groupFooter(let groupID):
             return AnyView(
-                WorkspaceGroupFooterRow(groupName: configuration.groupsByID[groupID]?.name)
+                WorkspaceGroupFooterRow(
+                    groupName: configuration.groupsByID[groupID]?.name,
+                    showsBoundary: isDragSessionActive
+                )
             )
         case .chrome(.recoveryBanner):
             return AnyView(

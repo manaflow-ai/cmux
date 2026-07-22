@@ -98,6 +98,8 @@ import UIKit
             initialConnectionDescription: nil,
             enablesReorder: false,
             moveRows: nil,
+            canDropIntoGroup: nil,
+            dropIntoGroup: nil,
             selectWorkspace: { _ in },
             requestWorkspaceClose: nil,
             closeWorkspace: nil,
