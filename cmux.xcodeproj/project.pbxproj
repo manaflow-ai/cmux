@@ -11,6 +11,7 @@
 		A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
+		A85870000000000000000053 /* AgentArtifactAutomaticPathBoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000052 /* AgentArtifactAutomaticPathBoundTests.swift */; };
 		A8587000000000000000004B /* AgentArtifactCaptureCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000004A /* AgentArtifactCaptureCheckpoint.swift */; };
 		A85870000000000000000021 /* AgentArtifactCaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000020 /* AgentArtifactCaptureCoordinator.swift */; };
 		A85870000000000000000049 /* AgentArtifactCaptureCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */; };
@@ -2253,6 +2254,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutLicensesResourceTests.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
+		A85870000000000000000052 /* AgentArtifactAutomaticPathBoundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactAutomaticPathBoundTests.swift; sourceTree = "<group>"; };
 		A8587000000000000000004A /* AgentArtifactCaptureCheckpoint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureCheckpoint.swift"; sourceTree = "<group>"; };
 		A85870000000000000000020 /* AgentArtifactCaptureCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureCoordinator.swift"; sourceTree = "<group>"; };
 		A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactCaptureCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -6057,6 +6059,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */,
 				A8587000000000000000004E /* MobileChatArtifactAuthorizationSnapshotTests.swift */,
 				A8587000000000000000004C /* AgentChatArtifactIndexSafetyTests.swift */,
+				A85870000000000000000052 /* AgentArtifactAutomaticPathBoundTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
 				D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */,
@@ -8625,6 +8628,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildActionMask = 2147483647;
 			files = (
 				A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */,
+				A85870000000000000000053 /* AgentArtifactAutomaticPathBoundTests.swift in Sources */,
 				A85870000000000000000049 /* AgentArtifactCaptureCoordinatorTests.swift in Sources */,
 				A8587000000000000000004D /* AgentChatArtifactIndexSafetyTests.swift in Sources */,
 				CDFE000000000000000000C1 /* AgentChatProseStreamerTests.swift in Sources */,
