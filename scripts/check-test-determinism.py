@@ -4019,13 +4019,13 @@ def _self_test() -> int:
 
     cross_file_chain_sources = [
         (
-            "Tests/Support/Fixture.swift",
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/Fixture.swift",
             "struct Fixture {\n"
             "    let clock: ContinuousClock\n"
             "}\n",
         ),
         (
-            "Tests/FixtureClockTests.swift",
+            "Packages/CmuxClock/Tests/CmuxClockTests/FixtureClockTests.swift",
             "func verify(fixture: Fixture) async {\n"
             "    try await fixture.clock.sleep(for: .milliseconds(300))\n"
             "    #expect(widget.isRendered)\n"
