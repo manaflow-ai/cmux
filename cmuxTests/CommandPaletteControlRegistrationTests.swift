@@ -311,6 +311,88 @@ struct CommandPaletteControlRegistrationTests {
         #expect(fallbackWindowID == windowA)
     }
 
+    @Test func workspaceSelectorReachesTheHandlerWithoutChangingSelection() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let selectedWorkspace = try #require(tabManager.tabs.first)
+        let targetWorkspace = tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        var receivedTarget: CommandPaletteActionTarget?
+        let windowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            commandPaletteControlHandler: { request in
+                receivedTarget = request.target
+                request.complete(.listed([]))
+            }
+        )
+        AppDelegate.shared = appDelegate
+        TerminalController.shared.setActiveTabManager(tabManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let resolution = TerminalController.shared.controlCommandPaletteList(
+            routing: routing(workspaceID: targetWorkspace.id)
+        )
+
+        #expect(resolution == .listed(windowID: windowID, commands: []))
+        #expect(receivedTarget == CommandPaletteActionTarget(
+            windowID: windowID,
+            workspaceID: targetWorkspace.id,
+            panelID: targetWorkspace.focusedPanelId
+        ))
+        #expect(tabManager.selectedWorkspace?.id == selectedWorkspace.id)
+    }
+
+    @Test func surfaceAndPaneSelectorsReachTheHandlerAsOneExactTarget() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let selectedWorkspace = try #require(tabManager.tabs.first)
+        let targetWorkspace = tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let targetPanelID = try #require(targetWorkspace.panels.keys.first)
+        let targetPaneID = try #require(targetWorkspace.paneId(forPanelId: targetPanelID)?.id)
+        var receivedTargets: [CommandPaletteActionTarget] = []
+        let windowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            commandPaletteControlHandler: { request in
+                receivedTargets.append(request.target)
+                request.complete(.listed([]))
+            }
+        )
+        AppDelegate.shared = appDelegate
+        TerminalController.shared.setActiveTabManager(tabManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        _ = TerminalController.shared.controlCommandPaletteList(
+            routing: routing(surfaceID: targetPanelID)
+        )
+        _ = TerminalController.shared.controlCommandPaletteList(
+            routing: routing(paneID: targetPaneID)
+        )
+
+        let expectedTarget = CommandPaletteActionTarget(
+            windowID: windowID,
+            workspaceID: targetWorkspace.id,
+            panelID: targetPanelID
+        )
+        #expect(receivedTargets == [expectedTarget, expectedTarget])
+        #expect(tabManager.selectedWorkspace?.id == selectedWorkspace.id)
+        #expect(
+            TerminalController.shared.controlCommandPaletteList(
+                routing: routing(workspaceID: selectedWorkspace.id, surfaceID: targetPanelID)
+            ) == .windowNotFound
+        )
+    }
+
     @Test func windowDockWorkspaceRoutingUsesTheOwningWindowSelection() throws {
         let previousAppDelegate = AppDelegate.shared
         let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
