@@ -62,6 +62,44 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testRestoreSessionSnapshotPreservesPersistedWorkspaceIdsAndOrder() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        firstWorkspace.setCustomTitle("Issue 8664 Alpha")
+        firstWorkspace.currentDirectory = "/tmp/cmux-issue-8664-alpha"
+
+        let secondWorkspace = manager.addWorkspace(
+            title: "Issue 8664 Beta",
+            workingDirectory: "/tmp/cmux-issue-8664-beta",
+            select: true
+        )
+        let thirdWorkspace = manager.addWorkspace(
+            title: "Issue 8664 Gamma",
+            workingDirectory: "/tmp/cmux-issue-8664-gamma",
+            select: true
+        )
+        manager.selectWorkspace(secondWorkspace)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let persistedWorkspaceIds = try snapshot.workspaces.map { try XCTUnwrap($0.workspaceId) }
+        let persistedTitles = snapshot.workspaces.map(\.customTitle)
+        let persistedDirectories = snapshot.workspaces.map(\.currentDirectory)
+        XCTAssertEqual(persistedWorkspaceIds, [firstWorkspace.id, secondWorkspace.id, thirdWorkspace.id])
+        XCTAssertEqual(snapshot.selectedWorkspaceIndex, 1)
+
+        for workspace in manager.tabs {
+            workspace.teardownAllPanels()
+        }
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(restored.tabs.map(\.id), persistedWorkspaceIds)
+        XCTAssertEqual(restored.tabs.map(\.customTitle), persistedTitles)
+        XCTAssertEqual(restored.tabs.map(\.currentDirectory), persistedDirectories)
+        XCTAssertEqual(restored.selectedTabId, secondWorkspace.id)
+    }
+
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
