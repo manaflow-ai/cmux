@@ -158,6 +158,13 @@ enum Command {
         pane: Option<PaneId>,
         #[serde(default)]
         new_workspace: bool,
+        /// Optional stable key for a newly-created workspace.
+        ///
+        /// This is rejected unless `new_workspace` is true. Detached and
+        /// provider-backed frontends use it to keep workspace identity stable
+        /// across display-name changes and reconciliation.
+        #[serde(default)]
+        key: Option<String>,
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
@@ -2883,7 +2890,7 @@ fn handle_command(
                 }
             }
         }
-        Command::Run { argv, command, cwd, pane, new_workspace, name, cols, rows } => {
+        Command::Run { argv, command, cwd, pane, new_workspace, key, name, cols, rows } => {
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -2897,13 +2904,19 @@ fn handle_command(
             if new_workspace && pane.is_some() {
                 anyhow::bail!("pane and new_workspace are mutually exclusive");
             }
-            let placement = mux.run_command_surface(
+            if key.is_some() && !new_workspace {
+                anyhow::bail!("key requires new_workspace");
+            }
+            let placement = mux.run_command_surface_with_options(
                 argv,
-                pane,
-                new_workspace,
-                cwd,
-                name,
-                optional_surface_size(cols, rows),
+                crate::mux::RunCommandOptions {
+                    pane,
+                    new_workspace,
+                    workspace_key: key,
+                    cwd,
+                    name,
+                    size: optional_surface_size(cols, rows),
+                },
             )?;
             Ok(json!({
                 "surface": placement.surface,

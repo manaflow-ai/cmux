@@ -2383,7 +2383,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. Initial dimensions follow [Sizing](#sizing).
+Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. `key` assigns that workspace a caller-owned stable identity so detached or provider-backed frontends can reconcile it after a display-name change. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -2393,7 +2393,8 @@ Params:
 | `command` | `string` | required if `argv` absent | Executed via shell `-lc` |
 | `cwd` | `string` | default null | Working directory |
 | `pane` | `IdRef` | default null | Mutually exclusive with `new_workspace:true` |
-| `new_workspace` | `boolean` | default false | Create isolated workspace |
+| `new_workspace` | `boolean` | default false | Create a new workspace |
+| `key` | `string` | default null | Protocol 9; valid only with `new_workspace:true`; unique stable workspace key |
 | `name` | `string` | default null | Sets surface name; also workspace name when `new_workspace:true` |
 | `cols` | `uint16` | default null | Used only with `rows` |
 | `rows` | `uint16` | default null | Used only with `cols` |
@@ -2411,6 +2412,8 @@ Errors:
 | `argv or command is required` | Neither is supplied |
 | `argv and command are mutually exclusive` | Both are supplied |
 | `pane and new_workspace are mutually exclusive` | Both placement options are supplied by a raw socket caller |
+| `key requires new_workspace` | A stable key is supplied without workspace creation |
+| `workspace key already exists: <key>` | The stable key is already present in the session |
 | `unknown pane <id>` | Supplied pane does not exist |
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: ...` | Wrong JSON type |
@@ -2420,7 +2423,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `run` |
-| Flags | `[--pane <id> | --new-workspace] [--cwd <path>] [--name <name>] -- <argv...>` or `--command <cmd>` |
+| Flags | `[--pane <id> | --new-workspace [--key <key>]] [--cwd <path>] [--name <name>] -- <argv...>` or `--command <cmd>` |
 | Plain stdout | new surface id followed by newline |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -2430,6 +2433,8 @@ Example:
 ```json
 {"id":102,"cmd":"run","argv":["python3","-m","http.server"],"cwd":"/tmp","name":"server"}
 {"id":102,"ok":true,"data":{"surface":31,"pane":2,"screen":3,"workspace":4}}
+{"id":103,"cmd":"run","argv":["/bin/zsh","-l"],"new_workspace":true,"key":"workspace-019c","name":"cloud"}
+{"id":103,"ok":true,"data":{"surface":32,"pane":5,"screen":6,"workspace":7}}
 ```
 
 ### send-key

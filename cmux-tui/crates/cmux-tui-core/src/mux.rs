@@ -300,6 +300,16 @@ pub struct RunPlacement {
     pub workspace: WorkspaceId,
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct RunCommandOptions {
+    pub pane: Option<PaneId>,
+    pub new_workspace: bool,
+    pub workspace_key: Option<String>,
+    pub cwd: Option<String>,
+    pub name: Option<String>,
+    pub size: Option<(u16, u16)>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspacePlacement {
     pub workspace: WorkspaceId,
@@ -2086,8 +2096,32 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RunPlacement> {
+        self.run_command_surface_with_options(
+            argv,
+            RunCommandOptions { pane, new_workspace, workspace_key: None, cwd, name, size },
+        )
+    }
+
+    /// Runs a command and optionally creates its workspace with a caller-owned
+    /// stable key. The key is only meaningful when `new_workspace` is true.
+    pub(crate) fn run_command_surface_with_options(
+        self: &Arc<Self>,
+        argv: Vec<String>,
+        options: RunCommandOptions,
+    ) -> anyhow::Result<RunPlacement> {
+        let RunCommandOptions { pane, new_workspace, workspace_key, cwd, name, size } = options;
+        if workspace_key.is_some() && !new_workspace {
+            anyhow::bail!("workspace key requires a new workspace");
+        }
         if new_workspace {
-            let workspace_key = Self::new_workspace_key()?;
+            let workspace_key = workspace_key.map_or_else(Self::new_workspace_key, Ok)?;
+            Self::validate_workspace_key(&workspace_key)?;
+            {
+                let state = self.state.lock().unwrap();
+                if state.workspace_by_key(&workspace_key).is_some() {
+                    anyhow::bail!("workspace key already exists: {workspace_key}");
+                }
+            }
             let surface = self.spawn_surface_with_command(cwd, size, Some(argv))?;
             if let Some(name) = name.as_ref() {
                 surface.set_name(Some(name.clone()));
@@ -2098,6 +2132,11 @@ impl Mux {
             let notifications = self.surface_notifications();
             let delta = {
                 let mut state = self.state.lock().unwrap();
+                if state.workspace_by_key(&workspace_key).is_some() {
+                    state.surfaces.remove(&surface.id);
+                    surface.kill();
+                    anyhow::bail!("workspace key already exists: {workspace_key}");
+                }
                 let workspace_name =
                     name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
                 state.insert_pane(pane);
@@ -7026,6 +7065,47 @@ mod tests {
             assert_eq!(state.workspaces[0].screens.len(), 1);
             assert_eq!(state.workspace_revision, 1);
         });
+        mux.shutdown();
+    }
+
+    #[test]
+    fn run_new_workspace_accepts_a_stable_caller_key() {
+        let mux = test_mux();
+        let key = "019c0000-0000-7000-8000-000000000001".to_string();
+        let run = mux
+            .run_command_surface_with_options(
+                vec!["/bin/echo".into(), "ready".into()],
+                RunCommandOptions {
+                    pane: None,
+                    new_workspace: true,
+                    workspace_key: Some(key.clone()),
+                    cwd: Some("/tmp".into()),
+                    name: Some("cloud-workspace".into()),
+                    size: Some((80, 24)),
+                },
+            )
+            .unwrap();
+
+        mux.with_state(|state| {
+            let workspace = state.workspace_by_key(&key).expect("workspace uses caller key");
+            assert_eq!(workspace.id, run.workspace);
+            assert_eq!(workspace.name, "cloud-workspace");
+        });
+        let duplicate = mux
+            .run_command_surface_with_options(
+                vec!["/bin/echo".into(), "duplicate".into()],
+                RunCommandOptions {
+                    pane: None,
+                    new_workspace: true,
+                    workspace_key: Some(key),
+                    cwd: None,
+                    name: None,
+                    size: Some((80, 24)),
+                },
+            )
+            .expect_err("duplicate stable key must fail");
+        assert!(duplicate.to_string().contains("already exists"));
+        mux.with_state(|state| assert_eq!(state.workspaces.len(), 1));
         mux.shutdown();
     }
 

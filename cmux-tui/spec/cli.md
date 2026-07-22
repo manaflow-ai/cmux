@@ -123,7 +123,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `subscribe` | implemented; tree deltas protocol 7 | none | `--tree-events coarse|deltas` | event JSON lines |
 | `attach-surface` | implemented; render mode protocol 7, initial sizing capability-gated | `--surface <id>` | `--mode bytes\|render`, paired `--cols <n> --rows <n>` | event JSON lines |
 | `wait-for` | implemented | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
-| `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
+| `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--key <stable-key>` with `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
 | `send-key` | implemented | `--surface <id> <key>...` | none | none |
 | `copy` | implemented | `--surface <id> --mode screen\|selection\|scrollback` | none | text |
 | `ids` | implemented | none | `--kind workspace\|screen\|pane\|surface` | id lines |
