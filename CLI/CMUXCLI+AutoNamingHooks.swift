@@ -21,11 +21,7 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.auto-name.disabled")
             return
         }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            try? sessionStore.resolvePendingAutoNamingTitleReconciliation(sessionId: sessionId)
-            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
-            return
-        }
+        let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
 
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
         guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
@@ -63,6 +59,10 @@ extension CMUXCLI {
             telemetryKey: "claude-hook.auto-name.pending-reconcile",
             telemetry: telemetry
         ) {
+            return
+        }
+        guard !workspaceUserOwned else {
+            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
             return
         }
         guard let transcriptSnapshot else { return }
@@ -138,11 +138,6 @@ extension CMUXCLI {
             params: ["probe": true, "workspace_id": workspaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("claude-hook.auto-name.compact.disabled")
-            return
-        }
-        if probe["workspace_user_owned"] as? Bool == true {
-            try? sessionStore.resolvePendingAutoNamingTitleReconciliation(sessionId: sessionId)
-            telemetry.breadcrumb("claude-hook.auto-name.compact.user-owned")
             return
         }
         _ = reconcilePendingAutoNamingTitleIfNeeded(
@@ -322,7 +317,7 @@ extension CMUXCLI {
         if workspaceApplied {
             telemetry.breadcrumb("\(telemetryKey).applied")
         } else if workspaceApplySkipped {
-            telemetry.breadcrumb("\(telemetryKey).preserved-newer-workspace-title")
+            telemetry.breadcrumb("\(telemetryKey).preserved-workspace-title")
         } else {
             telemetry.breadcrumb("\(telemetryKey).rejected")
         }

@@ -3637,8 +3637,8 @@ class TerminalController {
     /// setting state without writing, which lets hook processes honor
     /// mid-session toggles. `panel_id` accepts either a panel UUID or a
     /// surface UUID. `expected_workspace_title` makes reconciliation a
-    /// compare-and-set: a different current automatic title is preserved and
-    /// reported as `workspace_apply_skipped`. `panel_apply_skipped`
+    /// compare-and-set: a manual or different current automatic title is
+    /// preserved and reported as `workspace_apply_skipped`. `panel_apply_skipped`
     /// distinguishes a valid single-panel suppression from an unresolved target, while
     /// `clear_status_on_apply=false` lets reconciliation preserve the last
     /// summarizer health warning when it only reapplies a stored title.
@@ -3708,11 +3708,10 @@ class TerminalController {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
             if let expectedWorkspaceTitle,
-               workspace.effectiveCustomTitleSource == .auto,
-               workspace.customTitle != expectedWorkspaceTitle {
-                // Another panel/session wrote a newer automatic workspace
-                // title after this session's last apply. Reconciliation may
-                // repair its panel, but must not roll back shared workspace state.
+               workspace.effectiveCustomTitleSource == .user ||
+               (workspace.effectiveCustomTitleSource == .auto && workspace.customTitle != expectedWorkspaceTitle) {
+                // Manual ownership or a newer sibling-session auto-title wins.
+                // Reconciliation may still repair its independently owned panel.
                 workspaceApplySkipped = true
             } else {
                 workspaceApplied = tabManager.setCustomTitle(

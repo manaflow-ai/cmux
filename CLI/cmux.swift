@@ -443,21 +443,6 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Manual workspace ownership satisfies any pending automatic replay
-    /// without mutating the title.
-    func resolvePendingAutoNamingTitleReconciliation(sessionId: String) throws {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized],
-                  record.autoNameTitleReconciliationGeneration != nil else { return }
-            record.autoNameTitleReconciliationGeneration = nil
-            record.autoNameInFlightAt = nil
-            record.updatedAt = Date().timeIntervalSince1970
-            state.sessions[normalized] = record
-        }
-    }
-
     /// Completes a transcript-shrink reconciliation without changing normal
     /// naming cooldown or title history. The compacted baseline becomes
     /// durable only after the app confirms that it preserved the stored title.

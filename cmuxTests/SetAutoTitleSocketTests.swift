@@ -384,12 +384,51 @@ import Testing
                 ])
                 let replayResult = try #require(replay["result"] as? [String: Any])
                 #expect(replayResult["workspace_applied"] as? Bool == false)
+                #expect(replayResult["workspace_apply_skipped"] as? Bool == true)
                 #expect(replayResult["panel_applied"] as? Bool == false)
                 #expect(workspace.title == "My Project")
                 #expect(workspace.effectiveCustomTitleSource == .user)
                 #expect(workspace.panelCustomTitles[panelId] == "Manual tab name")
                 #expect(workspace.panelCustomTitleSources[panelId] == .user)
                 #expect(workspace.bonsplitController.tab(tabId)?.title == "Manual tab name")
+            }
+        }
+    }
+
+    @Test func reconciliationReplayRepairsAutoPanelUnderManualWorkspace() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+                #expect(workspace.setCustomTitle("Earlier automatic topic", source: .auto))
+                #expect(workspace.setPanelCustomTitle(
+                    panelId: panelId,
+                    title: "Earlier automatic topic",
+                    source: .auto
+                ))
+                #expect(workspace.setCustomTitle("My Project", source: .user))
+                workspace.bonsplitController.updateTab(tabId, title: "Claude Code")
+
+                let replay = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "expected_workspace_title": "Earlier automatic topic",
+                    "title": "Earlier automatic topic",
+                    "clear_status_on_apply": false,
+                ])
+                let result = try #require(replay["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["workspace_apply_skipped"] as? Bool == true)
+                #expect(result["panel_applied"] as? Bool == true)
+                #expect(workspace.title == "My Project")
+                #expect(workspace.effectiveCustomTitleSource == .user)
+                #expect(workspace.panelCustomTitles[panelId] == "Earlier automatic topic")
+                #expect(workspace.panelCustomTitleSources[panelId] == .auto)
+                #expect(workspace.bonsplitController.tab(tabId)?.title == "Earlier automatic topic")
             }
         }
     }

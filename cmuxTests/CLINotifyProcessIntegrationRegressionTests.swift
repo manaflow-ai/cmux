@@ -213,7 +213,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedBaseline)
     }
 
-    func testClaudeCompactManualWorkspaceOwnershipClearsPendingWithoutAutoMutation() throws {
+    func testClaudeCompactManualWorkspaceStillReconcilesAutoPanel() throws {
         let context = try makeClaudeHookContext(name: "claude-compact-manual")
         defer { context.cleanup() }
 
@@ -238,16 +238,42 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
-            expectedConnectionCount: 3,
-            autoNamingWorkspaceUserOwned: true
+            expectedConnectionCount: 4,
+            autoNamingWorkspaceUserOwned: true,
+            autoNamingWorkspaceApplied: false,
+            autoNamingPanelApplied: true,
+            autoNamingPanelApplySkipped: false,
+            autoNamingWorkspaceApplySkipped: true
         )
         XCTAssertFalse(compact.timedOut, compact.stderr)
         XCTAssertEqual(compact.status, 0, compact.stderr)
-        XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
-        let record = try readClaudeHookSession(sessionId, context: context)
-        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"])
         XCTAssertNil(record["autoNameInFlightAt"])
         XCTAssertEqual(record["autoNameLastTitle"] as? String, "Earlier automatic topic")
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, baseline)
+
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 1) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: false,
+                workspaceApplySkipped: true,
+                panelApplied: true,
+                workspaceUserOwned: true
+            )
+        }
+        let stop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, baseline)
     }
 
@@ -9464,6 +9490,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         expectedConnectionCount: Int = 4,
         autoNamingWorkspaceUserOwned: Bool = false,
         autoNamingWorkspaceApplied: Bool = true,
+        autoNamingWorkspaceApplySkipped: Bool = false,
         autoNamingPanelApplied: Bool? = nil,
         autoNamingPanelApplySkipped: Bool = true
     ) -> ProcessRunResult {
@@ -9490,6 +9517,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     line: line,
                     context: context,
                     workspaceApplied: autoNamingWorkspaceApplied,
+                    workspaceApplySkipped: autoNamingWorkspaceApplySkipped,
                     panelApplied: autoNamingPanelApplied,
                     panelApplySkipped: autoNamingPanelApplySkipped,
                     workspaceUserOwned: autoNamingWorkspaceUserOwned
