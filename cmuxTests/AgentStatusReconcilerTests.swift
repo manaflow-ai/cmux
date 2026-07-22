@@ -138,6 +138,31 @@ struct AgentStatusReconcilerTests {
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .unknown)
     }
 
+    @Test @MainActor func workspaceAggregateTimestampCannotRefreshPanelLifecycleEvidence() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "codex.session",
+            pid: getpid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.agentLifecycleStatesByPanelId[panelId, default: [:]]["codex"] = .running
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            timestamp: now
+        )
+
+        workspace.reconcileAgentStatuses(panelId: panelId, now: now)
+
+        #expect(workspace.statusEntries["codex"]?.icon == "questionmark.circle")
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .unknown)
+    }
+
     @Test func freshNeedsInputRemainsConfidentDuringPromptRendering() {
         let signalTime = now.addingTimeInterval(-2)
         let evidence = AgentStatusEvidence(
@@ -165,6 +190,22 @@ struct AgentStatusReconcilerTests {
             lifecycleObservedAt: now.addingTimeInterval(-301),
             foregroundAgentStatusKey: "codex",
             foregroundObservedAt: now,
+            shellActivity: .commandRunning
+        )
+
+        let resolution = reconciler.resolve(
+            evidence: evidence,
+            statusKey: "codex",
+            hasLiveRuntime: true,
+            now: now
+        )
+
+        #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
+    }
+
+    @Test func restoredIdleWithoutPanelLocalTimestampDegradesHonestly() {
+        let evidence = AgentStatusEvidence(
+            lifecycle: .idle,
             shellActivity: .commandRunning
         )
 
@@ -226,5 +267,12 @@ struct AgentStatusReconcilerTests {
 
         #expect(target.workspaceId == workspaceId)
         #expect(target.surfaceId == surfaceId)
+    }
+
+    @Test @MainActor func missingStatusSurfaceDoesNotGuessFocusedPanel() throws {
+        let workspace = Workspace()
+        _ = try #require(workspace.focusedPanelId)
+
+        #expect(FeedCoordinator.resolvePanelId(surfaceId: nil, tab: workspace) == nil)
     }
 }

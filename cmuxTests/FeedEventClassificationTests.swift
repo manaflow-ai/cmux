@@ -135,6 +135,19 @@ struct FeedEventClassificationTests {
         )
     }
 
+    @Test func codexNotificationSubcommandRetainsApprovalStatusWhenPayloadOmitsEventName() {
+        var event: [String: Any] = [:]
+
+        FeedEventClassifier.attachAgentStatusSignal(
+            to: &event,
+            source: "codex",
+            rawEvent: nil,
+            hookSubcommand: "notification"
+        )
+
+        #expect(event[FeedEventClassifier.agentStatusSignalField] as? String == "needsInput")
+    }
+
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
         for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
             let classification = classify("codex", event, tool: "shell")

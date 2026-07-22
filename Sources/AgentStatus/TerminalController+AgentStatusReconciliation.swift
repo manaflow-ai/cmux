@@ -8,13 +8,13 @@ extension TerminalController {
         Task { @MainActor in
             guard let workspaceId = resolved?.workspaceId,
                   let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+                  let panelId = FeedCoordinator.resolvePanelId(
+                      surfaceId: resolved?.surfaceId,
+                      tab: workspace
+                  ) else {
                 return
             }
-            let panelId = FeedCoordinator.resolvePanelId(
-                surfaceId: resolved?.surfaceId,
-                tab: workspace
-            ) ?? workspace.focusedPanelId
             workspace.noteAgentStatusHookSignal(signal, panelId: panelId)
         }
     }

@@ -65,14 +65,16 @@ final class AgentStatusRuntimeLedger {
     func seedLifecycleIfMissing(
         _ lifecycle: AgentHibernationLifecycleState?,
         panelId: UUID,
-        statusKey: String,
-        observedAt: Date?
+        statusKey: String
     ) {
         guard let lifecycle,
               evidenceByPanelId[panelId]?[statusKey]?.lifecycle == nil else { return }
         var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
         evidence.lifecycle = lifecycle
-        evidence.lifecycleObservedAt = observedAt
+        // Legacy/restored panel lifecycle has no panel-local observation time.
+        // Never borrow the workspace-wide status timestamp: another panel can
+        // refresh that aggregate and make this panel's stale evidence look new.
+        evidence.lifecycleObservedAt = nil
         evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
     }
 

@@ -58,9 +58,32 @@ struct FeedEventClassifier {
     static func attachAgentStatusSignal(
         to event: inout [String: Any],
         source: String,
-        rawEvent: String
+        rawEvent: String?,
+        hookSubcommand: String? = nil
     ) {
-        event[agentStatusSignalField] = agentStatusSignal(source: source, event: rawEvent)
+        let statusEvent = rawEvent ?? agentStatusFallbackEvent(
+            source: source,
+            hookSubcommand: hookSubcommand
+        )
+        event[agentStatusSignalField] = statusEvent.flatMap {
+            agentStatusSignal(source: source, event: $0)
+        }
+    }
+
+    /// Codex's cmux-owned wrapper maps only `PermissionRequest` to the
+    /// `notification` lifecycle subcommand. Some Codex-compatible runtimes omit
+    /// the original event name from that hook payload, so retain the semantic
+    /// carried by the invoked subcommand instead of falling back to the
+    /// classified Feed name (`Notification`).
+    private static func agentStatusFallbackEvent(
+        source: String,
+        hookSubcommand: String?
+    ) -> String? {
+        guard source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+              hookSubcommand?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "notification" else {
+            return nil
+        }
+        return "PermissionRequest"
     }
 
     /// User-attention semantic of a hook/feed event, independent of the

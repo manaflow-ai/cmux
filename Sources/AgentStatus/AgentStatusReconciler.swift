@@ -46,9 +46,11 @@ struct AgentStatusReconciler: Sendable {
             return AgentStatusResolution(lifecycle: .needsInput, confidence: .confident)
 
         case .idle?:
+            guard let observedAt = evidence.lifecycleObservedAt else {
+                return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
+            }
             if hasAttributedActivity,
                let latestActivity,
-               let observedAt = evidence.lifecycleObservedAt,
                latestActivity > observedAt {
                 return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
             }

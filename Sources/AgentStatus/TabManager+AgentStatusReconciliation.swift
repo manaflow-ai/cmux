@@ -5,17 +5,17 @@ extension TabManager {
     func reconcileAgentStatusesPeriodically() {
         for tab in tabs { tab.clearStaleAgentPIDs() }
 
-        var foregroundPIDs: [UUID: Int] = [:]
-        var rootStatusKeysByPanelId: [UUID: [Int: String]] = [:]
+        var foregroundProcessIdentities: [UUID: AgentPIDProcessIdentity] = [:]
+        var rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: String]] = [:]
         var panelIds = Set<UUID>()
         for tab in tabs {
             let probe = tab.agentStatusForegroundProbe()
-            foregroundPIDs.merge(probe.foregroundPIDs) { _, latest in latest }
+            foregroundProcessIdentities.merge(probe.foregroundProcessIdentities) { _, latest in latest }
             rootStatusKeysByPanelId.merge(probe.rootStatusKeysByPanelId) { _, latest in latest }
             panelIds.formUnion(probe.panelIds)
         }
         guard !panelIds.isEmpty else { return }
-        let foregroundPIDSnapshot = foregroundPIDs
+        let foregroundIdentitySnapshot = foregroundProcessIdentities
         let rootStatusKeySnapshot = rootStatusKeysByPanelId
         let trackedPanelIds = panelIds
 
@@ -24,7 +24,7 @@ extension TabManager {
         Task { @MainActor [weak self] in
             let observedStatusKeys = await Task.detached(priority: .utility) {
                 Self.detectForegroundAgentStatusKeys(
-                    foregroundPIDs: foregroundPIDSnapshot,
+                    foregroundProcessIdentities: foregroundIdentitySnapshot,
                     rootStatusKeysByPanelId: rootStatusKeySnapshot
                 )
             }.value
@@ -45,26 +45,39 @@ extension TabManager {
     }
 
     nonisolated private static func detectForegroundAgentStatusKeys(
-        foregroundPIDs: [UUID: Int],
-        rootStatusKeysByPanelId: [UUID: [Int: String]]
+        foregroundProcessIdentities: [UUID: AgentPIDProcessIdentity],
+        rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: String]]
     ) -> [UUID: String] {
         let snapshot = CmuxTopProcessSnapshot.capture(
             includeProcessDetails: false,
             includeCMUXScope: false
         )
         var result: [UUID: String] = [:]
-        for (panelId, foregroundPID) in foregroundPIDs {
+        for (panelId, foregroundIdentity) in foregroundProcessIdentities {
+            let foregroundPID = Int(foregroundIdentity.pid)
+            guard AgentPIDProcessIdentity(pid: foregroundIdentity.pid) == foregroundIdentity else {
+                continue
+            }
             if let definition = CmuxTopProcessSnapshot.codingAgentDefinition(
                 foregroundPID: foregroundPID
-            ) {
+            ), AgentPIDProcessIdentity(pid: foregroundIdentity.pid) == foregroundIdentity {
                 result[panelId] = agentStatusKey(forDetectedAgentID: definition.id)
                 continue
             }
             let rootStatusKeys = rootStatusKeysByPanelId[panelId] ?? [:]
-            result[panelId] = rootStatusKeys.first { rootPID, _ in
-                snapshot.descendantPIDs(rootPID: rootPID, includeRoot: true)
-                    .contains(foregroundPID)
-            }?.value
+            let matches = rootStatusKeys.compactMap { rootIdentity, statusKey -> String? in
+                guard AgentPIDProcessIdentity(pid: rootIdentity.pid) == rootIdentity,
+                      snapshot.descendantPIDs(rootPID: Int(rootIdentity.pid), includeRoot: true)
+                          .contains(foregroundPID) else {
+                    return nil
+                }
+                return statusKey
+            }
+            guard Set(matches).count == 1,
+                  AgentPIDProcessIdentity(pid: foregroundIdentity.pid) == foregroundIdentity else {
+                continue
+            }
+            result[panelId] = matches[0]
         }
         return result
     }

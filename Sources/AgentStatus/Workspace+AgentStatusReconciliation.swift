@@ -1,4 +1,5 @@
 import CmuxSidebar
+import Darwin
 import Foundation
 
 extension Workspace {
@@ -96,8 +97,7 @@ extension Workspace {
                 agentStatusLedger.seedLifecycleIfMissing(
                     agentLifecycleStatesByPanelId[panelId]?[statusKey],
                     panelId: panelId,
-                    statusKey: statusKey,
-                    observedAt: statusEntries[statusKey]?.timestamp
+                    statusKey: statusKey
                 )
                 let evidence = agentStatusLedger.evidence(
                     panelId: panelId,
@@ -130,28 +130,31 @@ extension Workspace {
     }
 
     func agentStatusForegroundProbe() -> (
-        foregroundPIDs: [UUID: Int],
-        rootStatusKeysByPanelId: [UUID: [Int: String]],
+        foregroundProcessIdentities: [UUID: AgentPIDProcessIdentity],
+        rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: String]],
         panelIds: Set<UUID>
     ) {
-        var foregroundPIDs: [UUID: Int] = [:]
-        var rootStatusKeysByPanelId: [UUID: [Int: String]] = [:]
+        var foregroundProcessIdentities: [UUID: AgentPIDProcessIdentity] = [:]
+        var rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: String]] = [:]
         var panelIds = Set<UUID>()
         for panelId in panels.keys {
             let statusKeys = trackedAgentStatusKeys(panelId: panelId)
             guard !statusKeys.isEmpty else { continue }
             panelIds.insert(panelId)
-            if let foregroundPID = terminalPanel(for: panelId)?.surface.foregroundProcessID() {
-                foregroundPIDs[panelId] = foregroundPID
+            if let foregroundPID = terminalPanel(for: panelId)?.surface.foregroundProcessID(),
+               let identity = AgentPIDProcessIdentity(pid: pid_t(foregroundPID)) {
+                foregroundProcessIdentities[panelId] = identity
             }
             for pidKey in agentPIDKeysByPanelId[panelId] ?? [] {
-                guard let pid = agentPIDs[pidKey], pid > 0 else { continue }
-                rootStatusKeysByPanelId[panelId, default: [:]][Int(pid)] = agentStatusKey(
+                guard let pid = agentPIDs[pidKey], pid > 0,
+                      let identity = agentPIDProcessIdentitiesByKey[pidKey],
+                      identity.pid == pid else { continue }
+                rootStatusKeysByPanelId[panelId, default: [:]][identity] = agentStatusKey(
                     forAgentPIDKey: pidKey
                 )
             }
         }
-        return (foregroundPIDs, rootStatusKeysByPanelId, panelIds)
+        return (foregroundProcessIdentities, rootStatusKeysByPanelId, panelIds)
     }
 
     func trackedAgentStatusKeys(panelId: UUID) -> Set<String> {

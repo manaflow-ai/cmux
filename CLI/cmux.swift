@@ -31770,11 +31770,12 @@ export default CMUXSessionRestore;
         let rawHookEvent = firstString(
             in: fallbackObject,
             keys: ["hook_event_name", "hookEventName", "event", "event_name"]
-        ) ?? hookEventName
+        )
         FeedEventClassifier.attachAgentStatusSignal(
             to: &event,
             source: source,
-            rawEvent: rawHookEvent
+            rawEvent: rawHookEvent,
+            hookSubcommand: subcommand
         )
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
