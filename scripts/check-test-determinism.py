@@ -229,6 +229,10 @@ _TYPE_SCOPE_HEADER = re.compile(
     r"\b(struct|class|actor|enum|extension|protocol)\s+"
     r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)"
 )
+_CLASS_INHERITANCE_HEADER = re.compile(
+    r"\bclass\s+((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\s*:\s*"
+    r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)"
+)
 _FOR_SCOPE_BINDING = re.compile(
     r"^\s*for(?:\s+try)?(?:\s+await)?\s+([A-Za-z_]\w*)\s+in\b"
 )
@@ -240,6 +244,9 @@ _REAL_CLOCK_INIT = re.compile(
     r"^\s*(?::[^=]+)?=\s*(?:[A-Za-z_]\w*\.)*"
     r"(?:ContinuousClock|SuspendingClock)\s*(?:\.\s*init)?\s*\("
 )
+_SLASH_NONCODE_MARKER = re.compile(r'//|/\*|"""|["\']')
+_HASH_NONCODE_MARKER = re.compile(r'#|"""|["\']')
+_BLOCK_COMMENT_MARKER = re.compile(r'/\*|\*/')
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
@@ -485,59 +492,71 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     masked_lines: list[str] = []
     quote: Optional[str] = None
     block_comment_depth = 0
-    line_comment = "#" if path_suffix in (".py", ".sh") else "//"
-    supports_block_comments = path_suffix not in (".py", ".sh")
+    hash_comments = path_suffix in (".py", ".sh")
+    marker_pattern = (
+        _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
+    )
 
     for line in lines:
         masked = list(line)
         i = 0
         while i < len(line):
             if block_comment_depth:
-                masked[i] = " "
-                if supports_block_comments and line.startswith("/*", i):
-                    masked[i : i + 2] = "  "
+                marker = _BLOCK_COMMENT_MARKER.search(line, i)
+                if marker is None:
+                    masked[i:] = " " * (len(line) - i)
+                    break
+                masked[i : marker.end()] = " " * (marker.end() - i)
+                if marker.group() == "/*":
                     block_comment_depth += 1
-                    i += 2
-                elif line.startswith("*/", i):
-                    masked[i : i + 2] = "  "
-                    block_comment_depth -= 1
-                    i += 2
                 else:
-                    i += 1
+                    block_comment_depth -= 1
+                i = marker.end()
                 continue
 
             if quote:
-                if line.startswith(quote, i):
-                    masked[i : i + len(quote)] = " " * len(quote)
-                    i += len(quote)
+                if quote == '"""':
+                    quote_end = line.find(quote, i)
+                    if quote_end < 0:
+                        masked[i:] = " " * (len(line) - i)
+                        break
+                    end = quote_end + len(quote)
+                    masked[i:end] = " " * (end - i)
+                    i = end
                     quote = None
-                elif quote != '"""' and line[i] == "\\":
-                    masked[i] = " "
-                    if i + 1 < len(line):
-                        masked[i + 1] = " "
-                    i += 2
-                else:
-                    masked[i] = " "
-                    i += 1
+                    continue
+
+                quote_end = line.find(quote, i)
+                escape = line.find("\\", i)
+                if escape >= 0 and (quote_end < 0 or escape < quote_end):
+                    end = min(len(line), escape + 2)
+                    masked[i:end] = " " * (end - i)
+                    i = end
+                    continue
+                if quote_end < 0:
+                    masked[i:] = " " * (len(line) - i)
+                    break
+                end = quote_end + 1
+                masked[i:end] = " " * (end - i)
+                i = end
+                quote = None
                 continue
 
-            if line.startswith(line_comment, i):
-                masked[i:] = " " * (len(line) - i)
+            marker = marker_pattern.search(line, i)
+            if marker is None:
                 break
-            if supports_block_comments and line.startswith("/*", i):
-                masked[i : i + 2] = "  "
+            token = marker.group()
+            if token == ("#" if hash_comments else "//"):
+                masked[marker.start() :] = " " * (
+                    len(line) - marker.start()
+                )
+                break
+            masked[marker.start() : marker.end()] = " " * len(token)
+            i = marker.end()
+            if token == "/*":
                 block_comment_depth = 1
-                i += 2
-            elif line.startswith('"""', i):
-                masked[i : i + 3] = "   "
-                quote = '"""'
-                i += 3
-            elif line[i] in ('"', "'"):
-                masked[i] = " "
-                quote = line[i]
-                i += 1
             else:
-                i += 1
+                quote = token
 
         # Single-line string delimiters cannot carry lexical scope across a
         # source line; an unterminated literal is safer to forget than to mask
@@ -734,15 +753,84 @@ def _local_declarations(text: str) -> list[tuple[int, str, str]]:
     return declarations
 
 
+def _split_top_level_segments(text: str) -> list[tuple[int, int]]:
+    """Split comma-separated text while preserving nested call boundaries."""
+    segments: list[tuple[int, int]] = []
+    segment_start = 0
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    for index, character in enumerate(text):
+        if character == "(":
+            paren_depth += 1
+        elif character == ")" and paren_depth:
+            paren_depth -= 1
+        elif character == "[":
+            bracket_depth += 1
+        elif character == "]" and bracket_depth:
+            bracket_depth -= 1
+        elif character == "{":
+            brace_depth += 1
+        elif character == "}" and brace_depth:
+            brace_depth -= 1
+        elif character == "," and not (
+            paren_depth or bracket_depth or brace_depth
+        ):
+            segments.append((segment_start, index))
+            segment_start = index + 1
+    segments.append((segment_start, len(text)))
+    return segments
+
+
+def _tuple_receiver_declarations(
+    text: str, receiver: str
+) -> list[tuple[int, str]]:
+    """Return direct tuple bindings for this receiver on one line."""
+    declarations: list[tuple[int, str]] = []
+    tuple_binding = re.compile(
+        r"\b(?:let|var)\s*\(([^()]*)\)\s*=\s*\((.*)\)\s*(?:;|$)"
+    )
+    for match in tuple_binding.finditer(text):
+        pattern = match.group(1)
+        values = match.group(2)
+        pattern_segments = _split_top_level_segments(pattern)
+        value_segments = _split_top_level_segments(values)
+        if len(pattern_segments) != len(value_segments):
+            continue
+        for (pattern_start, pattern_end), (value_start, value_end) in zip(
+            pattern_segments, value_segments
+        ):
+            element = pattern[pattern_start:pattern_end]
+            name = re.fullmatch(
+                rf"\s*{re.escape(receiver)}\b(\s*:[^=]+)?\s*",
+                element,
+            )
+            if not name:
+                continue
+            receiver_column = (
+                match.start(1)
+                + pattern_start
+                + element.find(receiver)
+            )
+            annotation = name.group(1) or ""
+            value = values[value_start:value_end].strip()
+            declarations.append(
+                (receiver_column, f"{annotation} = {value}")
+            )
+    return declarations
+
+
 def _local_receiver_declarations(
     text: str, receiver: str
 ) -> list[tuple[int, str]]:
     """Return this receiver's individual `let`/`var` declarators on one line."""
-    return [
+    declarations = [
         (position, declaration)
         for position, name, declaration in _local_declarations(text)
         if name == receiver
     ]
+    declarations.extend(_tuple_receiver_declarations(text, receiver))
+    return declarations
 
 
 def _receiver_declaration_kind(
@@ -968,6 +1056,87 @@ def _explicit_real_clock_members(
                     real_members.setdefault(active_types[-1][0], set()).add(name)
 
     return real_members
+
+
+def _explicit_type_parents(masked_lines: list[str]) -> dict[str, str]:
+    """Index direct Swift class inheritance by fully nested type name."""
+    depth = 0
+    pending_type: Optional[str] = None
+    active_types: list[tuple[str, int]] = []
+    parents: dict[str, str] = {}
+
+    for candidate in masked_lines:
+        type_header = _TYPE_SCOPE_HEADER.search(candidate)
+        if type_header:
+            type_kind = type_header.group(1)
+            source_type = type_header.group(2)
+            declared_type = source_type
+            if (
+                type_kind != "extension"
+                and "." not in declared_type
+                and active_types
+            ):
+                declared_type = f"{active_types[-1][0]}.{declared_type}"
+            pending_type = declared_type
+            inheritance = _CLASS_INHERITANCE_HEADER.search(candidate)
+            if (
+                type_kind == "class"
+                and inheritance is not None
+                and inheritance.group(1) == source_type
+            ):
+                parents[declared_type] = inheritance.group(2)
+
+        for token in candidate:
+            if token == "{":
+                depth += 1
+                if pending_type is not None:
+                    active_types.append((pending_type, depth))
+                    pending_type = None
+            elif token == "}":
+                if active_types and active_types[-1][1] == depth:
+                    active_types.pop()
+                depth = max(0, depth - 1)
+
+    return parents
+
+
+def _propagate_inherited_real_members(
+    real_members: dict[str, set[str]], parents: dict[str, str]
+) -> None:
+    """Add known real-clock members from indexed base classes to subclasses."""
+    known_types = set(real_members) | set(parents)
+    resolved: dict[str, set[str]] = {}
+
+    def members_for(type_name: str, visiting: set[str]) -> set[str]:
+        if type_name in resolved:
+            return resolved[type_name]
+        if type_name in visiting:
+            return set()
+        visiting = set(visiting)
+        visiting.add(type_name)
+        members = set(real_members.get(type_name, set()))
+        parent = parents.get(type_name)
+        if parent is not None:
+            candidates = [parent]
+            if "." in type_name and "." not in parent:
+                candidates.insert(
+                    0, f"{type_name.rsplit('.', 1)[0]}.{parent}"
+                )
+            if "." in parent:
+                candidates.append(parent.rsplit(".", 1)[-1])
+            parent_type = next(
+                (candidate for candidate in candidates if candidate in known_types),
+                None,
+            )
+            if parent_type is not None:
+                members.update(members_for(parent_type, visiting))
+        resolved[type_name] = members
+        return members
+
+    for type_name in parents:
+        inherited = members_for(type_name, set())
+        if inherited:
+            real_members.setdefault(type_name, set()).update(inherited)
 
 
 def _resolve_named_receiver_kind(
@@ -1381,6 +1550,25 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
         ).items():
             index.setdefault(type_name, set()).update(member_names)
 
+    bundle_parents: dict[str, dict[str, str]] = {}
+    for rel_posix, text in source_list:
+        if pathlib.PurePosixPath(rel_posix).suffix != ".swift":
+            continue
+        bundle = _swift_test_bundle_key(rel_posix)
+        if bundle not in bundle_members or not _CLASS_INHERITANCE_HEADER.search(
+            text
+        ):
+            continue
+        masked_lines = _mask_noncode(text.splitlines(), ".swift")
+        bundle_parents.setdefault(bundle, {}).update(
+            _explicit_type_parents(masked_lines)
+        )
+
+    for bundle, parents in bundle_parents.items():
+        _propagate_inherited_real_members(
+            bundle_members.setdefault(bundle, {}), parents
+        )
+
     findings: list[Finding] = []
     for rel_posix, text in source_list:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
@@ -1434,6 +1622,29 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             masked_lines
         ).items():
             index.setdefault(type_name, set()).update(member_names)
+
+    bundle_parents: dict[str, dict[str, str]] = {}
+    for path, rel_posix in source_paths:
+        if pathlib.PurePosixPath(rel_posix).suffix != ".swift":
+            continue
+        bundle = _swift_test_bundle_key(rel_posix)
+        if bundle not in bundle_members:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not _CLASS_INHERITANCE_HEADER.search(text):
+            continue
+        masked_lines = _mask_noncode(text.splitlines(), ".swift")
+        bundle_parents.setdefault(bundle, {}).update(
+            _explicit_type_parents(masked_lines)
+        )
+
+    for bundle, parents in bundle_parents.items():
+        _propagate_inherited_real_members(
+            bundle_members.setdefault(bundle, {}), parents
+        )
 
     findings: list[Finding] = []
     for path, rel_posix in source_paths:
