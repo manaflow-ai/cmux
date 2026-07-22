@@ -237,6 +237,77 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window == nil)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
     }
+
+    @Test("Windowless route reserves its ID and only its manager can reclaim it")
+    func windowlessRouteReservesItsIdAndOnlyItsManagerCanReclaimIt() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let owner = TabManager()
+        let windowId = app.registerMainWindowContextForTesting(tabManager: owner)
+        let ownerWorkspace = try #require(owner.selectedWorkspace)
+        let ownerPanel = try #require(ownerWorkspace.focusedTerminalPanel)
+        let duplicateManager = TabManager()
+        let duplicateWorkspace = try #require(duplicateManager.selectedWorkspace)
+        let duplicateWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        duplicateWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        let replacementWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        replacementWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            ownerWorkspace.teardownAllPanels()
+            ownerWorkspace.teardownRemoteConnection()
+            duplicateWorkspace.teardownAllPanels()
+            duplicateWorkspace.teardownRemoteConnection()
+            duplicateWindow.orderOut(nil)
+            replacementWindow.orderOut(nil)
+        }
+
+        TerminalController.shared.setActiveTabManager(owner)
+        #expect(!app.toggleSidebarInActiveMainWindow())
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === owner)
+        #expect(app.availableWindowIdForNewMainWindow(preferredWindowId: windowId) == nil)
+
+        app.registerMainWindow(
+            duplicateWindow,
+            windowId: windowId,
+            tabManager: duplicateManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(!app.mainWindowContexts.values.contains { $0.tabManager === duplicateManager })
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === owner)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: ownerPanel.id) === ownerPanel.surface)
+
+        app.registerMainWindow(
+            replacementWindow,
+            windowId: windowId,
+            tabManager: owner,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(app.mainWindowContexts.values.contains { $0.windowId == windowId && $0.tabManager === owner })
+    }
 }
 
 @MainActor
@@ -295,6 +366,33 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(lateWorkspace.map { _ in true } == nil)
         #expect(manager.tabs.isEmpty)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+        #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
+    }
+
+    @Test("Finalized manager rejects direct workspace creation")
+    func finalizedManagerRejectsDirectWorkspaceCreation() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+        let registryIdsAfterFinalization = Set(
+            GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)
+        )
+
+        let lateWorkspace: Workspace? = manager.addWorkspace(
+            initialTerminalCommand: "/usr/bin/true"
+        )
+        defer {
+            lateWorkspace?.teardownAllPanels()
+            lateWorkspace?.teardownRemoteConnection()
+        }
+
+        #expect(lateWorkspace == nil)
+        #expect(manager.tabs.isEmpty)
         #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
     }
 
