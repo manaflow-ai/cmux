@@ -2508,6 +2508,97 @@ mod tests {
     }
 
     #[test]
+    fn provider_update_failure_uses_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_PROVIDER_UPDATE_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg(
+                    "machine_provider_runtime::tests::provider_update_failure_uses_selected_locale",
+                )
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese provider failure child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (trigger, triggered) = mpsc::channel();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) = serve_initial_snapshot(
+                &listener,
+                snapshot(1, "Machine", protocol::MachineStatus::Running),
+            );
+            triggered.recv().unwrap();
+            write_frame(
+                &mut stream,
+                &protocol::EventEnvelope::new(protocol::ProviderEvent::SnapshotChanged(
+                    protocol::SnapshotChangedEvent { revision: 2 },
+                )),
+            );
+            let request: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::<protocol::SnapshotResult>::failure(
+                    request.id,
+                    protocol::ProviderError {
+                        code: protocol::ProviderErrorCode::Unavailable,
+                        message: "catalog unavailable".into(),
+                        retryable: true,
+                    },
+                ),
+            );
+            finished.recv().unwrap();
+        });
+
+        let runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let updates = runtime.subscribe_ui_updates().unwrap();
+        let (receiver, stop, worker) = updates.into_parts();
+        trigger.send(()).unwrap();
+        let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        stop.store(true, Ordering::Release);
+        drop(receiver);
+        worker.join().unwrap();
+        finish.send(()).unwrap();
+        drop(runtime);
+        server.join().unwrap();
+
+        let notice = update.notice.unwrap();
+        assert!(
+            notice.starts_with("マシンプロバイダーの更新に失敗しました: "),
+            "provider failure did not use the selected Japanese locale: {notice}"
+        );
+    }
+
+    #[test]
+    fn provider_runtime_user_notices_are_catalog_backed() {
+        let source = include_str!("machine_provider_runtime.rs");
+        for hardcoded in [
+            concat!("Open ", "{url}"),
+            concat!("Machine provider ", "update failed: {error}"),
+            concat!("Machine provider lifecycle ", "update failed: {error}"),
+            concat!("Machine provider workspace ", "update failed: {error}"),
+            concat!("Could not reconnect ", "machine: {error}"),
+        ] {
+            assert!(
+                !source.contains(hardcoded),
+                "provider notice bypasses the localization catalog: {hardcoded}"
+            );
+        }
+    }
+
+    #[test]
     fn stale_connection_closed_event_preserves_the_current_connection() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
