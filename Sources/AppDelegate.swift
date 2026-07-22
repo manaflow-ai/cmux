@@ -7252,16 +7252,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return createdWorkspace
     }
 
-    func proUpgradeWorkspaceExists(workspaceId: UUID) -> Bool {
-        mainWindowContexts.values.contains { context in
+    func proUpgradeWorkspaceExists(
+        workspaceId: UUID,
+        tabManager preferredTabManager: TabManager? = nil
+    ) -> Bool {
+        if let preferredTabManager {
+            return preferredTabManager.tabs.contains { $0.id == workspaceId }
+        }
+        return mainWindowContexts.values.contains { context in
             context.tabManager.tabs.contains { $0.id == workspaceId }
         } || (tabManager?.tabs.contains { $0.id == workspaceId } == true)
     }
 
     @discardableResult
-    func focusProUpgradeWorkspace(workspaceId: UUID, url: URL) -> Bool {
+    func focusProUpgradeWorkspace(
+        workspaceId: UUID,
+        url: URL,
+        tabManager preferredTabManager: TabManager? = nil
+    ) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled() else { return false }
-        guard let (context, workspace) = proUpgradeWorkspaceContext(workspaceId: workspaceId) else {
+        guard let (context, workspace) = proUpgradeWorkspaceContext(
+            workspaceId: workspaceId,
+            tabManager: preferredTabManager
+        ) else {
             return false
         }
         guard let window = resolvedWindow(for: context) else {
@@ -7303,6 +7316,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return preferredContext
         }()
+
+        if preferredTabManager != nil, livePreferredContext == nil {
+            return false
+        }
 
         if mainWindowContexts.isEmpty && livePreferredContext == nil {
 #if DEBUG
@@ -7436,7 +7453,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func proUpgradeWorkspaceContext(workspaceId: UUID) -> (MainWindowContext, Workspace)? {
+    private func proUpgradeWorkspaceContext(
+        workspaceId: UUID,
+        tabManager preferredTabManager: TabManager? = nil
+    ) -> (MainWindowContext, Workspace)? {
+        if let preferredTabManager {
+            guard let context = mainWindowContext(for: preferredTabManager),
+                  let workspace = preferredTabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                return nil
+            }
+            return (context, workspace)
+        }
         for context in mainWindowContexts.values {
             if let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }) {
                 return (context, workspace)
@@ -7478,9 +7505,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugSource: String = "cloudVM",
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
     ) -> Bool {
-        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-            ?? preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let context = cloudVMCommandContext(
+            tabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        )
         guard let context else {
             NSSound.beep()
             return false
@@ -7563,9 +7592,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.current"
     ) -> Bool {
-        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-            ?? preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let context = cloudVMCommandContext(
+            tabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        )
         guard let context else {
             NSSound.beep()
             return false
@@ -7593,11 +7624,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func performCloudVMRestoreCommand(
         snapshotId providedSnapshotId: String? = nil,
+        tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.restore"
     ) -> Bool {
-        let context = preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let context = cloudVMCommandContext(
+            tabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        )
         guard let context else {
             NSSound.beep()
             return false
@@ -7624,6 +7659,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             successTitle: String(localized: "command.cloudVM.restore.result.title", defaultValue: "Cloud VM Restored"),
             presentOutputOnSuccess: true
         )
+    }
+
+    func cloudVMCommandContext(
+        tabManager preferredTabManager: TabManager?,
+        preferredWindow: NSWindow?,
+        debugSource: String
+    ) -> MainWindowContext? {
+        if let preferredTabManager {
+            return liveMainWindowContextForAction(tabManager: preferredTabManager)
+        }
+        if let preferredWindow {
+            guard let context = contextForMainWindow(preferredWindow),
+                  resolvedWindow(for: context) != nil else {
+                return nil
+            }
+            return context
+        }
+        return preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+    }
+
+    func liveMainWindowContextForAction(tabManager: TabManager) -> MainWindowContext? {
+        guard let context = mainWindowContext(for: tabManager),
+              resolvedWindow(for: context) != nil else {
+            return nil
+        }
+        return context
     }
 
     enum CurrentCloudVMCommand {
@@ -12351,8 +12412,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowDecorationsController.apply(to: window)
     }
 
-    func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
-        titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
+    func toggleNotificationsPopover(
+        animated: Bool = true,
+        anchorView: NSView? = nil,
+        preferredWindow: NSWindow? = nil
+    ) {
+        titlebarAccessoryController.toggleNotificationsPopover(
+            animated: animated,
+            anchorView: anchorView,
+            preferredWindow: preferredWindow
+        )
     }
 
     @discardableResult
@@ -14250,9 +14319,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     @discardableResult
-    func focusBrowserAddressBar(panelId: UUID) -> Bool {
-        guard let tabManager,
-              let workspace = tabManager.selectedWorkspace,
+    func focusBrowserAddressBar(
+        panelId: UUID,
+        tabManager preferredTabManager: TabManager? = nil
+    ) -> Bool {
+        guard let targetTabManager = preferredTabManager ?? tabManager,
+              let workspace = targetTabManager.selectedWorkspace,
               let panel = workspace.browserPanel(for: panelId) else {
 #if DEBUG
             cmuxDebugLog(
@@ -14281,7 +14353,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func openBrowserAndFocusAddressBar(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
+    func openBrowserAndFocusAddressBar(
+        tabManager preferredTabManager: TabManager? = nil,
+        url: URL? = nil,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else {
 #if DEBUG
             cmuxDebugLog(
@@ -14292,10 +14368,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
+        let targetTabManager: TabManager?
+        if let preferredTabManager {
+            guard liveMainWindowContextForAction(tabManager: preferredTabManager) != nil else {
+                return nil
+            }
+            targetTabManager = preferredTabManager
+        } else {
+            targetTabManager = tabManager
+        }
         let preferredProfileID =
-            tabManager?.focusedBrowserPanel?.profileID
-            ?? tabManager?.selectedWorkspace?.preferredBrowserProfileID
-        guard let panelId = tabManager?.openBrowser(
+            targetTabManager?.focusedBrowserPanel?.profileID
+            ?? targetTabManager?.selectedWorkspace?.preferredBrowserProfileID
+        guard let panelId = targetTabManager?.openBrowser(
             url: url,
             preferredProfileID: preferredProfileID,
             insertAtEnd: insertAtEnd
@@ -14315,13 +14400,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 #if DEBUG
-        let didFocus = focusBrowserAddressBar(panelId: panelId)
+        let didFocus = focusBrowserAddressBar(panelId: panelId, tabManager: targetTabManager)
         cmuxDebugLog(
             "browser.focus.openAndFocus result=focus_request panel=\(panelId.uuidString.prefix(5)) " +
             "focused=\(didFocus ? 1 : 0) \(browserFocusStateSnapshot())"
         )
 #else
-        _ = focusBrowserAddressBar(panelId: panelId)
+        _ = focusBrowserAddressBar(panelId: panelId, tabManager: targetTabManager)
 #endif
         return panelId
     }

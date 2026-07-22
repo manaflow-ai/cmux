@@ -42,13 +42,13 @@ extension ContentView {
 #if DEBUG
             cmuxDebugLog("palette.pro.upgrade.invoke")
 #endif
-            ProUpgradePresenter.present()
+            ProUpgradePresenter.present(tabManager: tabManager)
         }
         registry.register(commandId: Self.commandPaletteProWelcomeChecklistCommandId) {
 #if DEBUG
             cmuxDebugLog("palette.pro.welcomeChecklist.invoke")
 #endif
-            ProWelcomeChecklistPresenter.present()
+            ProWelcomeChecklistPresenter.present(tabManager: tabManager)
         }
     }
 }

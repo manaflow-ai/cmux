@@ -2747,8 +2747,12 @@ final class UpdateTitlebarAccessoryController {
 
     private func preferredNotificationsController(
         from controllers: [TitlebarControlsAccessoryViewController],
-        preferShownPopover: Bool
+        preferShownPopover: Bool,
+        preferredWindow: NSWindow? = nil
     ) -> TitlebarControlsAccessoryViewController? {
+        if let preferredWindow {
+            return controllers.first(where: { $0.view.window === preferredWindow })
+        }
         if let keyWindow = NSApp.keyWindow,
            let match = controllers.first(where: { $0.view.window === keyWindow }) {
             return match
@@ -2764,13 +2768,21 @@ final class UpdateTitlebarAccessoryController {
         return controllers.first
     }
 
-    func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
+    func toggleNotificationsPopover(
+        animated: Bool = true,
+        anchorView: NSView? = nil,
+        preferredWindow: NSWindow? = nil
+    ) {
         let controllers = controlsControllers.allObjects
 
         // If an external anchor is provided (e.g. fullscreen sidebar controls),
         // use it for popover positioning instead of the hidden titlebar accessory.
         if let anchorView, anchorView.window != nil {
-            let target = preferredNotificationsController(from: controllers, preferShownPopover: true)
+            let target = preferredNotificationsController(
+                from: controllers,
+                preferShownPopover: true,
+                preferredWindow: preferredWindow
+            )
             guard let target else {
                 toggleDetachedNotificationsPopover(animated: animated, anchorView: anchorView)
                 return
@@ -2784,7 +2796,11 @@ final class UpdateTitlebarAccessoryController {
 
         guard !controllers.isEmpty else { return }
 
-        let target = preferredNotificationsController(from: controllers, preferShownPopover: true)
+        let target = preferredNotificationsController(
+            from: controllers,
+            preferShownPopover: true,
+            preferredWindow: preferredWindow
+        )
         for controller in controllers {
             if controller !== target {
                 controller.dismissNotificationsPopover()

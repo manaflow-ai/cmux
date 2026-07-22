@@ -6589,6 +6589,14 @@ struct ContentView: View {
         commandPaletteActionRegistry(commandsContext: commandsContext).actions
     }
 
+    var commandPaletteTargetWindow: NSWindow? {
+        guard let appDelegate = AppDelegate.shared,
+              appDelegate.mainWindowContext(for: tabManager)?.windowId == windowId else {
+            return nil
+        }
+        return appDelegate.mainWindow(for: windowId)
+    }
+
     private func commandPaletteActionRegistry(
         commandsContext: CommandPaletteCommandsContext
     ) -> CmuxActionRegistry {
@@ -6648,6 +6656,10 @@ struct ContentView: View {
         case .run(let commandID, let arguments, let workingDirectory):
             guard let command = actionRegistry.action(id: commandID) else {
                 request.complete(.commandNotFound)
+                return
+            }
+            guard commandPaletteTargetWindow != nil else {
+                request.complete(.ran(commandPaletteControlItem(command), result: .targetUnavailable))
                 return
             }
             let result = runCommandPaletteCommand(
@@ -8266,7 +8278,11 @@ struct ContentView: View {
             // Let command-palette dismissal complete first so omnibar focus
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
-                _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+                guard let appDelegate = AppDelegate.shared,
+                      appDelegate.liveMainWindowContextForAction(tabManager: tabManager)?.windowId == windowId else {
+                    return
+                }
+                _ = appDelegate.openBrowserAndFocusAddressBar(tabManager: tabManager)
             }
         }
         registry.register(commandId: "palette.closeTab") {
@@ -8276,7 +8292,7 @@ struct ContentView: View {
             tabManager.closeCurrentWorkspaceWithConfirmation()
         }
         registry.register(commandId: "palette.closeWindow") {
-            guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            guard let window = commandPaletteTargetWindow else {
                 NSSound.beep()
                 return
             }
@@ -8287,7 +8303,7 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.toggleFullScreen") {
-            guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            guard let window = commandPaletteTargetWindow else {
                 NSSound.beep()
                 return
             }
@@ -8314,7 +8330,7 @@ struct ContentView: View {
         }
         for mode in RightSidebarMode.allCases {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
-                handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
+                handleCommandPaletteRightSidebarMode(mode, targetWindow: commandPaletteTargetWindow)
             }
         }
         for descriptor in Self.commandPaletteRightSidebarToolPaneCommandDescriptors() {
@@ -8342,19 +8358,34 @@ struct ContentView: View {
         registerCloudCommandHandlers(&registry)
         registerSavedLayoutCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
-            AppDelegate.shared?.toggleNotificationsPopover(animated: false)
+            guard let targetWindow = commandPaletteTargetWindow else {
+                NSSound.beep()
+                return
+            }
+            AppDelegate.shared?.toggleNotificationsPopover(
+                animated: false,
+                preferredWindow: targetWindow
+            )
         }
         registry.register(commandId: "palette.jumpUnread") {
             AppDelegate.shared?.jumpToLatestUnread()
         }
         registry.register(commandId: "palette.toggleUnread") {
+            guard let targetWindow = commandPaletteTargetWindow else {
+                NSSound.beep()
+                return
+            }
             AppDelegate.shared?.toggleFocusedNotificationUnread(
-                preferredWindow: observedWindow
+                preferredWindow: targetWindow
             )
         }
         registry.register(commandId: "palette.markOldestUnreadAndJumpNext") {
+            guard let targetWindow = commandPaletteTargetWindow else {
+                NSSound.beep()
+                return
+            }
             AppDelegate.shared?.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
-                preferredWindow: observedWindow
+                preferredWindow: targetWindow
             )
         }
         registry.register(commandId: "palette.openSettings") {
@@ -8678,9 +8709,11 @@ struct ContentView: View {
             BrowserHistoryStore.shared.clearHistory()
         }
         registry.register(commandId: "palette.findInDirectory") {
-            _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
-                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            )
+            guard let targetWindow = commandPaletteTargetWindow else {
+                NSSound.beep()
+                return
+            }
+            _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(preferredWindow: targetWindow)
         }
         registry.register(commandId: "palette.browserSplitRight") {
             _ = tabManager.createBrowserSplit(direction: .right)
@@ -9213,12 +9246,11 @@ struct ContentView: View {
         cmuxDebugLog("palette.run commandId=\(command.id) dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
 #endif
         let postRunFocusTarget = commandPalettePostRunFocusTarget(for: command)
-        recordCommandPaletteUsage(command.id)
         if invocation.source == .automation {
-            return command.execute(invocation)
+            return executeCommandPaletteCommand(command, invocation: invocation)
         }
         guard isCommandPalettePresented else {
-            return command.execute(invocation)
+            return executeCommandPaletteCommand(command, invocation: invocation)
         }
         if command.dismissOnRun,
            Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id) {
@@ -9227,15 +9259,29 @@ struct ContentView: View {
             } else {
                 dismissCommandPalette(restoreFocus: false)
             }
-            return command.execute(invocation)
+            return executeCommandPaletteCommand(command, invocation: invocation)
         }
-        let result = command.execute(invocation)
+        let result = executeCommandPaletteCommand(command, invocation: invocation)
         if command.dismissOnRun {
             if let postRunFocusTarget {
                 dismissCommandPalette(restoreFocus: true, preferredFocusTarget: postRunFocusTarget)
             } else {
                 dismissCommandPalette(restoreFocus: false)
             }
+        }
+        return result
+    }
+
+    private func executeCommandPaletteCommand(
+        _ command: CommandPaletteCommand,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        let result = command.execute(invocation)
+        if CommandPaletteUsageRecordingPolicy.shouldRecord(
+            source: invocation.source,
+            result: result
+        ) {
+            recordCommandPaletteUsage(command.id)
         }
         return result
     }

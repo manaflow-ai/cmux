@@ -141,13 +141,30 @@ extension ContentView {
 
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: Self.commandPaletteCloudOpenCommandId) {
-            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "palette.cloud.open")
+            guard let appDelegate = AppDelegate.shared else { return }
+            _ = appDelegate.performCloudVMAction(
+                tabManager: tabManager,
+                preferredWindow: commandPaletteTargetWindow,
+                debugSource: "palette.cloud.open"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudForkCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.fork, debugSource: "palette.cloud.fork")
+            guard let appDelegate = AppDelegate.shared else { return }
+            _ = appDelegate.performCurrentCloudVMCommand(
+                .fork,
+                tabManager: tabManager,
+                preferredWindow: commandPaletteTargetWindow,
+                debugSource: "palette.cloud.fork"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudSnapshotCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.snapshot, debugSource: "palette.cloud.snapshot")
+            guard let appDelegate = AppDelegate.shared else { return }
+            _ = appDelegate.performCurrentCloudVMCommand(
+                .snapshot,
+                tabManager: tabManager,
+                preferredWindow: commandPaletteTargetWindow,
+                debugSource: "palette.cloud.snapshot"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudRestoreCommandId) { invocation in
             guard let appDelegate = AppDelegate.shared else {
@@ -156,7 +173,8 @@ extension ContentView {
             let snapshotId = invocation.string("snapshot_id")
             let didStart = appDelegate.performCloudVMRestoreCommand(
                 snapshotId: snapshotId,
-                preferredWindow: appDelegate.mainWindow(for: windowId),
+                tabManager: tabManager,
+                preferredWindow: commandPaletteTargetWindow,
                 debugSource: "palette.cloud.restore"
             )
             if snapshotId == nil {
@@ -174,19 +192,49 @@ extension ContentView {
             return .completed
         }
         registry.register(commandId: Self.commandPaletteCloudPromoteTemplateCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.promoteTemplate, debugSource: "palette.cloud.promoteTemplate")
+            guard let appDelegate = AppDelegate.shared else { return }
+            _ = appDelegate.performCurrentCloudVMCommand(
+                .promoteTemplate,
+                tabManager: tabManager,
+                preferredWindow: commandPaletteTargetWindow,
+                debugSource: "palette.cloud.promoteTemplate"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudStatusCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.status, debugSource: "palette.cloud.status")
+            guard let appDelegate = AppDelegate.shared else { return }
+            _ = appDelegate.performCurrentCloudVMCommand(
+                .status,
+                tabManager: tabManager,
+                preferredWindow: commandPaletteTargetWindow,
+                debugSource: "palette.cloud.status"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudPortsCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.ports, debugSource: "palette.cloud.ports")
+            guard let appDelegate = AppDelegate.shared else { return }
+            _ = appDelegate.performCurrentCloudVMCommand(
+                .ports,
+                tabManager: tabManager,
+                preferredWindow: commandPaletteTargetWindow,
+                debugSource: "palette.cloud.ports"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudToolsCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.tools, debugSource: "palette.cloud.tools")
+            guard let appDelegate = AppDelegate.shared else { return }
+            _ = appDelegate.performCurrentCloudVMCommand(
+                .tools,
+                tabManager: tabManager,
+                preferredWindow: commandPaletteTargetWindow,
+                debugSource: "palette.cloud.tools"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudHandoffCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.handoff, debugSource: "palette.cloud.handoff")
+            guard let appDelegate = AppDelegate.shared else { return }
+            _ = appDelegate.performCurrentCloudVMCommand(
+                .handoff,
+                tabManager: tabManager,
+                preferredWindow: commandPaletteTargetWindow,
+                debugSource: "palette.cloud.handoff"
+            )
         }
     }
 }

@@ -13,8 +13,14 @@ enum ProUpgradePresenter {
     private static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
 
     @MainActor
-    static func present() {
-        presentAppPricingWeb()
+    private static func workspaceReuseScope(for tabManager: TabManager?) -> ProUpgradeWorkspaceReuseScope {
+        guard let windowId = tabManager?.windowId else { return .global }
+        return .window(windowId)
+    }
+
+    @MainActor
+    static func present(tabManager: TabManager? = nil) {
+        presentAppPricingWeb(tabManager: tabManager)
     }
 
     /// Hover hook for upgrade entrypoints: loads the pricing page into a
@@ -37,16 +43,20 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    static func presentAppPricingWeb() {
+    static func presentAppPricingWeb(tabManager: TabManager? = nil) {
+        if let tabManager,
+           AppDelegate.shared?.liveMainWindowContextForAction(tabManager: tabManager) == nil {
+            return
+        }
         let url = appPricingURLForCurrentAppearance()
         guard BrowserAvailabilitySettings.isEnabled() else {
             NSWorkspace.shared.open(url)
             return
         }
-        if presentDedicatedPricingWorkspace(url: url) {
+        if presentDedicatedPricingWorkspace(url: url, tabManager: tabManager) {
             return
         }
-        presentBrowserSplit(url: url, transparentBackground: true)
+        presentBrowserSplit(url: url, transparentBackground: true, tabManager: tabManager)
     }
 
     @MainActor
@@ -65,33 +75,56 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    private static func presentDedicatedPricingWorkspace(url: URL) -> Bool {
+    private static func presentDedicatedPricingWorkspace(
+        url: URL,
+        tabManager: TabManager?
+    ) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
+        let reuseScope = workspaceReuseScope(for: tabManager)
         if let workspaceId = workspaceReuseState.reusableWorkspaceID(
-            exists: { appDelegate.proUpgradeWorkspaceExists(workspaceId: $0) }
+            scope: reuseScope,
+            exists: {
+                appDelegate.proUpgradeWorkspaceExists(
+                    workspaceId: $0,
+                    tabManager: tabManager
+                )
+            }
         ) {
-            if appDelegate.focusProUpgradeWorkspace(workspaceId: workspaceId, url: url) {
+            if appDelegate.focusProUpgradeWorkspace(
+                workspaceId: workspaceId,
+                url: url,
+                tabManager: tabManager
+            ) {
                 return true
             }
-            workspaceReuseState.clear()
+            workspaceReuseState.clear(scope: reuseScope)
         }
 
         let title = String(localized: "pricing.pro.workspace.title", defaultValue: "cmux Pro")
         guard let workspace = appDelegate.performProUpgradeWorkspaceAction(
             title: title,
             url: url,
+            tabManager: tabManager,
             debugSource: "proUpgradePresenter"
         ) else {
             return false
         }
-        workspaceReuseState.recordCreatedWorkspace(id: workspace.id)
+        workspaceReuseState.recordCreatedWorkspace(id: workspace.id, scope: reuseScope)
         return true
     }
 
     @MainActor
-    static func presentBrowserSplit(url: URL, transparentBackground: Bool) {
+    static func presentBrowserSplit(
+        url: URL,
+        transparentBackground: Bool,
+        tabManager: TabManager? = nil
+    ) {
+        if let tabManager,
+           AppDelegate.shared?.liveMainWindowContextForAction(tabManager: tabManager) == nil {
+            return
+        }
         // First fallback: use the previous browser split behavior.
-        if let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace,
+        if let workspace = (tabManager ?? AppDelegate.shared?.tabManager)?.selectedWorkspace,
            let sourcePanelId = workspace.focusedPanelId,
            workspace.newBrowserSplit(
                from: sourcePanelId,
@@ -107,7 +140,10 @@ enum ProUpgradePresenter {
 
         // Fallbacks so the entrypoint never silently no-ops: a browser tab in
         // the current window, then the system browser.
-        if AppDelegate.shared?.openBrowserAndFocusAddressBar(url: url) != nil {
+        if AppDelegate.shared?.openBrowserAndFocusAddressBar(
+            tabManager: tabManager,
+            url: url
+        ) != nil {
             return
         }
         NSWorkspace.shared.open(url)
@@ -119,24 +155,39 @@ enum ProUpgradePresenter {
     }
 }
 
-struct ProUpgradeWorkspaceReuseState {
-    private(set) var workspaceId: UUID?
+enum ProUpgradeWorkspaceReuseScope: Hashable {
+    case global
+    case window(UUID)
+}
 
-    mutating func recordCreatedWorkspace(id: UUID) {
-        workspaceId = id
+struct ProUpgradeWorkspaceReuseState {
+    private var workspaceIdsByScope: [ProUpgradeWorkspaceReuseScope: UUID] = [:]
+
+    var workspaceId: UUID? {
+        workspaceIdsByScope[.global]
     }
 
-    mutating func reusableWorkspaceID(exists: (UUID) -> Bool) -> UUID? {
-        guard let workspaceId else { return nil }
+    mutating func recordCreatedWorkspace(
+        id: UUID,
+        scope: ProUpgradeWorkspaceReuseScope = .global
+    ) {
+        workspaceIdsByScope[scope] = id
+    }
+
+    mutating func reusableWorkspaceID(
+        scope: ProUpgradeWorkspaceReuseScope = .global,
+        exists: (UUID) -> Bool
+    ) -> UUID? {
+        guard let workspaceId = workspaceIdsByScope[scope] else { return nil }
         guard exists(workspaceId) else {
-            self.workspaceId = nil
+            workspaceIdsByScope[scope] = nil
             return nil
         }
         return workspaceId
     }
 
-    mutating func clear() {
-        workspaceId = nil
+    mutating func clear(scope: ProUpgradeWorkspaceReuseScope = .global) {
+        workspaceIdsByScope[scope] = nil
     }
 }
 
