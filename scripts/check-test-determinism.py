@@ -1219,6 +1219,37 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/ShorthandOptionalRealClockTests.swift",
+            "let clock: ContinuousClock? = ContinuousClock()\n"
+            "if let clock {\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ConditionalCompilationRealClockFirstTests.swift",
+            "#if os(macOS)\n"
+            "let clock = ContinuousClock()\n"
+            "#else\n"
+            "let clock = TestRelayClock()\n"
+            "#endif\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ConditionalCompilationRealClockLastTests.swift",
+            "#if os(Linux)\n"
+            "let clock = TestRelayClock()\n"
+            "#else\n"
+            "let clock = ContinuousClock()\n"
+            "#endif\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/WrappedRealClockSleepTests.swift",
             "func verify() async {\n"
             "    let clock = ContinuousClock()\n"
@@ -1573,6 +1604,24 @@ def _self_test() -> int:
             "    try await clock.sleep(until: deadline)\n"
             "    #expect(await clockEvents.next() == expected)\n"
             "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/ShorthandOptionalVirtualClockTests.swift",
+            "let clock: TestRelayClock? = TestRelayClock()\n"
+            "if let clock {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/ConditionalCompilationVirtualClockTests.swift",
+            "#if os(macOS)\n"
+            "let clock = TestRelayClock()\n"
+            "#else\n"
+            "let clock = ManualClock()\n"
+            "#endif\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
         ),
         # Sleep-shaped fixture data and comments remain non-executable even when
         # a real clock with the same receiver name is visible.
