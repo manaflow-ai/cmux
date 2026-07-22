@@ -9457,6 +9457,7 @@ struct ContentView: View {
             commandPaletteFocusRestoreCoordinator.clear()
             return
         }
+        guard commandPaletteFocusRestoreCoordinator.claimRestoreAttempt() else { return }
 
         if let window = observedWindow, !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
@@ -9473,10 +9474,7 @@ struct ContentView: View {
               context.panelId == target.panelId else {
             return
         }
-        guard context.panel.restoreFocusIntent(target.intent) else {
-            commandPaletteFocusRestoreCoordinator.clear()
-            return
-        }
+        guard context.panel.restoreFocusIntent(target.intent) else { return }
         commandPaletteFocusRestoreCoordinator.clear()
     }
 

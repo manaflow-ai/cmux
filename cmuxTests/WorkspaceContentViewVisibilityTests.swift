@@ -305,7 +305,7 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    func commandPaletteFocusRestoreClearsUnresolvableTargetsWithoutTimedTasks() throws {
+    func commandPaletteFocusRestoreBoundsUnresolvableTargetsWithoutTimedTasks() throws {
         let contentViewSource = try Self.sourceText("Sources/ContentView.swift")
         let restoreBody = try Self.functionBody(named: "attemptCommandPaletteFocusRestoreIfNeeded", in: contentViewSource)
         #expect(
@@ -313,9 +313,10 @@ final class WorkspaceContentViewVisibilityTests {
                 "guard targetWorkspace.panels[target.panelId] != nil else {\n            commandPaletteFocusRestoreCoordinator.clear()"
             )
         )
+        #expect(restoreBody.contains("guard commandPaletteFocusRestoreCoordinator.claimRestoreAttempt() else { return }"))
         #expect(
             restoreBody.contains(
-                "guard context.panel.restoreFocusIntent(target.intent) else {\n            commandPaletteFocusRestoreCoordinator.clear()"
+                "guard context.panel.restoreFocusIntent(target.intent) else { return }"
             )
         )
 
@@ -336,6 +337,16 @@ final class WorkspaceContentViewVisibilityTests {
 
         coordinator.request(target: secondTarget)
         #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+
+        for _ in 0..<5 {
+            #expect(coordinator.claimRestoreAttempt())
+            #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+        }
+        #expect(!coordinator.claimRestoreAttempt())
+        #expect(coordinator.pendingTarget?.workspaceId == nil)
+
+        coordinator.request(target: secondTarget)
+        #expect(coordinator.claimRestoreAttempt())
 
         coordinator.clear()
         #expect(coordinator.pendingTarget?.workspaceId == nil)
