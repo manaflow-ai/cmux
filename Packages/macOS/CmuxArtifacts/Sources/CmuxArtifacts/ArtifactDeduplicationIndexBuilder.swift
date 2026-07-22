@@ -3,7 +3,7 @@ import Foundation
 /// Builds one bounded digest-to-path index for a prepared import batch.
 struct ArtifactDeduplicationIndexBuilder {
     let recorder: ArtifactProvenanceRecorder
-    let scanner: ArtifactTreeScanner
+    let scanner: ArtifactDeduplicationScanner
 
     func build(
         prepared: [PreparedArtifactImport],
@@ -27,20 +27,18 @@ struct ArtifactDeduplicationIndexBuilder {
             unresolvedBySize[size, default: []].insert(item.digest)
         }
         guard !unresolvedBySize.isEmpty else { return existingByDigest }
-        for file in try scanner.files(paths: paths, matchingSizes: Set(unresolvedBySize.keys)) {
-            guard let rawSize = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize else { continue }
-            let size = Int64(rawSize)
+        try scanner.scanFiles(paths: paths, matchingSizes: Set(unresolvedBySize.keys)) { file, size in
             guard let unresolvedDigests = unresolvedBySize[size], !unresolvedDigests.isEmpty,
                   let digest = try? ArtifactDigestCalculator().digest(url: file),
                   unresolvedDigests.contains(digest) else {
-                continue
+                return false
             }
             existingByDigest[digest] = file
             unresolvedBySize[size]?.remove(digest)
             if unresolvedBySize[size]?.isEmpty == true {
                 unresolvedBySize.removeValue(forKey: size)
             }
-            if unresolvedBySize.isEmpty { break }
+            return unresolvedBySize.isEmpty
         }
         return existingByDigest
     }

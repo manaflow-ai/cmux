@@ -24,22 +24,6 @@ struct ArtifactTreeScanner {
         )
     }
 
-    func files(
-        paths: ArtifactStorePaths,
-        matchingSizes: Set<Int64>
-    ) throws -> [URL] {
-        guard !matchingSizes.isEmpty else { return [] }
-        let snapshot = try snapshot(paths: paths)
-        var matches: [URL] = []
-        var pending = snapshot.nodes
-        while let node = pending.popLast() {
-            pending.append(contentsOf: node.children)
-            guard !node.isDirectory, let size = node.size, matchingSizes.contains(size) else { continue }
-            matches.append(URL(fileURLWithPath: node.absolutePath, isDirectory: false))
-        }
-        return matches
-    }
-
     private func scanDirectory(
         _ directory: URL,
         root: URL,

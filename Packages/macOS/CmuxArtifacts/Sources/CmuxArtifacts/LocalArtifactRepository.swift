@@ -142,7 +142,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
                     encoder: encoder,
                     decoder: decoder
                 ),
-                scanner: scanner
+                scanner: ArtifactDeduplicationScanner(fileManager: fileManager)
             ).build(
                 prepared: Array(preparedByIndex.values),
                 paths: paths
