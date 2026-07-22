@@ -31,6 +31,8 @@ struct DeviceTreeView: View {
     @State private var computerPendingRemovalID: String?
     @State private var isRecoveringDeletedComputer = false
     @State private var recoveryAlertMessage: String?
+    @State private var recoveryTask: Task<Void, Never>?
+    @State private var recoveryAttemptID = 0
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -132,6 +134,7 @@ struct DeviceTreeView: View {
                     await store.refreshComputersScreen()
                 }
             }
+            .onDisappear(perform: cancelRecoveryTask)
         }
         .accessibilityIdentifier("MobileDeviceTree")
     }
@@ -244,10 +247,15 @@ struct DeviceTreeView: View {
         guard !isRecoveringDeletedComputer else { return }
         isRecoveringDeletedComputer = true
         recoveryAlertMessage = nil
-        Task {
+        recoveryAttemptID += 1
+        let attemptID = recoveryAttemptID
+        recoveryTask = Task { @MainActor in
             let recovered = await store.recoverForgottenIrohMacFromAccount()
+            guard isCurrentRecoveryAttempt(attemptID) else { return }
             await reload()
+            guard isCurrentRecoveryAttempt(attemptID) else { return }
             isRecoveringDeletedComputer = false
+            recoveryTask = nil
             if !recovered {
                 recoveryAlertMessage = L10n.string(
                     "mobile.computers.recoverFailedMessage",
@@ -255,6 +263,17 @@ struct DeviceTreeView: View {
                 )
             }
         }
+    }
+
+    private func cancelRecoveryTask() {
+        recoveryAttemptID += 1
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        isRecoveringDeletedComputer = false
+    }
+
+    private func isCurrentRecoveryAttempt(_ attemptID: Int) -> Bool {
+        !Task.isCancelled && recoveryAttemptID == attemptID
     }
 
     private func reload() async {

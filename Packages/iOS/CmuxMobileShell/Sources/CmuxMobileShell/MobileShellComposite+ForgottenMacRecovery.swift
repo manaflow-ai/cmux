@@ -4,18 +4,6 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    /// Whether the current account/team scope has any locally forgotten Mac IDs.
-    public func hasForgottenMacsInCurrentScope() async -> Bool {
-        guard let scope = await currentScopeSnapshot() else {
-            hasRecoverableDeletedComputers = false
-            return false
-        }
-        let hasForgottenMacs = !(await forgottenMacDeviceIDs(scope: scope)).isEmpty
-        guard await isScopeCurrent(scope) else { return hasRecoverableDeletedComputers }
-        hasRecoverableDeletedComputers = hasForgottenMacs
-        return hasForgottenMacs
-    }
-
     /// Recover a deleted Mac through live same-account Iroh discovery.
     ///
     /// Passive zero-touch discovery continues to exclude forgotten Macs. This
@@ -80,7 +68,7 @@ extension MobileShellComposite {
             guard forgottenIDs.contains(cmxCanonicalDeviceID(mac.deviceID))
                     || forgottenIDs.contains(pairingID),
                   !mac.routes.isEmpty,
-                  mac.routes.allSatisfy({ $0.kind == .iroh }),
+                  mac.routes.contains(where: { $0.kind == .iroh }),
                   seen.insert(pairingID).inserted else { continue }
             candidates.append(mac)
             if candidates.count == Self.maximumAutomaticIrohCandidateCount {
