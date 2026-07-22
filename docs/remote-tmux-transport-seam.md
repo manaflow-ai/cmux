@@ -106,8 +106,19 @@ transport that reconnects internally needs a liveness check instead:
 cmux already has the round-trip primitive: a bounded `display-message -p ok` query, used as
 `awaitCommandBarrier` in `RemoteTmuxViewConnection`. Reuse it rather than inventing a
 heartbeat, and give the probe a deadline: measured against 6.2.11+7, et can accept stdin while
-producing no control output, so an unanswered probe is the stall. The next probe's due time is
-that deadline, which needs no second clock.
+producing no control output, so an unanswered probe is the suspicion. The next probe's due time
+is that deadline, which needs no second clock.
+
+An unanswered probe cannot be the verdict, though, because a real network interruption looks
+identical from the stream's side: the transport is reconnecting underneath and cannot answer
+either, and recovering there kills the process and throws away the session it was resuming.
+What tells the two apart is a question asked somewhere else. One-shot commands ride ssh's
+shared master even for an et connection, so `tmux has-session` reaches the host over a channel
+this stream's wedge cannot touch — the same asymmetry the `etserver` restart above measures. A
+host that answers proves the stream is the broken part, and that is the case to recover. A host
+that does not answer is an outage, so stay connected and ask again next tick, capped at four
+consecutive deferrals (about two minutes) so a host that is both unreachable and wedged still
+gets its reconnect.
 
 A transport exit does **not** mean the session is over, tempting as the symmetry is. Restarting
 only `etserver` ends the stream while `tmux has-session` still succeeds, so acting on it discarded
