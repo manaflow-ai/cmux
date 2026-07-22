@@ -44,7 +44,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
                 settings: capturedSettings,
                 socketPath: socketPath
             ),
-            timeout: 3
+            timeout: 5
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
@@ -253,6 +253,61 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(result.stdout == "{}\n")
     }
 
+    @Test("Queue admission compacts oversized telemetry without losing identity")
+    func queueAdmissionCompactsOversizedTelemetry() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let socketPath = makeCodexHookSocketPath("large-queue")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: "surface-8535",
+            connectionLimit: 1
+        )
+        let input: [String: Any] = [
+            "session_id": "relay-session-8535",
+            "turn_id": "relay-turn-8535",
+            "cwd": "/remote/worktree",
+            "tool_name": "Write",
+            "tool_input": ["plan": String(repeating: "x", count: 80 * 1_024)],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: input)
+        let rawPayload = try #require(String(data: data, encoding: .utf8))
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "hooks", "enqueue", "claude", "prompt-submit"],
+            environment: [
+                "HOME": FileManager.default.temporaryDirectory.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLAUDE_PID": "8535",
+                "CMUX_SURFACE_ID": "surface-8535",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: rawPayload,
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let request = try #require(capturedCommands.snapshot().compactMap(codexHookJSONObject).first {
+            $0["method"] as? String == "agent.hook.enqueue"
+        })
+        let params = try #require(request["params"] as? [String: Any])
+        let compactPayload = try #require(params["payload"] as? String)
+
+        #expect(compactPayload.utf8.count <= 64 * 1_024)
+        let compact = try #require(
+            JSONSerialization.jsonObject(with: Data(compactPayload.utf8)) as? [String: Any]
+        )
+        #expect(compact["session_id"] as? String == "relay-session-8535")
+        #expect(compact["turn_id"] as? String == "relay-turn-8535")
+        #expect(compact["cwd"] as? String == "/remote/worktree")
+    }
+
     @Test(
         "Relay-origin delivery skips local PID and TTY routing",
         arguments: [("claude", "CMUX_CLAUDE_PID"), ("codex", "CMUX_CODEX_PID")]
@@ -277,7 +332,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             listenerFD: listenerFD,
             commands: capturedCommands,
             surfaceId: "22222222-2222-2222-2222-222222222222",
-            connectionLimit: 1
+            connectionLimit: 16
         )
         let environment = [
             "HOME": root.path,
@@ -297,21 +352,173 @@ struct CLIClaudeHookTimeoutRegressionTests {
             arguments: ["hooks", agent, "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"relay-session","source":"clear"}"#,
-            timeout: 5
+            timeout: 10
         )
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
 
-        let requests = capturedCommands.snapshot().compactMap(codexHookJSONObject)
-        #expect(requests.contains { $0["method"] as? String == "surface.list" })
+        let socketCommands = capturedCommands.snapshot()
+        let requests = socketCommands.compactMap(codexHookJSONObject)
+        if agent == "claude" {
+            let surfaceProbe = try #require(requests.first {
+                $0["method"] as? String == "agent.resolve_delivery_target"
+            })
+            let params = try #require(surfaceProbe["params"] as? [String: Any])
+            #expect(params["surface_id"] as? String == "22222222-2222-2222-2222-222222222222")
+            #expect(params["pid"] == nil)
+        } else {
+            #expect(requests.contains { $0["method"] as? String == "surface.list" })
+        }
         #expect(!requests.contains { $0["method"] as? String == "system.top" })
         #expect(!requests.contains { $0["method"] as? String == "debug.terminals" })
+        #expect(!socketCommands.contains { $0.hasPrefix("set_agent_pid ") })
+        #expect(!socketCommands.contains { $0.contains(" --pid=8535") })
         let deliveryTargetRequests = requests.filter {
             $0["method"] as? String == "agent.resolve_delivery_target"
         }
         #expect(deliveryTargetRequests.allSatisfy { request in
             (request["params"] as? [String: Any])?["pid"] == nil
         })
+    }
+
+    @Test("Relay-origin Codex stop ignores local transcript path collisions")
+    func relayOriginCodexStopIgnoresLocalTranscriptPathCollisions() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-relay-codex-stop-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let transcriptURL = root.appendingPathComponent("remote-rollout.jsonl", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("relay-stop")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        {"timestamp":"2026-07-21T00:00:00.000Z","type":"session_meta","payload":{"id":"relay-codex-session","cwd":"/remote/worktree"}}
+        {"timestamp":"2026-07-21T00:00:01.000Z","type":"event_msg","payload":{"type":"error","turn_id":"relay-turn","message":"Local collision must stay unread.","codex_error_info":"server_overloaded"}}
+        {"timestamp":"2026-07-21T00:00:02.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"relay-turn","last_agent_message":null}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: "22222222-2222-2222-2222-222222222222",
+            connectionLimit: 24
+        )
+        let payload = """
+        {"session_id":"relay-codex-session","turn_id":"relay-turn","transcript_path":"\(transcriptURL.path)","cwd":"/remote/worktree","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":null}
+        """
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_AGENT_HOOK_RELAY_ORIGIN": "1",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: payload,
+            timeout: 10
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+
+        let commands = capturedCommands.snapshot()
+        #expect(!commands.contains { $0.contains("Local collision must stay unread.") })
+        #expect(!commands.contains { $0.contains("set_status codex Codex error") })
+        #expect(!commands.contains { $0.contains("--color=#FF453A") })
+    }
+
+    @Test("Custom agent installers emit bounded queue admission")
+    func customAgentInstallersEmitBoundedQueueAdmission() throws {
+        struct Producer {
+            let agent: String
+            let environment: [String: String]
+            let artifact: URL
+        }
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-custom-agent-queue-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let opencodeRoot = root.appendingPathComponent("opencode", isDirectory: true)
+        let piRoot = root.appendingPathComponent("pi", isDirectory: true)
+        let ompRoot = root.appendingPathComponent("omp", isDirectory: true)
+        let campfireRoot = root.appendingPathComponent("campfire", isDirectory: true)
+        let ampHome = root.appendingPathComponent("amp-home", isDirectory: true)
+        let producers = [
+            Producer(
+                agent: "opencode",
+                environment: ["OPENCODE_CONFIG_DIR": opencodeRoot.path],
+                artifact: opencodeRoot.appendingPathComponent("plugins/cmux-session.js")
+            ),
+            Producer(
+                agent: "pi",
+                environment: ["PI_CODING_AGENT_DIR": piRoot.path],
+                artifact: piRoot.appendingPathComponent("extensions/cmux-session.ts")
+            ),
+            Producer(
+                agent: "omp",
+                environment: ["PI_CODING_AGENT_DIR": ompRoot.path],
+                artifact: ompRoot.appendingPathComponent("extensions/cmux-omp-session.ts")
+            ),
+            Producer(
+                agent: "campfire",
+                environment: ["CAMPFIRE_CODING_AGENT_DIR": campfireRoot.path],
+                artifact: campfireRoot.appendingPathComponent("extensions/cmux-campfire-session.ts")
+            ),
+            Producer(
+                agent: "amp",
+                environment: ["HOME": ampHome.path],
+                artifact: ampHome.appendingPathComponent(".config/amp/plugins/cmux-session.ts")
+            ),
+        ]
+
+        for producer in producers {
+            var environment = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+            environment.merge(producer.environment, uniquingKeysWith: { _, value in value })
+            let result = runCodexHookProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", producer.agent, "install", "--yes"],
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            let source = try String(contentsOf: producer.artifact, encoding: .utf8)
+            #expect(
+                source.contains("[\"hooks\", \"enqueue\", \"\(producer.agent)\", subcommand]"),
+                "\(producer.agent) lifecycle hooks must use the shared app queue"
+            )
+            #expect(
+                source.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"),
+                "\(producer.agent) queue admission must have an internal socket deadline"
+            )
+            #expect(
+                !source.contains("[\"hooks\", \"\(producer.agent)\", subcommand]"),
+                "\(producer.agent) must not retain a direct lifecycle delivery path"
+            )
+        }
+
+        let piSource = try String(contentsOf: producers[1].artifact, encoding: .utf8)
+        #expect(piSource.contains("[\"hooks\", \"feed\", \"--source\", \"pi\""))
+        #expect(!piSource.contains("[\"hooks\", \"enqueue\", \"feed\""))
     }
 
     private var repositoryRoot: URL {

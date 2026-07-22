@@ -21,6 +21,65 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 
 
+def queued_hook_command(agent: str, subcommand: str, disabled_key: str) -> str:
+    pid_key = "CMUX_" + "".join(character if character.isalnum() else "_" for character in agent.upper()) + "_PID"
+    if agent == "claude":
+        executable = "${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}"
+    elif agent == "codex":
+        executable = "${CMUX_CODEX_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}"
+    else:
+        executable = "${CMUX_BUNDLED_CLI_PATH:-}"
+    return "; ".join(
+        [
+            f'cmux_cli="{executable}"',
+            'if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi',
+            f'agent_pid="${{{pid_key}:-${{PPID:-}}}}"',
+            f'if [ -n "$CMUX_SURFACE_ID" ] && [ "${disabled_key}" != "1" ] && [ -n "$cmux_cli" ]; then if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$cmux_cli" --socket "$CMUX_SOCKET_PATH" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; else {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$cmux_cli" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; fi; else echo \'{{}}\'; fi',
+        ]
+    )
+
+
+def generated_claude_hook_settings() -> str:
+    direct_cli = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}"'
+
+    def direct(command: str, timeout: int, *, matcher: str = "", asynchronous: bool = False) -> dict:
+        hook = {"type": "command", "command": command, "timeout": timeout}
+        if asynchronous:
+            hook["async"] = True
+        return {"matcher": matcher, "hooks": [hook]}
+
+    def queued(subcommand: str, *, matcher: str = "") -> dict:
+        return direct(
+            queued_hook_command("claude", subcommand, "CMUX_CLAUDE_HOOKS_DISABLED"),
+            3,
+            matcher=matcher,
+        )
+
+    hooks = {
+        "SessionStart": [queued("session-start")],
+        "Stop": [
+            queued("stop"),
+            queued("feed"),
+            direct(f"{direct_cli} hooks claude auto-name", 120, asynchronous=True),
+        ],
+        "SubagentStop": [queued("feed")],
+        "SessionEnd": [queued("session-end")],
+        "Notification": [queued("notification")],
+        "UserPromptSubmit": [queued("prompt-submit")],
+        "PreToolUse": [
+            direct(f"{direct_cli} hooks claude cron-create-guard", 5, matcher="CronCreate"),
+            queued("pre-tool-use"),
+        ],
+        "PostToolUse": [queued("push-notification", matcher="PushNotification")],
+        "PermissionRequest": [direct(f"{direct_cli} hooks feed --source claude", 125)],
+    }
+    return json.dumps(
+        {"preferredNotifChannel": "notifications_disabled", "hooks": hooks},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
@@ -156,6 +215,10 @@ exit 0
         make_executable(
             bundled_cli_path,
             """#!/usr/bin/env bash
+if [[ "${1:-}" == "hooks" && "${2:-}" == "claude" && "${3:-}" == "inject-settings" ]]; then
+  printf '%s' "$FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"
+  exit 0
+fi
 exit 0
 """,
         )
@@ -179,6 +242,7 @@ exit 0
         env["FAKE_HOOK_CMUX_BIN_LOG"] = str(hook_cmux_bin_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
+        env["FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"] = generated_claude_hook_settings()
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
         if hooks_disabled:
@@ -530,8 +594,8 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     }.items():
         hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
         expect(
-            hook_command == f'"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks claude {expected_subcommand}',
-            f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
+            f"hooks enqueue claude {expected_subcommand}" in hook_command,
+            f"{hook_name} hook should use queued admission, got {hook_command!r}",
             failures,
         )
     pre_tool_use_groups = hooks.get("PreToolUse", [])
@@ -551,7 +615,8 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
 
     # PushNotification delivers via a raw OSC notification that cmux suppresses
     # for agent surfaces and never fires the Notification hook, so a PostToolUse
-    # matcher is the only bridge into cmux notifications. Async: no decision.
+    # matcher is the only bridge into cmux notifications. It uses the same
+    # short queued-admission contract as lifecycle telemetry.
     post_tool_use_groups = hooks.get("PostToolUse", [])
     push_notification_groups = [group for group in post_tool_use_groups if group.get("matcher") == "PushNotification"]
     expect(
@@ -563,15 +628,16 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         push_hooks = push_notification_groups[0].get("hooks", [])
         expect(
             any(
-                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude push-notification'
-                and h.get("async") is True
+                "hooks enqueue claude push-notification" in h.get("command", "")
+                and h.get("timeout") == 3
                 for h in push_hooks
             ),
-            f"PushNotification bridge should asynchronously call hooks claude push-notification, got {push_hooks}",
+            f"PushNotification bridge should use queued admission, got {push_hooks}",
             failures,
         )
 
-    # General PreToolUse telemetry should remain async to avoid blocking tool execution.
+    # General PreToolUse telemetry uses bounded queued admission; only decision
+    # hooks remain direct and synchronous.
     pre_tool_use_hooks = [
         hook
         for group in pre_tool_use_groups
@@ -579,8 +645,12 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         if "pre-tool-use" in hook.get("command", "")
     ]
     expect(
-        any(h.get("async") is True for h in pre_tool_use_hooks),
-        f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
+        any(
+            "hooks enqueue claude pre-tool-use" in h.get("command", "")
+            and h.get("timeout") == 3
+            for h in pre_tool_use_hooks
+        ),
+        f"PreToolUse hook should use queued admission, got {pre_tool_use_hooks}",
         failures,
     )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
@@ -592,11 +662,11 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])
     expect(
         any(
-            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
-            and h.get("async") is True
+            "hooks enqueue claude feed" in h.get("command", "")
+            and h.get("timeout") == 3
             for h in subagent_stop_hooks
         ),
-        f"SubagentStop hook should call hooks feed asynchronously, got {subagent_stop_hooks}",
+        f"SubagentStop hook should use queued feed admission, got {subagent_stop_hooks}",
         failures,
     )
     expect(
@@ -604,10 +674,10 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SubagentStop hook should not call the visible stop hook, got {subagent_stop_hooks}",
         failures,
     )
-    # SessionEnd should have a short timeout (session is exiting)
+    # SessionEnd only waits for short queue admission (session is exiting).
     session_end_hooks = hooks.get("SessionEnd", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("timeout", 999) <= 2 for h in session_end_hooks),
+        any(h.get("timeout") == 3 for h in session_end_hooks),
         f"SessionEnd hook should have short timeout, got {session_end_hooks}",
         failures,
     )
