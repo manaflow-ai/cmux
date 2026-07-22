@@ -11,10 +11,25 @@ extension CMUXCLI {
         let (windowOption, afterWindow) = parseOption(commandArgs, name: "--window")
         let (argumentOptions, positional) = parseRepeatedOption(afterWindow, name: "--arg")
         let arguments = try parsePaletteActionArguments(argumentOptions)
-        let windowRaw = windowOption ?? windowOverride
+        let explicitWindowRaw = windowOption ?? windowOverride
+        let environment = ProcessInfo.processInfo.environment
+        let callerWorkspaceRaw = explicitWindowRaw == nil
+            ? nonEmptyPaletteRoutingValue(environment["CMUX_WORKSPACE_ID"])
+            : nil
+        let windowRaw = explicitWindowRaw
+            ?? (callerWorkspaceRaw == nil
+                ? nonEmptyPaletteRoutingValue(environment["CMUX_WINDOW_ID"])
+                : nil)
         var params: [String: Any] = [:]
         if let windowID = try normalizeWindowHandle(windowRaw, client: client) {
             params["window_id"] = windowID
+        }
+        if let workspaceID = try normalizeWorkspaceHandle(
+            callerWorkspaceRaw,
+            client: client,
+            windowHandle: nil
+        ) {
+            params["workspace_id"] = workspaceID
         }
 
         let subcommand = positional.first?.lowercased() ?? "list"
@@ -75,6 +90,12 @@ extension CMUXCLI {
                 idFormat: idFormat
             )
         }
+    }
+
+    private func nonEmptyPaletteRoutingValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     func runInlineVSCodeCommand(
