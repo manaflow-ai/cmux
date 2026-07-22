@@ -206,7 +206,6 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 isShowingAddDeviceSheet = false
-                pairingPresentation = .manual
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
             }
