@@ -115,6 +115,7 @@ final class MobileHostIrohRuntime {
     var signOutPreparationTask: Task<Void, Never>?
     var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
+    var brokerCooldown = CmxIrohBrokerCooldown()
 
     private init() {
         diagnosticLog = DiagnosticLog(
@@ -268,6 +269,7 @@ final class MobileHostIrohRuntime {
         } catch is CancellationError {
             return
         } catch {
+            recordBrokerCooldown(for: error, accountID: targetAccountID)
             diagnosticLog.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
@@ -277,6 +279,17 @@ final class MobileHostIrohRuntime {
                 "Iroh host activation failed: \(String(describing: error), privacy: .private)"
             )
         }
+    }
+
+    func recordBrokerCooldown(for error: any Error, accountID: String) {
+        guard let retryAfterSeconds = CmxIrohBrokerCooldown.directiveSeconds(
+            for: error
+        ) else { return }
+        brokerCooldown.record(
+            accountID: accountID,
+            retryAfterSeconds: retryAfterSeconds,
+            now: Date()
+        )
     }
 
     nonisolated static func diagnosticFailureKind(

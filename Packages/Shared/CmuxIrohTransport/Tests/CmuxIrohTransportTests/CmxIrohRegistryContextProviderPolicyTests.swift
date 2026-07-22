@@ -6,6 +6,35 @@ import Testing
 @testable import CmuxIrohTransport
 
 extension CmxIrohRegistryContextProviderTests {
+    /// With no verified managed fleet (relay policy unavailable) the discovery
+    /// fleet cannot be cross-checked; direct dial plans must still resolve so
+    /// LAN reconnects work while relays stay unusable.
+    @Test
+    func emptyManagedFleetStillResolvesDirectDialContext() async throws {
+        let fixture = try RegistryFixture()
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(
+                targetHints: [],
+                relayFleet: [fixture.relayURL]
+            ),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [],
+            activeNetworkProfiles: { [] },
+            now: { fixture.now }
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+        #expect(context.dialPlan.privateFallbackPaths.isEmpty)
+    }
+
     @Test
     func discoveryMustPublishTheExactConfiguredRelayFleet() async throws {
         let fixture = try RegistryFixture()
@@ -201,6 +230,55 @@ extension CmxIrohRegistryContextProviderTests {
 
         #expect(context.credential.pairGrantToken == grant.grant)
         #expect(await broker.pairGrantRequestCount() == 1)
+    }
+
+    @Test
+    func pairGrantRateLimitReusesCachedGrantAfterFreshDiscovery() async throws {
+        let fixture = try RegistryFixture()
+        let discovery = try fixture.discovery(targetHints: [])
+        let grant = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohClientOfflinePolicyCache(secureStore: store)
+        let expectation = try fixture.offlineExpectation()
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[1],
+            discovery: discovery,
+            pairGrant: grant,
+            for: expectation,
+            now: fixture.now
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: discovery,
+            pairGrantResponses: [],
+            pairGrantError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "pair_grant_hour_quota",
+                retryAfterSeconds: 600
+            )
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            offlinePolicy: try CmxIrohClientOfflinePolicyContext(
+                cache: cache,
+                expectation: expectation,
+                localBinding: discovery.bindings[0]
+            ),
+            now: { fixture.now }
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(await broker.discoveryRequestCount() == 1)
+        #expect(await broker.pairGrantRequestCount() == 1)
+        #expect(await store.readCount() > 0)
     }
 
     @Test

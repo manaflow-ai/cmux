@@ -149,6 +149,39 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func rateLimitedRegistrationStartsFromFreshAuthenticatedDiscovery() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse(),
+            registrationError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "device_registration_hour_quota",
+                retryAfterSeconds: 600
+            )
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        let snapshot = await runtime.snapshot()
+        #expect(snapshot.state == .active)
+        #expect(snapshot.endpointID == fixture.endpointID)
+        #expect(snapshot.bindingID == fixture.binding.bindingID)
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        await runtime.stop()
+    }
+
+    @Test
     func rejectedCatalogPublicationCannotAdvanceLiveDiscoveryGeneration() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let runtime = try CmxIrohClientRuntime(
