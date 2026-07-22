@@ -1,14 +1,7 @@
 import Foundation
+import os
 import Testing
 @testable import CmuxWorkspaces
-
-private final class NavigationScopeBox: @unchecked Sendable {
-    var value: FocusHistoryNavigationScope
-
-    init(_ value: FocusHistoryNavigationScope) {
-        self.value = value
-    }
-}
 
 /// In-memory window host: a dictionary of workspaces/panels plus counters
 /// for the mutations a navigation performs.
@@ -162,8 +155,8 @@ struct FocusHistoryModelTests {
 
     @Test func switchingToWorkspacesOnlyCollapsesMenuAndUsesRememberedPanel() throws {
         let host = FakeFocusHistoryHost()
-        let scope = NavigationScopeBox(.panesAndTabs)
-        let model = FocusHistoryModel(navigationScope: { scope.value })
+        let scope = OSAllocatedUnfairLock(initialState: FocusHistoryNavigationScope.panesAndTabs)
+        let model = FocusHistoryModel(navigationScope: { scope.withLock { $0 } })
         model.attach(host: host)
         let panelA1 = UUID()
         let panelA2 = UUID()
@@ -185,7 +178,7 @@ struct FocusHistoryModelTests {
         model.recordFocusInHistory(workspaceId: wsB, panelId: panelB)
 
         host.workspaces[wsA]?.rememberedFocusedPanelId = panelA3
-        scope.value = .workspacesOnly
+        scope.withLock { $0 = .workspacesOnly }
         let item = try #require(model.focusHistoryMenuSnapshot(direction: .back).items.first)
 
         #expect(model.focusHistoryMenuSnapshot(direction: .back).items.count == 1)
