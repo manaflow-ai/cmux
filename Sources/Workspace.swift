@@ -57,7 +57,10 @@ extension Workspace {
         let tree = bonsplitController.treeSnapshot()
         let rawLayout = sessionLayoutSnapshot(from: tree)
         if let surfaceResumeBindingIndex {
-            reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
+            reconcileSurfaceResumeBindings(
+                using: surfaceResumeBindingIndex,
+                restorableAgentIndex: restorableAgentIndex
+            )
         }
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -1206,7 +1209,10 @@ extension Workspace {
         }
     }
 
-    func reconcileSurfaceResumeBindings(using surfaceResumeBindingIndex: SurfaceResumeBindingIndex) {
+    func reconcileSurfaceResumeBindings(
+        using surfaceResumeBindingIndex: SurfaceResumeBindingIndex,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+    ) {
         for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
@@ -1220,7 +1226,11 @@ extension Workspace {
             guard let detectedBinding else {
                 if storedBinding.isProcessDetected {
                     surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-                } else if isStaleAgentHookBinding(storedBinding, panelId: panelId) {
+                } else if isStaleAgentHookBinding(
+                    storedBinding,
+                    panelId: panelId,
+                    restorableAgentIndex: restorableAgentIndex
+                ) {
                     // Generalizes the tmux-only reconciliation above: a plain
                     // (non-tmux) agent-hook binding whose session no longer
                     // shows up as live gets dropped here too, instead of being
@@ -1435,8 +1445,14 @@ extension Workspace {
             // collision forces a fresh id on restore-into-live / duplicate-workspace). The
             // (session id, agent source) comes from the restorable-agent snapshot when present,
             // else from the agent-hook resume binding (most restores carry only the binding, whose `checkpointId` IS the agent session id).
+            // Skipped when `agentSessionAlreadyActive`: cmux decided NOT to fire a resume onto
+            // this panel (a live process for the same session already exists elsewhere, or this
+            // panel lost the per-launch dedup race), so this panel must not steal the session
+            // registry's authoritative (surface, workspace) pointer away from the panel that
+            // actually owns the live process — that would send mobile/chat routing to a dead
+            // duplicate instead of the real one (#8446).
             let resumeReboundSession: (sessionID: String, source: String)? = {
-                if let restorableAgent {
+                if let restorableAgent, !agentSessionAlreadyActive {
                     return (restorableAgent.sessionId, restorableAgent.kind.rawValue)
                 }
                 if let binding = resumeBinding,

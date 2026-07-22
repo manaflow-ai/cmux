@@ -41,4 +41,26 @@ struct AgentResumeLaunchGuardTests {
         #expect(first.claimResumeLaunch(kind: "codex", sessionId: "session-1") == true)
         #expect(second.claimResumeLaunch(kind: "codex", sessionId: "session-1") == true)
     }
+
+    /// A claim exists only to break the tie between panels racing during the
+    /// same restore pass; it must expire so a much-later legitimate resume
+    /// (e.g. reopening a closed tab long after the original agent exited)
+    /// is never permanently blocked (#8446).
+    @Test
+    func claimExpiresAfterTTL() {
+        var now = Date(timeIntervalSince1970: 0)
+        let launchGuard = AgentResumeLaunchGuard(dateProvider: { now })
+        #expect(launchGuard.claimResumeLaunch(kind: "codex", sessionId: "session-1") == true)
+        now = now.addingTimeInterval(61)
+        #expect(launchGuard.claimResumeLaunch(kind: "codex", sessionId: "session-1") == true)
+    }
+
+    @Test
+    func claimDoesNotExpireBeforeTTL() {
+        var now = Date(timeIntervalSince1970: 0)
+        let launchGuard = AgentResumeLaunchGuard(dateProvider: { now })
+        #expect(launchGuard.claimResumeLaunch(kind: "codex", sessionId: "session-1") == true)
+        now = now.addingTimeInterval(30)
+        #expect(launchGuard.claimResumeLaunch(kind: "codex", sessionId: "session-1") == false)
+    }
 }

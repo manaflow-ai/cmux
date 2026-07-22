@@ -140,7 +140,18 @@ extension Workspace {
     /// `reconcileSurfaceResumeBindings` so a normal exit of a resumed
     /// non-tmux agent doesn't leave a binding that gets replayed as a resume
     /// on the next relaunch (#8446).
-    func isStaleAgentHookBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
+    ///
+    /// `restorableAgentIndex`, when supplied, is a freshly loaded index from
+    /// the same scan generation as the caller's `SurfaceResumeBindingIndex`
+    /// (see `ProcessDetectedResumeIndexes.load()`); prefer it over the
+    /// separately TTL-cached `SharedLiveAgentIndex.shared.index` so pruning
+    /// and the binding scan it is paired with always describe the same
+    /// point-in-time snapshot instead of two independently stale ones.
+    func isStaleAgentHookBinding(
+        _ binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+    ) -> Bool {
         guard binding.isAgentHookBinding,
               let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !checkpointId.isEmpty,
@@ -148,8 +159,9 @@ extension Workspace {
               !kind.isEmpty else {
             return false
         }
+        let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index
         return !AgentResumeLiveness.hasLiveProcess(
-            for: SharedLiveAgentIndex.shared.index?.entry(workspaceId: id, panelId: panelId),
+            for: liveIndex?.entry(workspaceId: id, panelId: panelId),
             kind: kind,
             sessionId: checkpointId
         )
