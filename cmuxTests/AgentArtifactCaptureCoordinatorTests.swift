@@ -161,6 +161,54 @@ struct AgentArtifactCaptureCoordinatorTests {
         #expect(service.artifactCaptureTasks[record.sessionID] == nil)
     }
 
+    @MainActor
+    @Test func automaticCaptureTracksLiveArtifactsBetaAvailability() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        var artifactsBetaEnabled = false
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            artifactCaptureCoordinator: coordinator,
+            isAutomaticArtifactCaptureEnabled: { artifactsBetaEnabled }
+        )
+        let record = captureRecord(projectRoot: projectRoot)
+        let indexed = snapshot(
+            revision: 1,
+            path: projectRoot.appendingPathComponent("plan.md").path
+        )
+
+        service.scheduleIndexedArtifactCapture(record: record, snapshot: indexed)
+        #expect(service.artifactCaptureTasks[record.sessionID] == nil)
+
+        artifactsBetaEnabled = true
+        service.scheduleIndexedArtifactCapture(record: record, snapshot: indexed)
+        let task = try #require(service.artifactCaptureTasks[record.sessionID]?.task)
+        await task.value
+
+        #expect(await store.importCount == 1)
+    }
+
+    @Test func automaticTranscriptSnapshotRejectsFilesOverItsByteBudget() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let transcript = projectRoot.appendingPathComponent("transcript.jsonl")
+        try Data("{}\n".utf8).write(to: transcript)
+
+        await #expect(throws: (any Error).self) {
+            _ = try await AgentChatArtifactIndex().snapshot(
+                sessionID: "session",
+                agentKind: .claude,
+                transcriptPath: transcript.path,
+                workingDirectory: projectRoot.path,
+                maximumFileBytes: 2
+            )
+        }
+    }
+
     @Test func olderCaptureFinishingLastDoesNotRegressCompletedGeneration() async throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

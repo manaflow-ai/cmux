@@ -232,6 +232,22 @@ struct ArtifactRepositorySafetyTests {
         #expect(try runGit(["-C", root.path, "check-ignore", "--quiet", "--", relativePath]) == 0)
     }
 
+    @Test("Unreadable Git exclude content is preserved")
+    func preservesNonUTF8GitExcludeContent() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let info = root.appendingPathComponent(".git/info", isDirectory: true)
+        try FileManager.default.createDirectory(at: info, withIntermediateDirectories: true)
+        let exclude = info.appendingPathComponent("exclude", isDirectory: false)
+        let existing = Data([0xFF, 0xFE, 0x0A])
+        try existing.write(to: exclude)
+
+        await #expect(throws: (any Error).self) {
+            _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+        }
+        #expect(try Data(contentsOf: exclude) == existing)
+    }
+
     @MainActor
     @Test("A canceled deduplication scan stops before visiting files")
     func cancelsDeduplicationScan() async throws {

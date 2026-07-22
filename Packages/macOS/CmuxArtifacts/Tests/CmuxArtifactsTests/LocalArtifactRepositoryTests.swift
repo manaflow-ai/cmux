@@ -336,6 +336,7 @@ struct LocalArtifactRepositoryTests {
         #expect(configuration.automaticCaptureEnabled == false)
         #expect(configuration.maximumFileBytes == 100)
         #expect(configuration.maximumTextFileBytes == 100)
+        #expect(configuration.maximumTranscriptScanBytes == ArtifactCaptureConfiguration.defaultValue.maximumTranscriptScanBytes)
         #expect(configuration.allowedExtensions == ArtifactCaptureConfiguration.defaultValue.allowedExtensions)
     }
 
