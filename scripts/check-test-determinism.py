@@ -1844,6 +1844,26 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/DoReassignedRealClockTests.swift",
+            "var clock: any Clock<Duration> = TestRelayClock()\n"
+            "do {\n"
+            "    clock = ContinuousClock()\n"
+            "}\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ConditionalBranchReassignedRealClockTests.swift",
+            "var clock: any Clock<Duration> = TestRelayClock()\n"
+            "if shouldWait {\n"
+            "    clock = ContinuousClock()\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/MultilineNamedClockTests.swift",
             "let clock =\n"
             "    ContinuousClock()\n"
@@ -2764,6 +2784,33 @@ def _self_test() -> int:
             "Packages/CmuxClock/Tests/ReassignedVirtualClockTests.swift",
             "var clock: any Clock<Duration> = ContinuousClock()\n"
             "clock = TestRelayClock()\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/DoReassignedVirtualClockTests.swift",
+            "var clock: any Clock<Duration> = ContinuousClock()\n"
+            "do {\n"
+            "    clock = TestRelayClock()\n"
+            "}\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/ConditionalReassignedVirtualClockTests.swift",
+            "var clock: any Clock<Duration> = ContinuousClock()\n"
+            "if shouldUseVirtualClock {\n"
+            "    clock = TestRelayClock()\n"
+            "}\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/ConditionalMaybeRealClockTests.swift",
+            "var clock: any Clock<Duration> = TestRelayClock()\n"
+            "if shouldUseRealClock {\n"
+            "    clock = ContinuousClock()\n"
+            "}\n"
             "try await clock.sleep(until: deadline)\n"
             "#expect(await clockEvents.next() == expected)\n",
         ),
