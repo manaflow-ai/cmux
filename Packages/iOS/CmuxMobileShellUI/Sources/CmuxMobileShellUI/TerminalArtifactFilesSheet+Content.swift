@@ -312,7 +312,8 @@ extension TerminalArtifactFilesSheet {
                                     loader: sessionLoader,
                                     open: {
                                         open(item.path, scope: .session, swipeOrder: swipeOrder)
-                                    }
+                                    },
+                                    onCopiedPath: notifyPathCopied
                                 )
                                 Divider().padding(.leading, 72)
                             }
@@ -336,7 +337,8 @@ extension TerminalArtifactFilesSheet {
                                         loader: sessionLoader,
                                         open: {
                                             open(item.path, scope: .session, swipeOrder: swipeOrder)
-                                        }
+                                        },
+                                        onCopiedPath: notifyPathCopied
                                     )
                                 }
                             } footer: {
@@ -377,7 +379,8 @@ extension TerminalArtifactFilesSheet {
                             loader: sessionLoader,
                             open: {
                                 open(item.path, scope: .session, swipeOrder: swipeOrder)
-                            }
+                            },
+                            onCopiedPath: notifyPathCopied
                         )
                         Divider().padding(.leading, 72)
                     }
@@ -397,7 +400,8 @@ extension TerminalArtifactFilesSheet {
                                 loader: sessionLoader,
                                 open: {
                                     open(item.path, scope: .session, swipeOrder: swipeOrder)
-                                }
+                                },
+                                onCopiedPath: notifyPathCopied
                             )
                         }
                     } footer: {
@@ -436,7 +440,8 @@ extension TerminalArtifactFilesSheet {
                             loader: loader,
                             open: {
                                 open(artifact.path, scope: scope, swipeOrder: swipeOrder)
-                            }
+                            },
+                            onCopiedPath: notifyPathCopied
                         )
                         Divider().padding(.leading, 72)
                     }
@@ -452,7 +457,8 @@ extension TerminalArtifactFilesSheet {
                             loader: loader,
                             open: {
                                 open(artifact.path, scope: scope, swipeOrder: swipeOrder)
-                            }
+                            },
+                            onCopiedPath: notifyPathCopied
                         )
                     }
                 }

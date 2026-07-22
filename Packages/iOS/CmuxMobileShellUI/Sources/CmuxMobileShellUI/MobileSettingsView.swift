@@ -3,6 +3,7 @@ import CmuxAuthRuntime
 import CmuxAgentGUIUI
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 
@@ -37,9 +38,18 @@ struct MobileSettingsView: View {
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    @Environment(ToastCenter.self) private var toasts
+    #if DEBUG
+    @State private var showingTerminalDemo = false
+    @State private var showingToastGallery = false
+    /// Seconds between tapping "Run Toast Demo" and the first toast, so you
+    /// can navigate to any screen (terminal, chat) and watch it play there.
+    @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
+    #endif
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        @Bindable var toasts = toasts
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -153,6 +163,14 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
 
+                    Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.terminalFolderTap",
+                            defaultValue: "Open Folders on Tap"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
+
                     Button {
                         showingShortcuts = true
                     } label: {
@@ -180,6 +198,14 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
+
+                    Toggle(isOn: $toasts.isEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.beta.toasts",
+                            defaultValue: "Toasts"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastsEnabled")
                 }
 
                 #if DEBUG
@@ -193,6 +219,53 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTranscriptDemo")
+                    Button {
+                        showingTerminalDemo = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
+                            systemImage: "terminal"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
+                    Button {
+                        showingToastGallery = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.toastGallery", defaultValue: "Toast Gallery"),
+                            systemImage: "rectangle.portrait.topthird.inset.filled"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastGallery")
+                    Button {
+                        ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
+                        dismiss()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
+                            systemImage: "play.rectangle"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastDemo")
+                    Stepper(value: $toastDemoDelaySeconds, in: 0...30) {
+                        HStack {
+                            Text(L10n.string(
+                                "mobile.settings.toastDemoDelay",
+                                defaultValue: "Toast Demo Delay"
+                            ))
+                            Spacer()
+                            Text(String.localizedStringWithFormat(
+                                L10n.string(
+                                    "mobile.settings.toastDemoDelayValueFormat",
+                                    defaultValue: "%d s"
+                                ),
+                                toastDemoDelaySeconds
+                            ))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastDemoDelay")
 
                     debugLayoutSlider(
                         title: L10n.string(
@@ -362,6 +435,14 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingShortcuts) {
                 TerminalShortcutsSettingsView()
             }
+            #if DEBUG
+            .fullScreenCover(isPresented: $showingTerminalDemo) {
+                TerminalLogDemoScreen()
+            }
+            .sheet(isPresented: $showingToastGallery) {
+                ToastGalleryView()
+            }
+            #endif
             .sheet(isPresented: $showingHostPicker) {
                 if let store {
                     MobileHostPickerView(store: store)

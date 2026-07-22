@@ -100,15 +100,33 @@ extension TerminalController {
             return resolution.failureResult
         }
         do {
-            let stat = try await Task.detached(priority: .utility) {
-                try context.authorizedRead { reader, canonicalPath in
-                    try reader.stat(path: canonicalPath)
+            let outcome = try await Task.detached(priority: .utility) {
+                do {
+                    return TerminalArtifactStatOutcome.success(
+                        try context.authorizedStat { reader, canonicalPath in
+                            try reader.stat(path: canonicalPath)
+                        }
+                    )
+                } catch TerminalArtifactReadContext.Error.forbidden {
+                    #if DEBUG
+                    return TerminalArtifactStatOutcome.forbidden(
+                        diagnostics: context.authorizationDiagnostics()
+                    )
+                    #else
+                    return TerminalArtifactStatOutcome.forbidden(diagnostics: "")
+                    #endif
                 }
             }.value
-            return TerminalArtifactWire.result(stat)
-        } catch TerminalArtifactReadContext.Error.forbidden {
-            debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
-            return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
+            switch outcome {
+            case .success(let stat):
+                return TerminalArtifactWire.result(stat)
+            case .forbidden(let diagnostics):
+                debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
+                #if DEBUG
+                cmuxDebugLog("mobile.terminal.artifact.stat.deny \(diagnostics)")
+                #endif
+                return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
+            }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
         } catch ArtifactByteReader.Error.unsupportedMedia {
@@ -347,6 +365,11 @@ extension TerminalController {
     }
 }
 
+private enum TerminalArtifactStatOutcome: Sendable {
+    case success(ChatArtifactStat)
+    case forbidden(diagnostics: String)
+}
+
 private enum TerminalArtifactContextResolution {
     case success(TerminalArtifactReadContext)
     case failure(TerminalController.V2CallResult)
@@ -440,6 +463,68 @@ private struct TerminalArtifactReadContext: Sendable {
             throw Error.forbidden
         }
         return try operation(ArtifactByteReader(), canonicalPath)
+    }
+
+    /// Stat may be answered for any path the scope would let the client list,
+    /// because listing already reveals more than the directory's own metadata.
+    func authorizedStat<T>(
+        _ operation: (ArtifactByteReader, String) throws -> T
+    ) throws -> T {
+        guard let requestedPath else { throw Error.forbidden }
+        let resolver = ChatArtifactScope.FoundationResolver()
+        let snapshotScope = ChatArtifactScope(
+            referencedPaths: scanAuthorizedPaths,
+            directoryAccessMode: directoryAccessMode,
+            resolver: resolver
+        )
+        if let canonicalPath = snapshotScope.canonicalFilePath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
+        if let canonicalPath = snapshotScope.canonicalDirectoryListPath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
+        let scope = TerminalArtifactScope(
+            terminalText: terminalText,
+            workingDirectory: workingDirectory,
+            resolver: resolver,
+            directoryAccessMode: directoryAccessMode
+        )
+        if let canonicalPath = scope.canonicalPath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
+        guard let canonicalPath = scope.canonicalDirectoryListPath(for: requestedPath) else {
+            throw Error.forbidden
+        }
+        return try operation(ArtifactByteReader(), canonicalPath)
+    }
+
+    /// Explains why a stat authorization denied, for the DEBUG denial log.
+    /// Reports input shape (text size, scan-path count) and which
+    /// canonicalization branches matched, never path contents.
+    func authorizationDiagnostics() -> String {
+        guard let requestedPath else { return "path=nil" }
+        let resolver = ChatArtifactScope.FoundationResolver()
+        let snapshotScope = ChatArtifactScope(
+            referencedPaths: scanAuthorizedPaths,
+            directoryAccessMode: directoryAccessMode,
+            resolver: resolver
+        )
+        let scope = TerminalArtifactScope(
+            terminalText: terminalText,
+            workingDirectory: workingDirectory,
+            resolver: resolver,
+            directoryAccessMode: directoryAccessMode
+        )
+        let detected = TerminalArtifactPathDetector().paths(in: terminalText)
+        return "textChars=\(terminalText.count)"
+            + " detected=\(detected.count)"
+            + " scanPaths=\(scanAuthorizedPaths.count)"
+            + " cwdSet=\(workingDirectory != nil)"
+            + " mode=\(directoryAccessMode.rawValue)"
+            + " snapFile=\(snapshotScope.canonicalFilePath(for: requestedPath) != nil)"
+            + " snapDir=\(snapshotScope.canonicalDirectoryListPath(for: requestedPath) != nil)"
+            + " liveFile=\(scope.canonicalPath(for: requestedPath) != nil)"
+            + " liveDir=\(scope.canonicalDirectoryListPath(for: requestedPath) != nil)"
     }
 
     func authorizedDirectoryList<T>(

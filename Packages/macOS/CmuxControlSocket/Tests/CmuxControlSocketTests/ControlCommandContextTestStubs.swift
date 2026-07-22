@@ -188,7 +188,12 @@ extension ControlNotificationContext {
 
 extension ControlWorkspaceGroupContext {
     func controlWorkspaceGroupStrings() -> ControlWorkspaceGroupStrings {
-        ControlWorkspaceGroupStrings(allChildrenAreAnchors: "", workspaceIsOtherGroupAnchor: "", invalidReferenceWorkspace: "invalid reference workspace")
+        ControlWorkspaceGroupStrings(
+            allChildrenAreAnchors: "",
+            workspaceIsOtherGroupAnchor: "",
+            invalidReferenceWorkspace: "invalid reference workspace",
+            closeWorkspacesMustBeBoolean: "close workspaces must be boolean"
+        )
     }
 
     func controlWorkspaceGroupList(
@@ -199,11 +204,10 @@ extension ControlWorkspaceGroupContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID],
-        childrenExplicit: Bool
+        childWorkspaceIDs: [UUID]
     ) -> ControlWorkspaceGroupCreateResolution { .tabManagerUnavailable }
 
-    func controlUngroupWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Bool? { nil }
+    func controlUngroupWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
     func controlDeleteWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
     func controlRenameWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID, name: String) -> Bool? { nil }
     func controlSetWorkspaceGroupCollapsed(routing: ControlRoutingSelectors, groupID: UUID, isCollapsed: Bool) -> Bool? { nil }

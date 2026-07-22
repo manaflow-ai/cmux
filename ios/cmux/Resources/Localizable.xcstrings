@@ -2058,6 +2058,23 @@
         }
       }
     },
+    "mobile.connection.reconnectedToast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnected to your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に再接続しました。"
+          }
+        }
+      }
+    },
     "mobile.connection.reconnecting": {
       "extractionState": "manual",
       "localizations": {
@@ -2925,6 +2942,23 @@
         }
       }
     },
+    "mobile.feedback.sentToast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback sent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードバックを送信しました"
+          }
+        }
+      }
+    },
     "mobile.hostPicker.active": {
       "extractionState": "manual",
       "localizations": {
@@ -3084,13 +3118,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No paired computers yet."
+            "value": "No computers yet. Sign in to cmux on your computer with this account and it appears here automatically. If it does not, tap Pair Another Computer and scan its QR code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング済みのコンピュータはまだありません。"
+            "value": "コンピュータはまだありません。コンピュータのcmuxにこのアカウントでサインインすると、ここに自動的に表示されます。表示されない場合は、「別のコンピュータをペアリング」からQRコードをスキャンしてください。"
           }
         }
       }
@@ -3101,13 +3135,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switch which computer this device controls. Pairing another computer keeps the others, so you can hop between them."
+            "value": "Switch which computer this device controls. A computer joins this list automatically the first time this phone connects to it. Pair Another Computer adds more without removing the ones you have."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイスが操作するコンピュータを切り替えます。別のコンピュータをペアリングしても他のコンピュータは保持されるので、行き来できます。"
+            "value": "このデバイスが操作するコンピュータを切り替えます。コンピュータは、この端末が最初に接続したときに自動的にこの一覧に追加されます。「別のコンピュータをペアリング」で、今あるコンピュータを残したまま追加できます。"
           }
         }
       }
@@ -7634,6 +7668,23 @@
         }
       }
     },
+    "mobile.settings.beta.toasts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toasts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トースト"
+          }
+        }
+      }
+    },
     "mobile.settings.betaFeatures": {
       "extractionState": "manual",
       "localizations": {
@@ -8552,6 +8603,23 @@
         }
       }
     },
+    "mobile.settings.terminalFolderTap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Folders on Tap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップでフォルダを開く"
+          }
+        }
+      }
+    },
     "mobile.settings.terminalLogDemo": {
       "extractionState": "manual",
       "localizations": {
@@ -8582,6 +8650,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "利用規約"
+          }
+        }
+      }
+    },
+    "mobile.settings.toastDemo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Toast Demo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トーストデモを実行"
+          }
+        }
+      }
+    },
+    "mobile.settings.toastDemoDelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toast Demo Delay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トーストデモの遅延"
+          }
+        }
+      }
+    },
+    "mobile.settings.toastDemoDelayValueFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d s"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 秒"
+          }
+        }
+      }
+    },
+    "mobile.settings.toastGallery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toast Gallery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トーストギャラリー"
           }
         }
       }
@@ -8711,13 +8847,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "To see your computer's terminals here, four things have to line up. The step you are on is marked below."
+            "value": "To see your computer's terminals here, sign in to the same cmux account on both devices and keep cmux running on the computer. The step you are on is marked below."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ここでコンピュータのターミナルを表示するには、4つの条件がそろう必要があります。今いるステップは下に印が付いています。"
+            "value": "ここでコンピュータのターミナルを表示するには、両方の端末で同じcmuxアカウントにサインインし、コンピュータでcmuxを起動したままにします。今いるステップは下に印が付いています。"
           }
         }
       }
@@ -8728,13 +8864,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "To see your computer's terminals here, four things have to line up."
+            "value": "To see your computer's terminals here, sign in to the same cmux account on both devices and keep cmux running on the computer. Connection is automatic after that."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ここでコンピュータのターミナルを表示するには、4つの条件がそろう必要があります。"
+            "value": "ここでコンピュータのターミナルを表示するには、両方の端末で同じcmuxアカウントにサインインし、コンピュータでcmuxを起動したままにします。あとは自動的に接続されます。"
           }
         }
       }
@@ -8745,13 +8881,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "After cmux admits both devices over Iroh, Tailscale, another VPN, or the same LAN may become a faster direct path. The Iroh session keeps peer identity and application traffic authenticated on every path."
+            "value": "If both devices are on Tailscale, another VPN, or the same network, cmux can use it as a faster direct path. The connection stays encrypted and verified either way."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxがIroh上で両方の端末を認証した後、Tailscale、別のVPN、または同じLANが、より高速な直接経路になる場合があります。Irohセッションは、どの経路でもピアIDとアプリ通信を認証します。"
+            "value": "両方の端末がTailscale、別のVPN、または同じネットワーク上にある場合、cmuxはそれをより高速な直接経路として使うことがあります。どの経路でも接続の暗号化と検証は保たれます。"
           }
         }
       }
@@ -8762,13 +8898,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your computer and leave it running, signed in to the same account. The phone pairs to a running cmux build, so a quit or never-installed app is the most common reason pairing does nothing."
+            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. If it does not, open Pair iPhone in cmux on the computer and scan its QR code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータにcmuxをインストールし、同じアカウントでサインインしたまま起動しておきます。iPhoneは起動中のcmuxビルドとペアリングするため、アプリが終了している、または未インストールであることが、ペアリングが進まない最も多い原因です。"
+            "value": "コンピュータにcmuxをインストールし、同じアカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。表示されない場合は、コンピュータのcmuxで「iPhone をペアリング」を開き、QRコードをスキャンしてください。"
           }
         }
       }
@@ -8813,13 +8949,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If the computer rejects this device's sign-in, the two are on different cmux accounts or this device's session is stale. Sign this phone in to the computer's account (or sign the computer in to this one), then pair again."
+            "value": "The computer rejected this phone's sign-in, so the two are on different cmux accounts or this phone's session is stale. Sign either one out and back in so both use the same account, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータがこの端末のサインインを拒否する場合、両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。この端末をコンピュータのアカウントでサインインし（またはコンピュータをこの端末のアカウントでサインインし）、もう一度ペアリングしてください。"
+            "value": "コンピュータがこの端末のサインインを拒否しました。両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。どちらかでいったんサインアウトし、両方が同じアカウントになるようにサインインし直してから、もう一度お試しください。"
           }
         }
       }
@@ -8847,13 +8983,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan the Iroh code shown by cmux on the Mac. Iroh connects directly when possible and uses a cmux relay when needed, while verifying the Mac identity and your cmux account end to end. Tailscale is not required."
+            "value": "cmux connects through Iroh, which links this phone to your computer directly when possible and through an encrypted cmux relay when not. Both devices verify your account, and the relay cannot read your terminals. No network setup is required."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macのcmuxに表示されるIrohコードをスキャンします。Irohは可能な場合は直接接続し、必要な場合はcmuxリレーを使いながら、MacのIDとcmuxアカウントをエンドツーエンドで検証します。Tailscaleは必須ではありません。"
+            "value": "cmuxはIrohで接続します。可能な場合はこの端末とコンピュータを直接つなぎ、できない場合は暗号化されたcmuxリレーを経由します。両方の端末でアカウントを検証するため、リレーがターミナルの内容を読むことはできません。ネットワークの設定は不要です。"
           }
         }
       }
@@ -8864,13 +9000,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect with Iroh"
+            "value": "How it connects"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Irohで接続"
+            "value": "接続のしくみ"
           }
         }
       }
@@ -8881,13 +9017,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The computer and this phone must be signed in to the same cmux account. Any private network changes reachability only; it never replaces Iroh's identity and authorization checks."
+            "value": "Both devices must be signed in to the same cmux account. A private network never replaces that check."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータとこの端末は同じcmuxアカウントでサインインする必要があります。プライベートネットワークは到達経路を変えるだけで、IrohのID検証と認可を置き換えることはありません。"
+            "value": "両方の端末は同じcmuxアカウントでサインインする必要があります。プライベートネットワークがこの確認を置き換えることはありません。"
           }
         }
       }
@@ -8898,13 +9034,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux on this phone with the same account the paired computer uses. Without that, there is nothing to connect to."
+            "value": "Sign in to cmux on this phone with the same account your computer uses. Once you sign in, your computer is found automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この端末で、ペアリング済みコンピュータと同じアカウントを使ってcmuxにサインインします。サインインしないと、接続先がありません。"
+            "value": "この端末で、コンピュータと同じアカウントを使ってcmuxにサインインします。サインインすると、コンピュータは自動的に見つかります。"
           }
         }
       }
@@ -8983,13 +9119,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You paired this computer before, but it is not reachable now. Wake it and make sure cmux is running. Iroh will retry direct and relay paths; if you rely on a private network, connect both devices to it, then reconnect."
+            "value": "You paired this computer before, but it is not reachable now. Wake it and make sure cmux is running; this phone reconnects on its own."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータは以前ペアリング済みですが、今は到達できません。コンピュータを起こしてcmuxが実行中か確認してください。Irohは直接経路とリレー経路を再試行します。プライベートネットワークを使っている場合は両方の端末を接続してから再接続してください。"
+            "value": "このコンピュータは以前ペアリング済みですが、今は到達できません。コンピュータを起こしてcmuxが実行中か確認してください。この端末は自動的に再接続します。"
           }
         }
       }
@@ -13074,6 +13210,40 @@
         }
       }
     },
+    "mobile.toast.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーしました"
+          }
+        }
+      }
+    },
+    "mobile.toast.pathCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスをコピーしました"
+          }
+        }
+      }
+    },
     "mobile.toolbar.editor.addTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -13924,19 +14094,19 @@
         }
       }
     },
-    "mobile.workspaceAction.failure.message": {
+    "mobile.workspaceAction.failure.legacyFormat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't %@: %@."
+            "value": "%1$@: %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@できませんでした: %2$@。"
+            "value": "%1$@: %2$@"
           }
         }
       }
@@ -13947,13 +14117,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "your Mac already accepted the request; refresh workspaces before trying again"
+            "value": "Your Mac already accepted the request; refresh workspaces before trying again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macはリクエストをすでに受け付けています。ワークスペースを更新してから、もう一度お試しください"
+            "value": "Macはリクエストをすでに受け付けています。ワークスペースを更新してから、もう一度お試しください。"
           }
         }
       }
@@ -13964,13 +14134,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "was not authorized by your Mac"
+            "value": "Your Mac didn't authorize the request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac で認証されませんでした"
+            "value": "Mac で認証されませんでした。"
           }
         }
       }
@@ -13981,13 +14151,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "was not authorized by %@"
+            "value": "%@ didn't authorize the request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ で認証されませんでした"
+            "value": "%@ で認証されませんでした。"
           }
         }
       }
@@ -13998,13 +14168,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "another workspace action is still finishing"
+            "value": "Another workspace action is still finishing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のワークスペース操作がまだ完了中です"
+            "value": "別のワークスペース操作がまだ完了していません。"
           }
         }
       }
@@ -14015,13 +14185,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ is finishing another workspace action"
+            "value": "%@ is finishing another workspace action."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が別のワークスペース操作を完了しています"
+            "value": "%@ が別のワークスペース操作を完了しています。"
           }
         }
       }
@@ -14032,13 +14202,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "the working directory isn't available on your Mac; choose another directory"
+            "value": "The working directory isn't available on your Mac; choose another directory."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac で作業ディレクトリを使用できません。別のディレクトリを選択してください"
+            "value": "Mac で作業ディレクトリを使用できません。別のディレクトリを選択してください。"
           }
         }
       }
@@ -14049,13 +14219,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "not connected to your Mac"
+            "value": "Not connected to your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac に接続されていません"
+            "value": "Mac に接続されていません。"
           }
         }
       }
@@ -14066,13 +14236,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "not connected to %@"
+            "value": "Not connected to %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ に接続されていません"
+            "value": "%@ に接続されていません。"
           }
         }
       }
@@ -14083,13 +14253,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "your Mac could not safely reserve the request"
+            "value": "Your Mac could not safely reserve the request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでリクエストを安全に予約できませんでした"
+            "value": "Macでリクエストを安全に予約できませんでした。"
           }
         }
       }
@@ -14100,13 +14270,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "was rejected by your Mac"
+            "value": "Your Mac rejected the request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac に拒否されました"
+            "value": "Mac に拒否されました。"
           }
         }
       }
@@ -14117,13 +14287,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "was rejected by %@"
+            "value": "%@ rejected the request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ に拒否されました"
+            "value": "%@ に拒否されました。"
           }
         }
       }
@@ -14134,13 +14304,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "timed out talking to your Mac"
+            "value": "The request to your Mac timed out."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac との通信がタイムアウトしました"
+            "value": "Mac との通信がタイムアウトしました。"
           }
         }
       }
@@ -14151,13 +14321,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "timed out talking to %@"
+            "value": "The request to %@ timed out."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ との通信がタイムアウトしました"
+            "value": "%@ との通信がタイムアウトしました。"
           }
         }
       }
@@ -14168,13 +14338,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "your Mac doesn't support that action"
+            "value": "Your Mac doesn't support that action."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac はその操作に対応していません"
+            "value": "Mac はその操作に対応していません。"
           }
         }
       }
@@ -14185,13 +14355,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ doesn't support that action"
+            "value": "%@ doesn't support that action."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ はその操作に対応していません"
+            "value": "%@ はその操作に対応していません。"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.titleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@できませんでした"
           }
         }
       }
