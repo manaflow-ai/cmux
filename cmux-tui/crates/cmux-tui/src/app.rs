@@ -13601,6 +13601,99 @@ mod tests {
     }
 
     #[test]
+    fn provider_workspace_policy_blocks_raw_mux_rename_and_close() {
+        let mux = Mux::new("managed-workspace-raw-mutation-test", SurfaceOptions::default());
+        let placement = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+
+        assert!(!mux.rename_workspace(placement.workspace, "raw rename".into()));
+        assert!(!mux.close_workspace(placement.workspace));
+        mux.with_state(|state| {
+            let workspace = state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == placement.workspace)
+                .unwrap();
+            assert_eq!(workspace.name, "work");
+        });
+    }
+
+    #[test]
+    fn missing_managed_descriptor_fails_closed_without_local_close() {
+        let mux = Mux::new("managed-workspace-missing-descriptor-test", SurfaceOptions::default());
+        let placement = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.machine_ui = Some(provider_machine_ui());
+
+        app.request_delete_workspace(placement.workspace);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|workspace| workspace.id == placement.workspace)
+        }));
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+        assert!(
+            app.status_message
+                .as_deref()
+                .is_some_and(|message| message.contains("managed workspace"))
+        );
+    }
+
+    #[test]
+    fn provider_failure_never_mutates_the_local_workspace_mirror() {
+        let mux = Mux::new("managed-workspace-provider-failure-test", SurfaceOptions::default());
+        let placement = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.machine_ui = Some(provider_machine_ui_with_lifecycle());
+        app.machine_controller = Some(Box::new(FakeMachineController {
+            actions: VecDeque::from([
+                FakeMachineAction::Fail("provider rename failed"),
+                FakeMachineAction::Fail("provider delete failed"),
+            ]),
+            requests: Arc::new(Mutex::new(Vec::new())),
+        }));
+
+        app.request_rename_managed_workspace(placement.workspace, "renamed".into());
+        app.process_machine_requests();
+        app.request_delete_workspace(placement.workspace);
+        app.process_machine_requests();
+
+        mux.with_state(|state| {
+            let workspace = state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == placement.workspace)
+                .unwrap();
+            assert_eq!(workspace.name, "work");
+        });
+        assert!(!app.session.has_pending_mutations());
+    }
+
+    #[test]
     fn recoverable_workspace_is_mouse_visible_and_keyboard_restorable() {
         let mux = Mux::new("recoverable-workspace-rail-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
