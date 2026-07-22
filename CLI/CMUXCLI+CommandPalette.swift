@@ -146,7 +146,8 @@ extension CMUXCLI {
             localized: "cli.vscode.openQueued",
             defaultValue: "Queued for VS Code (Inline):"
         )
-        print("\(prefix) \((payload["path"] as? String) ?? absolutePath)")
+        let path = (payload["path"] as? String) ?? absolutePath
+        print("\(prefix) \(Self.sanitizeForTerminal(path))")
     }
 
     private func runPaletteAction(

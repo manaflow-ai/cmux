@@ -9277,10 +9277,7 @@ struct ContentView: View {
         invocation: CmuxActionInvocation
     ) -> CmuxActionExecutionResult {
         let result = command.execute(invocation)
-        if CommandPaletteUsageRecordingPolicy.shouldRecord(
-            source: invocation.source,
-            result: result
-        ) {
+        if result.shouldRecordCommandPaletteUsage(for: invocation.source) {
             recordCommandPaletteUsage(command.id)
         }
         return result
