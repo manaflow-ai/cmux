@@ -44,28 +44,23 @@ struct FilePreviewReloadTests {
         #expect(!panel.isDirty)
     }
 
-    @Test("A sibling write does not reload a file preview")
-    func siblingWriteDoesNotReloadPreview() async throws {
+    @Test("File preview change detection ignores unrelated sibling writes")
+    func fileStateTracksOnlyPreviewPath() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appending(path: "cmux-file-preview-state-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let fileURL = directoryURL.appending(path: "preview.bin")
-        let siblingURL = directoryURL.appending(path: "sibling.bin")
-        try Data([0x00]).write(to: fileURL)
-        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
-        defer { panel.close() }
-        let (revisions, continuation) = AsyncStream.makeStream(of: Int.self)
-        let observation = panel.$previewRevision.dropFirst().sink { continuation.yield($0) }
-        defer {
-            observation.cancel()
-            continuation.finish()
-        }
+        let fileURL = directoryURL.appending(path: "preview.txt")
+        let siblingURL = directoryURL.appending(path: "sibling.txt")
+        try "before\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let originalState = FilePreviewFileState.capture(path: fileURL.path)
 
-        try Data([0x01]).write(to: siblingURL)
+        try "sibling\n".write(to: siblingURL, atomically: true, encoding: .utf8)
+        #expect(FilePreviewFileState.capture(path: fileURL.path) == originalState)
 
-        #expect(await firstValue(in: revisions, timeout: .seconds(1)) == nil)
+        try "after with a different size\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        #expect(FilePreviewFileState.capture(path: fileURL.path) != originalState)
     }
 
     @Test("The manual refresh path reloads a text preview")
@@ -222,38 +217,10 @@ struct FilePreviewReloadTests {
         }
     }
 
-    private func firstValue<Element: Sendable>(
-        in values: AsyncStream<Element>,
-        timeout: Duration
-    ) async -> Element? {
-        await withTaskGroup(of: Element?.self) { group in
-            group.addTask { await values.first(where: { _ in true }) }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
-                return nil
-            }
-            let value = await group.next() ?? nil
-            group.cancelAll()
-            return value
-        }
-    }
-
     private func firstMatch(_ expected: String, in changes: AsyncStream<String>) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await content in changes where content == expected {
-                    return true
-                }
-                return false
-            }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(3))
-                return false
-            }
-
-            let matched = await group.next() ?? false
-            group.cancelAll()
-            return matched
+        for await content in changes where content == expected {
+            return true
         }
+        return false
     }
 }
