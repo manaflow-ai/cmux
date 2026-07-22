@@ -42,10 +42,10 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
     func controlCommandPaletteList(
         routing: ControlRoutingSelectors
     ) -> ControlCommandPaletteListResolution {
-        guard let (windowID, handler) = controlCommandPaletteTarget(routing: routing) else {
+        guard let (windowID, target, handler) = controlCommandPaletteTarget(routing: routing) else {
             return .windowNotFound
         }
-        let request = CommandPaletteControlRequest(operation: .list)
+        let request = CommandPaletteControlRequest(target: target, operation: .list)
         handler(request)
         guard case .listed(let commands)? = request.result else {
             return .windowNotFound
@@ -59,10 +59,11 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         arguments: [String: String],
         workingDirectory: String?
     ) -> ControlCommandPaletteRunResolution {
-        guard let (windowID, handler) = controlCommandPaletteTarget(routing: routing) else {
+        guard let (windowID, target, handler) = controlCommandPaletteTarget(routing: routing) else {
             return .windowNotFound
         }
         let request = CommandPaletteControlRequest(
+            target: target,
             operation: .run(
                 commandID: commandID,
                 arguments: arguments,
@@ -156,30 +157,143 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
             return .vscodeUnavailable
         }
+        let windowID = AppDelegate.shared?.windowId(for: tabManager)
+            ?? v2ResolveWindowId(tabManager: tabManager)
+        guard let actionTarget = controlCommandPaletteActionTarget(
+            routing: routing,
+            tabManager: tabManager,
+            windowID: windowID
+        ) else {
+            return .workspaceNotFound
+        }
         guard AppDelegate.shared?.openDirectoryInInlineVSCode(
             URL(fileURLWithPath: directoryPath, isDirectory: true),
             tabManager: tabManager,
-            workspaceID: workspace.id
+            workspaceID: workspace.id,
+            panelID: actionTarget.panelID
         ) == true else {
             return .openFailed
         }
         return .accepted(
-            windowID: AppDelegate.shared?.windowId(for: tabManager) ?? v2ResolveWindowId(tabManager: tabManager),
+            windowID: windowID,
             workspaceID: workspace.id
         )
     }
 
     private func controlCommandPaletteTarget(
         routing: ControlRoutingSelectors
-    ) -> (windowID: UUID, handler: (CommandPaletteControlRequest) -> Void)? {
+    ) -> (
+        windowID: UUID,
+        target: CommandPaletteActionTarget,
+        handler: (CommandPaletteControlRequest) -> Void
+    )? {
         guard let tabManager = resolveTabManager(routing: routing),
               controlPaletteSelectorsBelongToTarget(routing, tabManager: tabManager),
               let app = AppDelegate.shared,
               let context = app.mainWindowContext(for: tabManager),
+              let target = controlCommandPaletteActionTarget(
+                routing: routing,
+                tabManager: tabManager,
+                windowID: context.windowId
+              ),
               let handler = context.commandPaletteControlHandler else {
             return nil
         }
-        return (context.windowId, handler)
+        return (context.windowId, target, handler)
+    }
+
+    /// Collapses every selector into one immutable workspace/panel identity.
+    /// Contradictory selectors fail closed instead of letting a higher-level
+    /// window route silently retarget a lower-level action.
+    private func controlCommandPaletteActionTarget(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager,
+        windowID: UUID
+    ) -> CommandPaletteActionTarget? {
+        var workspaceCandidates: [Workspace] = []
+        var explicitPanelID: UUID?
+        var groupAnchor: Workspace?
+
+        if routing.hasGroupIDParam {
+            guard let groupID = routing.groupID,
+                  let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }),
+                  let anchor = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else {
+                return nil
+            }
+            groupAnchor = anchor
+        }
+
+        if routing.hasWorkspaceIDParam {
+            guard let workspaceID = routing.workspaceID else { return nil }
+            let resolution = controlPaletteWorkspaceResolution(
+                workspaceID: workspaceID,
+                tabManager: tabManager
+            )
+            guard resolution.belongsToTarget, let workspace = resolution.workspace else { return nil }
+            workspaceCandidates.append(workspace)
+        }
+
+        if routing.hasSurfaceIDParam {
+            guard let surfaceID = routing.surfaceID else { return nil }
+            if windowDockContainingPanel(surfaceID) != nil {
+                guard let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first else { return nil }
+                workspaceCandidates.append(workspace)
+            } else {
+                guard let workspace = tabManager.tabs.first(where: { $0.panels[surfaceID] != nil }) else {
+                    return nil
+                }
+                workspaceCandidates.append(workspace)
+                explicitPanelID = surfaceID
+            }
+        }
+
+        if routing.hasPaneIDParam {
+            guard let paneID = routing.paneID else { return nil }
+            if windowDockContainingPane(paneID) != nil {
+                guard let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first else { return nil }
+                workspaceCandidates.append(workspace)
+            } else {
+                guard let located = v2LocatePane(paneID),
+                      located.tabManager === tabManager else {
+                    return nil
+                }
+                if let explicitPanelID {
+                    guard located.workspace.paneId(forPanelId: explicitPanelID)?.id == paneID else {
+                        return nil
+                    }
+                } else {
+                    guard let panePanelID = located.workspace.effectiveSelectedPanelId(inPane: located.paneId) else {
+                        return nil
+                    }
+                    explicitPanelID = panePanelID
+                }
+                workspaceCandidates.append(located.workspace)
+            }
+        }
+
+        let workspace = workspaceCandidates.first
+            ?? groupAnchor
+            ?? tabManager.selectedWorkspace
+            ?? tabManager.tabs.first
+        if let workspace,
+           workspaceCandidates.contains(where: { $0.id != workspace.id }) {
+            return nil
+        }
+        if let groupID = routing.groupID,
+           let workspace,
+           workspace.groupId != groupID {
+            return nil
+        }
+        if let explicitPanelID,
+           workspace?.panels[explicitPanelID] == nil {
+            return nil
+        }
+
+        return CommandPaletteActionTarget(
+            windowID: windowID,
+            workspaceID: workspace?.id,
+            panelID: explicitPanelID ?? workspace?.focusedPanelId
+        )
     }
 
     /// Palette actions are window-scoped, but lower-precedence selectors still

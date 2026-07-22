@@ -22,10 +22,12 @@ final class CommandPaletteControlRequest {
     typealias Item = CommandPaletteControlRequestItem
     typealias Result = CommandPaletteControlRequestResult
 
+    let target: CommandPaletteActionTarget
     let operation: Operation
     private(set) var result: Result?
 
-    init(operation: Operation) {
+    init(target: CommandPaletteActionTarget, operation: Operation) {
+        self.target = target
         self.operation = operation
     }
 

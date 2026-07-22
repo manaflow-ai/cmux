@@ -15,7 +15,9 @@ extension TabManager {
     func moveSelectedWorkspace(by offset: Int) -> Bool {
         guard let workspace = selectedWorkspace,
               reorderWorkspace(tabId: workspace.id, by: offset) else { return false }
-        selectWorkspace(workspace)
+        if CommandPaletteActionTargetScope.current == nil {
+            selectWorkspace(workspace)
+        }
         return true
     }
 }

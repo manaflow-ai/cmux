@@ -754,6 +754,10 @@ class TabManager: ObservableObject {
     }
 
     var selectedWorkspace: Workspace? {
+        if let target = CommandPaletteActionTargetScope.current {
+            guard let workspaceID = target.workspaceID else { return nil }
+            return tabs.first(where: { $0.id == workspaceID })
+        }
         guard let selectedTabId else { return nil }
         return tabs.first(where: { $0.id == selectedTabId })
     }
@@ -3500,7 +3504,7 @@ class TabManager: ObservableObject {
     }
 
     func selectNextTab() {
-        guard let currentId = selectedTabId,
+        guard let currentId = selectedWorkspace?.id,
               let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
         let nextIndex = (currentIndex + 1) % tabs.count
 #if DEBUG
@@ -3520,7 +3524,7 @@ class TabManager: ObservableObject {
     }
 
     func selectPreviousTab() {
-        guard let currentId = selectedTabId,
+        guard let currentId = selectedWorkspace?.id,
               let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
         let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
 #if DEBUG
@@ -3722,7 +3726,7 @@ class TabManager: ObservableObject {
     /// Create a new split in the current tab
     @discardableResult
     func createSplit(direction: SplitDirection) -> UUID? {
-        guard let selectedTabId,
+        guard let selectedTabId = selectedWorkspace?.id,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
         return createSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
@@ -3741,7 +3745,7 @@ class TabManager: ObservableObject {
     /// Create a new browser split from the currently focused panel.
     @discardableResult
     func createBrowserSplit(direction: SplitDirection, url: URL? = nil) -> UUID? {
-        guard let selectedTabId,
+        guard let selectedTabId = selectedWorkspace?.id,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
         tab.clearSplitZoom()
@@ -4004,20 +4008,25 @@ class TabManager: ObservableObject {
         url: URL? = nil,
         preferSplitRight: Bool = false,
         preferredProfileID: UUID? = nil,
-        insertAtEnd: Bool = false
+        insertAtEnd: Bool = false,
+        sourcePanelID: UUID? = nil,
+        selectWorkspace: Bool = true
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
-        if selectedTabId != tabId {
+        if selectWorkspace,
+           CommandPaletteActionTargetScope.current == nil,
+           selectedTabId != tabId {
             selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
         }
+        let shouldFocusCreatedPanel = selectedTabId == tabId
 
         if preferSplitRight {
             if let targetPaneId = workspace.topRightBrowserReusePane(),
                let browserPanel = workspace.newBrowserSurface(
                    inPane: targetPaneId,
                    url: url,
-                   focus: true,
+                   focus: shouldFocusCreatedPanel,
                    insertAtEnd: insertAtEnd,
                    preferredProfileID: preferredProfileID
                ) {
@@ -4026,6 +4035,9 @@ class TabManager: ObservableObject {
             }
 
             let splitSourcePanelId: UUID? = {
+                if let sourcePanelID, workspace.panels[sourcePanelID] != nil {
+                    return sourcePanelID
+                }
                 if let focusedPanelId = workspace.focusedPanelId,
                    workspace.panels[focusedPanelId] != nil {
                     return focusedPanelId
@@ -4046,18 +4058,27 @@ class TabManager: ObservableObject {
                    orientation: .horizontal,
                    url: url,
                    preferredProfileID: preferredProfileID,
-                   focus: true
+                   focus: shouldFocusCreatedPanel
                ) {
                 rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
                 return browserPanel.id
             }
         }
 
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+        let explicitPaneID = sourcePanelID.flatMap { workspace.paneId(forPanelId: $0) }
+        let scopedPaneID = CommandPaletteActionTargetScope.current.flatMap { target -> PaneID? in
+            guard target.workspaceID == workspace.id,
+                  let panelID = target.panelID else { return nil }
+            return workspace.paneId(forPanelId: panelID)
+        }
+        guard let paneId = explicitPaneID
+                ?? scopedPaneID
+                ?? workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first,
               let browserPanel = workspace.newBrowserSurface(
                   inPane: paneId,
                   url: url,
-                  focus: true,
+                  focus: shouldFocusCreatedPanel,
                   insertAtEnd: insertAtEnd,
                   preferredProfileID: preferredProfileID
               ) else {
@@ -4074,7 +4095,7 @@ class TabManager: ObservableObject {
         preferredProfileID: UUID? = nil,
         insertAtEnd: Bool = false
     ) -> UUID? {
-        guard let tabId = selectedTabId else { return nil }
+        guard let tabId = selectedWorkspace?.id else { return nil }
         return openBrowser(
             inWorkspace: tabId,
             url: url,

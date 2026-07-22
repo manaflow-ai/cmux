@@ -43,6 +43,12 @@ extension Workspace {
             _ = selectAdjacentCanvasTab(offset: 1)
             return
         }
+        if let target = CommandPaletteActionTargetScope.current,
+           target.workspaceID == id,
+           let panelID = target.panelID,
+           selectCommandPaletteAdjacentSurface(from: panelID, offset: 1) {
+            return
+        }
         bonsplitController.selectNextTab()
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -58,12 +64,34 @@ extension Workspace {
             _ = selectAdjacentCanvasTab(offset: -1)
             return
         }
+        if let target = CommandPaletteActionTargetScope.current,
+           target.workspaceID == id,
+           let panelID = target.panelID,
+           selectCommandPaletteAdjacentSurface(from: panelID, offset: -1) {
+            return
+        }
         bonsplitController.selectPreviousTab()
 
         if let paneId = bonsplitController.focusedPaneId,
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
+    }
+
+    /// Selects relative to the immutable action panel without moving focus to
+    /// that pane first. The target pane's tab selection changes because that is
+    /// the action's result; the visible workspace selection does not.
+    private func selectCommandPaletteAdjacentSurface(from panelID: UUID, offset: Int) -> Bool {
+        guard let paneID = paneId(forPanelId: panelID),
+              let surfaceID = surfaceIdFromPanelId(panelID) else { return false }
+        let tabs = bonsplitController.tabs(inPane: paneID)
+        guard let index = tabs.firstIndex(where: { $0.id == surfaceID }), !tabs.isEmpty else {
+            return false
+        }
+        let targetIndex = (index + offset + tabs.count) % tabs.count
+        bonsplitController.selectTab(tabs[targetIndex].id)
+        applyTabSelection(tabId: tabs[targetIndex].id, inPane: paneID)
+        return true
     }
 
     /// Moves the selected surface within its focused split or Canvas pane

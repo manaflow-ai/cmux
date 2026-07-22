@@ -5656,10 +5656,12 @@ struct ContentView: View {
         )
     }
     private func resolveCommandPaletteTerminalOpenTargets(
-        for scope: CommandPaletteListScope
+        for scope: CommandPaletteListScope,
+        target: CommandPaletteActionTarget? = nil
     ) -> Set<TerminalDirectoryOpenTarget> {
+        let actionTarget = target ?? currentCommandPaletteActionTarget()
         guard scope == .commands,
-              focusedPanelContext?.panel.panelType == .terminal else {
+              commandPalettePanelContext(for: actionTarget)?.panel.panelType == .terminal else {
             return []
         }
         return TerminalDirectoryOpenTarget.availableTargets()
@@ -6569,10 +6571,14 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsContext(
-        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
+        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>,
+        target: CommandPaletteActionTarget? = nil
     ) -> CommandPaletteCommandsContext {
         let cliInstalledInPATH = AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false
-        var snapshot = commandPaletteContextSnapshot(terminalOpenTargets: terminalOpenTargets)
+        var snapshot = commandPaletteContextSnapshot(
+            terminalOpenTargets: terminalOpenTargets,
+            target: target
+        )
         snapshot.setBool(CommandPaletteContextKeys.cliInstalledInPATH, cliInstalledInPATH)
         snapshot.setBool(
             CommandPaletteContextKeys.defaultTerminalIsDefault,
@@ -6598,12 +6604,14 @@ struct ContentView: View {
     }
 
     private func commandPaletteActionRegistry(
-        commandsContext: CommandPaletteCommandsContext
+        commandsContext: CommandPaletteCommandsContext,
+        target: CommandPaletteActionTarget? = nil
     ) -> CmuxActionRegistry {
+        let actionTarget = target ?? currentCommandPaletteActionTarget()
         let context = commandsContext.snapshot
         let contributions = commandPaletteCommandContributions()
         var handlerRegistry = CommandPaletteHandlerRegistry()
-        registerCommandPaletteHandlers(&handlerRegistry)
+        registerCommandPaletteHandlers(&handlerRegistry, target: actionTarget)
 
         var actionRegistry = CmuxActionRegistry()
         var nextRank = 0
@@ -6619,6 +6627,11 @@ struct ContentView: View {
                 assertionFailure("No command palette handler registered for \(contribution.commandId)")
                 continue
             }
+            let targetedAction: CmuxActionHandler = { invocation in
+                CommandPaletteActionTargetScope.$current.withValue(actionTarget) {
+                    action(invocation)
+                }
+            }
             let command = CommandPaletteCommand(
                 id: contribution.commandId,
                 rank: nextRank,
@@ -6631,7 +6644,7 @@ struct ContentView: View {
                     : contribution.keywords,
                 dismissOnRun: contribution.dismissOnRun,
                 arguments: contribution.arguments,
-                handler: action
+                handler: targetedAction
             )
             guard actionRegistry.register(command) else {
 #if DEBUG
@@ -6646,9 +6659,20 @@ struct ContentView: View {
     }
 
     private func handleCommandPaletteControlRequest(_ request: CommandPaletteControlRequest) {
-        let terminalOpenTargets = resolveCommandPaletteTerminalOpenTargets(for: .commands)
+        guard request.target.windowID == windowId else {
+            request.complete(.commandNotFound)
+            return
+        }
+        let terminalOpenTargets = resolveCommandPaletteTerminalOpenTargets(
+            for: .commands,
+            target: request.target
+        )
         let actionRegistry = commandPaletteActionRegistry(
-            commandsContext: commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
+            commandsContext: commandPaletteCommandsContext(
+                terminalOpenTargets: terminalOpenTargets,
+                target: request.target
+            ),
+            target: request.target
         )
         switch request.operation {
         case .list:
@@ -6759,8 +6783,10 @@ struct ContentView: View {
     }
 
     private func commandPaletteContextSnapshot(
-        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil
+        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil,
+        target: CommandPaletteActionTarget? = nil
     ) -> CommandPaletteContextSnapshot {
+        let actionTarget = target ?? currentCommandPaletteActionTarget()
         var snapshot = CommandPaletteContextSnapshot()
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, currentIsMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
@@ -6774,7 +6800,7 @@ struct ContentView: View {
             )
         }
 
-        if let workspace = tabManager.selectedWorkspace {
+        if let workspace = commandPaletteWorkspace(for: actionTarget) {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
@@ -6811,7 +6837,7 @@ struct ContentView: View {
             )
         }
 
-        if let panelContext = focusedPanelContext {
+        if let panelContext = commandPalettePanelContext(for: actionTarget) {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
@@ -8195,7 +8221,10 @@ struct ContentView: View {
         }
     }
 
-    private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+    private func registerCommandPaletteHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        target: CommandPaletteActionTarget
+    ) {
         registry.register(commandId: "palette.newWorkspace") {
             AppDelegate.shared?.performNewWorkspaceAction(
                 tabManager: tabManager,
@@ -8205,7 +8234,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.newBrowserWorkspace") {
             // Let command-palette dismissal complete first so omnibar focus
             // is not blocked by the palette visibility guard.
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 _ = AppDelegate.shared?.performNewBrowserWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "palette.newBrowserWorkspace"
@@ -8242,12 +8271,18 @@ struct ContentView: View {
                 }
                 let didQueue = AppDelegate.shared?.openDirectoryInInlineVSCode(
                     directoryURL,
-                    tabManager: tabManager
+                    tabManager: tabManager,
+                    workspaceID: target.workspaceID,
+                    panelID: target.panelID
                 ) == true
                 return Self.commandPaletteInlineVSCodeOpenResult(didQueue: didQueue)
             }
             Task { @MainActor in
-                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
+                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(
+                    tabManager: tabManager,
+                    workspaceID: target.workspaceID,
+                    panelID: target.panelID
+                )
             }
             return .presented
         }
@@ -8277,7 +8312,7 @@ struct ContentView: View {
             }
             // Let command-palette dismissal complete first so omnibar focus
             // is not blocked by the palette visibility guard.
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard let appDelegate = AppDelegate.shared,
                       appDelegate.liveMainWindowContextForAction(tabManager: tabManager)?.windowId == windowId else {
                     return
@@ -8286,10 +8321,21 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.closeTab") {
-            tabManager.closeCurrentPanelWithConfirmation()
+            guard let panelContext = commandPalettePanelContext(for: target) else {
+                NSSound.beep()
+                return
+            }
+            tabManager.closePanelWithConfirmation(
+                tabId: panelContext.workspace.id,
+                surfaceId: panelContext.panelId
+            )
         }
         registry.register(commandId: "palette.closeWorkspace") {
-            tabManager.closeCurrentWorkspaceWithConfirmation()
+            guard let workspace = commandPaletteWorkspace(for: target) else {
+                NSSound.beep()
+                return
+            }
+            _ = tabManager.closeWorkspaceWithConfirmation(workspace)
         }
         registry.register(commandId: "palette.closeWindow") {
             guard let window = commandPaletteTargetWindow else {
@@ -8531,7 +8577,9 @@ struct ContentView: View {
                 return
             }
             tabManager.moveTabsToTop([workspace.id])
-            tabManager.selectWorkspace(workspace)
+            if CommandPaletteActionTargetScope.current == nil {
+                tabManager.selectWorkspace(workspace)
+            }
         }
         WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
         registry.register(commandId: "palette.closeOtherWorkspaces") {
@@ -8614,7 +8662,7 @@ struct ContentView: View {
             tabManager.selectPreviousSurface()
         }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 if !openWorkspacePullRequestsInConfiguredBrowser() {
                     NSSound.beep()
                 }
@@ -8898,6 +8946,34 @@ struct ContentView: View {
     private func configuredActionBaseCwd() -> String {
         tabManager.selectedWorkspace?.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func currentCommandPaletteActionTarget() -> CommandPaletteActionTarget {
+        let workspace = tabManager.selectedWorkspace
+        return CommandPaletteActionTarget(
+            windowID: windowId,
+            workspaceID: workspace?.id,
+            panelID: workspace?.focusedPanelId
+        )
+    }
+
+    private func commandPaletteWorkspace(for target: CommandPaletteActionTarget) -> Workspace? {
+        guard target.windowID == windowId,
+              let workspaceID = target.workspaceID else {
+            return nil
+        }
+        return tabManager.tabs.first(where: { $0.id == workspaceID })
+    }
+
+    private func commandPalettePanelContext(
+        for target: CommandPaletteActionTarget
+    ) -> (workspace: Workspace, panelId: UUID, panel: any Panel)? {
+        guard let workspace = commandPaletteWorkspace(for: target),
+              let panelID = target.panelID,
+              let panel = workspace.panels[panelID] else {
+            return nil
+        }
+        return (workspace, panelID, panel)
     }
 
     var focusedPanelContext: (workspace: Workspace, panelId: UUID, panel: any Panel)? {
@@ -10193,7 +10269,13 @@ struct ContentView: View {
     }
 
     private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
+        let target = CommandPaletteActionTargetScope.current
+        return AppDelegate.shared?.openDirectoryInInlineVSCode(
+            directoryURL,
+            tabManager: tabManager,
+            workspaceID: target?.workspaceID,
+            panelID: target?.panelID
+        ) ?? false
     }
 
     private func stopInlineVSCodeServeWeb() {

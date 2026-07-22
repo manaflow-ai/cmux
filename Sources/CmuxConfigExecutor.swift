@@ -117,6 +117,9 @@ struct CmuxConfigExecutor {
         let target = action.terminalCommandTarget ?? .newTabInCurrentPane
         let targetTerminal = (target == .currentTerminal) ? tabManager.selectedWorkspace?.focusedTerminalPanel : nil
         let targetWorkspace = (target == .newTabInCurrentPane) ? tabManager.selectedWorkspace : nil
+        let targetPaneID = targetWorkspace.flatMap { workspace in
+            workspace.focusedPanelId.flatMap { workspace.paneId(forPanelId: $0) }
+        }
         return prepareShellInputIfAuthorized(
             command,
             confirm: action.confirm ?? false,
@@ -134,7 +137,16 @@ struct CmuxConfigExecutor {
                 targetTerminal?.sendInput(shellInput)
             case .newTabInCurrentPane:
                 targetWorkspace?.clearSplitZoom()
-                targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+                if let targetPaneID {
+                    targetWorkspace?.newTerminalSurface(
+                        inPane: targetPaneID,
+                        focus: true,
+                        initialInput: shellInput,
+                        inheritWorkingDirectoryFallback: true
+                    )
+                } else {
+                    targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+                }
             }
             onExecuted?()
         }

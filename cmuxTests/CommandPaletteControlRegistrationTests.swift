@@ -393,6 +393,27 @@ struct CommandPaletteControlRegistrationTests {
         )
     }
 
+    @Test func actionTargetScopeOverridesAccessorsWithoutMutatingSelection() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let selectedWorkspace = try #require(tabManager.tabs.first)
+        let targetWorkspace = tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let targetPanelID = try #require(targetWorkspace.panels.keys.first)
+        let selectedPanelID = selectedWorkspace.focusedPanelId
+        let target = CommandPaletteActionTarget(
+            windowID: UUID(),
+            workspaceID: targetWorkspace.id,
+            panelID: targetPanelID
+        )
+
+        CommandPaletteActionTargetScope.$current.withValue(target) {
+            #expect(tabManager.selectedWorkspace?.id == targetWorkspace.id)
+            #expect(targetWorkspace.focusedPanelId == targetPanelID)
+        }
+
+        #expect(tabManager.selectedWorkspace?.id == selectedWorkspace.id)
+        #expect(selectedWorkspace.focusedPanelId == selectedPanelID)
+    }
+
     @Test func windowDockWorkspaceRoutingUsesTheOwningWindowSelection() throws {
         let previousAppDelegate = AppDelegate.shared
         let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()

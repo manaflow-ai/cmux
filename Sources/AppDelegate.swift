@@ -7808,8 +7808,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func currentCloudVMId(tabManager: TabManager) -> String? {
-        guard let workspaceId = tabManager.selectedTabId,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+        guard let workspace = tabManager.selectedWorkspace,
               let vmID = workspace.remoteConfiguration?.managedCloudVMID?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !vmID.isEmpty else {
@@ -7938,8 +7937,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func workspaceGroupNewWorkspaceTarget(in context: MainWindowContext) -> WorkspaceGroupNewWorkspaceTarget? {
         let tabManager = context.tabManager
-        guard let selectedWorkspaceId = tabManager.selectedTabId,
-              let selectedWorkspace = tabManager.tabs.first(where: { $0.id == selectedWorkspaceId }),
+        guard let selectedWorkspace = tabManager.selectedWorkspace,
               let groupId = selectedWorkspace.groupId,
               let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
             return nil
@@ -7948,7 +7946,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
         return WorkspaceGroupNewWorkspaceTarget(
             groupId: groupId,
-            referenceWorkspaceId: selectedWorkspaceId,
+            referenceWorkspaceId: selectedWorkspace.id,
             placement: configured
                 ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         )
@@ -7996,7 +7994,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func openDirectoryInInlineVSCode(
         _ directoryURL: URL,
         tabManager preferredTabManager: TabManager? = nil,
-        workspaceID preferredWorkspaceID: UUID? = nil
+        workspaceID preferredWorkspaceID: UUID? = nil,
+        panelID preferredPanelID: UUID? = nil
     ) -> Bool {
         guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
@@ -8034,7 +8033,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard targetTabs.openBrowser(
                 inWorkspace: targetWorkspaceId,
                 url: openFolderURL,
-                preferSplitRight: true
+                preferSplitRight: true,
+                sourcePanelID: preferredPanelID,
+                selectWorkspace: false
             ) != nil else {
                 NSSound.beep()
                 return
@@ -8044,7 +8045,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
+    func showOpenFolderInInlineVSCodePanel(
+        tabManager preferredTabManager: TabManager? = nil,
+        workspaceID preferredWorkspaceID: UUID? = nil,
+        panelID preferredPanelID: UUID? = nil
+    ) {
         guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
             NSSound.beep()
             return
@@ -8076,7 +8081,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if panel.runModal() == .OK,
            let url = panel.url,
-           !openDirectoryInInlineVSCode(url, tabManager: targetTabManager) {
+           !openDirectoryInInlineVSCode(
+                url,
+                tabManager: targetTabManager,
+                workspaceID: preferredWorkspaceID,
+                panelID: preferredPanelID
+           ) {
             NSSound.beep()
         }
     }
@@ -14456,6 +14466,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return nil
         }
+        if let scopedTarget = CommandPaletteActionTargetScope.current,
+           target?.selectedTabId != scopedTarget.workspaceID {
+            return panelId
+        }
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.openAndFocus result=open_ok panel=\(panelId.uuidString.prefix(5)) " +
@@ -14866,6 +14880,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performSplitShortcut(direction: SplitDirection, preferredWindow: NSWindow? = nil) -> Bool {
+        if let target = CommandPaletteActionTargetScope.current,
+           let workspaceID = target.workspaceID,
+           let panelID = target.panelID,
+           let targetManager = tabManagerFor(windowId: target.windowID),
+           let workspace = targetManager.tabs.first(where: { $0.id == workspaceID }),
+           workspace.panels[panelID] != nil {
+            if workspace.layoutMode == .canvas {
+                return workspace.openNewCanvasPane(
+                    type: .terminal,
+                    focus: true,
+                    direction: direction.canvasDirection
+                ) != nil
+            }
+            return targetManager.createSplit(
+                tabId: workspaceID,
+                surfaceId: panelID,
+                direction: direction
+            ) != nil
+        }
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
         _ = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)

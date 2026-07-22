@@ -4,6 +4,11 @@ extension TabManager {
     /// Returns the focused panel if it is a main-area or Dock browser.
     var focusedBrowserPanel: BrowserPanel? {
         guard let tab = selectedWorkspace else { return nil }
+        if let target = CommandPaletteActionTargetScope.current,
+           target.workspaceID == tab.id,
+           let panelID = target.panelID {
+            return tab.browserPanel(for: panelID)
+        }
         let window = NSApp.keyWindow ?? NSApp.mainWindow
         if let window, let responder = window.firstResponder {
             if let addressBarPanelId = AppDelegate.shared?.focusedBrowserAddressBarPanelId(),

@@ -2328,7 +2328,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// The currently focused pane's panel ID. Forwards to
     /// ``WorkspaceSurfaceListModel/focusedPanelId``.
     var focusedPanelId: UUID? {
-        surfaceList.focusedPanelId
+        if let target = CommandPaletteActionTargetScope.current,
+           target.workspaceID == id {
+            guard let panelID = target.panelID, panels[panelID] != nil else { return nil }
+            return panelID
+        }
+        return surfaceList.focusedPanelId
     }
 
     /// Panel ids in bonsplit's spatial order: depth-first over the split tree
@@ -9525,7 +9530,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
-        guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        let scopedPaneID = CommandPaletteActionTargetScope.current.flatMap { target -> PaneID? in
+            guard target.workspaceID == id,
+                  let panelID = target.panelID else { return nil }
+            return paneId(forPanelId: panelID)
+        }
+        guard let focusedPaneId = scopedPaneID ?? bonsplitController.focusedPaneId else { return nil }
         // In canvas mode, Cmd+T means "new tab in the focused canvas pane":
         // remember the anchor panel so the new one joins its pane instead of
         // floating as a separate canvas pane.

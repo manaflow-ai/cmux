@@ -722,6 +722,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DE7100C0DE7100C0DE7100 /* CodexTerminalErrorNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
+		C0DEB0A10000000000000015 /* CommandPaletteActionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEB0A10000000000000016 /* CommandPaletteActionTarget.swift */; };
+		C0DEB0A10000000000000017 /* CommandPaletteActionTargetScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEB0A10000000000000018 /* CommandPaletteActionTargetScope.swift */; };
 		C0DEB0A10000000000000011 /* CommandPaletteCloudActionArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEB0A10000000000000012 /* CommandPaletteCloudActionArgumentsTests.swift */; };
 		C0DEB0A10000000000000013 /* CommandPaletteControlRegistrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEB0A10000000000000014 /* CommandPaletteControlRegistrationTests.swift */; };
 		C0DEB0A10000000000000001 /* CommandPaletteControlRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEB0A10000000000000002 /* CommandPaletteControlRequest.swift */; };
@@ -2904,6 +2906,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsApprovalBridge.swift; sourceTree = "<group>"; };
 		C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTerminalErrorNotificationTests.swift; sourceTree = "<group>"; };
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
+		C0DEB0A10000000000000016 /* CommandPaletteActionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteActionTarget.swift; sourceTree = "<group>"; };
+		C0DEB0A10000000000000018 /* CommandPaletteActionTargetScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteActionTargetScope.swift; sourceTree = "<group>"; };
 		C0DEB0A10000000000000012 /* CommandPaletteCloudActionArgumentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteCloudActionArgumentsTests.swift; sourceTree = "<group>"; };
 		C0DEB0A10000000000000014 /* CommandPaletteControlRegistrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteControlRegistrationTests.swift; sourceTree = "<group>"; };
 		C0DEB0A10000000000000002 /* CommandPaletteControlRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteControlRequest.swift; sourceTree = "<group>"; };
@@ -4721,6 +4725,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */,
 					C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */,
 					A5001012 /* ContentView.swift */,
+					C0DEB0A10000000000000016 /* CommandPaletteActionTarget.swift */,
+					C0DEB0A10000000000000018 /* CommandPaletteActionTargetScope.swift */,
 					C0DEB0A10000000000000002 /* CommandPaletteControlRequest.swift */,
 					C0DEB0A1000000000000000A /* CommandPaletteControlRequestItem.swift */,
 					C0DEB0A1000000000000000C /* CommandPaletteControlRequestOperation.swift */,
@@ -7479,6 +7485,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
 				C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */,
+				C0DEB0A10000000000000015 /* CommandPaletteActionTarget.swift in Sources */,
+				C0DEB0A10000000000000017 /* CommandPaletteActionTargetScope.swift in Sources */,
 				C0DEB0A10000000000000001 /* CommandPaletteControlRequest.swift in Sources */,
 				C0DEB0A10000000000000009 /* CommandPaletteControlRequestItem.swift in Sources */,
 				C0DEB0A1000000000000000B /* CommandPaletteControlRequestOperation.swift in Sources */,
