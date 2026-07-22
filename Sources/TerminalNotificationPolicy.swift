@@ -218,6 +218,21 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.isAppFocused = isAppFocused
         self.isFocusedPanel = isFocusedPanel
     }
+
+    func replacingLocation(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> Self {
+        Self(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            cwd: cwd,
+            isAppFocused: isAppFocused,
+            isFocusedPanel: isFocusedPanel
+        )
+    }
 }
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
     let hookId: String

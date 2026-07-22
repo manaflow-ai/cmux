@@ -163,17 +163,28 @@ extension TerminalController: ControlNotificationContext {
     }
 
     func controlNotificationList() -> [ControlNotificationSnapshot] {
-        TerminalNotificationStore.shared.notifications.map { Self.controlSnapshot($0) }
+        controlNotificationList(limit: nil)
+    }
+
+    func controlNotificationList(limit: Int?) -> [ControlNotificationSnapshot] {
+        let notifications = TerminalNotificationStore.shared.notifications
+        let tabIDs = Set(notifications.map(\.tabId))
+        let tabTitles = Dictionary(uniqueKeysWithValues: tabIDs.compactMap { tabID in
+            AppDelegate.shared?.tabTitle(for: tabID).map { (tabID, $0) }
+        })
+        let source: AnySequence<TerminalNotification>
+        if let limit {
+            source = AnySequence(notifications.prefix(limit))
+        } else {
+            source = AnySequence(notifications)
+        }
+        return source.map {
+            Self.controlSnapshot($0, cachedTabTitle: tabTitles[$0.tabId])
+        }
     }
 
     func controlNotificationDismissAllRead() -> Int {
-        let readIds = TerminalNotificationStore.shared.notifications
-            .filter(\.isRead)
-            .map(\.id)
-        for id in readIds {
-            TerminalNotificationStore.shared.remove(id: id)
-        }
-        return readIds.count
+        TerminalNotificationStore.shared.removeReadNotifications()
     }
 
     func controlNotificationDismiss(id: UUID) -> ControlNotificationDismissResolution {
@@ -188,7 +199,7 @@ extension TerminalController: ControlNotificationContext {
 
     func controlNotificationMarkRead(id: UUID) -> ControlNotificationMarkReadResolution {
         let store = TerminalNotificationStore.shared
-        let before = store.notifications
+        let before = Array(store.notifications)
         guard before.contains(where: { $0.id == id }) else {
             return .notFound
         }
@@ -204,7 +215,7 @@ extension TerminalController: ControlNotificationContext {
         hasSurfaceSelector: Bool
     ) -> Int {
         let store = TerminalNotificationStore.shared
-        let before = store.notifications
+        let before = Array(store.notifications)
         if hasSurfaceSelector {
             store.markRead(forTabId: workspaceID, surfaceId: surfaceID)
         } else {
@@ -215,7 +226,7 @@ extension TerminalController: ControlNotificationContext {
 
     func controlNotificationMarkReadAll() -> Int {
         let store = TerminalNotificationStore.shared
-        let before = store.notifications
+        let before = Array(store.notifications)
         store.markAllRead()
         return Self.markedCount(before: before, store: store)
     }
@@ -312,13 +323,24 @@ extension TerminalController: ControlNotificationContext {
         return before.filter { !$0.isRead && afterById[$0.id] == true }.count
     }
 
-    /// Converts a `TerminalNotification` to the Sendable snapshot, pre-rendering
-    /// the ISO-8601 `created_at` and resolving the workspace tab title exactly as
-    /// the legacy `notificationPayload` builder did. The date rendering mirrors
-    /// the (file-private) `TerminalController.notificationCreatedAtString`.
+    /// Converts one notification for the single-row commands. Full-list reads
+    /// use the cached-title overload below so repeated notifications from one
+    /// workspace resolve that title only once.
     private static func controlSnapshot(
         _ notification: TerminalNotification,
         surfaceID: UUID? = nil
+    ) -> ControlNotificationSnapshot {
+        controlSnapshot(
+            notification,
+            surfaceID: surfaceID,
+            cachedTabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId)
+        )
+    }
+
+    private static func controlSnapshot(
+        _ notification: TerminalNotification,
+        surfaceID: UUID? = nil,
+        cachedTabTitle: String?
     ) -> ControlNotificationSnapshot {
         ControlNotificationSnapshot(
             id: notification.id,
@@ -327,18 +349,9 @@ extension TerminalController: ControlNotificationContext {
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
-            createdAtISO8601: notificationCreatedAtISO8601(notification.createdAt),
+            createdAt: notification.createdAt,
             isRead: notification.isRead,
-            tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId)
+            tabTitle: cachedTabTitle
         )
-    }
-
-    /// Byte-identical reproduction of the file-private
-    /// `TerminalController.notificationCreatedAtString`.
-    private static func notificationCreatedAtISO8601(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: date)
     }
 }

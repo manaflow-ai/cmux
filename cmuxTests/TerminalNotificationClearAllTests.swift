@@ -43,7 +43,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             return
         }
 
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Delivered",
@@ -92,14 +92,14 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
         )
 
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: firstPanelId,
             title: "Grok",
             subtitle: "Waiting",
             body: "First"
         )
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: secondPanel.id,
             title: "Grok",
@@ -260,6 +260,55 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertNil(workspace.agentPIDs[pidKey])
         XCTAssertTrue(workspace.agentListeningPorts.isEmpty)
         XCTAssertFalse(workspace.listeningPorts.contains(port))
+    }
+
+    func testStaleAgentPIDSweepPreservesNotificationHistory() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let notificationId = UUID()
+        store.addNotification(
+            id: notificationId,
+            acceptedAt: Date(timeIntervalSince1970: 1),
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: "Keep history",
+            subtitle: "",
+            body: "",
+            retargetsToLiveSurfaceOwner: false
+        )
+        workspace.recordAgentPID(
+            key: "codex.dead-stale-sweep",
+            pid: pid_t(999_999),
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        XCTAssertTrue(workspace.clearStaleAgentPIDs(panelId: panelId, refreshPorts: false))
+        XCTAssertEqual(store.notifications.map(\.id), [notificationId])
+        XCTAssertNil(workspace.agentPIDs["codex.dead-stale-sweep"])
     }
 
     func testClosingPanePreservesSharedAgentStatusForSiblingPanel() throws {

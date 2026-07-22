@@ -169,6 +169,25 @@ extension AppDelegate {
         return (owner.workspace.id, surfaceId)
     }
 
+    /// Once an event has been accepted under an already validated surface, a
+    /// pane disappearing must not erase its feed row. Unknown or never-owned
+    /// surface ids fail closed instead of being inferred as workspace-level
+    /// rows.
+    func agentNotificationRecordTarget(
+        claimedTabId: UUID,
+        surfaceId: UUID?,
+        allowWorkspaceFallbackForValidatedSurface: Bool = false
+    ) -> (tabId: UUID, surfaceId: UUID?)? {
+        if let target = agentNotificationDeliveryTarget(
+            claimedTabId: claimedTabId,
+            surfaceId: surfaceId
+        ) {
+            return target
+        }
+        guard allowWorkspaceFallbackForValidatedSurface, surfaceId != nil else { return nil }
+        return agentNotificationDeliveryTarget(claimedTabId: claimedTabId, surfaceId: nil)
+    }
+
     private func agentDeliveryTabManagers() -> [TabManager] {
         var managers: [TabManager] = []
         func append(_ manager: TabManager?) {

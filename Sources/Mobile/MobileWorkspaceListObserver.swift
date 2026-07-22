@@ -149,20 +149,20 @@ final class MobileWorkspaceListObserver {
         // Last-activity preview lines come from the notification store, which is
         // not part of the TabManager graph. A new notification (or a cleared one)
         // changes a row's preview + relative time without touching the tab set,
-        // groups, panels, or title, so observe `$notifications` to push it.
-        // Marking a notification read also flows through `$notifications` (the
-        // mutated element re-publishes the array), which the unread flag in the
-        // per-workspace signature turns into a hash change.
+        // groups, panels, or title, so observe `$notificationFeedRevision` to
+        // push it. Marking a notification read also advances the revision,
+        // which the unread flag in the per-workspace signature turns into a
+        // hash change.
         //
         // Ordering invariant: `@Published` emits from `willSet`, but every sink
-        // here reads the store's post-`didSet` state (latestNotification /
+        // here reads the store's post-mutation state (latestNotification /
         // unread indexes) rather than the emitted value. That is safe because
         // `throttle(for:scheduler: RunLoop.main)` always hops through the run
         // loop, so delivery happens after the assignment (and its `didSet`
         // index rebuild) completes; it never fires synchronously from
         // `willSet`. The pre-existing `$tabs` / `$selectedTabId` sinks rely on
         // the same property.
-        notificationsCancellable = notificationStore?.$notifications
+        notificationsCancellable = notificationStore?.$notificationFeedRevision
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)

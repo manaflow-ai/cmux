@@ -287,6 +287,219 @@ struct NotificationDismissSyncTests {
         #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [notification.id]) == [])
     }
 
+    /// Superseding a desktop/phone banner keeps the older unread row in the
+    /// chronological feed, but the phone must still learn that its old banner
+    /// was handled. Explicitly marking that row unread later resurrects it.
+    @Test func reconcileHandlesRetainedSupersededRowUntilExplicitlyMarkedUnread() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
+        let supersededKey = TerminalNotificationStore.retainedSupersededBannerDefaultsKey
+        let previousSuperseded = UserDefaults.standard.stringArray(forKey: supersededKey)
+        let supersededDeltaKey = TerminalNotificationStore.retainedSupersededBannerDeltaDefaultsKey
+        let previousSupersededDeltas = UserDefaults.standard.stringArray(forKey: supersededDeltaKey)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let older = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Older", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            store.resetNotificationDeliveryHandlerForTesting()
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            if let previousSuperseded {
+                UserDefaults.standard.set(previousSuperseded, forKey: supersededKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededKey)
+            }
+            if let previousSupersededDeltas {
+                UserDefaults.standard.set(previousSupersededDeltas, forKey: supersededDeltaKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+        }
+
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        UserDefaults.standard.removeObject(forKey: supersededKey)
+        UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
+        store.reloadDismissedTombstonesForTesting()
+        store.replaceNotificationsForTesting([older])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        AppFocusState.overrideIsFocused = false
+
+        store.addNotification(
+            acceptedAt: Date(timeIntervalSince1970: 1_778_000_001),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Replacement",
+            subtitle: "",
+            body: "body",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(store.notifications.contains { $0.id == older.id && !$0.isRead })
+        #expect(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [older.id])
+                == [older.id.uuidString]
+        )
+
+        store.markRead(id: older.id)
+        store.markUnread(id: older.id)
+        #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [older.id]) == [])
+    }
+
+    /// The short dismissed-ID ring is only a reconnect aid for removed rows.
+    /// Superseded state for retained unread rows must cover the whole retained
+    /// feed, or older retained phone banners resurrect after enough newer
+    /// supersessions overflow the ring.
+    @Test func reconcileHandlesRetainedSupersededRowAfterTombstoneOverflow() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
+        let supersededKey = TerminalNotificationStore.retainedSupersededBannerDefaultsKey
+        let previousSuperseded = UserDefaults.standard.stringArray(forKey: supersededKey)
+        let supersededDeltaKey = TerminalNotificationStore.retainedSupersededBannerDeltaDefaultsKey
+        let previousSupersededDeltas = UserDefaults.standard.stringArray(forKey: supersededDeltaKey)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let rows = (0..<520).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: UUID(),
+                title: "Older \(index)",
+                subtitle: "",
+                body: "body",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }
+        let oldestSuperseded = rows[0]
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            store.resetNotificationDeliveryHandlerForTesting()
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            if let previousSuperseded {
+                UserDefaults.standard.set(previousSuperseded, forKey: supersededKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededKey)
+            }
+            if let previousSupersededDeltas {
+                UserDefaults.standard.set(previousSupersededDeltas, forKey: supersededDeltaKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+        }
+
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        UserDefaults.standard.removeObject(forKey: supersededKey)
+        UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
+        store.reloadDismissedTombstonesForTesting()
+        store.replaceNotificationsForTesting(rows)
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        AppFocusState.overrideIsFocused = false
+
+        for (index, row) in rows.enumerated() {
+            store.addNotification(
+                acceptedAt: Date(timeIntervalSince1970: TimeInterval(10_000 + index)),
+                tabId: row.tabId,
+                surfaceId: row.surfaceId,
+                title: "Replacement \(index)",
+                subtitle: "",
+                body: "body",
+                retargetsToLiveSurfaceOwner: false
+            )
+        }
+
+        #expect(store.notifications.contains { $0.id == oldestSuperseded.id && !$0.isRead })
+        #expect(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [oldestSuperseded.id])
+                == [oldestSuperseded.id.uuidString]
+        )
+
+        store.markRead(id: oldestSuperseded.id)
+        store.markUnread(id: oldestSuperseded.id)
+        #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [oldestSuperseded.id]) == [])
+    }
+
+    /// The retained superseded-banner restart state is stored as a compact base
+    /// snapshot plus bounded add/remove deltas. Loading must apply both, and must
+    /// still understand the old snapshot-only key from earlier builds.
+    @Test func retainedSupersededBannerDeltaPersistenceSurvivesStoreReload() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let supersededKey = TerminalNotificationStore.retainedSupersededBannerDefaultsKey
+        let previousSuperseded = UserDefaults.standard.stringArray(forKey: supersededKey)
+        let supersededDeltaKey = TerminalNotificationStore.retainedSupersededBannerDeltaDefaultsKey
+        let previousSupersededDeltas = UserDefaults.standard.stringArray(forKey: supersededDeltaKey)
+        let deltaAdded = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Delta added", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        let snapshotOnly = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Snapshot only", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_001), isRead: false
+        )
+        let deltaRemoved = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Delta removed", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_002), isRead: false
+        )
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            if let previousSuperseded {
+                UserDefaults.standard.set(previousSuperseded, forKey: supersededKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededKey)
+            }
+            if let previousSupersededDeltas {
+                UserDefaults.standard.set(previousSupersededDeltas, forKey: supersededDeltaKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+        }
+
+        UserDefaults.standard.set(
+            [snapshotOnly.id.uuidString, deltaRemoved.id.uuidString],
+            forKey: supersededKey
+        )
+        UserDefaults.standard.set(
+            ["+\(deltaAdded.id.uuidString)", "-\(deltaRemoved.id.uuidString)"],
+            forKey: supersededDeltaKey
+        )
+        store.reloadDismissedTombstonesForTesting()
+        store.replaceNotificationsForTesting([deltaAdded, snapshotOnly, deltaRemoved])
+
+        #expect(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [deltaAdded.id])
+                == [deltaAdded.id.uuidString]
+        )
+        #expect(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [snapshotOnly.id])
+                == [snapshotOnly.id.uuidString]
+        )
+        #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [deltaRemoved.id]) == [])
+    }
+
     /// Dismiss tombstones are write-through persisted: a notification dismissed
     /// and fully removed before a Mac relaunch must still reconcile as handled
     /// afterwards, or a phone whose silent dismiss push was dropped would keep
@@ -371,6 +584,81 @@ struct NotificationDismissSyncTests {
 
         #expect(buffer.flushAll() == ["b1"])
         #expect(buffer.flushAll() == [])
+    }
+
+    @Test func supersededPhoneDismissBufferTransfersKeysAcrossSessionReplacement() {
+        var buffer = SupersededPhoneDismissBuffer()
+        let oldTabId = UUID()
+        let newTabId = UUID()
+        let oldSurfaceId = UUID()
+        let newSurfaceId = UUID()
+        let unmappedSurfaceId = UUID()
+        buffer.stash(
+            ids: ["old"],
+            forKey: SupersededPhoneDismissBuffer.key(tabId: oldTabId, surfaceId: oldSurfaceId)
+        )
+        buffer.stash(
+            ids: ["unmapped"],
+            forKey: SupersededPhoneDismissBuffer.key(tabId: oldTabId, surfaceId: unmappedSurfaceId)
+        )
+        buffer.stash(
+            ids: ["existing"],
+            forKey: SupersededPhoneDismissBuffer.key(tabId: newTabId, surfaceId: newSurfaceId)
+        )
+
+        buffer.transfer(
+            fromTabId: oldTabId,
+            toTabId: newTabId,
+            panelIdMap: [oldSurfaceId: newSurfaceId]
+        )
+
+        #expect(buffer.flush(matchingTabId: oldTabId) == [])
+        #expect(buffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(tabId: newTabId, surfaceId: newSurfaceId)
+        ) == ["existing", "old"])
+        #expect(buffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(tabId: newTabId, surfaceId: unmappedSurfaceId)
+        ) == ["unmapped"])
+    }
+
+    @Test func rowActionsFlushPhoneReplacementOnlyForNewestNotification() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let older = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Older", subtitle: "", body: "", createdAt: .distantPast, isRead: false
+        )
+        let newer = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Newer", subtitle: "", body: "", createdAt: .distantFuture, isRead: false
+        )
+        defer {
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId)
+            store.replaceNotificationsForTesting(previousNotifications)
+        }
+        store.replaceNotificationsForTesting([newer, older])
+        store.stashSupersededPhoneDismissIDsForTesting(
+            ["pending-newer-banner"], tabId: tabId, surfaceId: surfaceId
+        )
+
+        store.markRead(id: older.id)
+        store.remove(id: older.id)
+
+        #expect(
+            store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId)
+                == ["pending-newer-banner"]
+        )
+
+        store.stashSupersededPhoneDismissIDsForTesting(
+            ["flush-with-newest"], tabId: tabId, surfaceId: surfaceId
+        )
+        store.markRead(id: newer.id)
+
+        #expect(store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId) == [])
+        store.markRead(id: newer.id)
+        #expect(store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId) == [])
     }
 
     /// The phone badge counts unread notification entries only. Workspace-level

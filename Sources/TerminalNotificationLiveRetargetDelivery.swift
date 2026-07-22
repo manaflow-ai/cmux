@@ -32,18 +32,10 @@ extension TerminalController {
             // rehome that source-confined claim from an untrusted surface UUID.
             target = (tabId, surfaceId)
         }
-        if retargetsToLiveSurfaceOwner, let liveSurfaceId = target.surfaceId {
-            // Supersede by canonical surface identity: stale-keyed local
-            // entries would retarget to this same pane at drain.
-            TerminalMutationBus.shared.discardPendingNotifications(forSurfaceId: liveSurfaceId)
-        } else {
-            // Source-confined relay delivery may supersede only its authorized
-            // enqueue key, not another workspace's entry for the same UUID.
-            TerminalMutationBus.shared.discardPendingNotifications(
-                forTabId: target.tabId,
-                surfaceId: target.surfaceId
-            )
-        }
+        // Chronological feed delivery is append-only by accepted notification
+        // id. A synchronous notification may supersede the phone/banner owner
+        // for a pane, but it must not delete already accepted queued rows that
+        // have not drained yet.
 #if DEBUG
         cmuxDebugLog(
             "notification.sync.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(tabId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
@@ -72,11 +64,15 @@ extension TerminalNotificationStore {
         title: String,
         subtitle: String,
         body: String,
-        notificationGeneration: UInt64
+        id: UUID,
+        acceptedAt: Date,
+        notificationGeneration: UInt64,
+        allowWorkspaceFallbackForValidatedSurface: Bool = false
     ) {
-        guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+        guard let target = AppDelegate.shared?.agentNotificationRecordTarget(
             claimedTabId: claimedTabId,
-            surfaceId: surfaceId
+            surfaceId: surfaceId,
+            allowWorkspaceFallbackForValidatedSurface: allowWorkspaceFallbackForValidatedSurface
         ) else {
 #if DEBUG
             cmuxDebugLog(
@@ -91,6 +87,8 @@ extension TerminalNotificationStore {
         )
 #endif
         addNotification(
+            id: id,
+            acceptedAt: acceptedAt,
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             title: title,
@@ -107,14 +105,15 @@ extension TerminalNotificationStore {
         _ request: TerminalNotificationPolicyRequest
     ) -> TerminalNotificationPolicyRequest? {
         guard request.retargetsToLiveSurfaceOwner else { return request }
-        guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+        guard let target = AppDelegate.shared?.agentNotificationRecordTarget(
             claimedTabId: request.tabId,
-            surfaceId: request.surfaceId
+            surfaceId: request.surfaceId,
+            allowWorkspaceFallbackForValidatedSurface: request.panelId != nil
         ) else { return nil }
         return TerminalNotificationPolicyRequest(
             tabId: target.tabId,
             surfaceId: target.surfaceId,
-            panelId: request.panelId,
+            panelId: target.surfaceId == nil ? nil : request.panelId,
             retargetsToLiveSurfaceOwner: true,
             title: request.title,
             subtitle: request.subtitle,
@@ -136,11 +135,13 @@ extension TerminalMutationBus {
     /// lock, resolve each UNIQUE pending surface's live owner on the main
     /// actor (mirroring `agentNotificationDeliveryTarget`'s
     /// preferred-workspace resolution), then discard exactly the snapshotted
-    /// sequences. Repeated non-coalescing notifications for one pane share a
-    /// cached lookup, keeping the global workspace scan bounded by unique live
-    /// surfaces instead of total backlog length. Entries enqueued between
-    /// snapshot and discard are newer than the clear and are deliberately
-    /// preserved.
+    /// stable notification ids from both pending entries and reliable
+    /// admissions. Stable ids also cover an admission that becomes pending
+    /// between the two lock acquisitions. Repeated non-coalescing
+    /// notifications for one pane share a cached lookup, keeping the global
+    /// workspace scan bounded by unique live surfaces instead of total backlog
+    /// length. Entries accepted between snapshot and discard have new ids and
+    /// are deliberately preserved.
     func pendingNotificationSequencesResolvingLiveOwner(forTabId tabId: UUID) -> Set<UInt64> {
         pendingNotificationSequencesResolvingLiveOwner(
             forTabId: tabId,
@@ -177,16 +178,61 @@ extension TerminalMutationBus {
                 unresolvedSurfaceIds.insert(surfaceId)
                 liveOwner = nil
             }
-            if liveOwner == tabId {
+            if liveOwner == tabId ||
+                (liveOwner == nil &&
+                    entry.allowWorkspaceFallbackForValidatedSurface &&
+                    entry.tabId == tabId) {
                 sequences.insert(entry.sequence)
             }
         }
         return sequences
     }
 
+    func queuedNotificationIDsResolvingLiveOwner(
+        forTabId tabId: UUID,
+        liveOwnerResolver: (_ claimedTabId: UUID, _ surfaceId: UUID) -> UUID?
+    ) -> Set<UUID> {
+        var ids: Set<UUID> = []
+        var liveOwnerBySurfaceId: [UUID: UUID] = [:]
+        var unresolvedSurfaceIds: Set<UUID> = []
+        for entry in queuedNotificationAddressesSnapshot() {
+            guard let surfaceId = entry.surfaceId else {
+                if entry.tabId == tabId { ids.insert(entry.id) }
+                continue
+            }
+            let liveOwner: UUID?
+            if let cached = liveOwnerBySurfaceId[surfaceId] {
+                liveOwner = cached
+            } else if unresolvedSurfaceIds.contains(surfaceId) {
+                liveOwner = nil
+            } else if let resolved = liveOwnerResolver(entry.tabId, surfaceId) {
+                liveOwnerBySurfaceId[surfaceId] = resolved
+                liveOwner = resolved
+            } else {
+                unresolvedSurfaceIds.insert(surfaceId)
+                liveOwner = nil
+            }
+            if liveOwner == tabId ||
+                (liveOwner == nil &&
+                    entry.allowWorkspaceFallbackForValidatedSurface &&
+                    entry.tabId == tabId) {
+                ids.insert(entry.id)
+            }
+        }
+        return ids
+    }
+
     func discardPendingNotificationsResolvingLiveOwner(forTabId tabId: UUID) {
-        discardPendingNotifications(
-            sequences: pendingNotificationSequencesResolvingLiveOwner(forTabId: tabId)
+        discardQueuedNotifications(
+            ids: queuedNotificationIDsResolvingLiveOwner(
+                forTabId: tabId,
+                liveOwnerResolver: { claimedTabId, surfaceId in
+                    AppDelegate.shared?.agentNotificationDeliveryTarget(
+                        claimedTabId: claimedTabId,
+                        surfaceId: surfaceId
+                    )?.tabId
+                }
+            )
         )
     }
 }

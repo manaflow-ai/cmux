@@ -109,7 +109,10 @@ extension TabManager: NotificationDismissalHosting {
         into hasher: inout Hasher
     ) {
         hasher.combine(notifications.count)
-        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+        // SessionAutosaveNotificationIndex assembles buckets in retained feed
+        // order. Hash that deterministic order directly instead of sorting
+        // every notification bucket on each autosave tick.
+        for notification in notifications {
             hasher.combine(notification.id)
             hasher.combine(notification.title)
             hasher.combine(notification.subtitle)
@@ -120,6 +123,28 @@ extension TabManager: NotificationDismissalHosting {
             hasher.combine(notification.panelId)
             hasher.combine(notification.clickAction)
         }
+    }
+
+    nonisolated static func uuidSortPrecedes(_ lhs: UUID, _ rhs: UUID) -> Bool {
+        let left = lhs.uuid
+        let right = rhs.uuid
+        if left.0 != right.0 { return left.0 < right.0 }
+        if left.1 != right.1 { return left.1 < right.1 }
+        if left.2 != right.2 { return left.2 < right.2 }
+        if left.3 != right.3 { return left.3 < right.3 }
+        if left.4 != right.4 { return left.4 < right.4 }
+        if left.5 != right.5 { return left.5 < right.5 }
+        if left.6 != right.6 { return left.6 < right.6 }
+        if left.7 != right.7 { return left.7 < right.7 }
+        if left.8 != right.8 { return left.8 < right.8 }
+        if left.9 != right.9 { return left.9 < right.9 }
+        if left.10 != right.10 { return left.10 < right.10 }
+        if left.11 != right.11 { return left.11 < right.11 }
+        if left.12 != right.12 { return left.12 < right.12 }
+        if left.13 != right.13 { return left.13 < right.13 }
+        if left.14 != right.14 { return left.14 < right.14 }
+        if left.15 != right.15 { return left.15 < right.15 }
+        return false
     }
 
     func workspaceClearManualUnread(workspaceId: UUID, panelId: UUID) {

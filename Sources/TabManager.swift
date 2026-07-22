@@ -5613,6 +5613,91 @@ class TabManager: ObservableObject {
 }
 
 extension TabManager {
+    private struct SessionAutosaveNotificationIndex {
+        private struct Key: Hashable {
+            let tabId: UUID
+            let panelId: UUID
+        }
+
+        private struct AddressedNotification {
+            let surfaceId: UUID?
+            let panelId: UUID?
+            let notification: TerminalNotification
+        }
+
+        private var workspaceNotificationsByTabId: [UUID: [TerminalNotification]] = [:]
+        private var addressedNotificationsByTabId: [UUID: [AddressedNotification]] = [:]
+        private var notificationsByPanelKey: [Key: [TerminalNotification]] = [:]
+
+        init(notifications: TerminalNotificationFeed) {
+            for notification in notifications {
+                if notification.surfaceId == nil, notification.panelId == nil {
+                    workspaceNotificationsByTabId[notification.tabId, default: []].append(notification)
+                } else {
+                    addressedNotificationsByTabId[notification.tabId, default: []].append(
+                        AddressedNotification(
+                            surfaceId: notification.surfaceId,
+                            panelId: notification.panelId,
+                            notification: notification
+                        )
+                    )
+                }
+                if let surfaceId = notification.surfaceId {
+                    notificationsByPanelKey[
+                        Key(tabId: notification.tabId, panelId: surfaceId),
+                        default: []
+                    ].append(notification)
+                }
+                if let panelId = notification.panelId, panelId != notification.surfaceId {
+                    notificationsByPanelKey[
+                        Key(tabId: notification.tabId, panelId: panelId),
+                        default: []
+                    ].append(notification)
+                }
+            }
+        }
+
+        func workspaceAndOrphanNotifications(forTabId tabId: UUID, panelIds: Set<UUID>) -> [TerminalNotification] {
+            var result = workspaceNotificationsByTabId[tabId] ?? []
+            for addressed in addressedNotificationsByTabId[tabId] ?? [] {
+                if let surfaceId = addressed.surfaceId, panelIds.contains(surfaceId) {
+                    continue
+                }
+                if let panelId = addressed.panelId, panelIds.contains(panelId) {
+                    continue
+                }
+                result.append(addressed.notification)
+            }
+            return result
+        }
+
+        func notifications(forTabId tabId: UUID, panelId: UUID) -> [TerminalNotification] {
+            notificationsByPanelKey[Key(tabId: tabId, panelId: panelId)] ?? []
+        }
+    }
+
+    private struct SessionAutosaveNotificationIndexCache {
+        private var storeID: ObjectIdentifier?
+        private var revision: UInt64?
+        private var index: SessionAutosaveNotificationIndex?
+
+        @MainActor
+        mutating func index(for store: TerminalNotificationStore) -> SessionAutosaveNotificationIndex {
+            let storeID = ObjectIdentifier(store)
+            let revision = store.notificationFeedRevision
+            if self.storeID == storeID, self.revision == revision, let index {
+                return index
+            }
+            let index = SessionAutosaveNotificationIndex(notifications: store.notifications)
+            self.storeID = storeID
+            self.revision = revision
+            self.index = index
+            return index
+        }
+    }
+
+    private static var sessionAutosaveNotificationIndexCache = SessionAutosaveNotificationIndexCache()
+
     func sessionAutosaveFingerprint(
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
@@ -5621,6 +5706,9 @@ extension TabManager {
         hasher.combine(selectedTabId)
         hasher.combine(tabs.count)
         let notificationStore = AppDelegate.shared?.notificationStore
+        let notificationIndex = notificationStore.map { store in
+            Self.sessionAutosaveNotificationIndexCache.index(for: store)
+        }
         // Workspace groups participate in the session snapshot, so changes
         // that only touch group metadata (rename / collapse / pin a group,
         // or move a workspace between groups without reordering tabs) must
@@ -5655,11 +5743,15 @@ extension TabManager {
             hasher.combine(workspace.surfaceListeningPorts.count); workspace.combineTodoStateIntoSessionAutosaveFingerprint(into: &hasher)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
+            let panelIds = workspace.panels.keys.sorted(by: Self.uuidSortPrecedes)
+            let panelIdSet = Set(panelIds)
             Self.hashNotifications(
-                notificationStore?.notifications(forTabId: workspace.id, surfaceId: nil) ?? [],
+                notificationIndex?.workspaceAndOrphanNotifications(
+                    forTabId: workspace.id,
+                    panelIds: panelIdSet
+                ) ?? [],
                 into: &hasher
             )
-            let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
             hasher.combine(panelIds.count)
             for panelId in panelIds {
                 hasher.combine(panelId)
@@ -5676,7 +5768,7 @@ extension TabManager {
                     ) ?? false
                 )
                 Self.hashNotifications(
-                    notificationStore?.notifications(forTabId: workspace.id, surfaceId: panelId) ?? [],
+                    notificationIndex?.notifications(forTabId: workspace.id, panelId: panelId) ?? [],
                     into: &hasher
                 )
                 Self.hashRestorableAgentSnapshot(
@@ -5900,12 +5992,16 @@ extension TabManager {
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        let notificationSnapshotIndex = AppDelegate.shared?.notificationStore.map {
+            SessionNotificationSnapshotIndex(notifications: $0.notifications)
+        } ?? .empty
         let workspaceSnapshots = restorableTabs
             .map {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                    notificationSnapshotIndex: notificationSnapshotIndex
                 )
             }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
@@ -5956,16 +6052,6 @@ extension TabManager {
                 .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
                 .map(\.id)
         )
-    }
-
-    private func releaseRestoredAwayWorkspace(_ workspace: Workspace) {
-        // Session restore replaces the bootstrap workspace objects with freshly
-        // restored ones. Tear the old graph down after the atomic swap so late
-        // panel/socket callbacks cannot keep mutating hidden pre-restore state.
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.teardownAllPanels()
-        workspace.teardownRemoteConnection()
-        workspace.owningTabManager = nil
     }
 
     private static func normalizedCloudVMSessionRestoreWorkspaces<S: Sequence>(
@@ -6145,9 +6231,12 @@ extension TabManager {
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarMultiSelection.intersectSelection(with: existingIds)
-        for workspace in previousTabs {
-            releaseRestoredAwayWorkspace(workspace)
-        }
+        releaseRestoredAwayWorkspaces(
+            previousTabs,
+            originalWorkspaceIds: restoredOriginalWorkspaceIds,
+            replacements: newTabs,
+            panelIdMaps: restoredPanelIdsByWorkspaceIndex
+        )
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
             for terminalPanel in terminalPanels {

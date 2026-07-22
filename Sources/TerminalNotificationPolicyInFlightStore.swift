@@ -6,13 +6,13 @@ import Foundation
 @MainActor
 final class TerminalNotificationPolicyInFlightStore {
     private struct Entry {
-        let request: TerminalNotificationPolicyRequest
+        var request: TerminalNotificationPolicyRequest
         let generation: UInt64
-        let deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
+        var deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
         var onDiscard: @MainActor @Sendable () -> Void
         var indexedTabId: UUID
         var task: Task<Void, Never>?
-        var completion: (@MainActor () -> Void)?
+        var completion: (@MainActor (TerminalNotificationPolicyRequest) -> Void)?
     }
     private let maximumRequestCount = 1_024
     private var requests: [UUID: Entry] = [:]
@@ -26,6 +26,7 @@ final class TerminalNotificationPolicyInFlightStore {
     func register(
         _ request: TerminalNotificationPolicyRequest,
         generation: UInt64,
+        cooldownKey: String? = nil,
         onDiscard: @escaping @MainActor @Sendable () -> Void
     ) -> UUID {
         compactEvictionOrderIfNeeded()
@@ -39,7 +40,10 @@ final class TerminalNotificationPolicyInFlightStore {
         }
         identitiesToDrain.forEach(drainCompletedRequests)
         let id = UUID()
-        let deliveryIdentity = TerminalNotificationPolicyDeliveryIdentity(request: request)
+        let deliveryIdentity = TerminalNotificationPolicyDeliveryIdentity(
+            request: request,
+            cooldownKey: cooldownKey
+        )
         requests[id] = Entry(
             request: request,
             generation: generation,
@@ -64,9 +68,18 @@ final class TerminalNotificationPolicyInFlightStore {
     /// Transfers cleanup ownership when an early reservation reaches policy evaluation.
     func updateOnDiscard(
         _ onDiscard: @escaping @MainActor @Sendable () -> Void,
+        cooldownKey: String? = nil,
         for id: UUID
     ) -> Bool {
         guard var entry = requests[id] else { return false }
+        let deliveryIdentity = TerminalNotificationPolicyDeliveryIdentity(
+            request: entry.request,
+            cooldownKey: cooldownKey
+        )
+        if deliveryIdentity != entry.deliveryIdentity {
+            entry.deliveryIdentity = deliveryIdentity
+            requestIDsByDeliveryIdentity[deliveryIdentity, default: []].append(id)
+        }
         entry.onDiscard = onDiscard
         requests[id] = entry
         return true
@@ -80,17 +93,27 @@ final class TerminalNotificationPolicyInFlightStore {
         return true
     }
 
-    func claim(_ id: UUID?) -> Bool {
-        guard let id else { return true }
-        guard let entry = requests.removeValue(forKey: id) else { return false }
+    func claim(
+        _ id: UUID?,
+        applying request: TerminalNotificationPolicyRequest
+    ) -> TerminalNotificationPolicyRequest? {
+        guard let id else { return request }
+        guard let entry = requests.removeValue(forKey: id) else { return nil }
         decrementIndexes(for: entry.request, tabId: entry.indexedTabId)
         drainCompletedRequests(for: entry.deliveryIdentity)
-        return true
+        return request.replacingLocation(
+            tabId: entry.request.tabId,
+            surfaceId: entry.request.surfaceId,
+            panelId: entry.request.panelId
+        )
     }
 
     /// Completes one asynchronous policy evaluation while preserving order
     /// within its delivery target without blocking unrelated workspaces.
-    func complete(_ id: UUID, apply: @escaping @MainActor () -> Void) {
+    func complete(
+        _ id: UUID,
+        apply: @escaping @MainActor (TerminalNotificationPolicyRequest) -> Void
+    ) {
         guard var entry = requests[id] else { return }
         entry.completion = apply
         requests[id] = entry
@@ -131,6 +154,24 @@ final class TerminalNotificationPolicyInFlightStore {
         identities.forEach(drainCompletedRequests)
     }
 
+    func transfer(fromTabId: UUID, toTabId: UUID, panelIdMap: [UUID: UUID]) {
+        let idsToTransfer = requests.compactMap { id, entry in
+            entry.indexedTabId == fromTabId ? id : nil
+        }
+        for id in idsToTransfer {
+            guard var entry = requests[id] else { continue }
+            decrementIndexes(for: entry.request, tabId: entry.indexedTabId)
+            entry.request = entry.request.replacingLocation(
+                tabId: toTabId,
+                surfaceId: entry.request.surfaceId.map { panelIdMap[$0] ?? $0 },
+                panelId: entry.request.panelId.map { panelIdMap[$0] ?? $0 }
+            )
+            entry.indexedTabId = toTabId
+            requests[id] = entry
+            incrementIndexes(for: entry.request, tabId: toTabId)
+        }
+    }
+
     /// Moves pending trusted-local work with the surface so O(1) unread and
     /// dismissal gates always reflect the workspace that currently owns it.
     func rebindSurface(fromTabId sourceTabId: UUID, toTabId destinationTabId: UUID, surfaceId: UUID) {
@@ -146,6 +187,11 @@ final class TerminalNotificationPolicyInFlightStore {
         for id in idsToRebind {
             guard var entry = requests[id] else { continue }
             decrementIndexes(for: entry.request, tabId: entry.indexedTabId)
+            entry.request = entry.request.replacingLocation(
+                tabId: destinationTabId,
+                surfaceId: entry.request.surfaceId,
+                panelId: entry.request.panelId
+            )
             entry.indexedTabId = destinationTabId
             requests[id] = entry
             incrementIndexes(for: entry.request, tabId: destinationTabId)
@@ -175,11 +221,15 @@ final class TerminalNotificationPolicyInFlightStore {
                 advanceRequestOffset(for: deliveryIdentity)
                 continue
             }
+            guard entry.deliveryIdentity == deliveryIdentity else {
+                advanceRequestOffset(for: deliveryIdentity)
+                continue
+            }
             guard let completion = entry.completion else { break }
             requests.removeValue(forKey: id)
             decrementIndexes(for: entry.request, tabId: entry.indexedTabId)
             advanceRequestOffset(for: deliveryIdentity)
-            completion()
+            completion(entry.request)
         }
         compactRequestOrderIfNeeded(for: deliveryIdentity)
     }

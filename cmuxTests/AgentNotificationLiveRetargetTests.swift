@@ -123,7 +123,7 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
-    func testSyncDeliverySupersedesPendingNotificationUnderStaleClaimedKey() throws {
+    func testSyncDeliveryPreservesAcceptedQueuedNotificationUnderStaleClaimedKey() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
@@ -136,9 +136,10 @@ extension AgentNotificationRegressionTests {
             subtitle: "Working",
             body: "Old queued"
         )
-        // ...must be superseded by a newer synchronous notification for the
-        // same surface, even though sync delivery retargets to the owning
-        // workspace — a different queue key than the stale claim.
+        // ...must still appear when a newer synchronous notification for the
+        // same surface is accepted before the queue drains. The feed is
+        // chronological by stable notification id; banner ownership may
+        // supersede, but accepted rows are not coalesced away.
         TerminalController.shared.deliverNotificationSynchronously(
             tabId: fixture.claimedWorkspace.id,
             surfaceId: fixture.panelId,
@@ -150,10 +151,10 @@ extension AgentNotificationRegressionTests {
 
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
         #expect(
-            recorded.map(\.body) == ["New sync"],
-            "A stale-keyed pending notification must not survive (or replace) the newer synchronous one for the same surface"
+            recorded.map(\.body) == ["New sync", "Old queued"],
+            "Synchronous delivery must not delete an already accepted queued notification for the same surface"
         )
-        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
+        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id, fixture.owningWorkspace.id])
     }
 
     @Test
@@ -436,6 +437,34 @@ extension AgentNotificationRegressionTests {
             "Rebind must preserve a newer destination-keyed pending entry"
         )
         #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
+    }
+
+    @Test
+    func testRebindRetargetsInFlightPolicyRequest() throws {
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let store = TerminalNotificationPolicyInFlightStore()
+        let request = TerminalNotificationPolicyRequest(
+            tabId: sourceTabId,
+            surfaceId: surfaceId,
+            panelId: surfaceId,
+            retargetsToLiveSurfaceOwner: true,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Policy result",
+            cwd: nil,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let requestId = store.register(request, generation: 0, onDiscard: {})
+
+        store.rebindSurface(fromTabId: sourceTabId, toTabId: destinationTabId, surfaceId: surfaceId)
+
+        let claimed = try #require(store.claim(requestId, applying: request))
+        #expect(claimed.tabId == destinationTabId)
+        #expect(claimed.surfaceId == surfaceId)
+        #expect(claimed.panelId == surfaceId)
     }
 
     @Test

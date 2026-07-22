@@ -54,6 +54,7 @@ extension Workspace {
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        notificationSnapshotIndex: SessionNotificationSnapshotIndex? = nil,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -71,6 +72,10 @@ extension Workspace {
                 restorableAgentIndex: restorableAgentIndex
             )
         }
+        let notificationStore = AppDelegate.shared?.notificationStore
+        let resolvedNotificationSnapshotIndex = notificationSnapshotIndex
+            ?? notificationStore.map { SessionNotificationSnapshotIndex(notifications: $0.notifications) }
+            ?? .empty
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
         var allPanelIds: [UUID] = []
@@ -91,6 +96,7 @@ extension Workspace {
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
                     ),
+                    notificationSnapshotIndex: resolvedNotificationSnapshotIndex,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
                     agentProcessPresence: agentProcessPresence
                 )
@@ -127,12 +133,15 @@ extension Workspace {
         let gitBranchSnapshot = gitBranch.map { branch in
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
-        let notificationStore = AppDelegate.shared?.notificationStore
         let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
         let hasWorkspaceUnreadIndicator =
             (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
             (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
-        let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
+        let workspaceNotificationSnapshots = resolvedNotificationSnapshotIndex.workspaceSnapshots(tabId: id)
+            + resolvedNotificationSnapshotIndex.orphanedSnapshots(
+                tabId: id,
+                persistedPanelIds: persistedPanelIds
+            )
         var snapshot = SessionWorkspaceSnapshot(
             workspaceId: id,
             stableId: stableId,
@@ -147,6 +156,7 @@ extension Workspace {
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
+            externalBannerOwnerNotificationIds: notificationStore?.externalBannerOwnerNotificationIDs(forTabId: id),
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
@@ -305,7 +315,14 @@ extension Workspace {
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
-        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        let restoredExternalBannerOwnerIDs = snapshot.externalBannerOwnerNotificationIds.map(Set.init)
+        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(
+            restoredNotifications,
+            forTabId: id,
+            panelIdMap: oldToNewPanelIds,
+            restoredExternalBannerOwnerIDs: restoredExternalBannerOwnerIDs ?? [],
+            inferLegacyExternalBannerOwners: restoredExternalBannerOwnerIDs == nil
+        )
         syncUnreadBadgeStateForAllPanels()
         return oldToNewPanelIds
     }
@@ -415,6 +432,7 @@ extension Workspace {
         includeScrollback: Bool,
         restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
         resumeBinding: SurfaceResumeBindingSnapshot?,
+        notificationSnapshotIndex: SessionNotificationSnapshotIndex? = nil,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -425,6 +443,11 @@ extension Workspace {
         }
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
+        let resolvedNotificationSnapshotIndex = notificationSnapshotIndex
+            ?? AppDelegate.shared?.notificationStore.map {
+                SessionNotificationSnapshotIndex(notifications: $0.notifications)
+            }
+            ?? .empty
 
         let indexedRestorableAgent = restorableAgentObservation?.snapshot
         let compatibleIndexedRestorableAgent = indexedRestorableAgent.flatMap {
@@ -498,7 +521,7 @@ extension Workspace {
         }()
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
-        let panelNotificationSnapshots = notificationSnapshots(surfaceId: panelId)
+        let panelNotificationSnapshots = resolvedNotificationSnapshotIndex.panelSnapshots(tabId: id, panelId: panelId)
         let panelHasUnreadNotification = hasUnreadNotification(panelId: panelId)
         let hasUnreadIndicator =
             restoredUnreadPanelIds.contains(panelId) ||
@@ -821,7 +844,8 @@ extension Workspace {
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
-            )
+            ),
+            notificationSnapshotIndex: nil
         ) else {
             return nil
         }
@@ -1929,12 +1953,6 @@ extension Workspace {
             notificationStore.clearManualUnread(forTabId: id)
         }
         syncUnreadBadgeStateForAllPanels()
-    }
-
-    private func notificationSnapshots(surfaceId: UUID?) -> [SessionNotificationSnapshot] {
-        AppDelegate.shared?.notificationStore?
-            .notifications(forTabId: id, surfaceId: surfaceId)
-            .map(SessionNotificationSnapshot.init(notification:)) ?? []
     }
 
     private func restoredSessionNotifications(
@@ -8572,7 +8590,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Tear down all panels before removing the workspace.
-    func teardownAllPanels() {
+    func teardownAllPanels(clearSurfaceNotifications: Bool = true) {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -8587,7 +8605,7 @@ final class Workspace: Identifiable, ObservableObject {
                 origin: "workspace_teardown",
                 closePanel: true,
                 publishSurfaceClosedEvent: true,
-                clearSurfaceNotifications: true,
+                clearSurfaceNotifications: clearSurfaceNotifications,
                 requestTransferredRemoteCleanup: true,
                 cleanupControllerSurfaceState: true
             )

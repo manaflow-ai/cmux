@@ -3225,10 +3225,14 @@ class TerminalController {
     }
 
     private nonisolated static func notificationCreatedAtString(_ date: Date) -> String {
+        notificationListDateFormatter().string(from: date)
+    }
+
+    private nonisolated static func notificationListDateFormatter() -> ISO8601DateFormatter {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: date)
+        return formatter
     }
 
     private nonisolated static func notificationListTrailingField(_ value: String) -> String {
@@ -12209,11 +12213,10 @@ class TerminalController {
         }
     }
 
-    /// `notify_target_async` — worker-lane body with ZERO main hops: parse +
-    /// mutation-bus enqueue on the calling thread (the bus coalesces and
-    /// drains on the main actor). Explicitly fire-and-forget: hooks nohup it
-    /// and discard the reply; existence checks are deferred to bus delivery
-    /// by design.
+    /// `notify_target_async` — worker-lane body with ZERO main hops: parse,
+    /// then register reliable admission before acknowledging. Hooks nohup this
+    /// command and discard the reply, so transient queue pressure must not
+    /// degrade to an acknowledged dropped notification.
     private nonisolated func notifyTargetQueued(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -12236,9 +12239,7 @@ class TerminalController {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
         let (title, subtitle, body, meta) = parseNotificationPayload(payload)
-
-        // Hook and PTY-derived agent notifications share one gate + mutation-bus path.
-        guard AgentNotificationDelivery().enqueue(
+        switch AgentNotificationDelivery().enqueueReliablySynchronously(
             workspaceID: tabId,
             surfaceID: surfaceId,
             title: title,
@@ -12246,47 +12247,40 @@ class TerminalController {
             body: body,
             category: meta?.category,
             pending: meta?.pending ?? false
-        ) else {
+        ) {
+        case .gated:
 #if DEBUG
             if let meta {
-                cmuxDebugLog(
-                    "socket.notifyTargetAsync.gated category=\(meta.category.rawValue) pending=\(meta.pending) workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))"
-                )
+                cmuxDebugLog("socket.notifyTargetAsync.gated category=\(meta.category.rawValue) pending=\(meta.pending) workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))")
             }
 #endif
             return "OK"
+        case .saturated, .cancelled:
+            return ReliableTerminalNotificationEnqueueResult.saturatedSocketResponse
+        case .accepted: break
         }
 #if DEBUG
         cmuxDebugLog(
-            "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
+            "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
         )
 #endif
         return "OK"
     }
 
     /// `list_notifications` — worker-lane body: one main hop snapshots the
-    /// store (plus each notification's tab title); the ISO8601 formatting,
-    /// percent-escaping, and line join run on the calling thread.
+    /// store with cached tab titles; the ISO8601 formatting, percent-escaping,
+    /// and line join run on the calling worker thread.
     private nonisolated func listNotifications() -> String {
-        let rows: [(id: UUID, tabId: UUID, surfaceText: String, readText: String, title: String, subtitle: String, body: String, createdAt: Date, tabTitle: String)] = v2MainSync {
-            TerminalNotificationStore.shared.notifications.map { notification in
-                (
-                    id: notification.id,
-                    tabId: notification.tabId,
-                    surfaceText: notification.surfaceId?.uuidString ?? "none",
-                    readText: notification.isRead ? "read" : "unread",
-                    title: notification.title,
-                    subtitle: notification.subtitle,
-                    body: notification.body,
-                    createdAt: notification.createdAt,
-                    tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId) ?? ""
-                )
-            }
+        let rows: [ControlNotificationSnapshot] = v2MainSync {
+            controlNotificationList()
         }
+        let formatter = Self.notificationListDateFormatter()
         let lines = rows.enumerated().map { index, row in
-            let createdAt = Self.notificationCreatedAtString(row.createdAt)
-            let tabTitle = Self.notificationListTrailingField(row.tabTitle)
-            return "\(index):\(row.id.uuidString)|\(row.tabId.uuidString)|\(row.surfaceText)|\(row.readText)|\(row.title)|\(row.subtitle)|\(row.body)|\(createdAt)|\(tabTitle)"
+            let createdAt = formatter.string(from: row.createdAt)
+            let surfaceText = row.surfaceID?.uuidString ?? "none"
+            let readText = row.isRead ? "read" : "unread"
+            let tabTitle = Self.notificationListTrailingField(row.tabTitle ?? "")
+            return "\(index):\(row.id.uuidString)|\(row.workspaceID.uuidString)|\(surfaceText)|\(readText)|\(row.title)|\(row.subtitle)|\(row.body)|\(createdAt)|\(tabTitle)"
         }
         let result = lines.joined(separator: "\n")
         return result.isEmpty ? "No notifications" : result

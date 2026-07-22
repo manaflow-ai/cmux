@@ -357,7 +357,7 @@ struct WorkspaceContentView: View {
         .onDisappear {
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
-        .onChange(of: notificationStore.notifications) { _, _ in
+        .onChange(of: notificationStore.notificationFeedRevision) { _, _ in
             syncBonsplitNotificationBadges()
         }
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in

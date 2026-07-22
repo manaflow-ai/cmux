@@ -258,7 +258,7 @@ extension AppDelegate {
 
     var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
-        return notificationStore.notifications.map { notification in
+        return notificationStore.notificationsForUnreadNavigation.map { notification in
             notification.notificationNavigationSnapshot
         }
     }

@@ -190,7 +190,6 @@ extension Workspace {
         }
         if didChange {
             if refreshPorts { refreshTrackedAgentPorts() }
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
         return didChange
     }
@@ -213,7 +212,6 @@ extension Workspace {
         }
         if didChange {
             if refreshPorts { refreshTrackedAgentPorts() }
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
         return didChange
     }
@@ -479,6 +477,7 @@ extension Workspace {
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         removeTerminalConfigInheritanceSource(panelId: panelId)
         if clearSurfaceNotifications {
+            TerminalMutationBus.shared.removeNotificationLiveOwnerRoute(surfaceId: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
 

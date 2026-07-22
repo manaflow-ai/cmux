@@ -11,7 +11,7 @@ struct SidebarWorkspaceNotificationIndex {
 
     private let notificationsByWorkspaceId: [UUID: [TerminalNotification]]
 
-    init(notifications: [TerminalNotification]) {
+    init<Notifications: Collection>(notifications: Notifications) where Notifications.Element == TerminalNotification {
         var grouped: [UUID: [TerminalNotification]] = [:]
         grouped.reserveCapacity(min(notifications.count, 64))
         for notification in notifications {

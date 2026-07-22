@@ -6,10 +6,100 @@ import UserNotifications
 import Bonsplit
 import CmuxSettings
 
-nonisolated private let terminalNotificationLogger = Logger(
+nonisolated let terminalNotificationLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "notification"
 )
+
+private final class TerminalNotificationFeedStorage {
+    var oldestFirst: [TerminalNotification]
+    private(set) var startOffset: Int
+    private var discardedContentBytes: Int
+
+    init(newestFirst: [TerminalNotification] = []) {
+        oldestFirst = Array(newestFirst.reversed())
+        startOffset = 0
+        discardedContentBytes = 0
+    }
+
+    private init(activeOldestFirst: [TerminalNotification]) {
+        oldestFirst = activeOldestFirst
+        startOffset = 0
+        discardedContentBytes = 0
+    }
+
+    var count: Int {
+        oldestFirst.count - startOffset
+    }
+
+    func appendNewest(_ notification: TerminalNotification) {
+        oldestFirst.append(notification)
+    }
+
+    func appendNewestEvictingOldest(
+        _ notification: TerminalNotification,
+        count evictionCount: Int,
+        compactingAfter maxOffset: Int,
+        compactingAfterDiscardedBytes maxDiscardedBytes: Int
+    ) -> (evicted: [TerminalNotification], replacementStorage: TerminalNotificationFeedStorage?)? {
+        guard evictionCount > 0 else {
+            appendNewest(notification)
+            return ([], nil)
+        }
+        guard count >= evictionCount else { return nil }
+        let nextStartOffset = startOffset + evictionCount
+        let evicted = Array(oldestFirst[startOffset..<nextStartOffset])
+        let evictedBytes = evicted.reduce(0) {
+            $0 + TerminalNotificationStore.notificationContentByteCount($1)
+        }
+        if nextStartOffset >= maxOffset ||
+            discardedContentBytes + evictedBytes >= maxDiscardedBytes {
+            var active = Array(oldestFirst[nextStartOffset...])
+            active.append(notification)
+            return (evicted, TerminalNotificationFeedStorage(activeOldestFirst: active))
+        }
+        startOffset = nextStartOffset
+        discardedContentBytes += evictedBytes
+        oldestFirst.append(notification)
+        return (evicted, nil)
+    }
+}
+
+/// A frozen-count, newest-first view over append-optimized feed storage.
+/// Existing snapshots remain valid when a newer notification is appended;
+/// non-append mutations replace the backing storage instead of editing it.
+struct TerminalNotificationFeed: RandomAccessCollection, Equatable, ExpressibleByArrayLiteral {
+    typealias Index = Int
+    typealias Element = TerminalNotification
+
+    fileprivate let storage: TerminalNotificationFeedStorage
+    private let startOffset: Int
+    let count: Int
+
+    fileprivate init(storage: TerminalNotificationFeedStorage) {
+        self.storage = storage
+        startOffset = storage.startOffset
+        count = storage.count
+    }
+
+    init(arrayLiteral elements: TerminalNotification...) {
+        storage = TerminalNotificationFeedStorage(newestFirst: elements)
+        startOffset = 0
+        count = elements.count
+    }
+
+    var startIndex: Int { 0 }
+    var endIndex: Int { count }
+
+    subscript(position: Int) -> TerminalNotification {
+        precondition(indices.contains(position))
+        return storage.oldestFirst[startOffset + count - position - 1]
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.elementsEqual(rhs)
+    }
+}
 
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
 // removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
@@ -145,17 +235,19 @@ enum NotificationAuthorizationState: Equatable, Sendable {
 
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
-    private struct TabSurfaceKey: Hashable {
+    struct TabSurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID?
     }
 
-    private struct NotificationIndexes {
+    struct NotificationIndexes {
+        var ids = Set<UUID>()
         var unreadCount = 0
         var unreadCountByTabId: [UUID: Int] = [:]
+        var unreadCountByTabSurface: [TabSurfaceKey: Int] = [:]
         var unreadByTabSurface = Set<TabSurfaceKey>()
-        var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
         var latestByTabId: [UUID: TerminalNotification] = [:]
+        var latestByTabSurface: [TabSurfaceKey: TerminalNotification] = [:]
     }
 
     static let shared = TerminalNotificationStore()
@@ -164,6 +256,7 @@ final class TerminalNotificationStore: ObservableObject {
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
     nonisolated static let retargetsToLiveSurfaceOwnerUserInfoKey = "retargetsToLiveSurfaceOwner"
+
     /// Mobile-host event topic the Mac emits when one or more delivered
     /// notifications are dismissed/cleared on this Mac, so an attached phone can
     /// clear the matching banners it is mirroring. Payload carries the stable
@@ -178,6 +271,23 @@ final class TerminalNotificationStore: ObservableObject {
     /// drift self-heals on the next event. Emitted from the same chokepoint that
     /// refreshes the Mac Dock badge, so every mutation lane is covered.
     static let badgeEventTopic = "notification.badge"
+    static let maximumNotificationFeedCount = 20_000
+    nonisolated static let maximumNotificationTitleBytes = 8 * 1024
+    nonisolated static let maximumNotificationSubtitleBytes = 16 * 1024
+    nonisolated static let maximumNotificationBodyBytes = 64 * 1024
+    nonisolated static let maximumNotificationFeedContentBytes = 8 * 1024 * 1024
+#if DEBUG
+    static var notificationFeedCompactionOffsetForTesting: Int?
+#endif
+
+    private static var notificationFeedCompactionOffset: Int {
+#if DEBUG
+        notificationFeedCompactionOffsetForTesting ?? maximumNotificationFeedCount
+#else
+        maximumNotificationFeedCount
+#endif
+    }
+    private static let notificationFeedCompactionDiscardedBytes = maximumNotificationFeedContentBytes / 4
 
     /// Invalidates the paired phone's notification feed without sending any
     /// notification content in the event frame. The phone fetches the
@@ -209,6 +319,20 @@ final class TerminalNotificationStore: ObservableObject {
     private var dismissedTombstonesLoaded = false
     private static let dismissedTombstoneCapacity = 512
     static let dismissedTombstoneDefaultsKey = "cmux.notifications.dismissedTombstoneIds"
+    private var retainedSupersededBannerIDs = Set<UUID>()
+    private var retainedSupersededBannerIDsLoaded = false
+    private var retainedSupersededBannerPersistenceDeltas: [String] = []
+    private var retainedSupersededBannerDeltaPersistenceInFlight = false
+    private var retainedSupersededBannerDeltaPersistenceDirty = false
+    private var retainedSupersededBannerSnapshotPersistenceInFlight = false
+    private var retainedSupersededBannerSnapshotPersistenceDirty = false
+    private static let retainedSupersededBannerPersistenceQueue = DispatchQueue(
+        label: "com.cmux.notification.retained-superseded-banner-persistence",
+        qos: .utility
+    )
+    static let retainedSupersededBannerDefaultsKey = "cmux.notifications.retainedSupersededBannerIds"
+    static let retainedSupersededBannerDeltaDefaultsKey = "cmux.notifications.retainedSupersededBannerIdDeltas"
+    private static let retainedSupersededBannerDeltaCompactionThreshold = 512
 
     private func loadDismissedTombstonesIfNeeded() {
         guard !dismissedTombstonesLoaded else { return }
@@ -237,12 +361,156 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
+    private func removeDismissTombstones(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        loadDismissedTombstonesIfNeeded()
+        removeRetainedSupersededBannerIDs(ids: ids)
+        let removedIds = Set(ids.filter { dismissedTombstoneIDs.remove($0) != nil })
+        guard !removedIds.isEmpty else { return }
+        dismissedTombstoneOrder.removeAll { removedIds.contains($0) }
+        UserDefaults.standard.set(
+            dismissedTombstoneOrder.map(\.uuidString),
+            forKey: Self.dismissedTombstoneDefaultsKey
+        )
+    }
+
     /// Drop the in-memory tombstone copy so the next use re-reads the persisted
     /// ring — the behavior-test analogue of a process restart.
     func reloadDismissedTombstonesForTesting() {
         dismissedTombstoneIDs.removeAll()
         dismissedTombstoneOrder.removeAll()
         dismissedTombstonesLoaded = false
+        retainedSupersededBannerIDs.removeAll()
+        retainedSupersededBannerPersistenceDeltas.removeAll()
+        retainedSupersededBannerIDsLoaded = false
+        retainedSupersededBannerDeltaPersistenceInFlight = false
+        retainedSupersededBannerDeltaPersistenceDirty = false
+        retainedSupersededBannerSnapshotPersistenceInFlight = false
+        retainedSupersededBannerSnapshotPersistenceDirty = false
+    }
+
+    private func loadRetainedSupersededBannerIDsIfNeeded() {
+        guard !retainedSupersededBannerIDsLoaded else { return }
+        retainedSupersededBannerIDsLoaded = true
+        let stored = UserDefaults.standard.stringArray(forKey: Self.retainedSupersededBannerDefaultsKey) ?? []
+        var ids = Set(stored.compactMap { UUID(uuidString: $0) })
+        let deltas = UserDefaults.standard.stringArray(forKey: Self.retainedSupersededBannerDeltaDefaultsKey) ?? []
+        for delta in deltas {
+            Self.applyRetainedSupersededBannerDelta(delta, to: &ids)
+        }
+        retainedSupersededBannerIDs = ids
+        retainedSupersededBannerPersistenceDeltas = deltas
+        if deltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold {
+            scheduleRetainedSupersededBannerSnapshotPersistence()
+        }
+    }
+
+    private nonisolated static func retainedSupersededBannerDelta(id: UUID, isInsertion: Bool) -> String {
+        "\(isInsertion ? "+" : "-")\(id.uuidString)"
+    }
+
+    private nonisolated static func applyRetainedSupersededBannerDelta(_ delta: String, to ids: inout Set<UUID>) {
+        guard let operation = delta.first,
+              let id = UUID(uuidString: String(delta.dropFirst())) else { return }
+        switch operation {
+        case "+":
+            ids.insert(id)
+        case "-":
+            ids.remove(id)
+        default:
+            break
+        }
+    }
+
+    private func scheduleRetainedSupersededBannerDeltaPersistence() {
+        guard !retainedSupersededBannerDeltaPersistenceInFlight else {
+            retainedSupersededBannerDeltaPersistenceDirty = true
+            return
+        }
+        retainedSupersededBannerDeltaPersistenceInFlight = true
+        retainedSupersededBannerDeltaPersistenceDirty = false
+        let deltas = retainedSupersededBannerPersistenceDeltas
+        Self.retainedSupersededBannerPersistenceQueue.async {
+            UserDefaults.standard.set(deltas, forKey: Self.retainedSupersededBannerDeltaDefaultsKey)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                retainedSupersededBannerDeltaPersistenceInFlight = false
+                if retainedSupersededBannerDeltaPersistenceDirty,
+                   !retainedSupersededBannerPersistenceDeltas.isEmpty {
+                    scheduleRetainedSupersededBannerDeltaPersistence()
+                }
+            }
+        }
+    }
+
+    private func scheduleRetainedSupersededBannerSnapshotPersistence() {
+        guard !retainedSupersededBannerSnapshotPersistenceInFlight else {
+            retainedSupersededBannerSnapshotPersistenceDirty = true
+            scheduleRetainedSupersededBannerDeltaPersistence()
+            return
+        }
+        retainedSupersededBannerSnapshotPersistenceInFlight = true
+        retainedSupersededBannerSnapshotPersistenceDirty = false
+        let ids = retainedSupersededBannerIDs
+        retainedSupersededBannerPersistenceDeltas.removeAll()
+        Self.retainedSupersededBannerPersistenceQueue.async {
+            let snapshot = ids.map(\.uuidString).sorted()
+            let defaults = UserDefaults.standard
+            defaults.set(snapshot, forKey: Self.retainedSupersededBannerDefaultsKey)
+            defaults.removeObject(forKey: Self.retainedSupersededBannerDeltaDefaultsKey)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                retainedSupersededBannerSnapshotPersistenceInFlight = false
+                if retainedSupersededBannerSnapshotPersistenceDirty ||
+                    retainedSupersededBannerPersistenceDeltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold {
+                    scheduleRetainedSupersededBannerSnapshotPersistence()
+                } else if !retainedSupersededBannerPersistenceDeltas.isEmpty {
+                    scheduleRetainedSupersededBannerDeltaPersistence()
+                }
+            }
+        }
+    }
+
+    private func persistRetainedSupersededBannerIDChanges(inserted: [UUID] = [], removed: [UUID] = []) {
+        guard !inserted.isEmpty || !removed.isEmpty else { return }
+        let deltas = inserted.map { Self.retainedSupersededBannerDelta(id: $0, isInsertion: true) } +
+            removed.map { Self.retainedSupersededBannerDelta(id: $0, isInsertion: false) }
+        retainedSupersededBannerPersistenceDeltas.append(contentsOf: deltas)
+        if retainedSupersededBannerPersistenceDeltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold ||
+            deltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold {
+            scheduleRetainedSupersededBannerSnapshotPersistence()
+        } else {
+            scheduleRetainedSupersededBannerDeltaPersistence()
+        }
+    }
+
+    private func recordRetainedSupersededBannerIDs(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        loadRetainedSupersededBannerIDsIfNeeded()
+        var inserted: [UUID] = []
+        for id in ids where retainedSupersededBannerIDs.insert(id).inserted {
+            inserted.append(id)
+        }
+        persistRetainedSupersededBannerIDChanges(inserted: inserted)
+    }
+
+    private func removeRetainedSupersededBannerIDs(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        loadRetainedSupersededBannerIDsIfNeeded()
+        var removed: [UUID] = []
+        for id in ids where retainedSupersededBannerIDs.remove(id) != nil {
+            removed.append(id)
+        }
+        persistRetainedSupersededBannerIDChanges(removed: removed)
+    }
+
+    private func reconcileRetainedSupersededBannerIDs(retainedIDs: Set<UUID>) {
+        loadRetainedSupersededBannerIDsIfNeeded()
+        let reconciled = retainedSupersededBannerIDs.intersection(retainedIDs)
+        guard reconciled != retainedSupersededBannerIDs else { return }
+        let removed = Array(retainedSupersededBannerIDs.subtracting(reconciled))
+        retainedSupersededBannerIDs = reconciled
+        persistRetainedSupersededBannerIDChanges(removed: removed)
     }
 
     /// Phone-banner dismissals for superseded notifications, deferred until the
@@ -259,16 +527,19 @@ final class TerminalNotificationStore: ObservableObject {
     /// the reconcile sweep still classifies the ids correctly because they are
     /// tombstoned at supersede time.
     private var supersededPhoneDismissBuffer = SupersededPhoneDismissBuffer()
+    private var externalBannerOwnership = ExternalNotificationBannerOwnership()
 
     /// Classify which of the phone's delivered banner ids have been handled on
     /// this Mac: still in the store and read, or recently removed (tombstoned).
     /// Ids this Mac has never seen are NOT reported handled — they may belong to
-    /// a different paired Mac — so the phone leaves those banners alone. An id
-    /// that is currently unread is never handled, even if an older tombstone
-    /// exists (markUnread after a dismiss resurrects it).
+    /// a different paired Mac — so the phone leaves those banners alone. A
+    /// retained unread row with a tombstone represents superseded history, so
+    /// its older phone banner is handled. Explicitly marking a row unread
+    /// removes its tombstone and resurrects that banner identity.
     func reconcileHandledNotificationIDs(deliveredIDs: [UUID]) -> [String] {
         guard !deliveredIDs.isEmpty else { return [] }
         loadDismissedTombstonesIfNeeded()
+        loadRetainedSupersededBannerIDsIfNeeded()
         var readIDs = Set<UUID>()
         var knownIDs = Set<UUID>()
         for notification in notifications {
@@ -277,7 +548,11 @@ final class TerminalNotificationStore: ObservableObject {
         }
         return deliveredIDs
             .filter { id in
-                if knownIDs.contains(id) { return readIDs.contains(id) }
+                if knownIDs.contains(id) {
+                    return readIDs.contains(id) ||
+                        dismissedTombstoneIDs.contains(id) ||
+                        retainedSupersededBannerIDs.contains(id)
+                }
                 return dismissedTombstoneIDs.contains(id)
             }
             .map(\.uuidString)
@@ -286,8 +561,8 @@ final class TerminalNotificationStore: ObservableObject {
     /// Forwards a dismiss/clear to the user's phone. Call only from the
     /// change-confirmed branch of a user-driven read/clear/remove path, so the
     /// Mac→iOS→Mac echo can't loop. Session restore / surface rebind paths must
-    /// NOT call this: they reassign ids on churn and would clear a phone banner
-    /// that should persist.
+    /// not call this unless two owner keys collide: ordinary churn preserves
+    /// the phone banner, while a collision must dismiss the displaced owner.
     ///
     /// Two lanes share this chokepoint: the instant peer event for a
     /// live-attached phone, and a silent APNs badge push (the cold lane) so a
@@ -351,18 +626,50 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
-    private enum AuthorizationRequestOrigin: String {
+    enum AuthorizationRequestOrigin: String {
         case notificationDelivery = "notification_delivery"
         case settingsButton = "settings_button"
         case settingsTest = "settings_test"
     }
 
-    @Published private(set) var notifications: [TerminalNotification] = [] {
-        didSet {
-            indexes = Self.buildIndexes(for: notifications)
-            refreshUnreadPresentation()
-            if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
+    private enum NotificationMutationHint {
+        case insertion(TerminalNotification)
+        case insertionEvicting(inserted: TerminalNotification, evicted: [TerminalNotification])
+        case readState(before: TerminalNotification, after: TerminalNotification)
+    }
+
+    private struct NotificationInsertionCommit {
+        let evicted: [TerminalNotification]
+    }
+
+    /// Every accepted notification, once per stable id, newest first. Equal
+    /// timestamps use ascending UUID text as the deterministic tie break.
+    private var notificationFeedStorage = TerminalNotificationFeedStorage()
+    private var notificationFeedContentByteCount = 0
+    @Published private(set) var notificationFeedRevision: UInt64 = 0
+    var notifications: TerminalNotificationFeed {
+        TerminalNotificationFeed(storage: notificationFeedStorage)
+    }
+    private var deferredUnreadNavigationIds: [UUID] = []
+    private var unreadNavigationNotifications: [TerminalNotification] = []
+    private var unreadNavigationProjectionIsDirty = true
+
+    var notificationsForUnreadNavigation: [TerminalNotification] {
+        if unreadNavigationProjectionIsDirty { rebuildUnreadNavigationNotifications() }
+        return unreadNavigationNotifications
+    }
+
+    private func rebuildUnreadNavigationNotifications() {
+        unreadNavigationProjectionIsDirty = false
+        guard !deferredUnreadNavigationIds.isEmpty else {
+            unreadNavigationNotifications = Array(notifications)
+            return
         }
+        let deferredIds = Set(deferredUnreadNavigationIds)
+        var ordered = notifications.filter { !deferredIds.contains($0.id) }
+        let notificationById = Self.indexByIdPreservingFirst(notifications)
+        ordered.append(contentsOf: deferredUnreadNavigationIds.compactMap { notificationById[$0] })
+        unreadNavigationNotifications = ordered
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
     /// Coalesced, equality-guarded per-workspace unread projection for the
@@ -426,7 +733,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
-    private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
+    var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -440,9 +747,11 @@ final class TerminalNotificationStore: ObservableObject {
 
     private static let notificationHookFailureThrottle: TimeInterval = 300
     var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    private var notificationCooldownReservations = NotificationCooldownReservations()
     var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
     private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
+
     private init() {
         notificationFeedHistory = NotificationFeedHistoryStore(
             fileURL: NotificationFeedHistoryStore.defaultFileURL()
@@ -472,25 +781,6 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool, runTag: String? = nil) -> String? {
-        let unreadLabel: String? = {
-            guard isEnabled, unreadCount > 0 else { return nil }
-            if unreadCount > 99 {
-                return "99+"
-            }
-            return String(unreadCount)
-        }()
-
-        if let tag = TaggedRunBadgeSettings.normalizedTag(runTag) {
-            if let unreadLabel {
-                return "\(tag):\(unreadLabel)"
-            }
-            return tag
-        }
-
-        return unreadLabel
-    }
-
     var unreadCount: Int {
         indexes.unreadCount + workspaceUnreadIndicatorCount
     }
@@ -508,7 +798,8 @@ final class TerminalNotificationStore: ObservableObject {
     private func refreshUnreadPresentation() {
         let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(
             notifications: notifications,
-            workspaceUnreadIndicatorCount: workspaceUnreadIndicatorCount
+            workspaceUnreadIndicatorCount: workspaceUnreadIndicatorCount,
+            cachedUnreadNotificationCount: indexes.unreadCount
         )
         if notificationMenuSnapshot != nextMenuSnapshot {
             notificationMenuSnapshot = nextMenuSnapshot
@@ -524,6 +815,68 @@ final class TerminalNotificationStore: ObservableObject {
         )
         refreshDockBadge()
         emitUnreadBadgeEventIfChanged()
+    }
+
+    private func refreshUnreadPresentation(
+        changedWorkspaceIds: Set<UUID>,
+        changedSurfaceKeys: Set<SidebarSurfaceUnreadKey>
+    ) {
+        guard !changedWorkspaceIds.isEmpty || !changedSurfaceKeys.isEmpty else {
+            refreshUnreadPresentation()
+            return
+        }
+        let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: notifications,
+            workspaceUnreadIndicatorCount: workspaceUnreadIndicatorCount,
+            cachedUnreadNotificationCount: indexes.unreadCount
+        )
+        if notificationMenuSnapshot != nextMenuSnapshot {
+            notificationMenuSnapshot = nextMenuSnapshot
+        }
+        var changedSummaries: [UUID: SidebarWorkspaceUnreadSummary] = [:]
+        var removedSummaryIds: Set<UUID> = []
+        for id in changedWorkspaceIds {
+            if let summary = sidebarUnreadSummary(forWorkspaceId: id) {
+                changedSummaries[id] = summary
+            } else {
+                removedSummaryIds.insert(id)
+            }
+        }
+        var insertedSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+        var removedSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+        for key in changedSurfaceKeys {
+            if hasUnreadNotification(forTabId: key.workspaceId, surfaceId: key.surfaceId) {
+                insertedSurfaceKeys.insert(key)
+            } else {
+                removedSurfaceKeys.insert(key)
+            }
+        }
+        sidebarUnread.applyIncremental(
+            totalUnreadCount: unreadCount,
+            changedSummaries: changedSummaries,
+            removedSummaryIds: removedSummaryIds,
+            insertedUnreadSurfaceKeys: insertedSurfaceKeys,
+            removedUnreadSurfaceKeys: removedSurfaceKeys,
+            focusedReadIndicatorByWorkspaceId: focusedReadIndicatorByTabId,
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
+        )
+        refreshDockBadge()
+        emitUnreadBadgeEventIfChanged()
+    }
+
+    private static func sidebarUnreadSurfaceKeys(for notification: TerminalNotification) -> Set<SidebarSurfaceUnreadKey> {
+        Set(unreadIndexKeys(for: notification).map {
+            SidebarSurfaceUnreadKey(workspaceId: $0.tabId, surfaceId: $0.surfaceId)
+        })
+    }
+
+    private static func recordChangedUnreadPresentationScope(
+        for notification: TerminalNotification,
+        workspaceIds: inout Set<UUID>,
+        surfaceKeys: inout Set<SidebarSurfaceUnreadKey>
+    ) {
+        workspaceIds.insert(notification.tabId)
+        surfaceKeys.formUnion(sidebarUnreadSurfaceKeys(for: notification))
     }
 
     /// Builds the per-workspace unread summaries the sidebar renders. Mirrors
@@ -551,6 +904,20 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         return result
+    }
+
+    private func sidebarUnreadSummary(forWorkspaceId id: UUID) -> SidebarWorkspaceUnreadSummary? {
+        let count = unreadCount(forTabId: id)
+        let latestText: String? = indexes.latestByTabId[id].flatMap { notification in
+            let text = notification.body.isEmpty ? notification.title : notification.body
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard count != 0 || latestText != nil else { return nil }
+        return SidebarWorkspaceUnreadSummary(
+            unreadCount: count,
+            latestNotificationText: latestText
+        )
     }
 
     private func logAuthorization(_ message: String) {
@@ -808,6 +1175,8 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.latestByTabId[tabId]
     }
 
+    var notificationWorkspaceIds: Set<UUID> { Set(indexes.latestByTabId.keys) }
+
     func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
         notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
     }
@@ -850,6 +1219,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func addNotification(
+        id: UUID = UUID(),
+        acceptedAt: Date = Date(),
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
@@ -858,16 +1229,25 @@ final class TerminalNotificationStore: ObservableObject {
         retargetsToLiveSurfaceOwner: Bool = true,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
-        clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
+        clickAction: TerminalNotificationClickAction? = nil,
+        notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
         preRegisteredPolicyRequestId: UUID? = nil
     ) {
+        let routedKey: QueuedTerminalNotificationKey
+        if retargetsToLiveSurfaceOwner {
+            routedKey = TerminalMutationBus.shared.routedNotificationKey(
+                tabId: tabId,
+                surfaceId: surfaceId
+            )
+        } else {
+            routedKey = QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+        }
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
+            "notification.store.add workspace=\(routedKey.tabId.uuidString.prefix(8)) surface=\(routedKey.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
         )
 #endif
-        let now = Date()
         let resolvedCooldownInterval: TimeInterval?
         if let cooldownInterval, cooldownInterval.isFinite, cooldownInterval > 0 {
             resolvedCooldownInterval = cooldownInterval
@@ -877,10 +1257,10 @@ final class TerminalNotificationStore: ObservableObject {
         if let cooldownKey,
            let resolvedCooldownInterval,
            let lastNotificationDate = lastNotificationDateByCooldownKey[cooldownKey],
-           now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
+           acceptedAt.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
 #if DEBUG
             cmuxDebugLog(
-                "notification.store.add.skip workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") reason=cooldown"
+                "notification.store.add.skip workspace=\(routedKey.tabId.uuidString.prefix(8)) surface=\(routedKey.surfaceId?.uuidString.prefix(8) ?? "nil") reason=cooldown"
             )
 #endif
             if let preRegisteredPolicyRequestId {
@@ -888,16 +1268,16 @@ final class TerminalNotificationStore: ObservableObject {
             }
             return
         }
-        let cooldownReservation = makeCooldownReservation(
+        let cooldownReservation = notificationCooldownReservations.reserve(
             key: cooldownKey,
-            interval: resolvedCooldownInterval
+            interval: resolvedCooldownInterval,
+            acceptedAt: acceptedAt,
+            dates: &lastNotificationDateByCooldownKey
         )
-        if let cooldownReservation {
-            lastNotificationDateByCooldownKey[cooldownReservation.key] = now
-        }
+
         let policyContext = makeNotificationPolicyContext(
-            tabId: tabId,
-            surfaceId: surfaceId,
+            tabId: routedKey.tabId,
+            surfaceId: routedKey.surfaceId,
             title: title,
             subtitle: subtitle,
             body: body,
@@ -905,15 +1285,18 @@ final class TerminalNotificationStore: ObservableObject {
             resolvedHooks: resolvedHooks
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
-            applyNotification(
-                request: policyContext.request,
-                effects: TerminalNotificationPolicyEffects(),
-                now: now,
-                cooldownReservation: cooldownReservation,
-                scrollPosition: policyContext.scrollPosition,
-                clickAction: clickAction
-            )
-            return
+            if cooldownReservation == nil {
+                applyNotification(
+                    id: id,
+                    request: policyContext.request,
+                    effects: TerminalNotificationPolicyEffects(),
+                    acceptedAt: acceptedAt,
+                    cooldownReservation: nil,
+                    scrollPosition: policyContext.scrollPosition,
+                    clickAction: clickAction
+                )
+                return
+            }
         }
         guard let policyRequestId = prepareNotificationPolicyRequestId(
             preRegisteredPolicyRequestId: preRegisteredPolicyRequestId,
@@ -926,8 +1309,10 @@ final class TerminalNotificationStore: ObservableObject {
         guard !policyContext.hooks.isEmpty else {
             completePolicyRequest(
                 policyRequestId,
+                id: id,
                 request: policyContext.request,
                 effects: TerminalNotificationPolicyEffects(),
+                acceptedAt: acceptedAt,
                 cooldownReservation: cooldownReservation,
                 scrollPosition: policyContext.scrollPosition,
                 clickAction: clickAction
@@ -944,14 +1329,17 @@ final class TerminalNotificationStore: ObservableObject {
             guard !authorizedHooks.isEmpty else {
                 self.completePolicyRequest(
                     policyRequestId,
+                    id: id,
                     request: policyContext.request,
                     effects: TerminalNotificationPolicyEffects(),
+                    acceptedAt: acceptedAt,
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction
                 )
                 return
             }
+
             let result = await TerminalNotificationPolicyEngine.evaluate(
                 request: policyContext.request,
                 hooks: authorizedHooks
@@ -961,8 +1349,10 @@ final class TerminalNotificationStore: ObservableObject {
             case .success(let envelope):
                 self.completePolicyRequest(
                     policyRequestId,
+                    id: id,
                     request: policyContext.request,
                     envelope: envelope,
+                    acceptedAt: acceptedAt,
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction
@@ -970,8 +1360,10 @@ final class TerminalNotificationStore: ObservableObject {
             case .failure(let failure):
                 self.completePolicyRequest(
                     policyRequestId,
+                    id: id,
                     request: policyContext.request,
                     effects: TerminalNotificationPolicyEffects(),
+                    acceptedAt: acceptedAt,
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction
@@ -982,22 +1374,64 @@ final class TerminalNotificationStore: ObservableObject {
         inFlightPolicyRequests.attach(task: task, to: policyRequestId)
     }
 
-    private func completePolicyRequest(_ policyRequestId: UUID, request: TerminalNotificationPolicyRequest, envelope: TerminalNotificationPolicyEnvelope, cooldownReservation: NotificationCooldownReservation?, scrollPosition: TerminalNotificationScrollPosition?, clickAction: TerminalNotificationClickAction?) {
-        inFlightPolicyRequests.complete(policyRequestId) { [weak self] in
-            self?.applyNotification(request: request, envelope: envelope, now: Date(), cooldownReservation: cooldownReservation, scrollPosition: scrollPosition, clickAction: clickAction, policyRequestId: nil)
+    private func completePolicyRequest(
+        _ policyRequestId: UUID,
+        id: UUID,
+        request: TerminalNotificationPolicyRequest,
+        envelope: TerminalNotificationPolicyEnvelope,
+        acceptedAt: Date,
+        cooldownReservation: NotificationCooldownReservations.Reservation?,
+        scrollPosition: TerminalNotificationScrollPosition?,
+        clickAction: TerminalNotificationClickAction?
+    ) {
+        inFlightPolicyRequests.complete(policyRequestId) { [weak self] registeredRequest in
+            let claimedRequest = request.replacingLocation(
+                tabId: registeredRequest.tabId,
+                surfaceId: registeredRequest.surfaceId,
+                panelId: registeredRequest.panelId
+            )
+            self?.applyNotification(
+                id: id,
+                request: claimedRequest,
+                envelope: envelope,
+                acceptedAt: acceptedAt,
+                cooldownReservation: cooldownReservation,
+                scrollPosition: scrollPosition,
+                clickAction: clickAction,
+                policyRequestId: nil
+            )
         }
     }
 
-    private func completePolicyRequest(_ policyRequestId: UUID, request: TerminalNotificationPolicyRequest, effects: TerminalNotificationPolicyEffects, cooldownReservation: NotificationCooldownReservation?, scrollPosition: TerminalNotificationScrollPosition?, clickAction: TerminalNotificationClickAction?) {
-        inFlightPolicyRequests.complete(policyRequestId) { [weak self] in
-            self?.applyNotification(request: request, effects: effects, now: Date(), cooldownReservation: cooldownReservation, scrollPosition: scrollPosition, clickAction: clickAction, policyRequestId: nil)
+    private func completePolicyRequest(
+        _ policyRequestId: UUID,
+        id: UUID,
+        request: TerminalNotificationPolicyRequest,
+        effects: TerminalNotificationPolicyEffects,
+        acceptedAt: Date,
+        cooldownReservation: NotificationCooldownReservations.Reservation?,
+        scrollPosition: TerminalNotificationScrollPosition?,
+        clickAction: TerminalNotificationClickAction?
+    ) {
+        inFlightPolicyRequests.complete(policyRequestId) { [weak self] registeredRequest in
+            let claimedRequest = request.replacingLocation(
+                tabId: registeredRequest.tabId,
+                surfaceId: registeredRequest.surfaceId,
+                panelId: registeredRequest.panelId
+            )
+            self?.applyNotification(
+                id: id,
+                request: claimedRequest,
+                effects: effects,
+                acceptedAt: acceptedAt,
+                cooldownReservation: cooldownReservation,
+                scrollPosition: scrollPosition,
+                clickAction: clickAction,
+                policyRequestId: nil
+            )
         }
     }
 
-    private struct NotificationCooldownReservation: Sendable {
-        let key: String
-        let previousDate: Date?
-    }
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
         let scrollPosition: TerminalNotificationScrollPosition?
@@ -1009,7 +1443,7 @@ final class TerminalNotificationStore: ObservableObject {
         preRegisteredPolicyRequestId: UUID?,
         request: TerminalNotificationPolicyRequest,
         notificationGeneration: UInt64?,
-        cooldownReservation: NotificationCooldownReservation?
+        cooldownReservation: NotificationCooldownReservations.Reservation?
     ) -> UUID? {
         let onDiscard: @MainActor @Sendable () -> Void = { [weak self] in
             self?.restoreCooldownReservation(cooldownReservation)
@@ -1017,6 +1451,7 @@ final class TerminalNotificationStore: ObservableObject {
         if let preRegisteredPolicyRequestId {
             guard inFlightPolicyRequests.updateOnDiscard(
                 onDiscard,
+                cooldownKey: cooldownReservation?.key,
                 for: preRegisteredPolicyRequestId
             ) else {
                 restoreCooldownReservation(cooldownReservation)
@@ -1028,34 +1463,38 @@ final class TerminalNotificationStore: ObservableObject {
             request,
             generation: notificationGeneration
                 ?? TerminalMutationBus.shared.notificationGenerationSnapshot(),
+            cooldownKey: cooldownReservation?.key,
             onDiscard: onDiscard
         )
     }
 
-    private func makeCooldownReservation(
-        key: String?,
-        interval: TimeInterval?
-    ) -> NotificationCooldownReservation? {
-        guard let key, interval != nil else { return nil }
-        return NotificationCooldownReservation(
-            key: key,
-            previousDate: lastNotificationDateByCooldownKey[key]
-        )
-    }
     private func commitCooldownReservation(
-        _ reservation: NotificationCooldownReservation?,
+        _ reservation: NotificationCooldownReservations.Reservation?,
         at date: Date
     ) {
-        guard let reservation else { return }
-        lastNotificationDateByCooldownKey[reservation.key] = date
+        notificationCooldownReservations.commit(
+            reservation,
+            at: date,
+            dates: &lastNotificationDateByCooldownKey
+        )
     }
-    private func restoreCooldownReservation(_ reservation: NotificationCooldownReservation?) {
-        guard let reservation else { return }
-        if let previousDate = reservation.previousDate {
-            lastNotificationDateByCooldownKey[reservation.key] = previousDate
-        } else {
-            lastNotificationDateByCooldownKey.removeValue(forKey: reservation.key)
+
+    private func restoreCooldownReservation(_ reservation: NotificationCooldownReservations.Reservation?) {
+        notificationCooldownReservations.restore(
+            reservation,
+            dates: &lastNotificationDateByCooldownKey
+        )
+    }
+
+    private func hasCommittedCooldown(
+        _ reservation: NotificationCooldownReservations.Reservation?,
+        at acceptedAt: Date
+    ) -> Bool {
+        guard let reservation,
+              let lastNotificationDate = lastNotificationDateByCooldownKey[reservation.key] else {
+            return false
         }
+        return acceptedAt.timeIntervalSince(lastNotificationDate) < reservation.interval
     }
 
     private func makeNotificationPolicyContext(
@@ -1067,6 +1506,11 @@ final class TerminalNotificationStore: ObservableObject {
         retargetsToLiveSurfaceOwner: Bool,
         resolvedHooks: [CmuxResolvedNotificationHook]?
     ) -> NotificationPolicyContext {
+        let normalizedText = Self.normalizedNotificationText(
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
         let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
@@ -1103,9 +1547,9 @@ final class TerminalNotificationStore: ObservableObject {
                 surfaceId: surfaceId,
                 panelId: panelId,
                 retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
-                title: title,
-                subtitle: subtitle,
-                body: body,
+                title: normalizedText.title,
+                subtitle: normalizedText.subtitle,
+                body: normalizedText.body,
                 cwd: cwd,
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
@@ -1117,71 +1561,105 @@ final class TerminalNotificationStore: ObservableObject {
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
+
     private func applyNotification(
+        id: UUID,
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
-        now: Date,
-        cooldownReservation: NotificationCooldownReservation?,
+        acceptedAt: Date,
+        cooldownReservation: NotificationCooldownReservations.Reservation?,
         scrollPosition: TerminalNotificationScrollPosition?,
-        clickAction: TerminalNotificationClickAction?, policyRequestId: UUID?
+        clickAction: TerminalNotificationClickAction?,
+        policyRequestId: UUID?
     ) {
         let payload = envelope.notification
+        let normalizedPayload = Self.normalizedNotificationText(
+            title: payload.title,
+            subtitle: payload.subtitle,
+            body: payload.body
+        )
         applyNotification(
+            id: id,
             request: TerminalNotificationPolicyRequest(
                 tabId: request.tabId,
                 surfaceId: request.surfaceId,
                 panelId: request.panelId,
                 retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
-                title: payload.title,
-                subtitle: payload.subtitle,
-                body: payload.body,
+                title: normalizedPayload.title,
+                subtitle: normalizedPayload.subtitle,
+                body: normalizedPayload.body,
                 cwd: request.cwd,
                 isAppFocused: request.isAppFocused,
                 isFocusedPanel: request.isFocusedPanel
             ),
             effects: envelope.effects,
-            now: now,
+            acceptedAt: acceptedAt,
             cooldownReservation: cooldownReservation,
             scrollPosition: scrollPosition,
-            clickAction: clickAction, policyRequestId: policyRequestId
+            clickAction: clickAction,
+            policyRequestId: policyRequestId
         )
     }
 
     private func applyNotification(
+        id: UUID,
         request: TerminalNotificationPolicyRequest,
         effects: TerminalNotificationPolicyEffects,
-        now: Date,
-        cooldownReservation: NotificationCooldownReservation?,
+        acceptedAt: Date,
+        cooldownReservation: NotificationCooldownReservations.Reservation?,
         scrollPosition: TerminalNotificationScrollPosition?,
-        clickAction: TerminalNotificationClickAction?, policyRequestId: UUID? = nil
+        clickAction: TerminalNotificationClickAction?,
+        policyRequestId: UUID? = nil
     ) {
-        guard inFlightPolicyRequests.claim(policyRequestId) else { return }
-        guard let request = notificationPolicyRequestAtLiveOwner(request) else { restoreCooldownReservation(cooldownReservation); return }
-        let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
-            tabId: request.tabId,
-            surfaceId: request.surfaceId
+        guard let claimedRequest = inFlightPolicyRequests.claim(
+            policyRequestId,
+            applying: request
+        ) else { return }
+        guard let request = notificationPolicyRequestAtLiveOwner(claimedRequest) else {
+            restoreCooldownReservation(cooldownReservation)
+            return
+        }
+        guard !hasCommittedCooldown(cooldownReservation, at: acceptedAt) else {
+            restoreCooldownReservation(cooldownReservation)
+            return
+        }
+        let normalizedText = Self.normalizedNotificationText(
+            title: request.title,
+            subtitle: request.subtitle,
+            body: request.body
         )
         let notification = TerminalNotification(
-            id: UUID(),
+            id: id,
             tabId: request.tabId,
             surfaceId: request.surfaceId,
             panelId: request.panelId,
             retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
-            title: request.title,
-            subtitle: request.subtitle,
-            body: request.body,
-            createdAt: now,
+            title: normalizedText.title,
+            subtitle: normalizedText.subtitle,
+            body: normalizedText.body,
+            createdAt: acceptedAt,
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
             scrollPosition: scrollPosition,
             clickAction: clickAction
         )
+
+        guard !indexes.ids.contains(notification.id) else {
+            restoreCooldownReservation(cooldownReservation)
+            return
+        }
+
+        let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId
+        )
+
         if effects.record {
             recordNotification(
                 notification,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
                 effects: effects,
-                now: now,
+                acceptedAt: acceptedAt,
                 cooldownReservation: cooldownReservation
             )
             return
@@ -1198,7 +1676,7 @@ final class TerminalNotificationStore: ObservableObject {
                 .moveTabToTopForNotification(notification.tabId)
         }
         if hasAnyNotificationEffect(effects) {
-            commitCooldownReservation(cooldownReservation, at: now)
+            commitCooldownReservation(cooldownReservation, at: acceptedAt)
         } else {
             restoreCooldownReservation(cooldownReservation)
         }
@@ -1208,21 +1686,14 @@ final class TerminalNotificationStore: ObservableObject {
             effects: effects
         )
     }
+
     private func recordNotification(
         _ notification: TerminalNotification,
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects,
-        now: Date,
-        cooldownReservation: NotificationCooldownReservation?
+        acceptedAt: Date,
+        cooldownReservation: NotificationCooldownReservations.Reservation?
     ) {
-        var updated = notifications
-        var idsToClear: [String] = []
-        updated.removeAll { existing in
-            guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
-            idsToClear.append(existing.id.uuidString)
-            return true
-        }
-
         if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[notification.tabId],
            existingIndicatorSurfaceId != notification.surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
@@ -1238,70 +1709,398 @@ final class TerminalNotificationStore: ObservableObject {
                 .moveTabToTopForNotification(notification.tabId)
         }
 
-        updated.insert(notification, at: 0)
-        setWorkspaceManualUnread(false, forTabId: notification.tabId)
-        notifications = updated
-        notificationFeedHistory.record(
-            notification,
-            supersededIDs: Set(idsToClear.compactMap { UUID(uuidString: $0) })
+        let insertionIndex = Self.insertionIndex(for: notification, in: notifications)
+        let latestExisting = indexes.latestByTabSurface[
+            TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+        ]
+        let externalBannerTransition = Self.externalBannerTransition(
+            incoming: notification,
+            latestExisting: latestExisting
         )
-        commitCooldownReservation(cooldownReservation, at: now)
+        let bannerOwner = externalBannerOwnership.owner(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId
+        )
+        let supersededExternalIds = externalBannerTransition.suppressIncoming
+            ? []
+            : bannerOwner.map { [$0.id.uuidString] } ?? []
+        let supersededExternalIdSet = Set(supersededExternalIds)
+        let suppressExternalDelivery = shouldSuppressExternalDelivery || externalBannerTransition.suppressIncoming
+        guard let insertionCommit = commitInsertion(notification, at: insertionIndex) else {
+            restoreCooldownReservation(cooldownReservation)
+            return
+        }
+        setWorkspaceManualUnread(false, forTabId: notification.tabId)
+        notificationFeedHistory.record(notification, supersededIDs: [])
+        commitCooldownReservation(cooldownReservation, at: acceptedAt)
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.record workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") removed=\(idsToClear.count) unread=\(!notification.isRead ? 1 : 0) paneFlash=\(notification.paneFlash ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0) total=\(notifications.count)"
+            "notification.store.record workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") unread=\(!notification.isRead ? 1 : 0) paneFlash=\(notification.paneFlash ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0) total=\(notifications.count)"
         )
 #endif
-        if !idsToClear.isEmpty {
-            center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
-            center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
-            // A newer notification for this tab+surface superseded the old one
-            // and its Mac banner was just cleared. When a replacement banner
-            // push is expected, DEFER the phone-banner dismiss until that push
-            // is actually queued (see ``deliverNotificationSideEffects``): the
-            // phone must never lose its only banner to a dismissal whose
-            // replacement was throttled. When no replacement will be forwarded
-            // (suppressed/focused, non-desktop effects, forwarding off, or the
-            // `.onlyWhenAway` presence gate suppressing it while the Mac is
-            // active), emit the dismiss immediately — nothing is coming to
-            // replace the banner, and the Mac is not showing one either, so
-            // deferring would just leave the stale banner stuck until a later
-            // forward. Only the burst throttle is a legitimate defer-and-flush
-            // case, which is why ``PhonePushClient/willForwardReplacement()``
-            // mirrors the real send gate but ignores that throttle.
-            let replacementWillForward = !shouldSuppressExternalDelivery
-                && effects.desktop
-                && PhonePushClient.shared.willForwardReplacement()
-            if replacementWillForward {
-                // The superseded entries already left the store; tombstone them
-                // now so the reconcile sweep stays correct while the dismiss is
-                // deferred.
-                recordDismissTombstones(ids: idsToClear.compactMap { UUID(uuidString: $0) })
-                supersededPhoneDismissBuffer.stash(
-                    ids: idsToClear,
-                    forKey: SupersededPhoneDismissBuffer.key(
-                        tabId: notification.tabId,
-                        surfaceId: notification.surfaceId
-                    )
-                )
-            } else {
-                // Also drain anything still parked for this key from an earlier
-                // throttled supersede; this emit is its last guaranteed ride.
-                emitNotificationsDismissed(
-                    ids: idsToClear,
-                    drainedSuperseded: supersededPhoneDismissBuffer.flush(
-                        forKey: SupersededPhoneDismissBuffer.key(
-                            tabId: notification.tabId,
-                            surfaceId: notification.surfaceId
-                        )
-                    )
-                )
-            }
-        }
-        deliverNotificationSideEffects(
-            notification,
-            shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
+        supersedeExternalBanners(
+            ids: supersededExternalIds,
+            with: notification,
+            shouldSuppressExternalDelivery: suppressExternalDelivery,
             effects: effects
         )
+        if !externalBannerTransition.suppressIncoming {
+            externalBannerOwnership.clear(tabId: notification.tabId, surfaceId: notification.surfaceId)
+            if !suppressExternalDelivery, effects.desktop { externalBannerOwnership.setOwner(notification) }
+        }
+        dismissEvictedExternalBannerOwners(
+            insertionCommit.evicted,
+            excluding: supersededExternalIdSet
+        )
+        deliverNotificationSideEffects(
+            notification,
+            shouldSuppressExternalDelivery: suppressExternalDelivery,
+            effects: effects
+        )
+    }
+
+    @discardableResult
+    private func commitInsertion(
+        _ notification: TerminalNotification,
+        at index: Int
+    ) -> NotificationInsertionCommit? {
+        let notificationBytes = Self.notificationContentByteCount(notification)
+        if index == 0 {
+            var bytesAfterInsertion = notificationFeedContentByteCount + notificationBytes
+            var countAfterInsertion = notifications.count + 1
+            var evictionCount = 0
+            var evicted: [TerminalNotification] = []
+            while (countAfterInsertion > Self.maximumNotificationFeedCount
+                   || bytesAfterInsertion > Self.maximumNotificationFeedContentBytes),
+                  evictionCount < notifications.count {
+                let oldest = notifications[notifications.count - evictionCount - 1]
+                evicted.append(oldest)
+                bytesAfterInsertion -= Self.notificationContentByteCount(oldest)
+                countAfterInsertion -= 1
+                evictionCount += 1
+            }
+            if countAfterInsertion <= Self.maximumNotificationFeedCount,
+               bytesAfterInsertion <= Self.maximumNotificationFeedContentBytes {
+                notificationFeedRevision &+= 1
+                if evictionCount == 0 {
+                    notificationFeedStorage.appendNewest(notification)
+                } else if let eviction = notificationFeedStorage.appendNewestEvictingOldest(
+                    notification,
+                    count: evictionCount,
+                    compactingAfter: Self.notificationFeedCompactionOffset,
+                    compactingAfterDiscardedBytes: Self.notificationFeedCompactionDiscardedBytes
+                ) {
+                    evicted = eviction.evicted
+                    if let replacementStorage = eviction.replacementStorage {
+                        notificationFeedStorage = replacementStorage
+                    }
+                } else {
+                    return nil
+                }
+                notificationFeedContentByteCount = bytesAfterInsertion
+                notificationFeedDidChange(
+                    oldValue: nil,
+                    mutation: evicted.isEmpty
+                        ? .insertion(notification)
+                        : .insertionEvicting(inserted: notification, evicted: evicted)
+                )
+                return NotificationInsertionCommit(evicted: evicted)
+            }
+        }
+        var updated = Array(notifications)
+        updated.insert(notification, at: index)
+        let evicted = replaceNotificationFeed(
+            updated,
+            mutation: .insertion(notification),
+            dismissEvictedExternalBannerOwners: false
+        )
+        guard indexes.ids.contains(notification.id) else {
+            dismissEvictedExternalBannerOwners(evicted)
+            return nil
+        }
+        return NotificationInsertionCommit(evicted: evicted)
+    }
+
+    private func dismissEvictedExternalBannerOwners(
+        _ evicted: [TerminalNotification],
+        excluding ids: Set<String> = []
+    ) {
+        for notification in evicted where !ids.contains(notification.id.uuidString) {
+            dismissEvictedExternalBannerOwner(notification)
+        }
+    }
+
+    private func dismissEvictedExternalBannerOwner(_ evicted: TerminalNotification) {
+        guard externalBannerOwnership.owner(
+            tabId: evicted.tabId,
+            surfaceId: evicted.surfaceId
+        )?.id == evicted.id else {
+            externalBannerOwnership.clear(id: evicted.id)
+            return
+        }
+        let id = evicted.id.uuidString
+        let drainedSuperseded = supersededPhoneDismissesForRowAction(evicted)
+        externalBannerOwnership.clear(id: evicted.id)
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: [id])
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: [id])
+        emitNotificationsDismissed(ids: [id], drainedSuperseded: drainedSuperseded)
+    }
+
+    private static func retainedNotificationFeed(
+        from newestFirst: [TerminalNotification]
+    ) -> (retained: [TerminalNotification], evicted: [TerminalNotification]) {
+        var retained: [TerminalNotification] = []
+        retained.reserveCapacity(min(newestFirst.count, maximumNotificationFeedCount))
+        var evicted: [TerminalNotification] = []
+        var retainedBytes = 0
+        for (index, notification) in newestFirst.enumerated() {
+            let normalized = normalizedNotificationContent(notification)
+            let notificationBytes = notificationContentByteCount(normalized)
+            if retained.count < maximumNotificationFeedCount,
+               retainedBytes + notificationBytes <= maximumNotificationFeedContentBytes {
+                retained.append(normalized)
+                retainedBytes += notificationBytes
+            } else {
+                evicted.append(normalized)
+                evicted.append(
+                    contentsOf: newestFirst.dropFirst(index + 1).map(normalizedNotificationContent)
+                )
+                break
+            }
+        }
+        return (retained, evicted)
+    }
+
+    nonisolated static func normalizedNotificationText(
+        title: String,
+        subtitle: String,
+        body: String
+    ) -> (title: String, subtitle: String, body: String) {
+        (
+            title: truncatedUTF8(title, maxBytes: maximumNotificationTitleBytes),
+            subtitle: truncatedUTF8(subtitle, maxBytes: maximumNotificationSubtitleBytes),
+            body: truncatedUTF8(body, maxBytes: maximumNotificationBodyBytes)
+        )
+    }
+
+    private nonisolated static func normalizedNotificationContent(
+        _ notification: TerminalNotification
+    ) -> TerminalNotification {
+        let normalized = normalizedNotificationText(
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body
+        )
+        guard normalized.title != notification.title
+            || normalized.subtitle != notification.subtitle
+            || normalized.body != notification.body else {
+            return notification
+        }
+        return TerminalNotification(
+            id: notification.id,
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            panelId: notification.panelId,
+            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
+            title: normalized.title,
+            subtitle: normalized.subtitle,
+            body: normalized.body,
+            createdAt: notification.createdAt,
+            isRead: notification.isRead,
+            paneFlash: notification.paneFlash,
+            scrollPosition: notification.scrollPosition,
+            clickAction: notification.clickAction
+        )
+    }
+
+    fileprivate nonisolated static func notificationContentByteCount(
+        _ notification: TerminalNotification
+    ) -> Int {
+        notification.title.utf8.count
+            + notification.subtitle.utf8.count
+            + notification.body.utf8.count
+    }
+
+    private nonisolated static func truncatedUTF8(_ value: String, maxBytes: Int) -> String {
+        guard value.utf8.count > maxBytes else { return value }
+        var result = ""
+        result.reserveCapacity(min(value.count, maxBytes))
+        var usedBytes = 0
+        for character in value {
+            let characterBytes = String(character).utf8.count
+            guard usedBytes + characterBytes <= maxBytes else { break }
+            result.append(character)
+            usedBytes += characterBytes
+        }
+        return result
+    }
+
+    private func commitReadStateChange(
+        from before: TerminalNotification,
+        to after: TerminalNotification,
+        in updated: [TerminalNotification]
+    ) {
+        replaceNotificationFeed(updated, mutation: .readState(before: before, after: after))
+    }
+
+    @discardableResult
+    private func replaceNotificationFeed(
+        _ next: [TerminalNotification],
+        mutation: NotificationMutationHint? = nil,
+        dismissEvictedExternalBannerOwners shouldDismissEvictedExternalBannerOwners: Bool = true
+    ) -> [TerminalNotification] {
+        let previous = Array(notifications)
+        let retained = Self.retainedNotificationFeed(from: next)
+        notificationFeedRevision &+= 1
+        notificationFeedStorage = TerminalNotificationFeedStorage(newestFirst: retained.retained)
+        notificationFeedContentByteCount = retained.retained.reduce(0) {
+            $0 + Self.notificationContentByteCount($1)
+        }
+        reconcileRetainedSupersededBannerIDs(retainedIDs: Set(retained.retained.map(\.id)))
+        notificationFeedDidChange(
+            oldValue: previous,
+            mutation: retained.evicted.isEmpty ? mutation : nil
+        )
+        if shouldDismissEvictedExternalBannerOwners {
+            dismissEvictedExternalBannerOwners(retained.evicted)
+        }
+        return retained.evicted
+    }
+
+    private func notificationFeedDidChange(
+        oldValue: [TerminalNotification]?,
+        mutation: NotificationMutationHint?
+    ) {
+        let appliedIncrementally: Bool
+        var changedWorkspaceIds: Set<UUID> = []
+        var changedSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+        var shouldRefreshUnreadPresentationFully = false
+        switch mutation {
+        case .insertion(let inserted):
+            Self.insertNotification(inserted, into: &indexes, notifications: notifications)
+            Self.recordChangedUnreadPresentationScope(
+                for: inserted,
+                workspaceIds: &changedWorkspaceIds,
+                surfaceKeys: &changedSurfaceKeys
+            )
+            appliedIncrementally = true
+        case .insertionEvicting(let inserted, let evicted):
+            Self.insertNotification(
+                inserted,
+                evicting: evicted,
+                into: &indexes,
+                notifications: notifications
+            )
+            let evictedIds = Set(evicted.map(\.id))
+            deferredUnreadNavigationIds.removeAll { evictedIds.contains($0) }
+            removeRetainedSupersededBannerIDs(ids: Array(evictedIds))
+            Self.recordChangedUnreadPresentationScope(
+                for: inserted,
+                workspaceIds: &changedWorkspaceIds,
+                surfaceKeys: &changedSurfaceKeys
+            )
+            for notification in evicted {
+                Self.recordChangedUnreadPresentationScope(
+                    for: notification,
+                    workspaceIds: &changedWorkspaceIds,
+                    surfaceKeys: &changedSurfaceKeys
+                )
+            }
+            appliedIncrementally = true
+        case .readState(let before, let after):
+            appliedIncrementally = Self.updateReadState(
+                from: before,
+                to: after,
+                in: &indexes,
+                notifications: Array(notifications)
+            )
+            Self.recordChangedUnreadPresentationScope(
+                for: before,
+                workspaceIds: &changedWorkspaceIds,
+                surfaceKeys: &changedSurfaceKeys
+            )
+            Self.recordChangedUnreadPresentationScope(
+                for: after,
+                workspaceIds: &changedWorkspaceIds,
+                surfaceKeys: &changedSurfaceKeys
+            )
+        case nil:
+            indexes = Self.buildIndexes(for: notifications)
+            deferredUnreadNavigationIds.removeAll { !indexes.ids.contains($0) }
+            shouldRefreshUnreadPresentationFully = true
+            appliedIncrementally = false
+        }
+        unreadNavigationProjectionIsDirty = true
+        if shouldRefreshUnreadPresentationFully {
+            refreshUnreadPresentation()
+        } else {
+            refreshUnreadPresentation(
+                changedWorkspaceIds: changedWorkspaceIds,
+                changedSurfaceKeys: changedSurfaceKeys
+            )
+        }
+        switch mutation {
+        case .insertion(let inserted):
+            CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
+        case .insertionEvicting(let inserted, let evicted):
+            CmuxEventBus.shared.publishNotificationsRemoved(evicted) {
+                CmuxEventBus.shared.publishNotificationCreated(
+                    inserted,
+                    delivery: "store",
+                    replacedNotificationIds: []
+                )
+            }
+        case .readState(let before, let after) where appliedIncrementally:
+            if !before.isRead, after.isRead {
+                CmuxEventBus.shared.publishNotificationRead(
+                    ids: [after.id.uuidString],
+                    workspaceId: after.tabId,
+                    surfaceId: after.surfaceId
+                )
+            }
+        case .readState where !suppressNotificationDiffPublishing:
+            CmuxEventBus.shared.publishNotificationChanges(
+                oldValue: oldValue ?? [],
+                newValue: Array(notifications)
+            )
+        case nil where !suppressNotificationDiffPublishing:
+            CmuxEventBus.shared.publishNotificationChanges(
+                oldValue: oldValue ?? [],
+                newValue: Array(notifications)
+            )
+        default:
+            break
+        }
+    }
+
+    private func supersedeExternalBanners(
+        ids: [String],
+        with notification: TerminalNotification,
+        shouldSuppressExternalDelivery: Bool,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        guard !ids.isEmpty else { return }
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
+        let supersededUUIDs = ids.compactMap { UUID(uuidString: $0) }
+        recordRetainedSupersededBannerIDs(ids: supersededUUIDs)
+
+        let key = SupersededPhoneDismissBuffer.key(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId
+        )
+        let replacementWillForward = !shouldSuppressExternalDelivery
+            && effects.desktop
+            && PhonePushClient.shared.willForwardReplacement()
+        if replacementWillForward {
+            recordDismissTombstones(ids: supersededUUIDs)
+            supersededPhoneDismissBuffer.stash(ids: ids, forKey: key)
+        } else {
+            emitNotificationsDismissed(
+                ids: ids,
+                drainedSuperseded: supersededPhoneDismissBuffer.flush(forKey: key)
+            )
+        }
     }
 
     private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
@@ -1422,28 +2221,32 @@ final class TerminalNotificationStore: ObservableObject {
     func markNotificationFeedRead(ids: Set<UUID>) -> Int {
         let marked = notificationFeedHistory.markRead(ids: ids)
         guard !ids.isEmpty else { return marked }
-        var updated = notifications
+        var updated = Array(notifications)
         var activeIDs: [String] = []
         var drainedSuperseded: [String] = []
+        var readChanges: [(before: TerminalNotification, after: TerminalNotification)] = []
         for index in updated.indices where ids.contains(updated[index].id) && !updated[index].isRead {
+            let before = updated[index]
             updated[index].isRead = true
+            readChanges.append((before, updated[index]))
             activeIDs.append(updated[index].id.uuidString)
-            drainedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.flush(
-                forKey: SupersededPhoneDismissBuffer.key(
-                    tabId: updated[index].tabId,
-                    surfaceId: updated[index].surfaceId
-                )
-            ))
+            drainedSuperseded.append(contentsOf: supersededPhoneDismissesForRowAction(before))
         }
         if !activeIDs.isEmpty {
-            notifications = updated
+            deferredUnreadNavigationIds.removeAll { ids.contains($0) }
+            if readChanges.count == 1, let change = readChanges.first {
+                commitReadStateChange(from: change.before, to: change.after, in: updated)
+            } else {
+                replaceNotificationFeed(updated)
+            }
+            externalBannerOwnership.clear(ids: activeIDs)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: activeIDs)
             emitNotificationsDismissed(
                 ids: activeIDs,
                 drainedSuperseded: drainedSuperseded
             )
         }
-        return marked
+        return max(marked, readChanges.count)
     }
 
     func markUnread(id: UUID) {
@@ -1456,14 +2259,23 @@ final class TerminalNotificationStore: ObservableObject {
     func markNotificationFeedUnread(ids: Set<UUID>) -> Int {
         let marked = notificationFeedHistory.markUnread(ids: ids)
         guard !ids.isEmpty else { return marked }
-        var updated = notifications
+        var updated = Array(notifications)
         var tabIDs = Set<UUID>()
+        var unreadChanges: [(before: TerminalNotification, after: TerminalNotification)] = []
         for index in updated.indices where ids.contains(updated[index].id) && updated[index].isRead {
+            let before = updated[index]
             updated[index].isRead = false
+            unreadChanges.append((before, updated[index]))
             tabIDs.insert(updated[index].tabId)
         }
         if !tabIDs.isEmpty {
-            notifications = updated
+            removeDismissTombstones(ids: Array(ids))
+            deferredUnreadNavigationIds.removeAll { ids.contains($0) }
+            if unreadChanges.count == 1, let change = unreadChanges.first {
+                commitReadStateChange(from: change.before, to: change.after, in: updated)
+            } else {
+                replaceNotificationFeed(updated)
+            }
         }
         // The notification itself now provides the workspace unread indicator. Clear any
         // existing manual or restored workspace unread state for the same tab so we don't
@@ -1474,13 +2286,13 @@ final class TerminalNotificationStore: ObservableObject {
             setWorkspaceManualUnread(false, forTabId: tabID)
             setWorkspaceRestoredUnread(false, forTabId: tabID)
         }
-        return marked
+        return max(marked, unreadChanges.count)
     }
 
     func markRead(forTabId tabId: UUID) {
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil)
         notificationFeedHistory.markRead(inWorkspace: tabId)
-        var updated = notifications
+        var updated = Array(notifications)
         var idsToClear: [String] = []
         for index in updated.indices {
             if updated[index].tabId == tabId && !updated[index].isRead {
@@ -1489,7 +2301,9 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         if !idsToClear.isEmpty {
-            notifications = updated
+            let clearedIds = Set(idsToClear.compactMap(UUID.init(uuidString:)))
+            deferredUnreadNavigationIds.removeAll { clearedIds.contains($0) }
+            replaceNotificationFeed(updated)
         }
         clearFocusedReadIndicator(forTabId: tabId)
         setWorkspaceManualUnread(false, forTabId: tabId)
@@ -1497,6 +2311,7 @@ final class TerminalNotificationStore: ObservableObject {
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
+            externalBannerOwnership.clear(tabId: tabId)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(
                 ids: idsToClear,
@@ -1508,7 +2323,7 @@ final class TerminalNotificationStore: ObservableObject {
     func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: surfaceId)
         notificationFeedHistory.markRead(inWorkspace: tabId, surfaceId: surfaceId)
-        var updated = notifications
+        var updated = Array(notifications)
         var idsToClear: [String] = []
         var supersededDrained = supersededPhoneDismissBuffer.flush(
             forKey: SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)
@@ -1527,7 +2342,9 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         if !idsToClear.isEmpty {
-            notifications = updated
+            let clearedIds = Set(idsToClear.compactMap(UUID.init(uuidString:)))
+            deferredUnreadNavigationIds.removeAll { clearedIds.contains($0) }
+            replaceNotificationFeed(updated)
         }
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if surfaceId == nil {
@@ -1536,6 +2353,7 @@ final class TerminalNotificationStore: ObservableObject {
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
         if !idsToClear.isEmpty {
+            externalBannerOwnership.clear(ids: idsToClear)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(ids: idsToClear, drainedSuperseded: supersededDrained)
@@ -1549,7 +2367,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     @discardableResult
     func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
-        var updated = notifications
+        var updated = Array(notifications)
         guard let index = latestNotificationIndex(forTabId: tabId, surfaceId: surfaceId, in: updated) else {
             if surfaceId == nil, !workspaceIsUnread(forTabId: tabId) {
                 setWorkspaceManualUnread(true, forTabId: tabId)
@@ -1557,14 +2375,16 @@ final class TerminalNotificationStore: ObservableObject {
             return nil
         }
 
-        var notification = updated.remove(at: index)
-        notification.isRead = false
-        let insertionIndex = updated.lastIndex(where: { !$0.isRead }).map { $0 + 1 } ?? updated.endIndex
-        updated.insert(notification, at: insertionIndex)
+        let before = updated[index]
+        updated[index].isRead = false
+        let notificationId = updated[index].id
+        removeDismissTombstones(ids: [notificationId])
+        deferredUnreadNavigationIds.removeAll { $0 == notificationId }
+        deferredUnreadNavigationIds.append(notificationId)
         setWorkspaceManualUnread(false, forTabId: tabId)
-        notifications = updated
-        notificationFeedHistory.markUnread(ids: [notification.id])
-        return notification.id
+        notificationFeedHistory.markUnread(ids: [notificationId])
+        commitReadStateChange(from: before, to: updated[index], in: updated)
+        return notificationId
     }
 
     private func latestNotificationIndex(forTabId tabId: UUID, surfaceId: UUID?, in notifications: [TerminalNotification]) -> Int? {
@@ -1598,7 +2418,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func markAllRead() {
         notificationFeedHistory.markAllRead()
-        var updated = notifications
+        var updated = Array(notifications)
         var idsToClear: [String] = []
         var tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds
         for index in updated.indices {
@@ -1609,13 +2429,14 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         if !idsToClear.isEmpty {
-            notifications = updated
+            replaceNotificationFeed(updated)
         }
         clearWorkspaceManualUnread()
         clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
+            externalBannerOwnership.clearAll()
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(
@@ -1626,90 +2447,162 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func remove(id: UUID) {
-        var updated = notifications
+        var updated = Array(notifications)
         let removed = updated.first(where: { $0.id == id })
         let originalCount = updated.count
         updated.removeAll { $0.id == id }
         guard updated.count != originalCount else { return }
-        notifications = updated
+        let drainedSuperseded = removed.map(supersededPhoneDismissesForRowAction) ?? []
         notificationFeedHistory.markRead(ids: [id])
+        replaceNotificationFeed(updated)
+        externalBannerOwnership.clear(id: id)
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
-        let supersededDrained = removed.map { removedNotification in
-            supersededPhoneDismissBuffer.flush(
-                forKey: SupersededPhoneDismissBuffer.key(
-                    tabId: removedNotification.tabId,
-                    surfaceId: removedNotification.surfaceId
-                )
-            )
-        } ?? []
-        emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: supersededDrained)
+        emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: drainedSuperseded)
     }
 
-    func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
-        TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId)
-
-        let removedIds = notifications
-            .filter { $0.tabId == tabId }
-            .map { $0.id.uuidString }
-        var usedNotificationIds = Set(notifications.filter { $0.tabId != tabId }.map(\.id))
-        let restoredForTab = restoredNotifications
-            .filter { $0.tabId == tabId }
-            .sorted(by: Self.notificationSortPrecedes)
-            .map { Self.notificationWithUniqueId($0, usedIds: &usedNotificationIds) }
-        let keptNotifications = notifications.filter { $0.tabId != tabId }
-        let nextNotifications = (restoredForTab + keptNotifications).sorted(by: Self.notificationSortPrecedes)
-
-        let didChangeNotifications = nextNotifications != notifications
-        if didChangeNotifications {
-            notifications = nextNotifications
+    @discardableResult
+    func removeReadNotifications() -> Int {
+        var retained: [TerminalNotification] = []
+        var removed: [TerminalNotification] = []
+        retained.reserveCapacity(notifications.count)
+        for notification in notifications {
+            if notification.isRead {
+                removed.append(notification)
+            } else {
+                retained.append(notification)
+            }
         }
-        notificationFeedHistory.reconcileActiveNotifications(nextNotifications)
-        let nextIDs = Set(nextNotifications.map(\.id))
-        notificationFeedHistory.markRead(
-            ids: Set(removedIds.compactMap { UUID(uuidString: $0) }).subtracting(nextIDs)
-        )
-        clearFocusedReadIndicator(forTabId: tabId)
-
-        if didChangeNotifications, !removedIds.isEmpty {
-            center.removeDeliveredNotificationsOffMain(withIdentifiers: removedIds)
-            center.removePendingNotificationRequestsOffMain(withIdentifiers: removedIds)
+        guard !removed.isEmpty else { return 0 }
+        var drainedSuperseded: [String] = []
+        drainedSuperseded.reserveCapacity(removed.count)
+        for notification in removed {
+            drainedSuperseded.append(contentsOf: supersededPhoneDismissesForRowAction(notification))
         }
+        notificationFeedHistory.markRead(ids: Set(removed.map(\.id)))
+        replaceNotificationFeed(retained)
+        let ids = removed.map { $0.id.uuidString }
+        externalBannerOwnership.clear(ids: ids)
+        for notification in removed {
+            clearFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
+        }
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
+        emitNotificationsDismissed(ids: ids, drainedSuperseded: drainedSuperseded)
+        return removed.count
     }
 
-    private static func notificationWithUniqueId(
-        _ notification: TerminalNotification,
-        usedIds: inout Set<UUID>
-    ) -> TerminalNotification {
-        if usedIds.insert(notification.id).inserted {
-            return notification
-        }
-
-        var replacementId = UUID()
-        while !usedIds.insert(replacementId).inserted {
-            replacementId = UUID()
-        }
-        return TerminalNotification(
-            id: replacementId,
+    private func supersededPhoneDismissesForRowAction(_ notification: TerminalNotification) -> [String] {
+        guard externalBannerOwnership.owner(
             tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            panelId: notification.panelId,
-            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body,
-            createdAt: notification.createdAt,
-            isRead: notification.isRead,
-            paneFlash: notification.paneFlash,
-            scrollPosition: notification.scrollPosition,
-            clickAction: notification.clickAction
-        )
+            surfaceId: notification.surfaceId
+        )?.id == notification.id else { return [] }
+        let phoneKey = SupersededPhoneDismissBuffer.key(tabId: notification.tabId, surfaceId: notification.surfaceId)
+        return supersededPhoneDismissBuffer.flush(forKey: phoneKey)
     }
 
-    private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
-    func clearAll(discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
+    func externalBannerOwnerNotificationIDs(forTabId tabId: UUID) -> [UUID] {
+        externalBannerOwnership.ownerIDs(tabId: tabId)
+    }
+
+    func applySessionNotificationMerge(
+        _ merged: [TerminalNotification],
+        restoredExternalBannerOwnerIDs: Set<UUID> = []
+    ) {
+        let existing = Array(notifications)
+        guard merged != existing || !restoredExternalBannerOwnerIDs.isEmpty else { return }
+        externalBannerOwnership.reconcile(
+            previous: existing,
+            merged: merged,
+            restoredOwnerIDs: restoredExternalBannerOwnerIDs
+        )
+        guard merged != existing else { return }
+        replaceNotificationFeed(merged)
+        for notification in merged {
+            notificationFeedHistory.record(notification, supersededIDs: [])
+        }
+        let mergedIDs = Set(merged.map(\.id))
+        notificationFeedHistory.markRead(ids: Set(existing.map(\.id)).subtracting(mergedIDs))
+    }
+
+    func transferSessionNotificationState(fromTabId: UUID, toTabId: UUID, panelIdMap: [UUID: UUID]) {
+        inFlightPolicyRequests.transfer(
+            fromTabId: fromTabId,
+            toTabId: toTabId,
+            panelIdMap: panelIdMap
+        )
+        for surfaceId in panelIdMap.keys {
+            notificationFeedHistory.rebindSurface(
+                fromTabId: fromTabId,
+                toTabId: toTabId,
+                surfaceId: surfaceId
+            )
+        }
+        let manual = Self.replacingWorkspaceId(in: manualUnreadWorkspaceIds, from: fromTabId, to: toTabId)
+        if manual != manualUnreadWorkspaceIds { manualUnreadWorkspaceIds = manual }
+        let panel = Self.replacingWorkspaceId(in: panelDerivedUnreadWorkspaceIds, from: fromTabId, to: toTabId)
+        if panel != panelDerivedUnreadWorkspaceIds { panelDerivedUnreadWorkspaceIds = panel }
+        let restored = Self.replacingWorkspaceId(in: restoredUnreadWorkspaceIds, from: fromTabId, to: toTabId)
+        if restored != restoredUnreadWorkspaceIds { restoredUnreadWorkspaceIds = restored }
+        var focused = focusedReadIndicatorByTabId
+        if let oldSurfaceId = focused.removeValue(forKey: fromTabId), focused[toTabId] == nil {
+            focused[toTabId] = panelIdMap[oldSurfaceId] ?? oldSurfaceId
+        }
+        if focused != focusedReadIndicatorByTabId { focusedReadIndicatorByTabId = focused }
+        let sourceOwnersByID = Dictionary(
+            uniqueKeysWithValues: externalBannerOwnership.owners(tabId: fromTabId).map { ($0.id, $0) }
+        )
+        let destinationOwnersByID = Dictionary(
+            uniqueKeysWithValues: externalBannerOwnership.owners(tabId: toTabId).map { ($0.id, $0) }
+        )
+        let displacedOwners = externalBannerOwnership.transfer(
+            fromTabId: fromTabId,
+            toTabId: toTabId,
+            panelIdMap: panelIdMap
+        )
+        let displacedOwnerIDs = Set(displacedOwners.map(\.id))
+        let displacedSourceKeys = Set<String>(sourceOwnersByID.values.compactMap { owner in
+            guard displacedOwnerIDs.contains(owner.id) else { return nil }
+            return SupersededPhoneDismissBuffer.key(tabId: owner.tabId, surfaceId: owner.surfaceId)
+        })
+        let displacedDestinationKeys = Set<String>(destinationOwnersByID.values.compactMap { owner in
+            guard displacedOwnerIDs.contains(owner.id) else { return nil }
+            return SupersededPhoneDismissBuffer.key(tabId: owner.tabId, surfaceId: owner.surfaceId)
+        })
+        var displacedSuperseded = displacedDestinationKeys.sorted().flatMap {
+            supersededPhoneDismissBuffer.flush(forKey: $0)
+        }
+        displacedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.transfer(
+            fromTabId: fromTabId,
+            toTabId: toTabId,
+            panelIdMap: panelIdMap,
+            drainingSourceKeys: displacedSourceKeys
+        ))
+        dismissDisplacedExternalBannerOwners(displacedOwners, drainedSuperseded: displacedSuperseded)
+    }
+
+    private func dismissDisplacedExternalBannerOwners(
+        _ displacedOwners: [TerminalNotification],
+        drainedSuperseded: [String]
+    ) {
+        guard !displacedOwners.isEmpty else { return }
+        let displacedIds = Set(displacedOwners.map { $0.id.uuidString }).sorted()
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: displacedIds)
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: displacedIds)
+        emitNotificationsDismissed(ids: displacedIds, drainedSuperseded: drainedSuperseded)
+    }
+
+    private func replaceNotificationsForClear(_ next: [TerminalNotification]) {
+        suppressNotificationDiffPublishing = true
+        replaceNotificationFeed(next)
+        suppressNotificationDiffPublishing = false
+    }
+
+    func clearAll(
+        discardQueuedNotifications: Bool = true,
+        throughNotificationGeneration: UInt64? = nil
+    ) {
         inFlightPolicyRequests.discardAll(through: throughNotificationGeneration)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
         guard !notifications.isEmpty ||
@@ -1723,6 +2616,7 @@ final class TerminalNotificationStore: ObservableObject {
             ids: Set(ids.compactMap { UUID(uuidString: $0) })
         )
         replaceNotificationsForClear([])
+        externalBannerOwnership.clearAll()
         clearWorkspaceManualUnread()
         clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
@@ -1737,20 +2631,34 @@ final class TerminalNotificationStore: ObservableObject {
     func clearNotifications(
         forTabId tabId: UUID,
         surfaceId: UUID?,
-        discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil
+        discardQueuedNotifications: Bool = true,
+        throughNotificationGeneration: UInt64? = nil
     ) {
-        let liveTabId = surfaceId.flatMap { AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: $0)?.tabId } ?? tabId
+        let liveTabId = surfaceId.flatMap {
+            AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: $0)?.tabId
+        } ?? tabId
         let tabIds = Set([tabId, liveTabId])
-        inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: surfaceId, through: throughNotificationGeneration)
-        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: liveTabId, surfaceId: surfaceId) }
+        inFlightPolicyRequests.discard(
+            forTabId: tabId,
+            surfaceId: surfaceId,
+            through: throughNotificationGeneration
+        )
+        if discardQueuedNotifications {
+            TerminalMutationBus.shared.discardPendingNotificationsForClear(
+                tabId: liveTabId,
+                surfaceId: surfaceId
+            )
+        }
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
-        var idsToClear: [String] = [], indicatorTabIds: Set<UUID> = [tabId]
+        var idsToClear: [String] = []
+        var indicatorTabIds: Set<UUID> = [tabId]
         var supersededDrained: [String] = []
         for notification in notifications {
             if notification.matchesClear(tabId: tabId, liveTabId: liveTabId, surfaceId: surfaceId) {
-                idsToClear.append(notification.id.uuidString); indicatorTabIds.insert(notification.tabId)
+                idsToClear.append(notification.id.uuidString)
+                indicatorTabIds.insert(notification.tabId)
                 supersededDrained.append(contentsOf: supersededPhoneDismissBuffer.flush(
                     forKey: SupersededPhoneDismissBuffer.key(
                         tabId: notification.tabId,
@@ -1761,7 +2669,9 @@ final class TerminalNotificationStore: ObservableObject {
                 updated.append(notification)
             }
         }
-        let hadFocusedReadIndicator = indicatorTabIds.contains { focusedReadIndicatorByTabId[$0].map { $0 == surfaceId } ?? false }
+        let hadFocusedReadIndicator = indicatorTabIds.contains {
+            focusedReadIndicatorByTabId[$0].map { $0 == surfaceId } ?? false
+        }
         guard !idsToClear.isEmpty || hadFocusedReadIndicator || hadRestoredWorkspaceUnread else { return }
         if !idsToClear.isEmpty {
             notificationFeedHistory.markRead(
@@ -1774,7 +2684,12 @@ final class TerminalNotificationStore: ObservableObject {
         }
         indicatorTabIds.forEach { clearFocusedReadIndicator(forTabId: $0, surfaceId: surfaceId) }
         if !idsToClear.isEmpty {
-            CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabIds.count == 1 ? tabId : nil, surfaceId: surfaceId)
+            externalBannerOwnership.clear(ids: idsToClear)
+            CmuxEventBus.shared.publishNotificationCleared(
+                ids: idsToClear,
+                workspaceId: tabIds.count == 1 ? tabId : nil,
+                surfaceId: surfaceId
+            )
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(ids: idsToClear, drainedSuperseded: supersededDrained)
@@ -1783,47 +2698,100 @@ final class TerminalNotificationStore: ObservableObject {
 
     func rebindSurfaceNotifications(fromTabId sourceTabId: UUID, toTabId destinationTabId: UUID, surfaceId: UUID) {
         guard sourceTabId != destinationTabId else { return }
-        inFlightPolicyRequests.rebindSurface(fromTabId: sourceTabId, toTabId: destinationTabId, surfaceId: surfaceId)
+        TerminalMutationBus.shared.rebindPendingNotifications(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+        inFlightPolicyRequests.rebindSurface(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
         notificationFeedHistory.rebindSurface(
             fromTabId: sourceTabId,
             toTabId: destinationTabId,
             surfaceId: surfaceId
         )
         var didMoveNotification = false
+        let hasUnreadSourceConfinedNotification = notifications.contains {
+            !$0.isRead &&
+                !$0.retargetsToLiveSurfaceOwner &&
+                $0.matches(tabId: sourceTabId, surfaceId: surfaceId)
+        }
         let updated = notifications.map { notification -> TerminalNotification in
             guard notification.retargetsToLiveSurfaceOwner,
                   notification.matches(tabId: sourceTabId, surfaceId: surfaceId) else {
                 return notification
             }
             didMoveNotification = true
-            return TerminalNotification(
-                id: notification.id,
+            return notification.replacingLocation(
                 tabId: destinationTabId,
                 surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                title: notification.title,
-                subtitle: notification.subtitle,
-                body: notification.body,
-                createdAt: notification.createdAt,
-                isRead: notification.isRead,
-                paneFlash: notification.paneFlash,
-                scrollPosition: notification.scrollPosition,
-                clickAction: notification.clickAction
+                panelId: notification.panelId
             )
         }
         if didMoveNotification {
-            notifications = updated
+            let bannerOwnerRetargets = externalBannerOwnership.owner(
+                tabId: sourceTabId,
+                surfaceId: surfaceId
+            )?.retargetsToLiveSurfaceOwner == true
+            let sourceOwner = externalBannerOwnership.owner(tabId: sourceTabId, surfaceId: surfaceId)
+            let destinationOwner = externalBannerOwnership.owner(tabId: destinationTabId, surfaceId: surfaceId)
+            let displacedOwner: TerminalNotification?
+            if bannerOwnerRetargets {
+                displacedOwner = externalBannerOwnership.rebind(
+                    surfaceId: surfaceId,
+                    fromTabId: sourceTabId,
+                    toTabId: destinationTabId
+                )
+                let displacedOwnerId = displacedOwner?.id
+                let sourceWasDisplaced = displacedOwnerId == sourceOwner?.id
+                let destinationWasDisplaced = displacedOwnerId == destinationOwner?.id
+                var displacedSuperseded: [String] = []
+                if destinationWasDisplaced {
+                    displacedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.flush(
+                        forKey: SupersededPhoneDismissBuffer.key(tabId: destinationTabId, surfaceId: surfaceId)
+                    ))
+                }
+                displacedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.rebind(
+                    surfaceId: surfaceId,
+                    fromTabId: sourceTabId,
+                    toTabId: destinationTabId,
+                    drainSource: sourceWasDisplaced
+                ))
+                dismissDisplacedExternalBannerOwners(
+                    displacedOwner.map { [$0] } ?? [],
+                    drainedSuperseded: displacedSuperseded
+                )
+            } else {
+                displacedOwner = nil
+            }
+            replaceNotificationFeed(updated)
         }
-        if didMoveNotification, focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
+
+        if !hasUnreadSourceConfinedNotification,
+           focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: sourceTabId)
             if focusedReadIndicatorByTabId[destinationTabId] == nil {
                 focusedReadIndicatorByTabId[destinationTabId] = surfaceId
             }
         }
     }
-    func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
-        inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil, through: throughNotificationGeneration)
-        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: tabId, surfaceId: nil) }
+
+    func clearNotifications(
+        forTabId tabId: UUID,
+        discardQueuedNotifications: Bool = true,
+        throughNotificationGeneration: UInt64? = nil
+    ) {
+        inFlightPolicyRequests.discard(
+            forTabId: tabId,
+            surfaceId: nil,
+            through: throughNotificationGeneration
+        )
+        if discardQueuedNotifications {
+            TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: tabId, surfaceId: nil)
+        }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId] != nil
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
@@ -1848,6 +2816,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         clearFocusedReadIndicator(forTabId: tabId)
         if !idsToClear.isEmpty {
+            externalBannerOwnership.clear(tabId: tabId)
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1858,119 +2827,13 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func resolvedNotificationTitle(for notification: TerminalNotification) -> String {
-        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "cmux"
-        return notification.title.isEmpty ? appName : notification.title
-    }
-
-    private func scheduleUserNotification(
-        _ notification: TerminalNotification,
-        effects: TerminalNotificationPolicyEffects
-    ) {
-        guard effects.desktop else {
-            playLocalNotificationFeedback(
-                title: resolvedNotificationTitle(for: notification),
-                subtitle: notification.subtitle,
-                body: notification.body,
-                effects: effects
-            )
-            return
-        }
-
-        let nativeDeliveryHooks = nativeNotificationDeliveryHooks
-        let notificationTitle = resolvedNotificationTitle(for: notification)
-        let notificationSubtitle = notification.subtitle
-        let notificationBody = notification.body
-        let notificationId = notification.id
-        let notificationTabId = notification.tabId
-        let notificationSurfaceId = notification.surfaceId
-        let retargetsToLiveSurfaceOwner = notification.retargetsToLiveSurfaceOwner
-        let clickActionUserInfo = notification.clickAction?.userInfo ?? [:]
-        let categoryIdentifier = Self.categoryIdentifier
-        let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { authorized, effectiveAuthorizationState in
-            let content = UNMutableNotificationContent()
-            content.title = notificationTitle
-            content.subtitle = notificationSubtitle
-            content.body = notificationBody
-            guard authorized else {
-                NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(
-                    effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState)
-                )
-                return
-            }
-            content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
-            content.categoryIdentifier = categoryIdentifier
-            content.userInfo = [
-                "tabId": notificationTabId.uuidString,
-                "notificationId": notificationId.uuidString,
-                Self.retargetsToLiveSurfaceOwnerUserInfoKey: retargetsToLiveSurfaceOwner,
-            ]
-            if let surfaceId = notificationSurfaceId {
-                content.userInfo["surfaceId"] = surfaceId.uuidString
-            }
-            for (key, value) in clickActionUserInfo {
-                content.userInfo[key] = value
-            }
-            let request = UNNotificationRequest(
-                identifier: notificationId.uuidString,
-                content: content,
-                trigger: nil
-            )
-            let commandTitle = content.title
-            let commandSubtitle = content.subtitle
-            let commandBody = content.body
-
-            nativeDeliveryHooks.schedule(request) { error in
-                if let error {
-                    terminalNotificationLogger.error(
-                        "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
-                    )
-                    NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
-                } else if effects.command {
-                    nativeDeliveryHooks.runCommand(title: commandTitle, subtitle: commandSubtitle, body: commandBody)
-                }
-            }
-        }
-        if !nativeDeliveryHooks.authorizeForTesting(handleAuthorization) {
-            ensureAuthorization(origin: .notificationDelivery, handleAuthorization)
-        }
-    }
-
-    private func playSuppressedNotificationFeedback(
-        for notification: TerminalNotification,
-        effects: TerminalNotificationPolicyEffects
-    ) {
-        nativeNotificationDeliveryHooks.runLocalFeedback(
-            title: resolvedNotificationTitle(for: notification),
-            subtitle: notification.subtitle,
-            body: notification.body,
-            effects: effects
-        )
-    }
-
-    private func playLocalNotificationFeedback(
-        title: String,
-        subtitle: String,
-        body: String,
-        effects: TerminalNotificationPolicyEffects
-    ) {
-        nativeNotificationDeliveryHooks.runLocalFeedback(
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            effects: effects
-        )
-    }
-
     /// `completion` receives the decision plus the effective authorization
     /// state behind it. The state matters for the just-prompted-and-declined
     /// case: `authorizationState` is refreshed asynchronously there, so a
     /// caller reading the property would still see `.notDetermined` and play
     /// the fallback sound for the very notification whose prompt the user
     /// just denied.
-    private func ensureAuthorization(
+    func ensureAuthorization(
         origin: AuthorizationRequestOrigin,
         _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
     ) {
@@ -2146,37 +3009,6 @@ final class TerminalNotificationStore: ObservableObject {
         return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
     }
 
-    private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
-        var indexes = NotificationIndexes()
-        for notification in notifications {
-            if indexes.latestByTabId[notification.tabId] == nil {
-                indexes.latestByTabId[notification.tabId] = notification
-            }
-            guard !notification.isRead else { continue }
-            indexes.unreadCount += 1
-            indexes.unreadCountByTabId[notification.tabId, default: 0] += 1
-            indexes.unreadByTabSurface.insert(
-                TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
-            )
-            if let panelId = notification.panelId, panelId != notification.surfaceId {
-                indexes.unreadByTabSurface.insert(
-                    TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId)
-                )
-            }
-            if indexes.latestUnreadByTabId[notification.tabId] == nil {
-                indexes.latestUnreadByTabId[notification.tabId] = notification
-            }
-        }
-        return indexes
-    }
-
-    static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
-        if lhs.createdAt != rhs.createdAt {
-            return lhs.createdAt > rhs.createdAt
-        }
-        return lhs.id.uuidString < rhs.id.uuidString
-    }
-
 #if DEBUG
     func configureNotificationSettingsPromptHooksForTesting(
         windowProvider: @escaping () -> NSWindow?,
@@ -2249,23 +3081,45 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
+    func promptToEnableNotificationsForTesting() {
+        promptToEnableNotifications()
+    }
+
+    func replaceNotificationsForTesting<S: Sequence>(_ notificationSequence: S)
+    where S.Element == TerminalNotification {
+        let notifications = Array(notificationSequence)
         TerminalMutationBus.shared.discardPendingNotifications()
-        self.notifications = notifications
+        deferredUnreadNavigationIds.removeAll()
         notificationFeedHistory = NotificationFeedHistoryStore(fileURL: nil) { revision in
             MobileHostService.emitEvent(
                 topic: Self.feedChangedEventTopic,
                 payload: ["revision": revision]
             )
         }
+        replaceNotificationFeed(notifications)
+        notificationFeedHistory.reconcileActiveNotifications(Array(self.notifications))
+        externalBannerOwnership.resetAssumingOwners(from: Array(self.notifications))
         clearWorkspaceManualUnread()
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
     }
 
-    func promptToEnableNotificationsForTesting() {
-        promptToEnableNotifications()
+    func stashSupersededPhoneDismissIDsForTesting(_ ids: [String], tabId: UUID, surfaceId: UUID?) {
+        supersededPhoneDismissBuffer.stash(
+            ids: ids,
+            forKey: SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)
+        )
+    }
+
+    func flushSupersededPhoneDismissIDsForTesting(tabId: UUID, surfaceId: UUID?) -> [String] {
+        supersededPhoneDismissBuffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)
+        )
+    }
+
+    func externalBannerOwnerIDForTesting(tabId: UUID, surfaceId: UUID?) -> UUID? {
+        externalBannerOwnership.owner(tabId: tabId, surfaceId: surfaceId)?.id
     }
 
 #endif
@@ -2329,6 +3183,46 @@ final class SidebarUnreadModel: ObservableObject {
         }
         if self.unreadSurfaceKeys != unreadSurfaceKeys {
             self.unreadSurfaceKeys = unreadSurfaceKeys
+        }
+        if self.focusedReadIndicatorByWorkspaceId != focusedReadIndicatorByWorkspaceId {
+            self.focusedReadIndicatorByWorkspaceId = focusedReadIndicatorByWorkspaceId
+        }
+        if self.manualUnreadWorkspaceIds != manualUnreadWorkspaceIds {
+            self.manualUnreadWorkspaceIds = manualUnreadWorkspaceIds
+        }
+    }
+
+    func applyIncremental(
+        totalUnreadCount: Int,
+        changedSummaries: [UUID: SidebarWorkspaceUnreadSummary],
+        removedSummaryIds: Set<UUID>,
+        insertedUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
+        removedUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
+        focusedReadIndicatorByWorkspaceId: [UUID: UUID],
+        manualUnreadWorkspaceIds: Set<UUID>
+    ) {
+        if self.totalUnreadCount != totalUnreadCount {
+            self.totalUnreadCount = totalUnreadCount
+        }
+        var nextSummaries = summaryByWorkspaceId
+        for id in removedSummaryIds where nextSummaries[id] != nil {
+            nextSummaries.removeValue(forKey: id)
+        }
+        for (id, summary) in changedSummaries where nextSummaries[id] != summary {
+            nextSummaries[id] = summary
+        }
+        if summaryByWorkspaceId != nextSummaries {
+            summaryByWorkspaceId = nextSummaries
+        }
+        var nextSurfaceKeys = unreadSurfaceKeys
+        for key in removedUnreadSurfaceKeys {
+            nextSurfaceKeys.remove(key)
+        }
+        for key in insertedUnreadSurfaceKeys {
+            nextSurfaceKeys.insert(key)
+        }
+        if unreadSurfaceKeys != nextSurfaceKeys {
+            unreadSurfaceKeys = nextSurfaceKeys
         }
         if self.focusedReadIndicatorByWorkspaceId != focusedReadIndicatorByWorkspaceId {
             self.focusedReadIndicatorByWorkspaceId = focusedReadIndicatorByWorkspaceId

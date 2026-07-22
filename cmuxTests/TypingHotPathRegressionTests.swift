@@ -72,9 +72,9 @@ struct TerminalNotificationPolicyInFlightStoreTests {
             onDiscard: {}
         )
 
-        store.complete(second) { applied.append("second") }
+        store.complete(second) { _ in applied.append("second") }
         #expect(applied.isEmpty)
-        store.complete(first) { applied.append("first") }
+        store.complete(first) { _ in applied.append("first") }
 
         #expect(applied == ["first", "second"])
     }
@@ -93,7 +93,7 @@ struct TerminalNotificationPolicyInFlightStoreTests {
             onDiscard: {}
         )
 
-        store.complete(independent) { applied.append("independent") }
+        store.complete(independent) { _ in applied.append("independent") }
 
         #expect(applied == ["independent"])
     }
@@ -159,7 +159,7 @@ struct TerminalNotificationPolicyInFlightStoreTests {
         #expect(store.hasPendingRequest(forTabId: tabId))
         #expect(store.hasPendingRequest(forTabId: tabId, surfaceId: surfaceId))
         #expect(store.hasPendingRequest(forTabId: tabId, surfaceId: panelId))
-        #expect(store.claim(id))
+        #expect(store.claim(id, applying: makeRequest(tabId: tabId, surfaceId: surfaceId, panelId: panelId, title: "pending")) != nil)
         #expect(!store.hasPendingRequest(forTabId: tabId))
     }
 

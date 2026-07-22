@@ -1,5 +1,19 @@
 import CmuxControlSocket
+import CmuxRemoteSession
 import Foundation
+
+/// Identity for last-write-wins terminal mutations. A fresh enqueue removes
+/// the pending same-key entry while preserving unrelated FIFO work.
+struct TerminalMutationReplaceKey: Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
+        case shellActivity, gitBranch, directory
+        case portsKick(PortScanKickReason)
+    }
+
+    let tabId: UUID
+    let surfaceId: UUID
+    let kind: Kind
+}
 
 /// Shared resolution/scheduling twins for the `ControlSidebarContext`
 /// conformance split (`+ControlSidebarContext.swift` / `2` / `3`): byte-faithful

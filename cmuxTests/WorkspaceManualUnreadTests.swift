@@ -522,7 +522,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 1)
     }
 
-    func testMarkLatestNotificationAsOldestUnreadDefersCurrentNotificationBehindUnreadQueue() {
+    func testMarkLatestNotificationAsOldestUnreadPreservesChronologicalFeedOrder() {
         let store = TerminalNotificationStore.shared
         let currentWorkspaceId = UUID()
         let currentSurfaceId = UUID()
@@ -570,11 +570,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             store.markLatestNotificationAsOldestUnread(forTabId: currentWorkspaceId, surfaceId: currentSurfaceId),
             currentNotificationId
         )
-        XCTAssertEqual(
-            store.notifications.map(\.id),
-            [nextNotificationId, oldestNotificationId, currentNotificationId]
-        )
-        XCTAssertFalse(store.notifications.last?.isRead ?? true)
+        XCTAssertEqual(store.notifications.map(\.id), [currentNotificationId, nextNotificationId, oldestNotificationId])
+        XCTAssertFalse(store.notifications.first?.isRead ?? true)
     }
 
     func testMarkLatestNotificationAsOldestUnreadFallsBackToManualWorkspaceUnreadWhenNoSurfaceExists() {
@@ -1182,7 +1179,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashReason, .unreadIndicatorDismiss)
     }
 
-    func testMarkLatestNotificationAsOldestUnreadAppendsWhenNoOtherUnreadNotificationsRemain() {
+    func testMarkLatestNotificationAsOldestUnreadPreservesOrderWhenNoOtherUnreadNotificationsRemain() {
         let store = TerminalNotificationStore.shared
         let currentWorkspaceId = UUID()
         let currentNotificationId = UUID()
@@ -1217,8 +1214,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             store.markLatestNotificationAsOldestUnread(forTabId: currentWorkspaceId, surfaceId: nil),
             currentNotificationId
         )
-        XCTAssertEqual(store.notifications.map(\.id), [readNotificationId, currentNotificationId])
-        XCTAssertFalse(store.notifications.last?.isRead ?? true)
+        XCTAssertEqual(store.notifications.map(\.id), [currentNotificationId, readNotificationId])
+        XCTAssertFalse(store.notifications.first?.isRead ?? true)
     }
 
     func testManualPanelUnreadClearsOnDirectTerminalInteraction() {
@@ -2078,6 +2075,39 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             ),
         ])
         XCTAssertNotEqual(notificationWithoutPanelIdFingerprint, manager.sessionAutosaveFingerprint())
+
+        resetUnreadState()
+        let readOrphanFingerprint = manager.sessionAutosaveFingerprint()
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: UUID(),
+                title: "Read orphan",
+                subtitle: "",
+                body: "",
+                createdAt: notificationCreatedAt,
+                isRead: true
+            ),
+        ])
+        XCTAssertNotEqual(readOrphanFingerprint, manager.sessionAutosaveFingerprint())
+
+        resetUnreadState()
+        let aliasFingerprint = manager.sessionAutosaveFingerprint()
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: UUID(),
+                panelId: panelId,
+                title: "Read alias",
+                subtitle: "",
+                body: "",
+                createdAt: notificationCreatedAt,
+                isRead: true
+            ),
+        ])
+        XCTAssertNotEqual(aliasFingerprint, manager.sessionAutosaveFingerprint())
 
         resetUnreadState()
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)

@@ -1758,6 +1758,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
+    /// Stable ids of rows that owned a native/phone banner when saved. Absent
+    /// in older snapshots, where ownership remains unknown instead of being
+    /// inferred from feed chronology.
+    var externalBannerOwnerNotificationIds: [UUID]? = nil
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
     var focusedPanelId: UUID?

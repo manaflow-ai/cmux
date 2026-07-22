@@ -10,7 +10,7 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct NotificationFeedHistoryTests {
-    @Test func repeatedSurfaceNotificationsRemainChronologicalAndSupersededEntryBecomesRead() {
+    @Test func repeatedSurfaceNotificationsRemainChronologicalAndUnread() {
         let store = TerminalNotificationStore.shared
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
@@ -38,12 +38,12 @@ struct NotificationFeedHistoryTests {
             retargetsToLiveSurfaceOwner: false
         )
 
-        #expect(store.notifications.count == 1)
-        #expect(store.notifications.first?.title == "Second")
+        #expect(store.notifications.count == 2)
+        #expect(store.notifications.map(\.title) == ["Second", "First"])
         let history = store.notificationFeedHistory.notifications
         #expect(history.count == 2)
         #expect(history.map(\.title) == ["Second", "First"])
-        #expect(history.map(\.isRead) == [false, true])
+        #expect(history.map(\.isRead) == [false, false])
     }
 
     @Test func retentionKeepsEveryUnreadRecordAndOnlyNewestReadRecords() {

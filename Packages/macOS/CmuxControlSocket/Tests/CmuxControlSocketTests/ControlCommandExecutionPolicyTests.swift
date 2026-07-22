@@ -197,18 +197,24 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
-    @Test func v1NotificationFamilyRunsOnTheWorkerAndIsMainThreadCallable() {
-        // Tranche B2: parse on the worker; notify_target_async and
-        // clear_notifications are pure bus enqueues, the synchronous verbs
-        // carry one inline-collapsing v2MainSync hop, so main-thread
-        // in-process callers stay safe.
+    @Test func v1NotificationFamilyUsesSafeMainThreadPolicy() {
+        // The synchronous notify verbs collapse their main hop inline, while
+        // list_notifications formats the full feed and notify_target_async can
+        // wait for queue capacity, so both stay worker-only.
         for command in [
-            "notify", "notify_surface", "notify_target", "notify_target_async",
-            "list_notifications", "clear_notifications",
+            "notify", "notify_surface", "notify_target", "clear_notifications",
         ] {
             let policy = ControlCommandExecutionPolicy(forV1Command: command)
             #expect(policy == .socketWorker(mainThreadCallable: true), "\(command)")
         }
+        #expect(
+            ControlCommandExecutionPolicy(forV1Command: "list_notifications")
+                == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(forV1Command: "notify_target_async")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func v2NotificationCreateFamilyRunsOnTheWorkerAndIsMainThreadCallable() {
@@ -223,8 +229,13 @@ struct ControlCommandExecutionPolicyTests {
             #expect(policy == .socketWorker(mainThreadCallable: true), "\(method)")
         }
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.reconcile") == .mainActor)
-        // The read-side notification verbs stay on the main lane.
-        #expect(ControlCommandExecutionPolicy(forMethod: "notification.list") == .mainActor)
+        // Full-list snapshotting is one bounded main hop; per-row formatting
+        // stays on the worker and must never be callable inline on main.
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "notification.list")
+                == .socketWorker(mainThreadCallable: false)
+        )
+        // The remaining read-side mutation stays on the main lane.
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.clear") == .mainActor)
     }
 
@@ -302,13 +313,12 @@ struct ControlCommandExecutionPolicyTests {
         let expectedWorker = telemetry.union(notification).union(terminalRead)
             .union(resolutionReads).union(sends).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
-        // Every member except read_screen is deliberately main-thread
-        // callable (deadlock-free inline: bus enqueues plus inline-collapsing
-        // hops). read_screen opts out so its multi-MB formatting can never
-        // run inline on the main thread.
+        // read_screen, list_notifications, and notify_target_async remain
+        // worker-only: the first two can perform multi-row formatting and the
+        // latter may wait for capacity.
         #expect(
             ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
-                == expectedWorker.subtracting(terminalRead)
+                == expectedWorker.subtracting(terminalRead.union(["list_notifications", "notify_target_async"]))
         )
     }
 }

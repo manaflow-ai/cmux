@@ -220,8 +220,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
-        // The notification-create family and workspace.set_auto_title run the
-        // same single-hop worker shape (parse/bridge/encode on the worker, one
+        // Notification creation and workspace.set_auto_title parse/bridge/encode on the worker, with one
         // v2MainSync around the shared main-actor dispatch). The hop stays
         // synchronous so the reply is written only after the hop body ran —
         // matching the legacy main-lane ordering exactly. NOTE: that is NOT
@@ -237,6 +236,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_surface",
         "notification.create_for_target",
         "notification.create_for_caller",
+        "notification.list",
         "workspace.set_auto_title",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
@@ -368,8 +368,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// `TerminalController`: parse/format on the worker; `notify_target_async`
     /// and `clear_notifications` are pure mutation-bus enqueues (zero main
     /// hops, hooks nohup them and discard the reply); the synchronous
-    /// notify/list verbs keep one `v2MainSync` hop because their replies
-    /// depend on tab/surface resolution or the delivered store state.
+    /// notify verbs keep one `v2MainSync` hop because their replies depend on
+    /// tab/surface resolution or delivered store state. `list_notifications`
+    /// snapshots on the main actor but formats on the worker and is not safe
+    /// to collapse inline for in-process main-thread callers.
     /// Internal (not private) so the package tests can pin the exact set.
     static let notificationV1Commands: Set<String> = [
         "notify",
@@ -482,14 +484,14 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "report_shell_state",
         "report_tty",
         "ports_kick",
-        // The v1 notification family (tranche B2): notify_target_async and
-        // clear_notifications are pure bus enqueues; the synchronous verbs
-        // are one inline-collapsing hop each.
+        // The v1 notification family (tranche B2): clear_notifications is a
+        // pure bus enqueue; synchronous notify verbs are one inline-collapsing
+        // hop each. list_notifications formats the full feed and
+        // notify_target_async can wait for bounded queue capacity, so both
+        // remain worker-only.
         "notify",
         "notify_surface",
         "notify_target",
-        "notify_target_async",
-        "list_notifications",
         "clear_notifications",
         // The v1 resolution reads (tranche D): non-blocking single-hop
         // snapshot reads whose hop collapses inline on a main-thread caller,

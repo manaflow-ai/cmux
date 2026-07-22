@@ -5,11 +5,10 @@ public import Foundation
 /// ``ControlNotificationContext``.
 ///
 /// Mirrors the app target's `TerminalNotification` (plus the two app-resolved
-/// adornments the legacy `notificationPayload` builder added: the ISO-8601
-/// `createdAt` rendering and the workspace's tab title) without the package
-/// importing the app target. The coordinator turns each snapshot into a
-/// notification payload object, byte-identically to the former
-/// `[String: Any]` builder.
+/// adornments the legacy `notificationPayload` builder added: the creation
+/// time and workspace tab title) without the package importing the app target.
+/// The coordinator renders the timestamp while building the wire payload on
+/// the socket worker.
 public struct ControlNotificationSnapshot: Sendable, Equatable {
     /// The notification's stable identifier.
     public let id: UUID
@@ -23,11 +22,9 @@ public struct ControlNotificationSnapshot: Sendable, Equatable {
     public let subtitle: String
     /// The notification body.
     public let body: String
-    /// The creation timestamp pre-rendered exactly as the legacy
-    /// `notificationCreatedAtString` did (`ISO8601DateFormatter` with
-    /// `.withInternetDateTime`, GMT). Carried as a string so the package never
-    /// re-formats the date and the wire bytes stay identical.
-    public let createdAtISO8601: String
+    /// The creation timestamp. Kept as a Sendable value so full-list formatting
+    /// can run after the bounded main-actor snapshot hop.
+    public let createdAt: Date
     /// Whether the notification has been marked read.
     public let isRead: Bool
     /// The workspace's tab title, if the app could resolve one (the legacy
@@ -43,7 +40,7 @@ public struct ControlNotificationSnapshot: Sendable, Equatable {
     ///   - title: The notification title.
     ///   - subtitle: The notification subtitle.
     ///   - body: The notification body.
-    ///   - createdAtISO8601: The pre-rendered ISO-8601 creation timestamp.
+    ///   - createdAt: The creation timestamp.
     ///   - isRead: Whether the notification is read.
     ///   - tabTitle: The owning workspace's tab title, if any.
     public init(
@@ -53,7 +50,7 @@ public struct ControlNotificationSnapshot: Sendable, Equatable {
         title: String,
         subtitle: String,
         body: String,
-        createdAtISO8601: String,
+        createdAt: Date,
         isRead: Bool,
         tabTitle: String?
     ) {
@@ -63,7 +60,7 @@ public struct ControlNotificationSnapshot: Sendable, Equatable {
         self.title = title
         self.subtitle = subtitle
         self.body = body
-        self.createdAtISO8601 = createdAtISO8601
+        self.createdAt = createdAt
         self.isRead = isRead
         self.tabTitle = tabTitle
     }

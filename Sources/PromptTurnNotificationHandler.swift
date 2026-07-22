@@ -9,11 +9,24 @@ actor PromptTurnNotificationHandler {
     private var latestRevisionByAgentID: [String: UInt64] = [:]
     private var latestSubmissionCountByAgentID: [String: UInt64] = [:]
     private var turnForegroundPIDByAgentID: [String: Int] = [:]
-    private var deliveredConfirmationIdentifierByAgentID: [String: UInt64] = [:]
+    private var deliveredConfirmationIdentifiersByAgentID: [String: Set<UInt64>] = [:]
+    private var deliveredConfirmationOrderByAgentID: [String: [UInt64]] = [:]
+    private var deliveringConfirmationIdentifiersByAgentID: [String: Set<UInt64>] = [:]
     private var debounceTasksByAgentID: [String: Task<Void, Never>] = [:]
+    private var saturationRetryTasksByConfirmation: [SaturationRetryKey: Task<Void, Never>] = [:]
+    private var saturationRetryOrderByAgentID: [String: [UInt64]] = [:]
 
     private var inFlightPID: Int?
     private var inFlightVerification: Task<CmuxTaskManagerCodingAgentDefinition?, Never>?
+
+    private static let maximumSaturationRetryAttempts = 5
+    private static let maximumPendingSaturationRetriesPerAgent = 16
+    private static let maximumRememberedDeliveredConfirmationsPerAgent = 128
+
+    private struct SaturationRetryKey: Hashable {
+        let agentID: String
+        let confirmationIdentifier: UInt64
+    }
 
     init(workspaceID: UUID, surfaceID: UUID) {
         self.workspaceID = workspaceID
@@ -22,6 +35,9 @@ actor PromptTurnNotificationHandler {
 
     deinit {
         for task in debounceTasksByAgentID.values {
+            task.cancel()
+        }
+        for task in saturationRetryTasksByConfirmation.values {
             task.cancel()
         }
         inFlightVerification?.cancel()
@@ -96,10 +112,11 @@ actor PromptTurnNotificationHandler {
     private func deliverVerifiedTurn(
         agentID: String,
         confirmation: PromptLineTurnConfirmation,
-        requiredRevision: UInt64?
+        requiredRevision: UInt64?,
+        saturationRetryAttempt: Int = 0
     ) async {
         guard confirmation.confirmedTurnCount > 0,
-              deliveredConfirmationIdentifierByAgentID[agentID, default: 0] < confirmation.identifier,
+              !hasDeliveredConfirmation(agentID: agentID, identifier: confirmation.identifier),
               let turnPID = turnForegroundPIDByAgentID[agentID],
               let context = await Self.currentTurnContext(
                   surfaceID: surfaceID,
@@ -122,12 +139,11 @@ actor PromptTurnNotificationHandler {
         }
         // Re-check after the suspension points above so concurrent local and
         // timer confirmations of the same candidate deliver exactly once.
-        guard deliveredConfirmationIdentifierByAgentID[agentID, default: 0] < confirmation.identifier else {
+        guard beginDeliveringConfirmation(agentID: agentID, identifier: confirmation.identifier) else {
             return
         }
-        deliveredConfirmationIdentifierByAgentID[agentID] = confirmation.identifier
 
-        AgentNotificationDelivery().enqueue(
+        let result = await AgentNotificationDelivery().enqueueReliably(
             workspaceID: recheck.workspaceID,
             surfaceID: surfaceID,
             title: definition.displayName,
@@ -140,8 +156,123 @@ actor PromptTurnNotificationHandler {
                 defaultValue: "Task completed"
             ),
             category: .turnComplete,
-            pending: false
+            pending: false,
+            allowWorkspaceFallbackForValidatedSurface: true
         )
+        endDeliveringConfirmation(agentID: agentID, identifier: confirmation.identifier)
+        if result != .saturated {
+            markDeliveredConfirmation(agentID: agentID, identifier: confirmation.identifier)
+        } else {
+            scheduleSaturationRetry(
+                agentID: agentID,
+                confirmation: confirmation,
+                requiredRevision: nil,
+                attempt: saturationRetryAttempt
+            )
+        }
+    }
+
+    private func scheduleSaturationRetry(
+        agentID: String,
+        confirmation: PromptLineTurnConfirmation,
+        requiredRevision: UInt64?,
+        attempt: Int
+    ) {
+        guard attempt < Self.maximumSaturationRetryAttempts else { return }
+        let key = SaturationRetryKey(agentID: agentID, confirmationIdentifier: confirmation.identifier)
+        saturationRetryTasksByConfirmation.removeValue(forKey: key)?.cancel()
+        appendSaturationRetryKey(key)
+        let clock = ContinuousClock()
+        let delay = Duration.milliseconds(100 * (1 << min(attempt, 4)))
+        saturationRetryTasksByConfirmation[key] = Task { [weak self] in
+            await MainActor.run {
+                TerminalMutationBus.shared.drainForBackpressure()
+            }
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.saturationRetryReached(
+                agentID: agentID,
+                confirmation: confirmation,
+                requiredRevision: requiredRevision,
+                nextAttempt: attempt + 1
+            )
+        }
+    }
+
+    private func saturationRetryReached(
+        agentID: String,
+        confirmation: PromptLineTurnConfirmation,
+        requiredRevision: UInt64?,
+        nextAttempt: Int
+    ) async {
+        let key = SaturationRetryKey(agentID: agentID, confirmationIdentifier: confirmation.identifier)
+        saturationRetryTasksByConfirmation.removeValue(forKey: key)
+        removeSaturationRetryKey(key)
+        await deliverVerifiedTurn(
+            agentID: agentID,
+            confirmation: confirmation,
+            requiredRevision: requiredRevision,
+            saturationRetryAttempt: nextAttempt
+        )
+    }
+
+    private func hasDeliveredConfirmation(agentID: String, identifier: UInt64) -> Bool {
+        deliveredConfirmationIdentifiersByAgentID[agentID]?.contains(identifier) == true
+    }
+
+    private func markDeliveredConfirmation(agentID: String, identifier: UInt64) {
+        if deliveredConfirmationIdentifiersByAgentID[agentID, default: []].insert(identifier).inserted {
+            deliveredConfirmationOrderByAgentID[agentID, default: []].append(identifier)
+        }
+        var order = deliveredConfirmationOrderByAgentID[agentID, default: []]
+        while order.count > Self.maximumRememberedDeliveredConfirmationsPerAgent {
+            let retired = order.removeFirst()
+            deliveredConfirmationIdentifiersByAgentID[agentID]?.remove(retired)
+        }
+        deliveredConfirmationOrderByAgentID[agentID] = order
+    }
+
+    private func beginDeliveringConfirmation(agentID: String, identifier: UInt64) -> Bool {
+        guard !hasDeliveredConfirmation(agentID: agentID, identifier: identifier),
+              deliveringConfirmationIdentifiersByAgentID[agentID]?.contains(identifier) != true else {
+            return false
+        }
+        deliveringConfirmationIdentifiersByAgentID[agentID, default: []].insert(identifier)
+        return true
+    }
+
+    private func endDeliveringConfirmation(agentID: String, identifier: UInt64) {
+        deliveringConfirmationIdentifiersByAgentID[agentID]?.remove(identifier)
+        if deliveringConfirmationIdentifiersByAgentID[agentID]?.isEmpty == true {
+            deliveringConfirmationIdentifiersByAgentID.removeValue(forKey: agentID)
+        }
+    }
+
+    private func appendSaturationRetryKey(_ key: SaturationRetryKey) {
+        if saturationRetryOrderByAgentID[key.agentID]?.contains(key.confirmationIdentifier) != true {
+            saturationRetryOrderByAgentID[key.agentID, default: []].append(key.confirmationIdentifier)
+        }
+        var order = saturationRetryOrderByAgentID[key.agentID, default: []]
+        while order.count > Self.maximumPendingSaturationRetriesPerAgent {
+            let retiredIdentifier = order.removeFirst()
+            let retiredKey = SaturationRetryKey(
+                agentID: key.agentID,
+                confirmationIdentifier: retiredIdentifier
+            )
+            saturationRetryTasksByConfirmation.removeValue(forKey: retiredKey)?.cancel()
+        }
+        saturationRetryOrderByAgentID[key.agentID] = order
+    }
+
+    private func removeSaturationRetryKey(_ key: SaturationRetryKey) {
+        saturationRetryOrderByAgentID[key.agentID]?.removeAll { $0 == key.confirmationIdentifier }
+        if saturationRetryOrderByAgentID[key.agentID]?.isEmpty == true {
+            saturationRetryOrderByAgentID.removeValue(forKey: key.agentID)
+        }
     }
 
     /// Verifies process identity fresh for every delivery. Deliveries happen
