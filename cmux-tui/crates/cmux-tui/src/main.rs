@@ -128,8 +128,8 @@ fn require_non_dumpable_provider_process() -> anyhow::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn scrub_provider_authority_environment() {
-    let prefix = format!("{PROVIDER_WORKSPACE_AUTHORITY_ENV}=");
+fn scrub_initial_environment_variable(name: &str) {
+    let prefix = format!("{name}=");
     // Linux exposes the initial environment block through /proc even after
     // unsetenv. Clear the value in that original block before removing the
     // entry from the process environment.
@@ -150,7 +150,20 @@ fn scrub_provider_authority_environment() {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn scrub_provider_authority_environment() {}
+fn scrub_initial_environment_variable(_: &str) {}
+
+fn remove_secret_environment_variable(name: &str) {
+    scrub_initial_environment_variable(name);
+    // Startup calls this before creating runtime threads. The connector or
+    // provider-managed mux already owns any credential selected for this mode.
+    unsafe { std::env::remove_var(name) };
+}
+
+fn discard_provider_secret_environment() {
+    #[cfg(unix)]
+    remove_secret_environment_variable(MACHINE_PROVIDER_TOKEN_ENV);
+    remove_secret_environment_variable(PROVIDER_WORKSPACE_AUTHORITY_ENV);
+}
 
 #[cfg(not(target_os = "linux"))]
 fn harden_provider_secret_process() -> io::Result<()> {
@@ -521,8 +534,7 @@ fn take_provider_workspace_authority() -> anyhow::Result<Option<ProviderWorkspac
     require_non_dumpable_provider_process()?;
     // The mux owns the parsed credential now. Scrub the inherited copy before
     // a terminal surface or helper process can inherit it.
-    scrub_provider_authority_environment();
-    unsafe { std::env::remove_var(PROVIDER_WORKSPACE_AUTHORITY_ENV) };
+    remove_secret_environment_variable(PROVIDER_WORKSPACE_AUTHORITY_ENV);
     #[cfg(unix)]
     let value = {
         let mut bytes = value.into_vec();
@@ -588,6 +600,7 @@ fn main() {
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
         let args = parse_args(raw_args.into_iter().skip(1));
+        discard_provider_secret_environment();
         if let Err(error) = run_relay(args) {
             eprintln!("cmux-tui: {error}");
             std::process::exit(1);
@@ -595,6 +608,7 @@ fn main() {
         return;
     }
     if cli::is_cli_invocation(&raw_args) {
+        discard_provider_secret_environment();
         std::process::exit(cli::run(&raw_args, USAGE));
     }
     let args = parse_args(raw_args);
@@ -612,12 +626,16 @@ fn main() {
         })
         .transpose()
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
+    let provider_workspace_authority = if provider.is_none() && !args.attach {
+        take_provider_workspace_authority().unwrap_or_else(|error| usage_exit(&error.to_string()))
+    } else {
+        remove_secret_environment_variable(PROVIDER_WORKSPACE_AUTHORITY_ENV);
+        None
+    };
+    // The selected connector owns its parsed token now. Remove both ambient
+    // provider variables before any worker, provider, or shell can inherit them.
     #[cfg(unix)]
-    if provider.is_some() {
-        // The connector owns its parsed token now. Remove the inherited copy
-        // before any worker or provider subprocess can inherit it.
-        unsafe { std::env::remove_var(MACHINE_PROVIDER_TOKEN_ENV) };
-    }
+    remove_secret_environment_variable(MACHINE_PROVIDER_TOKEN_ENV);
     #[cfg(not(unix))]
     if provider.is_some() {
         validate_provider_process_args(&args)
@@ -629,13 +647,13 @@ fn main() {
             run_provider_machine_client(provider, local_machines, connect_external)
         }
         None if args.attach => run_attach(args),
-        None => run_server(args),
+        None => run_server(args, provider_workspace_authority),
     };
     #[cfg(not(unix))]
     let result = match provider {
         Some(_) => Err(anyhow::anyhow!("dynamic machine providers require Unix")),
         None if args.attach => run_attach(args),
-        None => run_server(args),
+        None => run_server(args, provider_workspace_authority),
     };
     if let Err(e) = result {
         eprintln!("cmux-tui: {e}");
@@ -764,8 +782,10 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
     Ok(value)
 }
 
-fn run_server(args: Args) -> anyhow::Result<()> {
-    let provider_workspace_authority = take_provider_workspace_authority()?;
+fn run_server(
+    args: Args,
+    provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
+) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
     #[cfg(not(target_os = "linux"))]
@@ -1107,22 +1127,34 @@ mod tests {
     #[test]
     fn linux_provider_authority_process_is_non_dumpable_and_scrubs_env() {
         const CHILD_MARKER: &str = "CMUX_TEST_PROVIDER_DUMPABLE_CHILD";
+        const TOKEN: &str = "test-provider-token";
         const AUTHORITY: &str = "provider-workspace-authority-linux-test-00000001";
         if std::env::var_os(CHILD_MARKER).is_some() {
+            assert!(initial_environment_contains(TOKEN.as_bytes()));
             assert!(initial_environment_contains(AUTHORITY.as_bytes()));
             harden_provider_secret_process().unwrap();
             let dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
             assert_eq!(dumpable, 0);
             let authority = take_provider_workspace_authority().unwrap().unwrap();
             assert_eq!(format!("{authority:?}"), "ProviderWorkspaceAuthority([redacted])");
+            remove_secret_environment_variable(MACHINE_PROVIDER_TOKEN_ENV);
+            assert!(std::env::var_os(MACHINE_PROVIDER_TOKEN_ENV).is_none());
             assert!(std::env::var_os(PROVIDER_WORKSPACE_AUTHORITY_ENV).is_none());
+            assert!(!initial_environment_contains(TOKEN.as_bytes()));
             assert!(!initial_environment_contains(AUTHORITY.as_bytes()));
             match std::fs::read("/proc/self/environ") {
-                Ok(process_environment) => assert!(
-                    !process_environment
-                        .windows(AUTHORITY.len())
-                        .any(|window| window == AUTHORITY.as_bytes())
-                ),
+                Ok(process_environment) => {
+                    assert!(
+                        !process_environment
+                            .windows(TOKEN.len())
+                            .any(|window| window == TOKEN.as_bytes())
+                    );
+                    assert!(
+                        !process_environment
+                            .windows(AUTHORITY.len())
+                            .any(|window| window == AUTHORITY.as_bytes())
+                    );
+                }
                 Err(error) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
             }
             return;
@@ -1135,7 +1167,7 @@ mod tests {
                 "--nocapture",
             ])
             .env(CHILD_MARKER, "1")
-            .env(MACHINE_PROVIDER_TOKEN_ENV, "test-provider-token")
+            .env(MACHINE_PROVIDER_TOKEN_ENV, TOKEN)
             .env(PROVIDER_WORKSPACE_AUTHORITY_ENV, AUTHORITY)
             .status()
             .unwrap();
