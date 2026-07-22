@@ -1464,6 +1464,42 @@ mod unix {
         targeted.is_none_or(|(tap, frame)| tap.try_send(frame))
     }
 
+    fn changed_pwd_frame(
+        last_pwd: &mut Option<String>,
+        current_pwd: Option<String>,
+    ) -> Option<Frame> {
+        // Track only the parser's raw OSC 7 state. Folding in the spawn-CWD
+        // fallback here would hide a Some -> None transition from live clients.
+        if last_pwd.as_deref() == current_pwd.as_deref() {
+            return None;
+        }
+        let payload = current_pwd.as_deref().unwrap_or_default().as_bytes().to_vec();
+        *last_pwd = current_pwd;
+        Some(Frame::new(MessageKind::Pwd, payload))
+    }
+
+    fn output_transition_frames(
+        output: Vec<u8>,
+        colors: Option<Vec<u8>>,
+        pwd: Option<Frame>,
+    ) -> Vec<Frame> {
+        let mut frames = Vec::with_capacity(3);
+        let mut output = Frame::new(MessageKind::Output, output);
+        if let Some(colors) = colors {
+            output.flags = FLAG_COLORS_FOLLOW;
+            frames.push(output);
+            frames.push(Frame::new(MessageKind::Colors, colors));
+        } else {
+            frames.push(output);
+        }
+        frames.extend(pwd);
+        frames
+    }
+
+    fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
+        term.pwd().or_else(|| spawn_cwd.map(str::to_owned))
+    }
+
     impl HostShared {
         fn broadcast(&self, kind: MessageKind, payload: Vec<u8>) {
             self.broadcast_frames([Frame::new(kind, payload)]);
@@ -2134,6 +2170,7 @@ mod unix {
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
             let mut buffer = [0u8; 64 * 1024];
             let mut last_colors = initial_colors;
+            let mut last_pwd = None;
             let mut forced_at = None;
             let mut pty_drain_waiter = pty_drain_waiter;
             while let Ok(true) = wait_for_pty_readable_or_forced_drain(
@@ -2148,7 +2185,7 @@ mod unix {
                     Err(_) => break,
                 };
                 let bytes = &buffer[..count];
-                let (title, pwd) = {
+                let title = {
                     let mut term = reader_host.term.lock().unwrap();
                     let cursor_activity = term
                         .cursor_activity()
@@ -2166,23 +2203,19 @@ mod unix {
                         .cursor_activity()
                         .expect("valid host terminals expose cursor activity")
                         != cursor_activity;
-                    if colors != last_colors || cursor_changed {
-                        reader_host.broadcast_with_colors(
-                            MessageKind::Output,
-                            bytes,
-                            encode_terminal_color_overrides(&colors),
-                        );
+                    let colors = if colors != last_colors || cursor_changed {
+                        let encoded = encode_terminal_color_overrides(&colors);
                         last_colors = colors;
+                        Some(encoded)
                     } else {
-                        reader_host.broadcast(MessageKind::Output, bytes);
-                    }
-                    (title, pwd)
+                        None
+                    };
+                    let pwd = changed_pwd_frame(&mut last_pwd, pwd);
+                    reader_host.broadcast_frames(output_transition_frames(bytes, colors, pwd));
+                    title
                 };
                 if let Some(title) = title {
                     reader_host.broadcast(MessageKind::Title, title.into_bytes());
-                }
-                if let Some(pwd) = pwd {
-                    reader_host.broadcast(MessageKind::Pwd, pwd.into_bytes());
                 }
                 if bell.swap(false, Ordering::AcqRel) {
                     reader_host.broadcast(MessageKind::Bell, Vec::new());
@@ -2322,7 +2355,7 @@ mod unix {
                     colors: colors.clone(),
                     pid: host.pid,
                     command: host.command.clone(),
-                    cwd: host.cwd.clone(),
+                    cwd: snapshot_cwd(&term, host.cwd.as_deref()),
                 },
                 colors,
                 host.sequence.load(Ordering::Acquire),
@@ -3236,6 +3269,105 @@ mod unix {
             assert_eq!(frames[resized + 1].kind, MessageKind::Colors);
             assert_eq!(frames[resized + 1].flags, 0);
             assert_eq!(frames[resized + 1].payload, vec![2]);
+        }
+
+        #[test]
+        fn pwd_none_to_none_emits_nothing() {
+            let mut last_pwd = None;
+
+            assert!(changed_pwd_frame(&mut last_pwd, None).is_none());
+            assert_eq!(last_pwd, None);
+        }
+
+        #[test]
+        fn pwd_changes_emit_once_and_duplicates_are_suppressed() {
+            let mut last_pwd = None;
+
+            let first = changed_pwd_frame(&mut last_pwd, Some("/one".into())).unwrap();
+            assert_eq!(first.kind, MessageKind::Pwd);
+            assert_eq!(first.payload, b"/one");
+            assert!(changed_pwd_frame(&mut last_pwd, Some("/one".into())).is_none());
+
+            let changed = changed_pwd_frame(&mut last_pwd, Some("/two".into())).unwrap();
+            assert_eq!(changed.kind, MessageKind::Pwd);
+            assert_eq!(changed.payload, b"/two");
+            assert_eq!(last_pwd.as_deref(), Some("/two"));
+        }
+
+        #[test]
+        fn pwd_clear_emits_one_empty_payload() {
+            let mut last_pwd = Some("/before-clear".into());
+
+            let clear = changed_pwd_frame(&mut last_pwd, None).unwrap();
+            assert_eq!(clear.kind, MessageKind::Pwd);
+            assert!(clear.payload.is_empty());
+            assert_eq!(last_pwd, None);
+            assert!(changed_pwd_frame(&mut last_pwd, None).is_none());
+        }
+
+        #[test]
+        fn late_snapshot_prefers_current_terminal_pwd_then_spawn_fallback() {
+            let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+
+            term.vt_write(b"\x1b]7;file:///live\x1b\\");
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file:///live".into()));
+
+            term.vt_write(b"\x1b]7;\x1b\\");
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+        }
+
+        #[test]
+        fn pwd_change_stays_contiguous_with_its_output_boundary() {
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(8);
+            let tap = HostTap {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(host_socket),
+                max_queued_bytes: usize::MAX,
+            };
+            let broadcast_lock = Mutex::new(());
+            let sequence = AtomicU64::new(0);
+            let taps = Mutex::new(HashMap::from([(1, tap)]));
+            let barrier = Arc::new(std::sync::Barrier::new(3));
+            let mut last_pwd = None;
+            let output = output_transition_frames(
+                b"prompt".to_vec(),
+                Some(vec![7]),
+                changed_pwd_frame(&mut last_pwd, Some("/work".into())),
+            );
+
+            thread::scope(|scope| {
+                let spawn = |frames| {
+                    let barrier = barrier.clone();
+                    let broadcast_lock = &broadcast_lock;
+                    let sequence = &sequence;
+                    let taps = &taps;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        publish_host_frames(broadcast_lock, sequence, taps, frames);
+                    });
+                };
+                spawn(output);
+                spawn(vec![Frame::new(MessageKind::Exit, Vec::new())]);
+                barrier.wait();
+            });
+
+            let frames = receiver.try_iter().collect::<Vec<_>>();
+            assert_eq!(frames.len(), 4);
+            assert_eq!(
+                frames.iter().map(|frame| frame.sequence).collect::<Vec<_>>(),
+                vec![1, 2, 3, 4]
+            );
+            let output = frames.iter().position(|frame| frame.kind == MessageKind::Output).unwrap();
+            assert_eq!(frames[output].flags, FLAG_COLORS_FOLLOW);
+            assert_eq!(frames[output + 1].kind, MessageKind::Colors);
+            assert_eq!(frames[output + 1].payload, vec![7]);
+            assert_eq!(frames[output + 2].kind, MessageKind::Pwd);
+            assert_eq!(frames[output + 2].payload, b"/work");
+            assert_eq!(frames[output + 1].sequence, frames[output].sequence + 1);
+            assert_eq!(frames[output + 2].sequence, frames[output].sequence + 2);
         }
     }
 }
