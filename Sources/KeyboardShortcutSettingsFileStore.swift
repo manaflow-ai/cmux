@@ -1061,8 +1061,8 @@ final class CmuxSettingsFileStore {
             // Object form written by the CmuxSettings package recorder (in-app
             // Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
             // A Settings rebinding only reaches this store in that shape; decode it
-            // so every action resolved here — most visibly the system-wide Carbon
-            // hotkeys (globalSearch, showHideAllWindows) — honors the rebinding
+            // so every action resolved here — including foreground Global Search and the
+            // opt-in system-wide Show/Hide hotkey — honors the rebinding
             // instead of silently falling back to the built-in default.
             if let object = rawValue as? [String: Any] {
                 return parseShortcutObjectForm(object, action: action)

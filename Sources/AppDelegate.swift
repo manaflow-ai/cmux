@@ -9015,7 +9015,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func toggleGlobalSearchPaletteFromGlobalHotkey() {
+    func toggleGlobalSearchPalette() {
         if menuBarExtraController == nil,
            MenuBarExtraSettings.shouldInstallMenuBarExtra() {
             setupMenuBarExtra()
@@ -12525,13 +12525,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
         KeyboardShortcutSettings.Action.allCases.filter { action in
-            // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
-            // and never routed through AppKit's local key handler. If a managed
-            // cmux.json entry somehow stores one as a chord, arming the prefix
-            // here would swallow the first stroke and leave the second one
-            // orphaned, breaking that keystroke for the focused terminal/browser
-            // input.
-            guard action != .showHideAllWindows && action != .globalSearch && action.allowsChordShortcut else { return false }
+            // Carbon owns the opt-in hotkey and never routes through AppKit's local handler.
+            guard !action.isSystemWideHotkey && action.allowsChordShortcut else { return false }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
@@ -12881,6 +12876,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if NSApp.modalWindow != nil || shortcutRoutingKeyWindow?.attachedSheet != nil {
             return false
         }
+
+        if matchConfiguredShortcut(event: event, action: .globalSearch) { toggleGlobalSearchPalette(); return true }
 
         if browserFocusModePanelForShortcutEvent(event) != nil {
 #if DEBUG
@@ -15534,7 +15531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows
+        !action.isSystemWideHotkey
             && action != .globalSearch
             && action != .clearScreenKeepScrollback
             && action != .fileExplorerOpenSelection
