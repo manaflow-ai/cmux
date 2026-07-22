@@ -1485,6 +1485,166 @@ mod tests {
         }
     }
 
+    fn provider_managed_snapshot(revision: u64) -> protocol::SnapshotResult {
+        let mut catalog = snapshot(revision, "Machine", protocol::MachineStatus::Running);
+        catalog.machines[0].workspace_create = protocol::WorkspaceCreatePolicy::Provider {
+            default_mode: protocol::WorkspaceCreateMode::Isolated,
+            modes: vec![protocol::WorkspaceCreateMode::Isolated],
+        };
+        catalog
+    }
+
+    fn active_workspace_snapshot(revision: u64) -> protocol::WorkspaceSnapshotResult {
+        protocol::WorkspaceSnapshotResult {
+            revision,
+            machine_id: id("machine-1"),
+            workspaces: vec![protocol::WorkspaceLifecycleDescriptor {
+                id: id("workspace-1"),
+                display_name: "Before".into(),
+                mode: protocol::WorkspaceCreateMode::Isolated,
+                status: protocol::WorkspaceLifecycleStatus::Active,
+                version: 1,
+                recoverable_until: None,
+                capabilities: protocol::WorkspaceLifecycleCapabilities {
+                    rename: true,
+                    delete: true,
+                    restore: false,
+                    purge: false,
+                },
+            }],
+        }
+    }
+
+    fn serve_workspace_snapshot(
+        stream: &mut UnixStream,
+        reader: &mut BufReader<UnixStream>,
+        snapshot: &protocol::WorkspaceSnapshotResult,
+    ) {
+        let request: protocol::RequestEnvelope = read_frame(reader);
+        assert!(matches!(
+            &request.request,
+            protocol::ProviderRequest::WorkspaceSnapshot(params)
+                if params.machine_id == snapshot.machine_id
+        ));
+        write_frame(stream, &protocol::ResponseEnvelope::success(request.id, snapshot.clone()));
+    }
+
+    fn assert_accepted_workspace_mutation_survives_refresh_error(delete: bool) {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let catalog = provider_managed_snapshot(1);
+        let workspace = active_workspace_snapshot(1);
+        let server_catalog = catalog.clone();
+        let server_workspace = workspace.clone();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_catalog.clone());
+            serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
+
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, server_catalog.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &server_catalog);
+            serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
+
+            let mutation: protocol::RequestEnvelope = read_frame(&mut reader);
+            if delete {
+                assert!(matches!(
+                    mutation.request,
+                    protocol::ProviderRequest::DeleteWorkspace(ref params)
+                        if params.workspace_id == id("workspace-1")
+                ));
+            } else {
+                assert!(matches!(
+                    mutation.request,
+                    protocol::ProviderRequest::RenameWorkspace(ref params)
+                        if params.workspace_id == id("workspace-1")
+                            && params.display_name == "After"
+                ));
+            }
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    mutation.id,
+                    protocol::WorkspaceMutationResult {
+                        workspace_id: id("workspace-1"),
+                        version: 2,
+                        revision: 2,
+                        notice: None,
+                    },
+                ),
+            );
+
+            let failed_refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(failed_refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::<protocol::SnapshotResult>::failure(
+                    failed_refresh.id,
+                    protocol::ProviderError {
+                        code: protocol::ProviderErrorCode::Unavailable,
+                        message: "refresh failed after commit".into(),
+                        retryable: true,
+                    },
+                ),
+            );
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let machine = key_for_id(&runtime.keys, &id("machine-1")).unwrap();
+        let request = if delete {
+            MachineRequest::DeleteManagedWorkspace {
+                machine,
+                workspace_id: "workspace-1".into(),
+                expected_version: 1,
+            }
+        } else {
+            MachineRequest::RenameManagedWorkspace {
+                machine,
+                workspace_id: "workspace-1".into(),
+                expected_version: 1,
+                name: "After".into(),
+            }
+        };
+
+        let result = runtime
+            .perform_request(request)
+            .expect("an accepted workspace mutation must survive a refresh error");
+        match (delete, result.session_mutation) {
+            (false, Some(ManagedWorkspaceSessionMutation::Rename { workspace_key, name })) => {
+                assert_eq!(workspace_key, "workspace-1");
+                assert_eq!(name, "After");
+            }
+            (true, Some(ManagedWorkspaceSessionMutation::Close { workspace_key })) => {
+                assert_eq!(workspace_key, "workspace-1");
+            }
+            _ => panic!("accepted provider mutation did not reach the nested mux"),
+        }
+        assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
+        assert!(
+            result
+                .ui
+                .notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("refresh failed after commit"))
+        );
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn accepted_workspace_rename_survives_refresh_error() {
+        assert_accepted_workspace_mutation_survives_refresh_error(false);
+    }
+
+    #[test]
+    fn accepted_workspace_delete_survives_refresh_error() {
+        assert_accepted_workspace_mutation_survives_refresh_error(true);
+    }
+
     #[test]
     fn legacy_v1_provider_connects_without_receiving_lifecycle_requests() {
         let socket = TestProviderSocket::bind();
@@ -2524,6 +2684,71 @@ mod tests {
     }
 
     #[test]
+    fn subscription_refreshes_after_an_event_published_before_registration() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (publish, published) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) = serve_initial_snapshot(
+                &listener,
+                snapshot(1, "Before subscription", protocol::MachineStatus::Running),
+            );
+            published.recv().unwrap();
+            write_frame(
+                &mut stream,
+                &protocol::EventEnvelope::new(protocol::ProviderEvent::SnapshotChanged(
+                    protocol::SnapshotChangedEvent { revision: 2 },
+                )),
+            );
+
+            // Synchronize with the control reader after the unobserved event.
+            // This response is deliberately stale and is not installed by the runtime.
+            let synchronize: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(synchronize.request, protocol::ProviderRequest::Snapshot(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    synchronize.id,
+                    snapshot(1, "Before subscription", protocol::MachineStatus::Running),
+                ),
+            );
+
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap() == 0 {
+                return;
+            }
+            let refresh: protocol::RequestEnvelope = serde_json::from_str(&line).unwrap();
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            let refreshed = snapshot(2, "After subscription", protocol::MachineStatus::Sleeping);
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, refreshed.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &refreshed);
+        });
+
+        let runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        publish.send(()).unwrap();
+        let ignored = runtime.client.snapshot(Some(1)).unwrap();
+        assert_eq!(ignored.revision, 1);
+
+        let updates = runtime.subscribe_ui_updates().unwrap();
+        let (receiver, stop, worker) = updates.into_parts();
+        let received = receiver.recv_timeout(Duration::from_secs(2));
+        stop.store(true, Ordering::Release);
+        drop(receiver);
+        worker.join().unwrap();
+        drop(runtime);
+        server.join().unwrap();
+
+        let update = received.expect(
+            "subscription must perform an authoritative refresh after registering for events",
+        );
+        assert_eq!(update.snapshot.machines[0].name, "After subscription");
+        assert_eq!(update.snapshot.machines[0].status, MachineStatus::Sleeping);
+    }
+
+    #[test]
     fn provider_update_failure_uses_selected_locale() {
         const CHILD_ENV: &str = "CMUX_PROVIDER_UPDATE_LOCALE_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
@@ -2598,6 +2823,48 @@ mod tests {
     }
 
     #[test]
+    fn provider_connection_state_errors_use_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_PROVIDER_CONNECTION_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg(
+                    "machine_provider_runtime::tests::provider_connection_state_errors_use_selected_locale",
+                )
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese provider connection child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let _control = serve_initial_snapshot(
+                &listener,
+                snapshot(1, "Machine", protocol::MachineStatus::Running),
+            );
+            finished.recv().unwrap();
+        });
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+
+        let error = runtime.open_selected().err().expect("machine is not connectable");
+        assert_eq!(error.to_string(), "選択したマシンは接続準備ができていません");
+        finish.send(()).unwrap();
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn provider_runtime_user_notices_are_catalog_backed() {
         let source = include_str!("machine_provider_runtime.rs");
         for hardcoded in [
@@ -2606,6 +2873,10 @@ mod tests {
             concat!("Machine provider lifecycle ", "update failed: {error}"),
             concat!("Machine provider workspace ", "update failed: {error}"),
             concat!("Could not reconnect ", "machine: {error}"),
+            "this machine provider cannot connect external machines",
+            "is not ready to connect",
+            "cannot authorize managed workspace mirrors; upgrade the machine provider",
+            "returned an invalid managed workspace authority binding",
         ] {
             assert!(
                 !source.contains(hardcoded),
