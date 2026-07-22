@@ -820,7 +820,8 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        onlyIfNeedsInput: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -835,6 +836,11 @@ final class ClaudeHookSessionStore {
             )
             if let normalizedTurnId = normalizeOptional(turnId),
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
+                return false
+            }
+            if onlyIfNeedsInput,
+               record.agentLifecycle != .needsInput,
+               record.runtimeStatus != .needsInput {
                 return false
             }
             update(
@@ -24870,15 +24876,17 @@ struct CMUXCLI {
         key: String,
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
-        surfaceId: String?
+        surfaceId: String?,
+        onlyIfNeedsInput: Bool = false
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
             return
         }
         do {
+            let conditionalOption = onlyIfNeedsInput ? " --if-needs-input" : ""
             _ = try sendV1Command(
-                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(conditionalOption)",
                 client: client
             )
         } catch {
@@ -30921,6 +30929,52 @@ export default CMUXSessionRestore;
                     telemetry: telemetry
                 )
             }
+
+        case .toolActivity:
+            guard def.name == "codex" else { break }
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("\(def.name)-hook.tool-activity.unresolved")
+                print("{}")
+                return
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+            let pid = mapped?.pid ?? inferredPID
+            guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env) else {
+                telemetry.breadcrumb("\(def.name)-hook.tool-activity.nested-suppressed")
+                break
+            }
+            if !sessionId.isEmpty {
+                guard (try? store.codexPromptTurnIsTerminal(
+                    sessionId: sessionId,
+                    turnId: input.turnId
+                )) != true else {
+                    telemetry.breadcrumb("\(def.name)-hook.tool-activity.stale")
+                    break
+                }
+                _ = try? store.upsertCodexPromptRunningIfFresh(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    turnId: input.turnId,
+                    pid: pid,
+                    launchCommand: mapped?.launchCommand,
+                    onlyIfNeedsInput: true
+                )
+            }
+            setAgentLifecycle(
+                client: client,
+                key: def.statusKey,
+                lifecycle: .running,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                onlyIfNeedsInput: true
+            )
 
         case .stop:
             if def.name == "codex", !sessionId.isEmpty {

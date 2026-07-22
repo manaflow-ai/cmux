@@ -91,6 +91,23 @@ struct AgentStatusReconcilerTests {
         #expect(resolution == AgentStatusResolution(lifecycle: .idle, confidence: .confident))
     }
 
+    @Test func freshNeedsInputOverridesStalePromptIdleShellState() {
+        let evidence = AgentStatusEvidence(
+            lifecycle: .needsInput,
+            lifecycleObservedAt: now,
+            shellActivity: .promptIdle
+        )
+
+        let resolution = reconciler.resolve(
+            evidence: evidence,
+            statusKey: "codex",
+            hasLiveRuntime: true,
+            now: now
+        )
+
+        #expect(resolution == AgentStatusResolution(lifecycle: .needsInput, confidence: .confident))
+    }
+
     @Test func deadRuntimeRemovesDerivedStatus() {
         let evidence = AgentStatusEvidence(
             lifecycle: .running,
@@ -217,6 +234,74 @@ struct AgentStatusReconcilerTests {
         )
 
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
+    }
+
+    @Test @MainActor func titleActivityIsThrottledPerPanelStatus() {
+        let ledger = AgentStatusRuntimeLedger()
+        let panelId = UUID()
+        ledger.recordTitle(panelId: panelId, statusKeys: ["codex"], observedAt: now)
+        ledger.recordTitle(
+            panelId: panelId,
+            statusKeys: ["codex"],
+            observedAt: now.addingTimeInterval(1)
+        )
+
+        #expect(ledger.evidenceForPanel(panelId)["codex"]?.titleObservedAt == now)
+
+        ledger.recordTitle(
+            panelId: panelId,
+            statusKeys: ["codex"],
+            observedAt: now.addingTimeInterval(5)
+        )
+        #expect(
+            ledger.evidenceForPanel(panelId)["codex"]?.titleObservedAt == now.addingTimeInterval(5)
+        )
+    }
+
+    @Test @MainActor func clearingNeedsInputPanelReprojectsSurvivingRunningPanel() throws {
+        let workspace = Workspace()
+        let needsInputPanelId = try #require(workspace.focusedPanelId)
+        let runningPanel = try #require(
+            workspace.newTerminalSplit(
+                from: needsInputPanelId,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "codex.needs-input",
+            pid: getpid(),
+            panelId: needsInputPanelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: needsInputPanelId,
+            lifecycle: .needsInput
+        )
+        workspace.recordAgentPID(
+            key: "codex.running",
+            pid: getpid(),
+            panelId: runningPanel.id,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: runningPanel.id,
+            lifecycle: .running
+        )
+
+        #expect(workspace.statusEntries["codex"]?.icon == "bell.fill")
+
+        workspace.clearAgentPID(
+            key: "codex.needs-input",
+            panelId: needsInputPanelId,
+            clearStatus: true,
+            refreshPorts: false
+        )
+
+        #expect(workspace.statusEntries["codex"]?.icon == "bolt.fill")
     }
 
     @Test func codexPermissionTelemetryCarriesNeedsInputWithoutBecomingActionable() throws {

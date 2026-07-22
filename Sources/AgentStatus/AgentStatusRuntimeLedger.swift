@@ -4,6 +4,8 @@ import Foundation
 /// Workspace-owned history of raw observations and their latest reconciled projections.
 @MainActor
 final class AgentStatusRuntimeLedger {
+    private static let titleActivityMinimumInterval: TimeInterval = 5
+
     private(set) var evidenceByPanelId: [UUID: [String: AgentStatusEvidence]] = [:]
     private(set) var resolutionsByPanelId: [UUID: [String: AgentStatusResolution]] = [:]
 
@@ -34,17 +36,19 @@ final class AgentStatusRuntimeLedger {
 
     func recordOutput(panelId: UUID, statusKeys: Set<String>, observedAt: Date) {
         updateEvidence(panelId: panelId, statusKeys: statusKeys) { evidence in
-            if evidence.outputObservedAt.map({ $0 < observedAt }) ?? true {
-                evidence.outputObservedAt = observedAt
-            }
+            guard evidence.outputObservedAt.map({ $0 < observedAt }) ?? true else { return false }
+            evidence.outputObservedAt = observedAt
+            return true
         }
     }
 
     func recordTitle(panelId: UUID, statusKeys: Set<String>, observedAt: Date) {
         updateEvidence(panelId: panelId, statusKeys: statusKeys) { evidence in
-            if evidence.titleObservedAt.map({ $0 < observedAt }) ?? true {
-                evidence.titleObservedAt = observedAt
-            }
+            guard evidence.titleObservedAt.map({
+                observedAt.timeIntervalSince($0) >= Self.titleActivityMinimumInterval
+            }) ?? true else { return false }
+            evidence.titleObservedAt = observedAt
+            return true
         }
     }
 
@@ -55,10 +59,10 @@ final class AgentStatusRuntimeLedger {
         observedAt: Date
     ) {
         updateEvidence(panelId: panelId, statusKeys: trackedStatusKeys) { evidence in
-            if evidence.foregroundObservedAt.map({ $0 <= observedAt }) ?? true {
-                evidence.foregroundAgentStatusKey = statusKey
-                evidence.foregroundObservedAt = observedAt
-            }
+            guard evidence.foregroundObservedAt.map({ $0 <= observedAt }) ?? true else { return false }
+            evidence.foregroundAgentStatusKey = statusKey
+            evidence.foregroundObservedAt = observedAt
+            return true
         }
     }
 
@@ -129,11 +133,11 @@ final class AgentStatusRuntimeLedger {
     private func updateEvidence(
         panelId: UUID,
         statusKeys: Set<String>,
-        update: (inout AgentStatusEvidence) -> Void
+        update: (inout AgentStatusEvidence) -> Bool
     ) {
         for statusKey in statusKeys {
             var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
-            update(&evidence)
+            guard update(&evidence) else { continue }
             evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
         }
     }

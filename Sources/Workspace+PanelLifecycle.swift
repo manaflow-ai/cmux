@@ -286,6 +286,7 @@ extension Workspace {
             didChange = true
         }
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
+        var removedLedgerStatusKey: String?
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
@@ -299,12 +300,17 @@ extension Workspace {
                     statusKey: lifecycleStatusKey,
                     panelId: lifecyclePanelId
                 )
+                removedLedgerStatusKey = lifecycleStatusKey
             }
         }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
+        }
+        if let removedLedgerStatusKey,
+           hasAgentRuntime(forStatusKey: removedLedgerStatusKey) {
+            reconcileAgentStatuses()
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()

@@ -51,6 +51,11 @@ extension Workspace {
         for (statusKey, statusEntry) in runtimeState.statusEntries {
             statusEntries[statusKey] = statusEntry
         }
+        sidebarAgentRuntimeObservation.agentStatusLedger.adopt(
+            evidence: runtimeState.agentStatusEvidence,
+            resolutions: runtimeState.agentStatusResolutions,
+            panelId: runtimeState.panelId
+        )
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
@@ -62,11 +67,6 @@ extension Workspace {
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
-        sidebarAgentRuntimeObservation.agentStatusLedger.adopt(
-            evidence: runtimeState.agentStatusEvidence,
-            resolutions: runtimeState.agentStatusResolutions,
-            panelId: runtimeState.panelId
-        )
         reconcileAgentStatuses(panelId: runtimeState.panelId)
         if didAdoptAgentPID { refreshTrackedAgentPorts() }
     }

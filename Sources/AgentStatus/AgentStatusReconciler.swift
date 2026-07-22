@@ -6,7 +6,6 @@ struct AgentStatusReconciler: Sendable {
     static let needsInputSignalLifetime: TimeInterval = 300
     static let activityLifetime: TimeInterval = 20
     static let foregroundObservationLifetime: TimeInterval = 45
-    static let needsInputActivityGrace: TimeInterval = 5
 
     func resolve(
         evidence: AgentStatusEvidence,
@@ -15,6 +14,11 @@ struct AgentStatusReconciler: Sendable {
         now: Date
     ) -> AgentStatusResolution? {
         guard hasLiveRuntime else { return nil }
+        if evidence.lifecycle == .needsInput,
+           let observedAt = evidence.lifecycleObservedAt,
+           age(of: observedAt, now: now) <= Self.needsInputSignalLifetime {
+            return AgentStatusResolution(lifecycle: .needsInput, confidence: .confident)
+        }
         if evidence.shellActivity == .promptIdle {
             return AgentStatusResolution(lifecycle: .idle, confidence: .confident)
         }
@@ -34,16 +38,7 @@ struct AgentStatusReconciler: Sendable {
 
         switch evidence.lifecycle {
         case .needsInput?:
-            guard let observedAt = evidence.lifecycleObservedAt,
-                  age(of: observedAt, now: now) <= Self.needsInputSignalLifetime else {
-                return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
-            }
-            if hasAttributedActivity,
-               let latestActivity,
-               latestActivity.timeIntervalSince(observedAt) > Self.needsInputActivityGrace {
-                return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
-            }
-            return AgentStatusResolution(lifecycle: .needsInput, confidence: .confident)
+            return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
 
         case .idle?:
             guard let observedAt = evidence.lifecycleObservedAt else {

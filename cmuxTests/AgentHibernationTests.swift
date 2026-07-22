@@ -81,6 +81,32 @@ struct AgentHibernationTests {
         expectEqual(workspace.agentLifecycleStatesByPanelId[panelId]?["local-agent"], .idle)
     }
 
+    @MainActor
+    @Test
+    func testConditionalLifecycleResumeOnlyClearsNeedsInput() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let command = "set_agent_lifecycle codex running --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString) --if-needs-input"
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
+        expectEqual(TerminalController.shared.handleSocketLine(command), "OK")
+        TerminalMutationBus.shared.drainForTesting()
+        expectEqual(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"], .running)
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
+        expectEqual(TerminalController.shared.handleSocketLine(command), "OK")
+        TerminalMutationBus.shared.drainForTesting()
+        expectEqual(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"], .idle)
+    }
+
     @Test
     func testSettingsDefaultToOptInAndNotifyOnChanges() throws {
         let suiteName = "cmux-agent-hibernation-\(UUID().uuidString)"

@@ -44,6 +44,15 @@ extension Workspace {
         reconcileAgentStatuses(panelId: targetPanelId, now: signal.observedAt)
     }
 
+    func resumeAgentLifecycleIfNeedsInput(key: String, panelId: UUID?) {
+        let targetPanelId = panelId ?? focusedPanelId
+        guard let targetPanelId,
+              agentLifecycleStatesByPanelId[targetPanelId]?[key] == .needsInput else {
+            return
+        }
+        setAgentLifecycle(key: key, panelId: targetPanelId, lifecycle: .running)
+    }
+
     func noteAgentStatusOutputActivity(panelId: UUID, observedAt: Date) {
         let statusKeys = trackedAgentStatusKeys(panelId: panelId)
         guard !statusKeys.isEmpty else { return }
@@ -52,7 +61,6 @@ extension Workspace {
             statusKeys: statusKeys,
             observedAt: observedAt
         )
-        reconcileAgentStatuses(panelId: panelId, now: observedAt)
     }
 
     func noteAgentStatusTitleActivity(panelId: UUID, observedAt: Date) {
@@ -63,7 +71,6 @@ extension Workspace {
             statusKeys: statusKeys,
             observedAt: observedAt
         )
-        reconcileAgentStatuses(panelId: panelId, now: observedAt)
     }
 
     func noteAgentStatusForegroundAgent(

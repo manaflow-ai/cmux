@@ -372,7 +372,8 @@ extension ControlCommandCoordinator {
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            onlyIfNeedsInput: parsed.options["if-needs-input"] != nil
         )
         return "OK"
     }

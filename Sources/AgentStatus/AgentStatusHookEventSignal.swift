@@ -11,7 +11,7 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
 
     init?(event: WorkstreamEvent) {
         let source = event.source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let statusKey = source == "claude" ? "claude_code" : source
+        let statusKey = FeedCoordinator.lifecycleStatusKey(forSource: source)
         guard AgentHibernationLifecycleStatusKeys.isAllowed(statusKey) else { return nil }
 
         guard let lifecycle = Self.explicitLifecycle(from: event.extraFieldsJSON) else { return nil }

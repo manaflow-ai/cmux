@@ -377,21 +377,33 @@ extension FeedCoordinator {
             return nil
         }
 
-        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
-              let tab = tabManager.tabs.first(where: { $0.id == resolved.workspaceId })
+        guard let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
+                  claimedTabId: resolved.workspaceId,
+                  surfaceId: resolved.surfaceId
+              ),
+              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: liveTarget.tabId),
+              let tab = tabManager.tabs.first(where: { $0.id == liveTarget.tabId })
         else {
             #if DEBUG
             cmuxDebugLog(
-                "feed.attention.skip reason=missing-workspace session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(resolved.workspaceId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
+                "feed.attention.skip reason=missing-live-target session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(resolved.workspaceId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
             )
             #endif
             return nil
         }
 
-        let panelId = Self.resolvePanelId(surfaceId: resolved.surfaceId, tab: tab) ?? tab.focusedPanelId
+        let panelId: UUID?
+        if let surfaceId = liveTarget.surfaceId {
+            guard let resolvedPanelId = Self.resolvePanelId(surfaceId: surfaceId, tab: tab) else {
+                return nil
+            }
+            panelId = resolvedPanelId
+        } else {
+            panelId = tab.focusedPanelId
+        }
         let statusKey = Self.lifecycleStatusKey(forSource: event.source)
         let target = AttentionTarget(
-            workspaceId: resolved.workspaceId,
+            workspaceId: liveTarget.tabId,
             panelId: panelId,
             statusKey: statusKey
         )
@@ -413,7 +425,7 @@ extension FeedCoordinator {
         // Elevate the workspace so it floats to the top of the sidebar,
         // honoring the user's Reorder on Notification preference.
         if UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            tabManager.moveTabToTopForNotification(resolved.workspaceId)
+            tabManager.moveTabToTopForNotification(liveTarget.tabId)
         }
 
         // Ring the bell (dock bounce while the app is in the background).
@@ -460,13 +472,9 @@ extension FeedCoordinator {
         }
     }
 
-    /// Resolves the `(workspace, surface)` an attention overlay should target.
-    /// The workspace prefers the event's live `workspace_id` (the running
-    /// terminal's CMUX_WORKSPACE_ID, a raw UUID) so a stale hook-session map
-    /// can't redirect attention to the wrong workspace; it falls back to the
-    /// session store when the event omits a parseable id. An explicit live
-    /// surface wins; otherwise the stored surface is used only when its
-    /// workspace matches, so a stale entry can't point the panel elsewhere.
+    /// Resolves the claimed `(workspace, surface)` for an attention event.
+    /// Consumers must re-home the result through live surface ownership before
+    /// mutating UI: inherited workspace ids do not change when a pane moves.
     static func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (workspaceId: UUID, surfaceId: UUID?)? {

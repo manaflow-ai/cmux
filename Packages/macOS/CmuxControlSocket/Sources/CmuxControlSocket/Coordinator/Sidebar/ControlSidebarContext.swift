@@ -90,7 +90,8 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        onlyIfNeedsInput: Bool
     )
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`

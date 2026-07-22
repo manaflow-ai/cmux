@@ -82,7 +82,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        onlyIfNeedsInput: Bool
     ) {}
 
     func controlSidebarSetWorkspaceLoading(

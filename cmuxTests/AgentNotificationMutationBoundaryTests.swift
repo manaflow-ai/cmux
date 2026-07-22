@@ -324,7 +324,8 @@ extension AgentNotificationRegressionTests {
             target: .workspace(fixture.source.id),
             key: "claude_code",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
-            panelID: fixture.panelId
+            panelID: fixture.panelId,
+            onlyIfNeedsInput: false
         )
 
         try movePanel(fixture)
