@@ -5,6 +5,80 @@ import Testing
 @Suite("Browser WebExtension profile runtime")
 @MainActor
 struct BrowserWebExtensionProfileRuntimeTests {
+    @Test func presentationUpdatesFilterOtherPanelsAndKeepNewestBoundedValues() async throws {
+        let profileID = UUID()
+        let targetPanelID = UUID()
+        let otherPanelID = UUID()
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: profileID,
+            waitForDeadline: { try await Task.sleep(for: .seconds(3600)) }
+        )
+        let stream = runtime.presentationUpdates(for: targetPanelID)
+
+        runtime.publishActionUpdate(BrowserWebExtensionActionUpdate(
+            profileID: profileID,
+            panelID: otherPanelID,
+            item: Self.actionItem(index: -1)
+        ))
+        for index in 0..<40 {
+            runtime.publishActionUpdate(BrowserWebExtensionActionUpdate(
+                profileID: profileID,
+                panelID: targetPanelID,
+                item: Self.actionItem(index: index)
+            ))
+        }
+
+        var iterator = stream.makeAsyncIterator()
+        var observedIndexes: [Int] = []
+        while observedIndexes.count < 32 {
+            guard let update = await iterator.next() else {
+                Issue.record("Presentation stream ended before buffered values")
+                return
+            }
+            guard case .actionChanged(let actionUpdate) = update,
+                  let badge = actionUpdate.item?.badgeText,
+                  let index = Int(badge) else {
+                Issue.record("Presentation stream emitted unrelated panel or lifecycle data")
+                return
+            }
+            observedIndexes.append(index)
+        }
+
+        #expect(observedIndexes == Array(8..<40))
+    }
+
+    @Test func lifecycleUpdatesRemainLosslessBeyondPresentationBufferCapacity() async throws {
+        let profileID = UUID()
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: profileID,
+            waitForDeadline: { try await Task.sleep(for: .seconds(3600)) }
+        )
+        let stream = runtime.updates()
+        let intents = (0..<40).map { index in
+            BrowserWebExtensionNavigationIntent(
+                profileID: profileID,
+                targetURL: URL(string: "about:blank#\(index)"),
+                reason: .restore
+            )
+        }
+        for intent in intents { runtime.enqueueNavigation(intent) }
+        runtime.start { .ready }
+        await Task.yield()
+
+        var iterator = stream.makeAsyncIterator()
+        var releasedIDs = Set<UUID>()
+        while releasedIDs.count < intents.count {
+            guard let update = await iterator.next() else {
+                Issue.record("Lifecycle stream ended before every navigation release")
+                return
+            }
+            if case .navigationReleased(let intent, .ready) = update {
+                releasedIDs.insert(intent.id)
+            }
+        }
+        #expect(releasedIDs == Set(intents.map(\.id)))
+    }
+
     @Test func readyLoadReleasesQueuedNavigationExactlyOnce() async throws {
         let loadGate = BrowserWebExtensionTestGate<BrowserWebExtensionLoadOutcome>()
         let deadlineGate = BrowserWebExtensionTestGate<Void>()
@@ -233,5 +307,18 @@ struct BrowserWebExtensionProfileRuntimeTests {
         )
         runtime.enqueueNavigation(newIntent)
         #expect(runtime.pendingNavigationCount == 0)
+    }
+
+    private static func actionItem(index: Int) -> BrowserWebExtensionPresentationItem {
+        BrowserWebExtensionPresentationItem(
+            id: "extension",
+            name: "Extension",
+            hasAction: true,
+            isToolbarPinned: true,
+            isActionEnabled: true,
+            isAwaitingPopup: false,
+            badgeText: String(index),
+            iconData: nil
+        )
     }
 }
