@@ -197,8 +197,7 @@ struct BrowserWebContentProcessTests {
         let capabilities = try #require(reply["capabilities"] as? [String: Bool])
 
         #expect(reply["ok"] as? Bool == true)
-        #expect(capabilities["userVerifyingPlatformAuthenticatorAvailable"] == nil)
-        #expect(capabilities["conditionalMediationAvailable"] == nil)
+        #expect(capabilities.isEmpty)
     }
 
     @Test
