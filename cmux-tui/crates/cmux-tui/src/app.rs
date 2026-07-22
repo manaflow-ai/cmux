@@ -15642,6 +15642,40 @@ mod tests {
     }
 
     #[test]
+    fn replacement_provider_notice_cannot_mask_missing_workspace_mirror_error() {
+        let first = Mux::new("machine-replacement-notice-first", SurfaceOptions::default());
+        first.new_workspace(None, None).unwrap();
+        let second = Mux::new("machine-replacement-notice-second", SurfaceOptions::default());
+        second
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(first));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let mut update = provider_machine_ui_with_lifecycle();
+        update.notice = Some("provider accepted the rename".into());
+        let result = MachineActionResult::replace(update, Session::Local(second), "second".into())
+            .with_session_mutation(ManagedWorkspaceSessionMutation::Rename {
+                workspace_key: "00000000-0000-4000-8000-000000000099".into(),
+                name: "renamed".into(),
+            });
+        let (controller, _) = fake_controller(FakeMachineAction::Return(Box::new(result)));
+        install_machine_controller(&mut app, controller);
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(41)));
+
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_unavailable)
+        );
+    }
+
+    #[test]
     fn machine_color_failure_status_uses_the_selected_locale() {
         const CHILD_ENV: &str = "CMUX_MACHINE_COLOR_FAILURE_LOCALE_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
