@@ -3,6 +3,7 @@ import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxSettings
 import CmuxTerminal
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxSettingsUI
@@ -60,41 +61,37 @@ struct ComputerUseUXTests {
         }
     }
 
-    @Test func newestRecentStateMustMatchSessionProcessTree() throws {
+    @Test func newestRecentStateMustMatchStableDriverSession() throws {
         try withStateDirectory { directory in
             let now = Date(timeIntervalSince1970: 2_000_000_000)
             try writeState(
-                to: directory.appendingPathComponent("older.json"),
-                pid: 42,
-                session: "session-1",
+                to: directory.appendingPathComponent("matching.json"),
+                pid: 99,
+                session: "cmux-surface-1",
                 targetPID: 84,
                 lastActionAt: now.addingTimeInterval(-20)
             )
-            // The driver's session field never matches the cmux hook session id
-            // (and is null for cursor-less runs); pid-tree containment alone
-            // must resolve the state.
-            try writeState(
-                to: directory.appendingPathComponent("newer.json"),
-                pid: 43,
-                session: nil,
-                targetPID: 86,
-                lastActionAt: now.addingTimeInterval(-10)
-            )
+            // A newer state whose process happens to be in the live agent's
+            // process tree belongs to another surface and must not be paired.
             try writeState(
                 to: directory.appendingPathComponent("foreign.json"),
-                pid: 99,
-                session: "session-1",
+                pid: 42,
+                session: "cmux-surface-2",
                 targetPID: 198,
                 lastActionAt: now.addingTimeInterval(-1)
             )
             let result = ComputerUseStateRepository().scan(
                 directoryURL: directory,
-                sessions: [ComputerUseSessionProcessScope(id: "row", sessionID: "session-1", processIDs: [42, 43])],
+                sessions: [ComputerUseSessionProcessScope(
+                    id: "row",
+                    sessionID: "cmux-surface-1",
+                    processIDs: [42]
+                )],
                 now: now
             )
 
             #expect(result.hasRecentStateFiles)
-            #expect(result.newestStateByScopeID["row"]?.targetPID == 86)
+            #expect(result.newestStateByScopeID["row"]?.targetPID == 84)
         }
     }
 
@@ -314,6 +311,22 @@ struct ComputerUseUXTests {
         // Darwin's `sockaddr_un.sun_path` holds at most 104 bytes including
         // the terminating NUL, so the filesystem path must stay below 104.
         #expect(paths.daemonSocketURL.path.utf8.count < 104)
+    }
+
+    @Test func defaultRuntimeUsesDarwinPerUserTemporaryDirectory() {
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            environment: ["CMUX_TAG": "secure-runtime"],
+            authenticationToken: "test-token"
+        )
+
+        #expect(paths.runtimeDirectoryURL.path.hasPrefix(
+            FileManager.default.temporaryDirectory.standardizedFileURL.path
+        ))
+    }
+
+    @Test func appEnvironmentDoesNotExportComputerUseBearerToken() {
+        #expect(getenv(ComputerUseRuntimePaths.authenticationTokenEnvironmentKey) == nil)
     }
 
     @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() {
