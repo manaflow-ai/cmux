@@ -925,6 +925,10 @@ final class BrowserWebExtensionsManager: NSObject {
         let notices: [BrowserWebExtensionCapabilityNotice]
         if catalogID == "1password" {
             notices = [.browserOnlyNoDesktopBridge]
+        } else if case .package = preparedSource,
+                  webExtension.requestedPermissions.contains(.nativeMessaging)
+                    || webExtension.optionalPermissions.contains(.nativeMessaging) {
+            notices = [.nativeAppIntegrationUnavailable]
         } else {
             notices = []
         }
