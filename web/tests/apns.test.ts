@@ -6,6 +6,7 @@ import {
   apnsHostForEnvironment,
   buildApnsPayload,
   CMUX_APNS_CATEGORY,
+  CMUX_APNS_REPLY_CATEGORY,
   shouldPruneToken,
 } from "../services/apns/payload";
 import { summarizeApnsSendResults } from "../services/apns/response";
@@ -60,6 +61,22 @@ describe("apns payload", () => {
     // iOS swipe tell the Mac which notification was dismissed.
     expect(payload.aps.category).toBe(CMUX_APNS_CATEGORY);
     expect(payload.cmux).toEqual({ workspaceId: "ws-1", notificationId: "n-42" });
+  });
+
+  test("selects reply and fallback categories from replyShape", () => {
+    const category = (replyShape: unknown) => {
+      const payload = buildApnsPayload({
+        title: "claude",
+        body: "Agent finished",
+        replyShape,
+      } as Parameters<typeof buildApnsPayload>[0]) as { aps: Record<string, unknown> };
+      return payload.aps.category;
+    };
+
+    expect(category("text")).toBe(CMUX_APNS_REPLY_CATEGORY);
+    expect(category("none")).toBe(CMUX_APNS_CATEGORY);
+    expect(category(undefined)).toBe(CMUX_APNS_CATEGORY);
+    expect(category("unknown")).toBe(CMUX_APNS_CATEGORY);
   });
 
   test("keeps the notification id even when content is hidden (id is not content)", () => {
@@ -254,6 +271,19 @@ describe("apns route policy", () => {
     expect(
       parsePushPayload({ title: "agent", body: "done", notificationId: "x".repeat(MAX_PUSH_ID_CHARS + 1) }),
     ).toEqual({ ok: false, error: "notification_id_too_long" });
+  });
+
+  test("passes through known reply shapes and ignores unknown values", () => {
+    const value = (replyShape: unknown) => {
+      const parsed = parsePushPayload({ title: "agent", body: "done", replyShape });
+      if (!parsed.ok) throw new Error(parsed.error);
+      return parsed.value.replyShape;
+    };
+
+    expect(value("text")).toBe("text");
+    expect(value("none")).toBe("none");
+    expect(value(undefined)).toBeUndefined();
+    expect(value("future-shape")).toBeUndefined();
   });
 
   test("parses a dismiss push: text-free, requires ids, carries the badge", () => {

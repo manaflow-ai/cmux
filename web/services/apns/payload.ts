@@ -23,6 +23,8 @@ export interface ApnsNotificationInput {
   readonly title: string;
   readonly subtitle?: string | null;
   readonly body: string;
+  /** Inline-reply affordance requested by the Mac notification. */
+  readonly replyShape?: "none" | "text";
   readonly workspaceId?: string | null;
   readonly surfaceId?: string | null;
   /** Whether a tap may resolve the surface outside `workspaceId`. */
@@ -50,20 +52,22 @@ export interface ApnsNotificationInput {
 }
 
 /**
- * APNs `aps.category` set on every cmux terminal push. iOS registers a
- * matching ``UNNotificationCategory`` with `customDismissAction` so a
- * swipe/clear delivers `UNNotificationDismissActionIdentifier` to the app,
- * which forwards the dismiss to the Mac. Keep this in sync with the iOS
- * category id.
+ * Base APNs `aps.category` for non-replyable cmux terminal pushes. iOS
+ * registers this and the reply category with `customDismissAction` so a
+ * swipe/clear delivers `UNNotificationDismissActionIdentifier` to the app.
+ * Keep both identifiers in sync with iOS.
  */
 export const CMUX_APNS_CATEGORY = "cmux.terminal";
+
+/** APNs category for terminal pushes that accept an inline text reply. */
+export const CMUX_APNS_REPLY_CATEGORY = "cmux.terminal.reply";
 
 /**
  * Build the APNs JSON payload. Adds the workspace/surface ids, live-owner
  * retargeting provenance, Mac id, and notification id under `cmux` so a tap
  * can deep-link without crossing a confined workspace boundary and a swipe can
- * be dismiss-synced. Also sets the dismiss-action `category` and marks the
- * alert time-sensitive (the app holds that entitlement).
+ * be dismiss-synced. Also selects the plain or inline-reply dismiss-action
+ * category and marks the alert time-sensitive (the app holds that entitlement).
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   if (input.kind === "dismiss") return buildDismissPayload(input);
@@ -80,7 +84,7 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
     alert,
     sound: "default",
     "interruption-level": "time-sensitive",
-    category: CMUX_APNS_CATEGORY,
+    category: input.replyShape === "text" ? CMUX_APNS_REPLY_CATEGORY : CMUX_APNS_CATEGORY,
   };
   if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
 
