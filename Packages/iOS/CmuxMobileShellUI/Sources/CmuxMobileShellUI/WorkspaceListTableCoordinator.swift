@@ -412,6 +412,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let changesChip = configuration.workspaceChangesCapable
                 ? configuration.workspaceChangeChipsByWorkspaceID[workspace.rpcWorkspaceID.rawValue]
                 : nil
+            let onOpenChanges: (@MainActor () -> Void)?
+            if let openWorkspaceChanges = configuration.openWorkspaceChanges,
+               (changesChip?.filesChanged ?? 0) > 0 {
+                onOpenChanges = { openWorkspaceChanges(workspace) }
+            } else {
+                onOpenChanges = nil
+            }
             return AnyView(
                 WorkspaceRow(
                     workspace: workspace,
@@ -419,13 +426,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     isSelected: configuration.navigationStyle == .sidebar
                         && configuration.selectedWorkspaceID == workspace.id,
                     changesChip: changesChip,
+                    onOpenChanges: onOpenChanges,
                     wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
                     previewLineLimit: configuration.previewLineLimit,
                     unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift,
                     profilePictureLeftShift: configuration.profilePictureLeftShift,
                     profilePictureSize: configuration.profilePictureSize
                 )
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(
+                    children: onOpenChanges == nil ? .combine : .contain
+                )
                 .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
                 .accessibilityLabel(workspace.name)
@@ -636,6 +646,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || (previous.setUnread != nil) != (next.setUnread != nil)
             || (previous.setPinned != nil) != (next.setPinned != nil)
             || (previous.renameRequest != nil) != (next.renameRequest != nil)
+            || (previous.openWorkspaceChanges != nil) != (next.openWorkspaceChanges != nil)
     }
 
     private func groupActionAvailabilityChanged(

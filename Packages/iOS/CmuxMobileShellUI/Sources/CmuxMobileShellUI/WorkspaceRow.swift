@@ -15,6 +15,9 @@ struct WorkspaceRow: View {
     /// (not in a wrapper) so every list pipeline that shows a workspace row
     /// (SwiftUI List and the UIKit table) carries the same signifier.
     var changesChip: MobileWorkspaceChangesChip? = nil
+    /// Opens this workspace's changes without selecting the row. When absent,
+    /// the changes capsule remains a passive label.
+    var onOpenChanges: (@MainActor () -> Void)? = nil
     /// When `true`, the workspace title wraps onto multiple lines instead of
     /// truncating to one (driven by the "Wrap Workspace Titles" setting).
     let wrapWorkspaceTitles: Bool
@@ -72,7 +75,7 @@ struct WorkspaceRow: View {
 
                     if let changesChip, changesChip.filesChanged > 0 {
                         Spacer(minLength: 8)
-                        WorkspaceChangesChipLabel(chip: changesChip, workspaceID: workspace.rpcWorkspaceID.rawValue)
+                        changesChipView(changesChip)
                     }
                 }
             }
@@ -87,6 +90,26 @@ struct WorkspaceRow: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func changesChipView(_ chip: MobileWorkspaceChangesChip) -> some View {
+        if let onOpenChanges {
+            Button(action: onOpenChanges) {
+                WorkspaceChangesChipLabel(
+                    chip: chip,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue
+                )
+            }
+            .buttonStyle(.plain)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        } else {
+            WorkspaceChangesChipLabel(
+                chip: chip,
+                workspaceID: workspace.rpcWorkspaceID.rawValue
+            )
+        }
     }
 
     private var unreadDotAvatarLayoutGap: CGFloat {

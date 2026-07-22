@@ -107,6 +107,7 @@ struct WorkspaceListView: View {
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     @State private var showingDeviceTree = false
+    @State private var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State var filter: MobileWorkspaceListFilter = .all
@@ -383,6 +384,17 @@ struct WorkspaceListView: View {
                 }
             }
         }
+        .sheet(item: $changesSheetTarget) { target in
+            if let store {
+                WorkspaceChangesSheet(
+                    store: store,
+                    workspaceID: target.workspaceID,
+                    workspaceTitle: target.workspaceTitle
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
+        }
         .confirmationDialog(
             L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
             isPresented: workspaceCloseConfirmationIsPresented,
@@ -627,6 +639,9 @@ struct WorkspaceListView: View {
         WorkspaceNavigationRow(
             workspace: workspace,
             changesChip: changesChip,
+            onOpenChanges: store == nil ? nil : {
+                openWorkspaceChanges(workspace)
+            },
             connectionStatus: workspace.macConnectionStatus ?? connectionStatus,
             isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
             navigationStyle: navigationStyle,
@@ -656,6 +671,14 @@ struct WorkspaceListView: View {
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
+    }
+
+    func openWorkspaceChanges(_ workspace: MobileWorkspacePreview) {
+        guard store != nil else { return }
+        changesSheetTarget = WorkspaceChangesSheetTarget(
+            workspaceID: workspace.rpcWorkspaceID.rawValue,
+            workspaceTitle: workspace.name
+        )
     }
 
     var settingsMenu: some View {

@@ -25,6 +25,7 @@ struct WorkspaceListTable: UIViewRepresentable {
     /// Changes chips keyed by the workspace's RPC identifier
     /// (`MobileWorkspacePreview.rpcWorkspaceID.rawValue`).
     let workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip]
+    let openWorkspaceChanges: (@MainActor (MobileWorkspacePreview) -> Void)?
 
     let connectionRequiresReauth: Bool
     let connectionRecoveryFailed: Bool

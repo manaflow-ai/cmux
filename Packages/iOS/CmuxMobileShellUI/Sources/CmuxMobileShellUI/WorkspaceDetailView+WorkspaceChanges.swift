@@ -12,6 +12,19 @@ extension WorkspaceDetailView {
         store.workspaceChangesCapable && connectionStatus == .connected
     }
 
+    /// Dirty terminal-title entry point. Chat and browser headers keep their
+    /// existing labels and chrome unchanged.
+    var workspaceTitleChangesChip: MobileWorkspaceChangesChip? {
+        let showsChatHeader = isChatMode
+            && chosenChatSession.map { chatConversationStores[$0.id] != nil } == true
+        guard !showsChatHeader,
+              activeBrowser == nil,
+              workspaceChangesAreAvailable,
+              let chip = workspaceChangesChip,
+              chip.filesChanged > 0 else { return nil }
+        return chip
+    }
+
     /// Restarts hint eligibility only when its authoritative inputs change.
     var workspaceChangesHintEligibilityKey: String {
         let capability = store.workspaceChangesCapable ? 1 : 0
@@ -20,7 +33,7 @@ extension WorkspaceDetailView {
         return "\(workspace.rpcWorkspaceID.rawValue)#\(capability)#\(connected)#\(filesChanged)"
     }
 
-    /// The single presentation path shared by the toolbar chip, title menu, and hint banner.
+    /// The single presentation path shared by the toolbar, title pill, and hint banner.
     func openWorkspaceChanges() {
         guard workspaceChangesAreAvailable else { return }
         let workspaceID = workspace.rpcWorkspaceID.rawValue

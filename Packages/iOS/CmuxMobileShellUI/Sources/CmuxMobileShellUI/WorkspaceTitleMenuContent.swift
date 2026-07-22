@@ -6,19 +6,13 @@ struct WorkspaceTitleMenuContent: View {
     let workspace: MobileWorkspacePreview
     let canRenameWorkspace: Bool
     let canToggleReadState: Bool
-    let workspaceChangesAreAvailable: Bool
     let canCloseWorkspace: Bool
     let presentRename: () -> Void
     let toggleReadState: () -> Void
-    let openWorkspaceChanges: () -> Void
     let requestClose: () -> Void
 
     var body: some View {
-        if canRenameWorkspace
-            || canToggleReadState
-            || workspaceChangesAreAvailable
-            || canCloseWorkspace
-        {
+        if canRenameWorkspace || canToggleReadState || canCloseWorkspace {
             Section(workspace.name) {
                 if canRenameWorkspace {
                     Button(action: presentRename) {
@@ -40,20 +34,6 @@ struct WorkspaceTitleMenuContent: View {
                         )
                     }
                     .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
-                }
-
-                if workspaceChangesAreAvailable {
-                    Button(action: openWorkspaceChanges) {
-                        Label(
-                            String(
-                                localized: "workspace.changes.title",
-                                defaultValue: "Changes",
-                                bundle: .module
-                            ),
-                            systemImage: "plus.forwardslash.minus"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileWorkspaceTitleChangesMenuItem")
                 }
 
                 if canCloseWorkspace {

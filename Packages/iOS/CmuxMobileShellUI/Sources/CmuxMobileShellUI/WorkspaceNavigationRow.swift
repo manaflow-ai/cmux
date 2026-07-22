@@ -7,6 +7,8 @@ struct WorkspaceNavigationRow: View {
     let workspace: MobileWorkspacePreview
     /// Immutable changes summary projected by ``WorkspaceListView`` above `List`.
     var changesChip: MobileWorkspaceChangesChip? = nil
+    /// Opens the immutable changes snapshot's workspace without selecting this row.
+    var onOpenChanges: (@MainActor () -> Void)? = nil
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
@@ -65,7 +67,7 @@ struct WorkspaceNavigationRow: View {
                 .accessibilityIdentifier("MobileWorkspaceDeleteSwipeButton-\(workspace.id.rawValue)")
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: onOpenChanges == nil ? .combine : .contain)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(rowAccessibilityLabel)
@@ -122,6 +124,7 @@ struct WorkspaceNavigationRow: View {
             connectionStatus: connectionStatus,
             isSelected: navigationStyle == .sidebar && isSelected,
             changesChip: changesChip,
+            onOpenChanges: onOpenChanges,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
@@ -131,6 +134,9 @@ struct WorkspaceNavigationRow: View {
     }
 
     private var rowAccessibilityLabel: String {
+        // An interactive chip is exposed as its own accessibility button, so
+        // the row must not repeat the same changes summary.
+        guard onOpenChanges == nil else { return workspace.name }
         guard let changesChip, changesChip.filesChanged > 0 else { return workspace.name }
         return String(
             format: String(

@@ -182,9 +182,13 @@ struct WorkspaceDetailView: View {
         if workspaceChangesAreAvailable {
             ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
                 WorkspaceChangesToolbarButton(
-                    filesChanged: workspaceChangesChip?.filesChanged ?? 0,
+                    chip: workspaceChangesChip,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
                     action: openWorkspaceChanges
                 )
+                // The chrome sits on the terminal theme's background, not the
+                // system scheme; resolve the counts' green/red for that.
+                .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
             }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
@@ -424,11 +428,9 @@ struct WorkspaceDetailView: View {
             workspace: workspace,
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
-            workspaceChangesAreAvailable: workspaceChangesAreAvailable,
             canCloseWorkspace: closeWorkspace != nil,
             presentRename: presentRenameFromMenu,
             toggleReadState: toggleWorkspaceReadStateFromMenu,
-            openWorkspaceChanges: openWorkspaceChanges,
             requestClose: requestCloseWorkspaceFromMenu
         )
     }

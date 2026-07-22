@@ -606,8 +606,8 @@
     "workspace.changes.chip.accessibility" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%1$lld additions, %2$lld deletions" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "追加%1$lld行、削除%2$lld行" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes: %1$@, +%2$lld, −%3$lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更：%1$@、+%2$lld、−%3$lld" } }
       }
     },
     "workspace.changes.chip.row_accessibility" : {

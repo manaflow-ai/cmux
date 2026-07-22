@@ -6,6 +6,7 @@ import SwiftUI
 struct WorkspaceChangesChipLabel: View {
     let chip: MobileWorkspaceChangesChip
     let workspaceID: String
+    var showsCapsuleBackground = true
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -27,9 +28,13 @@ struct WorkspaceChangesChipLabel: View {
         .lineLimit(1)
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
-        .background(Capsule().fill(Color.secondary.opacity(0.12)))
+        .background {
+            if showsCapsuleBackground {
+                Capsule().fill(Color.secondary.opacity(0.12))
+            }
+        }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel(for: text))
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("MobileChangesChip-\(workspaceID)")
     }
 
@@ -41,14 +46,15 @@ struct WorkspaceChangesChipLabel: View {
         )
     }
 
-    private func accessibilityLabel(for text: WorkspaceChangesChipText) -> String {
-        guard text.secondary != nil else { return text.combined }
+    private var accessibilityLabel: String {
+        let fileCount = WorkspaceChangesChipTextPolicy().fileCountText(chip.filesChanged)
         return String(
             format: String(
                 localized: "workspace.changes.chip.accessibility",
-                defaultValue: "%1$lld additions, %2$lld deletions",
+                defaultValue: "Changes: %1$@, +%2$lld, −%3$lld",
                 bundle: .module
             ),
+            fileCount,
             chip.additions,
             chip.deletions
         )
