@@ -247,6 +247,9 @@ _REAL_CLOCK_INIT = re.compile(
 _SLASH_NONCODE_MARKER = re.compile(r'//|/\*|"""|["\']')
 _HASH_NONCODE_MARKER = re.compile(r'#|"""|["\']')
 _BLOCK_COMMENT_MARKER = re.compile(r'/\*|\*/')
+_DIRECT_ASSIGNMENT = re.compile(
+    r"(?:^|[;{}])\s*([A-Za-z_]\w*)\s*=(?!=)\s*([^;]+)"
+)
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
@@ -833,6 +836,17 @@ def _local_receiver_declarations(
     return declarations
 
 
+def _local_receiver_assignments(
+    text: str, receiver: str
+) -> list[tuple[int, str]]:
+    """Return direct assignment statements for this receiver on one line."""
+    return [
+        (match.start(1), f"= {match.group(2).strip()}")
+        for match in _DIRECT_ASSIGNMENT.finditer(text)
+        if match.group(1) == receiver
+    ]
+
+
 def _receiver_declaration_kind(
     declaration: str, following_lines: Iterable[str]
 ) -> bool:
@@ -1122,8 +1136,6 @@ def _propagate_inherited_real_members(
                 candidates.insert(
                     0, f"{type_name.rsplit('.', 1)[0]}.{parent}"
                 )
-            if "." in parent:
-                candidates.append(parent.rsplit(".", 1)[-1])
             parent_type = next(
                 (candidate for candidate in candidates if candidate in known_types),
                 None,
@@ -1219,6 +1231,12 @@ def _resolve_named_receiver_kind(
         events.extend(
             (position, "binding", declaration)
             for position, declaration in _local_receiver_declarations(
+                candidate, receiver
+            )
+        )
+        events.extend(
+            (position, "assignment", declaration)
+            for position, declaration in _local_receiver_assignments(
                 candidate, receiver
             )
         )
@@ -1326,7 +1344,25 @@ def _resolve_named_receiver_kind(
                         kind = _receiver_declaration_kind(
                             declaration, prefix_lines[candidate_index + 1 :]
                         )
-                if pending_conditional is not None:
+                if event == "assignment":
+                    binding_scope = next(
+                        (
+                            scope_index
+                            for scope_index in range(len(scopes) - 1, -1, -1)
+                            if receiver in scopes[scope_index]
+                        ),
+                        None,
+                    )
+                    if binding_scope is None:
+                        continue
+                    # An assignment in the binding's own scope is ordered and
+                    # authoritative. A nested block or closure may not execute,
+                    # so degrade the outer binding to unknown/non-real instead
+                    # of creating a strict-gate false positive.
+                    scopes[binding_scope][receiver] = (
+                        kind if binding_scope == len(scopes) - 1 else False
+                    )
+                elif pending_conditional is not None:
                     pending_conditional[receiver] = kind
                 else:
                     scopes[-1][receiver] = kind
