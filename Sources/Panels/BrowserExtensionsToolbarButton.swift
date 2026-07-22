@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import SwiftUI
 
 struct BrowserExtensionsToolbarButton: View {
@@ -8,6 +9,7 @@ struct BrowserExtensionsToolbarButton: View {
     let iconPointSize: CGFloat
     let hitSize: CGFloat
     let loadSnapshot: @MainActor () async -> BrowserWebExtensionsPresentationSnapshot
+    let updates: @MainActor () -> AsyncStream<BrowserWebExtensionUpdate>
     let openManager: @MainActor () -> Bool
     let setToolbarPinned: @MainActor (String, Bool) async -> Bool
     let performAction: @MainActor (String, NSView?) -> Bool
@@ -33,22 +35,34 @@ struct BrowserExtensionsToolbarButton: View {
         }
         .task {
             await refreshSnapshot()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .browserWebExtensionActionDidChange)) { notification in
-            if let changedProfileID = notification.userInfo?[BrowserWebExtensionsPresentationSnapshot.NotificationKey.profileID] as? UUID,
-               changedProfileID != profileID {
-                return
+            for await update in updates() {
+                guard !Task.isCancelled else { return }
+                switch update {
+                case .actionChanged(let actionUpdate):
+                    guard actionUpdate.profileID == profileID,
+                          actionUpdate.panelID == nil || actionUpdate.panelID == panelID else {
+                        continue
+                    }
+                    if let item = actionUpdate.item {
+                        applyActionUpdate(item)
+                    } else {
+                        scheduleActionRefresh()
+                    }
+                case .snapshotInvalidated(let changedProfileID):
+                    if changedProfileID == profileID {
+                        scheduleActionRefresh()
+                    }
+                case .phaseChanged(let phase):
+                    if phase == .ready || {
+                        if case .degraded = phase { return true }
+                        return false
+                    }() {
+                        scheduleActionRefresh()
+                    }
+                case .navigationReleased, .navigationCancelled:
+                    continue
+                }
             }
-            if let changedPanelID = notification.userInfo?[BrowserWebExtensionsPresentationSnapshot.NotificationKey.panelID] as? UUID,
-               changedPanelID != panelID {
-                return
-            }
-            if let item = notification.userInfo?[BrowserWebExtensionsPresentationSnapshot.NotificationKey.item]
-                as? BrowserWebExtensionsPresentationSnapshot.Item {
-                applyActionUpdate(item)
-                return
-            }
-            scheduleActionRefresh()
         }
         .onDisappear {
             actionRefreshTask?.cancel()
@@ -119,7 +133,7 @@ struct BrowserExtensionsToolbarButton: View {
     }
 
     @MainActor
-    private func applyActionUpdate(_ item: BrowserWebExtensionsPresentationSnapshot.Item) {
+    private func applyActionUpdate(_ item: BrowserWebExtensionPresentationItem) {
         guard let index = snapshot.extensions.firstIndex(where: { $0.id == item.id }) else {
             scheduleActionRefresh()
             return
@@ -155,7 +169,7 @@ private struct BrowserExtensionActionAnchorReader: NSViewRepresentable {
 }
 
 private struct BrowserExtensionToolbarActionButton: View {
-    let item: BrowserWebExtensionsPresentationSnapshot.Item
+    let item: BrowserWebExtensionPresentationItem
     let iconPointSize: CGFloat
     let hitSize: CGFloat
     let performAction: @MainActor (String, NSView?) -> Bool
@@ -167,15 +181,21 @@ private struct BrowserExtensionToolbarActionButton: View {
             _ = performAction(item.id, anchorHolder.view)
         } label: {
             ZStack(alignment: .topTrailing) {
-                BrowserExtensionIcon(
-                    data: item.iconData,
-                    fallbackSystemName: "puzzlepiece.extension",
-                    fallbackColor: .secondary,
-                    size: BrowserExtensionIconMetrics.toolbarContentSize(
-                        iconPointSize: iconPointSize
+                if item.isAwaitingPopup {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: iconPointSize + 3, height: iconPointSize + 3)
+                } else {
+                    BrowserExtensionIcon(
+                        data: item.iconData,
+                        fallbackSystemName: "puzzlepiece.extension",
+                        fallbackColor: .secondary,
+                        size: BrowserExtensionIconMetrics.toolbarContentSize(
+                            iconPointSize: iconPointSize
+                        )
                     )
-                )
-                .frame(width: iconPointSize + 3, height: iconPointSize + 3)
+                    .frame(width: iconPointSize + 3, height: iconPointSize + 3)
+                }
 
                 if !item.badgeText.isEmpty {
                     Text(item.badgeText)
@@ -472,7 +492,7 @@ struct BrowserExtensionsManagerPage: View {
     }
 
     @MainActor
-    private func setToolbarPinned(_ item: BrowserWebExtensionsPresentationSnapshot.Item, _ isPinned: Bool) {
+    private func setToolbarPinned(_ item: BrowserWebExtensionPresentationItem, _ isPinned: Bool) {
         Task { @MainActor in
             guard await panel.setBrowserWebExtensionToolbarActionPinned(
                 isPinned,
@@ -675,7 +695,7 @@ private struct BrowserExtensionsInstalledSection: View {
     let snapshot: BrowserWebExtensionsPresentationSnapshot
     let installStatus: BrowserExtensionInstallStatus?
     let setToolbarPinned: @MainActor (
-        BrowserWebExtensionsPresentationSnapshot.Item,
+        BrowserWebExtensionPresentationItem,
         Bool
     ) -> Void
 
@@ -768,14 +788,14 @@ private struct BrowserExtensionStatusRow: View {
 }
 
 private struct BrowserInstalledExtensionRow: View {
-    let item: BrowserWebExtensionsPresentationSnapshot.Item?
+    let item: BrowserWebExtensionPresentationItem?
     var fallbackName = ""
     let detail: String
     let iconData: Data?
     let fallbackIcon: String
     let fallbackColor: Color
     let setToolbarPinned: @MainActor (
-        BrowserWebExtensionsPresentationSnapshot.Item,
+        BrowserWebExtensionPresentationItem,
         Bool
     ) -> Void
 
@@ -931,9 +951,9 @@ private struct BrowserExtensionsReadyList: View {
 }
 
 private struct BrowserExtensionToolbarPinButton: View {
-    let item: BrowserWebExtensionsPresentationSnapshot.Item
+    let item: BrowserWebExtensionPresentationItem
     let setToolbarPinned: @MainActor (
-        BrowserWebExtensionsPresentationSnapshot.Item,
+        BrowserWebExtensionPresentationItem,
         Bool
     ) -> Void
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -6,8 +7,17 @@ import WebKit
 /// through window, workspace, and panel owners.
 @MainActor
 final class BrowserServices {
+    private struct PendingWebExtensionNavigation {
+        let ownerID: UUID
+        let profileID: UUID
+        let execute: @MainActor () -> Void
+    }
+
     private let extensionDirectory: URL
     private var webExtensionsManagerStorage: [UUID: AnyObject] = [:]
+    private var webExtensionRuntimeObservationTasks: [UUID: Task<Void, Never>] = [:]
+    private var pendingWebExtensionNavigations: [UUID: PendingWebExtensionNavigation] = [:]
+    private var pendingWebExtensionNavigationIDsByOwner: [UUID: UUID] = [:]
     private var registeredPanelProfileIDs: [UUID: UUID] = [:]
     private var profileDeletionObserver: NSObjectProtocol?
 
@@ -30,6 +40,9 @@ final class BrowserServices {
     }
 
     deinit {
+        for task in webExtensionRuntimeObservationTasks.values {
+            task.cancel()
+        }
         if let profileDeletionObserver {
             NotificationCenter.default.removeObserver(profileDeletionObserver)
         }
@@ -57,7 +70,102 @@ final class BrowserServices {
             profileID: profileID
         )
         webExtensionsManagerStorage[profileID] = manager
+        observeWebExtensionRuntime(manager.profileRuntime)
         return manager
+    }
+
+    @available(macOS 15.4, *)
+    private func observeWebExtensionRuntime(_ runtime: BrowserWebExtensionProfileRuntime) {
+        guard webExtensionRuntimeObservationTasks[runtime.profileID] == nil else { return }
+        let updates = runtime.updates()
+        webExtensionRuntimeObservationTasks[runtime.profileID] = Task { @MainActor [weak self] in
+            for await update in updates {
+                guard let self, !Task.isCancelled else { return }
+                switch update {
+                case .navigationReleased(let intent, _):
+                    self.releaseWebExtensionNavigation(intent)
+                case .navigationCancelled(let intentID):
+                    self.removeWebExtensionNavigation(intentID)
+                case .phaseChanged, .actionChanged, .snapshotInvalidated:
+                    break
+                }
+            }
+        }
+    }
+
+    @available(macOS 15.4, *)
+    func installWebExtensionsManagerForTesting(
+        _ manager: BrowserWebExtensionsManager,
+        profileID: UUID
+    ) {
+        precondition(manager.profileRuntime.profileID == profileID)
+        webExtensionRuntimeObservationTasks.removeValue(forKey: profileID)?.cancel()
+        webExtensionsManagerStorage[profileID] = manager
+        observeWebExtensionRuntime(manager.profileRuntime)
+    }
+
+    func scheduleWebExtensionNavigation(
+        ownerID: UUID,
+        profileID: UUID,
+        targetURL: URL?,
+        reason: BrowserWebExtensionNavigationReason,
+        execute: @escaping @MainActor () -> Void
+    ) {
+        cancelWebExtensionNavigation(ownerID: ownerID)
+        guard #available(macOS 15.4, *) else {
+            execute()
+            return
+        }
+        let manager = webExtensionsManager(for: profileID)
+        let intent = BrowserWebExtensionNavigationIntent(
+            profileID: profileID,
+            targetURL: targetURL,
+            reason: reason
+        )
+        pendingWebExtensionNavigations[intent.id] = PendingWebExtensionNavigation(
+            ownerID: ownerID,
+            profileID: profileID,
+            execute: execute
+        )
+        pendingWebExtensionNavigationIDsByOwner[ownerID] = intent.id
+        guard manager.profileRuntime.enqueueNavigation(intent) else {
+            removeWebExtensionNavigation(intent.id)
+            execute()
+            return
+        }
+        manager.startLoading()
+    }
+
+    func cancelWebExtensionNavigation(ownerID: UUID) {
+        guard let intentID = pendingWebExtensionNavigationIDsByOwner.removeValue(forKey: ownerID) else {
+            return
+        }
+        guard let pending = pendingWebExtensionNavigations.removeValue(forKey: intentID) else { return }
+        if #available(macOS 15.4, *),
+           let manager = webExtensionsManagerStorage[pending.profileID] as? BrowserWebExtensionsManager {
+            _ = manager.profileRuntime.cancelNavigation(id: intentID)
+        }
+    }
+
+    func isWebExtensionNavigationPending(ownerID: UUID) -> Bool {
+        pendingWebExtensionNavigationIDsByOwner[ownerID] != nil
+    }
+
+    private func releaseWebExtensionNavigation(_ intent: BrowserWebExtensionNavigationIntent) {
+        guard let pending = pendingWebExtensionNavigations.removeValue(forKey: intent.id),
+              pending.profileID == intent.profileID,
+              pendingWebExtensionNavigationIDsByOwner[pending.ownerID] == intent.id else {
+            return
+        }
+        pendingWebExtensionNavigationIDsByOwner.removeValue(forKey: pending.ownerID)
+        pending.execute()
+    }
+
+    private func removeWebExtensionNavigation(_ intentID: UUID) {
+        guard let pending = pendingWebExtensionNavigations.removeValue(forKey: intentID) else { return }
+        if pendingWebExtensionNavigationIDsByOwner[pending.ownerID] == intentID {
+            pendingWebExtensionNavigationIDsByOwner.removeValue(forKey: pending.ownerID)
+        }
     }
 
     private func profileDidDelete(_ profileID: UUID) async {
@@ -69,6 +177,13 @@ final class BrowserServices {
             root: extensionDirectory
         )
         let managerObject = webExtensionsManagerStorage.removeValue(forKey: profileID)
+        webExtensionRuntimeObservationTasks.removeValue(forKey: profileID)?.cancel()
+        let navigationIDs = pendingWebExtensionNavigations.compactMap { id, pending in
+            pending.profileID == profileID ? id : nil
+        }
+        for id in navigationIDs {
+            removeWebExtensionNavigation(id)
+        }
         if #available(macOS 15.4, *),
            let manager = managerObject as? BrowserWebExtensionsManager {
             await manager.shutdownAndRemoveDirectory()
@@ -105,6 +220,15 @@ final class BrowserServices {
         let webExtensionsManager = webExtensionsManager(for: profileID)
         webExtensionsManager.startLoading()
         await webExtensionsManager.waitUntilLoaded()
+    }
+
+    func webExtensionUpdates(profileID: UUID) -> AsyncStream<BrowserWebExtensionUpdate> {
+        guard #available(macOS 15.4, *) else {
+            return AsyncStream { $0.finish() }
+        }
+        let manager = webExtensionsManager(for: profileID)
+        manager.startLoading()
+        return manager.profileRuntime.updates()
     }
 
     func installWebExtension(
@@ -342,6 +466,7 @@ final class BrowserServices {
     }
 
     func unregisterBrowserPanel(id: UUID) {
+        cancelWebExtensionNavigation(ownerID: id)
         guard #available(macOS 15.4, *),
               let profileID = registeredPanelProfileIDs.removeValue(forKey: id),
               let manager = webExtensionsManagerStorage[profileID] as? BrowserWebExtensionsManager else {

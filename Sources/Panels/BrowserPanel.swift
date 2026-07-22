@@ -3144,9 +3144,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let onNavigationStarted: ((WKNavigation?) -> Void)?
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
-    private var pendingWebExtensionNavigationTask: Task<Void, Never>?
     var isWaitingForWebExtensionsBeforeNavigation: Bool {
-        pendingWebExtensionNavigationTask != nil
+        browserServices?.isWebExtensionNavigationPending(ownerID: id) ?? false
     }
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
@@ -4286,25 +4285,29 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Runs `navigation` only after the shared web-extension load finishes so
     /// a webview's first page load never races extension content-script
     /// injection. Synchronous when extensions are loaded or absent.
-    func runWhenWebExtensionsLoaded(_ navigation: @escaping @MainActor () -> Void) {
+    func runWhenWebExtensionsLoaded(
+        targetURL: URL? = nil,
+        reason: BrowserWebExtensionNavigationReason = .initial,
+        _ navigation: @escaping @MainActor () -> Void
+    ) {
         cancelPendingWebExtensionNavigation()
-        if #available(macOS 15.4, *),
-           let manager = browserServices?.webExtensionsManager(for: profileID),
-           !manager.isLoaded {
-            pendingWebExtensionNavigationTask = Task { @MainActor [weak self] in
-                await manager.waitUntilLoaded()
-                guard !Task.isCancelled, let self, !self.isClosingWebViewLifecycle else { return }
-                self.pendingWebExtensionNavigationTask = nil
-                navigation()
-            }
-        } else {
+        guard let browserServices else {
+            navigation()
+            return
+        }
+        browserServices.scheduleWebExtensionNavigation(
+            ownerID: id,
+            profileID: profileID,
+            targetURL: targetURL,
+            reason: reason
+        ) { [weak self] in
+            guard let self, !self.isClosingWebViewLifecycle else { return }
             navigation()
         }
     }
 
     private func cancelPendingWebExtensionNavigation() {
-        pendingWebExtensionNavigationTask?.cancel()
-        pendingWebExtensionNavigationTask = nil
+        browserServices?.cancelWebExtensionNavigation(ownerID: id)
     }
 
     @discardableResult
@@ -5441,8 +5444,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         cancelHiddenWebViewDiscard()
-        pendingWebExtensionNavigationTask?.cancel()
-        pendingWebExtensionNavigationTask = nil
+        cancelPendingWebExtensionNavigation()
         isClosingWebViewLifecycle = true
         automationNavigationCoordinator.invalidate()
         automationDocumentReadiness.invalidate()
@@ -7859,6 +7861,13 @@ extension BrowserPanel {
     func browserWebExtensionsPresentationSnapshot() async -> BrowserWebExtensionsPresentationSnapshot {
         guard let browserServices else { return .unsupported }
         return await browserServices.webExtensionsPresentationSnapshot(for: id, profileID: profileID)
+    }
+
+    func browserWebExtensionUpdates() -> AsyncStream<BrowserWebExtensionUpdate> {
+        guard let browserServices else {
+            return AsyncStream { $0.finish() }
+        }
+        return browserServices.webExtensionUpdates(profileID: profileID)
     }
 
     func installBrowserWebExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {

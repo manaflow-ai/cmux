@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -136,8 +137,10 @@ final class BrowserWebExtensionsManager: NSObject {
     """#
 
     typealias AppExtensionLoader = @MainActor (Bundle) async throws -> WKWebExtension
+    typealias PopupHandoffDeadline = @MainActor @Sendable () async throws -> Void
 
     private final class PendingActionInvocation {
+        let id = UUID()
         weak var anchorView: NSView?
         let panelID: UUID
 
@@ -165,11 +168,6 @@ final class BrowserWebExtensionsManager: NSObject {
         }
     }
 
-    private enum LoadWaiter {
-        case pendingRegistration
-        case waiting(CheckedContinuation<Void, Never>)
-    }
-
     /// Fixed controller identifier so extension storage (`browser.storage`,
     /// declarativeNetRequest state) persists across launches.
     private static let controllerIdentifier = UUID(uuidString: "3B7D2A9E-5C41-4F8A-B6D0-9E2C7A51F3D8")!
@@ -177,12 +175,19 @@ final class BrowserWebExtensionsManager: NSObject {
     let controller: WKWebExtensionController
     let directory: URL
     let profileID: UUID?
-    var loadTask: Task<Void, Never>?
+    let profileRuntime: BrowserWebExtensionProfileRuntime
     private let directoryRepository = BrowserWebExtensionDirectoryRepository()
     private let catalogPackageRepository = BrowserWebExtensionCatalogPackageRepository()
     private let appExtensionLoader: AppExtensionLoader
-    private(set) var isLoaded = false
-    private var loadWaiters: [UUID: LoadWaiter] = [:]
+    private let waitForPopupHandoffDeadline: PopupHandoffDeadline
+    var isLoaded: Bool {
+        switch profileRuntime.phase {
+        case .ready, .degraded:
+            return true
+        case .idle, .loading, .shutDown:
+            return false
+        }
+    }
     private(set) var loadedContexts: [WKWebExtensionContext] = []
     private(set) var loadErrors: [(url: URL, error: any Error)] = []
     private var toolbarPinnedExtensionIdentifiers = Set<String>()
@@ -190,6 +195,8 @@ final class BrowserWebExtensionsManager: NSObject {
     private var windowAdapters: [UUID: BrowserWebExtensionWindowAdapter] = [:]
     private var pendingActionInvocations: [ActionInvocationKey: [PendingActionInvocation]] = [:]
     private var lastActionInvocations: [ActionInvocationKey: PendingActionInvocation] = [:]
+    private var popupHandoffDeadlineTasks: [ActionInvocationKey: Task<Void, Never>] = [:]
+    private var actionsAwaitingReadyPopup = Set<ActionInvocationKey>()
     private var popupWebViews: [String: WeakPopupWebView] = [:]
     private var actionUpdateFlushTask: Task<Void, Never>?
     private var pendingActionUpdates: [ActionUpdateKey: PendingActionUpdate] = [:]
@@ -206,7 +213,6 @@ final class BrowserWebExtensionsManager: NSObject {
         let data: Data?
     }
 
-    private static let actionUpdateMinimumInterval: Duration = .milliseconds(50)
     private var presentationIconCache: [ActionUpdateKey: PresentationIconCacheEntry] = [:]
 
     init(
@@ -215,6 +221,10 @@ final class BrowserWebExtensionsManager: NSObject {
         controllerConfiguration: WKWebExtensionController.Configuration? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil,
         profileID: UUID? = nil,
+        profileRuntime: BrowserWebExtensionProfileRuntime? = nil,
+        waitForPopupHandoffDeadline: @escaping PopupHandoffDeadline = {
+            try await ContinuousClock().sleep(for: .seconds(3))
+        },
         appExtensionLoader: @escaping AppExtensionLoader = { bundle in
             try await WKWebExtension(appExtensionBundle: bundle)
         }
@@ -222,6 +232,16 @@ final class BrowserWebExtensionsManager: NSObject {
         self.directory = directory
         self.profileID = profileID
         self.appExtensionLoader = appExtensionLoader
+        self.waitForPopupHandoffDeadline = waitForPopupHandoffDeadline
+        let runtimeProfileID = profileID ?? controllerIdentifier ?? Self.controllerIdentifier
+        self.profileRuntime = profileRuntime ?? BrowserWebExtensionProfileRuntime(
+            profileID: runtimeProfileID,
+            waitForDeadline: {
+                // A bounded, cancellable deadline prevents one broken extension
+                // from blocking normal navigation. It never polls for readiness.
+                try await ContinuousClock().sleep(for: .seconds(5))
+            }
+        )
         let configuration = controllerConfiguration
             ?? WKWebExtensionController.Configuration(identifier: controllerIdentifier ?? Self.controllerIdentifier)
         if let websiteDataStore {
@@ -254,8 +274,7 @@ final class BrowserWebExtensionsManager: NSObject {
     func shutdown() {
         guard !isShutDown else { return }
         isShutDown = true
-        loadTask?.cancel()
-        loadTask = nil
+        profileRuntime.shutdown()
         for task in installTasks.values { task.cancel() }
         installTasks.removeAll()
         actionUpdateFlushTask?.cancel()
@@ -264,6 +283,9 @@ final class BrowserWebExtensionsManager: NSObject {
         presentationIconCache.removeAll()
         pendingActionInvocations.removeAll()
         lastActionInvocations.removeAll()
+        for task in popupHandoffDeadlineTasks.values { task.cancel() }
+        popupHandoffDeadlineTasks.removeAll()
+        actionsAwaitingReadyPopup.removeAll()
         popupWebViews.removeAll()
         for context in loadedContexts {
             _ = try? controller.unload(context)
@@ -273,7 +295,6 @@ final class BrowserWebExtensionsManager: NSObject {
         loadErrors.removeAll()
         tabAdapters.removeAll()
         windowAdapters.removeAll()
-        resumeLoadWaiters()
     }
 
     func shutdownAndRemoveDirectory() async {
@@ -300,8 +321,34 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func startLoading() {
-        guard !isShutDown, loadTask == nil else { return }
-        loadTask = Task { await loadExtensions() }
+        guard !isShutDown, profileRuntime.phase == .idle else { return }
+        startLoadingAttempt()
+    }
+
+    func retryLoading() {
+        guard !isShutDown, !profileRuntime.isLoadAttemptInFlight else { return }
+        switch profileRuntime.phase {
+        case .degraded:
+            startLoadingAttempt()
+        case .idle:
+            startLoading()
+        case .loading, .ready, .shutDown:
+            break
+        }
+    }
+
+    private func startLoadingAttempt() {
+        for context in loadedContexts {
+            _ = try? controller.unload(context)
+        }
+        loadedContexts.removeAll()
+        loadErrors.removeAll()
+        profileRuntime.start { @MainActor [weak self] in
+            guard let self, !self.isShutDown else {
+                return .degraded(.loadFailed)
+            }
+            return await self.loadApprovedExtensions()
+        }
     }
 
     /// Suspends until the in-flight extension load finishes. Callers can cancel
@@ -309,20 +356,15 @@ final class BrowserWebExtensionsManager: NSObject {
     /// first navigation starts only after every approved context is registered.
     func waitUntilLoaded() async {
         startLoading()
-        guard !isLoaded, loadTask != nil else { return }
-        let waiterID = UUID()
-        loadWaiters[waiterID] = .pendingRegistration
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                guard loadWaiters[waiterID] != nil else {
-                    continuation.resume()
-                    return
-                }
-                loadWaiters[waiterID] = .waiting(continuation)
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in
-                self?.resumeLoadWaiter(waiterID)
+        guard !isLoaded else { return }
+        for await update in profileRuntime.updates() {
+            guard !Task.isCancelled else { return }
+            guard case .phaseChanged(let phase) = update else { continue }
+            switch phase {
+            case .ready, .degraded, .shutDown:
+                return
+            case .idle, .loading:
+                continue
             }
         }
     }
@@ -330,43 +372,27 @@ final class BrowserWebExtensionsManager: NSObject {
     /// UI presentation waits for the same manager-owned readiness invariant as
     /// navigation and installation.
     func waitUntilPresentationReady() async {
-        startLoading()
-        await loadTask?.value
-    }
-
-    private func resumeLoadWaiter(_ id: UUID) {
-        guard let waiter = loadWaiters.removeValue(forKey: id) else { return }
-        if case let .waiting(continuation) = waiter {
-            continuation.resume()
-        }
-    }
-
-    private func resumeLoadWaiters() {
-        let waiters = Array(loadWaiters.values)
-        loadWaiters.removeAll()
-        for waiter in waiters {
-            if case let .waiting(continuation) = waiter {
-                continuation.resume()
-            }
-        }
+        await waitUntilLoaded()
     }
 
     func loadExtensions() async {
-        defer {
-            if !isShutDown { isLoaded = true }
-            resumeLoadWaiters()
-        }
-        guard !isShutDown else { return }
+        startLoading()
+        await waitUntilLoaded()
+    }
+
+    private func loadApprovedExtensions() async -> BrowserWebExtensionLoadOutcome {
+        guard !isShutDown else { return .degraded(.loadFailed) }
         toolbarPinnedExtensionIdentifiers = (try? await directoryRepository
             .toolbarPinnedExtensionIdentifiers(in: directory)) ?? []
-        guard !Task.isCancelled, !isShutDown else { return }
+        guard !Task.isCancelled, !isShutDown else { return .degraded(.loadFailed) }
         let discovery: BrowserWebExtensionApprovalDiscoveryResult
         do {
             discovery = try await directoryRepository.approvedCandidateURLs(in: directory)
         } catch {
-            guard !isShutDown else { return }
+            guard !isShutDown else { return .degraded(.loadFailed) }
             loadErrors.append((url: directory, error: error))
-            return
+            profileRuntime.invalidateSnapshot()
+            return .degraded(.loadFailed)
         }
         loadErrors.append(contentsOf: discovery.failures.map { failure in
             (
@@ -374,9 +400,9 @@ final class BrowserWebExtensionsManager: NSObject {
                 error: BrowserWebExtensionApprovalValidationError(message: failure.message)
             )
         })
-        guard !Task.isCancelled, !isShutDown else { return }
+        guard !Task.isCancelled, !isShutDown else { return .degraded(.loadFailed) }
         for url in discovery.candidates {
-            guard !Task.isCancelled, !isShutDown else { return }
+            guard !Task.isCancelled, !isShutDown else { return .degraded(.loadFailed) }
             do {
                 let context = try await loadExtension(at: url)
 #if DEBUG
@@ -387,7 +413,7 @@ final class BrowserWebExtensionsManager: NSObject {
                 )
 #endif
             } catch {
-                guard !isShutDown, !Task.isCancelled else { return }
+                guard !isShutDown, !Task.isCancelled else { return .degraded(.loadFailed) }
                 loadErrors.append((url: url, error: error))
 #if DEBUG
                 cmuxDebugLog("browser.extensions.load-failed entry=\(url.lastPathComponent) error=\(error)")
@@ -395,7 +421,7 @@ final class BrowserWebExtensionsManager: NSObject {
             }
         }
         for reference in discovery.appExtensionReferences {
-            guard !Task.isCancelled, !isShutDown else { return }
+            guard !Task.isCancelled, !isShutDown else { return .degraded(.loadFailed) }
             do {
                 let context = try await loadAppExtensionBundle(reference)
 #if DEBUG
@@ -405,7 +431,7 @@ final class BrowserWebExtensionsManager: NSObject {
                 )
 #endif
             } catch {
-                guard !isShutDown, !Task.isCancelled else { return }
+                guard !isShutDown, !Task.isCancelled else { return .degraded(.loadFailed) }
                 loadErrors.append((url: reference.bundleURL, error: error))
 #if DEBUG
                 cmuxDebugLog(
@@ -414,6 +440,8 @@ final class BrowserWebExtensionsManager: NSObject {
 #endif
             }
         }
+        profileRuntime.invalidateSnapshot()
+        return .ready
     }
 
     func installExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
@@ -515,10 +543,12 @@ final class BrowserWebExtensionsManager: NSObject {
         )
         try requireActive()
         toolbarPinnedExtensionIdentifiers = identifiers
-        NotificationCenter.default.post(
-            name: .browserWebExtensionActionDidChange,
-            object: context.uniqueIdentifier,
-            userInfo: [BrowserWebExtensionsPresentationSnapshot.NotificationKey.profileID: profileID ?? NSNull()]
+        profileRuntime.publishActionUpdate(
+            BrowserWebExtensionActionUpdate(
+                profileID: profileRuntime.profileID,
+                panelID: nil,
+                item: presentationItem(for: context, action: nil, panelID: nil)
+            )
         )
     }
 
@@ -581,6 +611,10 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func unregister(panelID: UUID) {
+        let handoffKeys = pendingActionInvocations.keys.filter { $0.panelID == panelID }
+        for key in handoffKeys {
+            cancelPopupHandoff(for: key)
+        }
         pendingActionInvocations = pendingActionInvocations.filter { $0.key.panelID != panelID }
         lastActionInvocations = lastActionInvocations.filter { $0.key.panelID != panelID }
         pendingActionUpdates = pendingActionUpdates.filter { $0.key.panelID != panelID }
@@ -715,28 +749,59 @@ final class BrowserWebExtensionsManager: NSObject {
             anchorView: anchorView,
             panelID: panel.id
         )
+        cancelPopupHandoff(for: key)
+        pendingActionInvocations[key] = [invocation]
         lastActionInvocations[key] = invocation
+        enqueueActionUpdate(action: action, context: context, panelID: panel.id)
         if action.presentsPopup {
-            pendingActionInvocations[key, default: []].append(invocation)
-            // WebKit's delegate callback is delayed until the popup finishes
-            // loading. Present its public popover immediately for a user click
-            // after invoking the action so a slow extension still has a visible
-            // loading surface while WebKit activates its background content.
+            actionsAwaitingReadyPopup.insert(key)
             context.performAction(for: tabAdapter)
-            do {
-                try showPopup(action, for: context)
-                return true
-            } catch {
-                pendingActionInvocations.removeValue(forKey: key)
-                return false
-            }
+            schedulePopupHandoffDeadline(for: key, invocationID: invocation.id)
+            return true
         }
-        pendingActionInvocations.removeValue(forKey: key)
-        // WebKit owns background activation for action events.
-        // Waiting on loadBackgroundContent here can permanently swallow an
-        // action when a service worker keeps that callback pending.
+        // Some MV2 extensions install a popup only after handling the click.
+        // Retain the anchor until `didUpdate` observes that transition.
         context.performAction(for: tabAdapter)
+        schedulePopupHandoffDeadline(for: key, invocationID: invocation.id)
         return true
+    }
+
+    private func schedulePopupHandoffDeadline(
+        for key: ActionInvocationKey,
+        invocationID: UUID
+    ) {
+        let waitForDeadline = waitForPopupHandoffDeadline
+        popupHandoffDeadlineTasks[key] = Task { @MainActor [weak self] in
+            do {
+                try await waitForDeadline()
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.pendingActionInvocations[key]?.first?.id == invocationID else {
+                return
+            }
+            self.cancelPopupHandoff(for: key)
+        }
+    }
+
+    private func cancelPopupHandoff(for key: ActionInvocationKey) {
+        popupHandoffDeadlineTasks.removeValue(forKey: key)?.cancel()
+        actionsAwaitingReadyPopup.remove(key)
+        let cancelledInvocationID = pendingActionInvocations.removeValue(forKey: key)?.first?.id
+        if lastActionInvocations[key]?.id == cancelledInvocationID {
+            lastActionInvocations.removeValue(forKey: key)
+        }
+        refreshActionPresentation(for: key)
+    }
+
+    private func refreshActionPresentation(for key: ActionInvocationKey) {
+        guard let context = loadedContexts.first(where: {
+            $0.uniqueIdentifier == key.extensionIdentifier
+        }) else { return }
+        let action = tabAdapters[key.panelID].flatMap { context.action(for: $0) }
+        enqueueActionUpdate(action: action, context: context, panelID: key.panelID)
     }
 
     private func loadExtension(at url: URL) async throws -> WKWebExtensionContext {
@@ -814,8 +879,8 @@ final class BrowserWebExtensionsManager: NSObject {
                 return presentationItem(for: context, action: action, panelID: panelID)
             },
             failures: loadErrors.map { failure in
-                BrowserWebExtensionsPresentationSnapshot.Failure(
-                    id: failure.url.path,
+                BrowserWebExtensionPresentationFailure(
+                    id: failure.url.lastPathComponent,
                     entryName: failure.url.lastPathComponent,
                     message: String(
                         localized: "browser.extensions.load.failed",
@@ -993,7 +1058,6 @@ final class BrowserWebExtensionsManager: NSObject {
         return [
             "domain": nsError.domain,
             "code": nsError.code,
-            "message": nsError.localizedDescription,
         ]
     }
 
@@ -1071,17 +1135,23 @@ final class BrowserWebExtensionsManager: NSObject {
         for context: WKWebExtensionContext,
         action: WKWebExtension.Action?,
         panelID: UUID?
-    ) -> BrowserWebExtensionsPresentationSnapshot.Item {
+    ) -> BrowserWebExtensionPresentationItem {
         let key = ActionUpdateKey(
             extensionIdentifier: context.uniqueIdentifier,
             panelID: panelID
         )
-        return BrowserWebExtensionsPresentationSnapshot.Item(
+        return BrowserWebExtensionPresentationItem(
             id: context.uniqueIdentifier,
             name: context.webExtension.displayName ?? context.uniqueIdentifier,
             hasAction: Self.definesAction(context.webExtension),
             isToolbarPinned: toolbarPinnedExtensionIdentifiers.contains(context.uniqueIdentifier),
             isActionEnabled: action?.isEnabled ?? Self.definesAction(context.webExtension),
+            isAwaitingPopup: panelID.map {
+                pendingActionInvocations[ActionInvocationKey(
+                    extensionIdentifier: context.uniqueIdentifier,
+                    panelID: $0
+                )]?.isEmpty == false
+            } ?? false,
             badgeText: action?.badgeText ?? "",
             iconData: presentationIconData(
                 for: action,
@@ -1103,29 +1173,22 @@ final class BrowserWebExtensionsManager: NSObject {
         pendingActionUpdates[key] = PendingActionUpdate(action: action, context: context)
         guard actionUpdateFlushTask == nil else { return }
         actionUpdateFlushTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: Self.actionUpdateMinimumInterval)
-            } catch {
-                return
-            }
+            await Task.yield()
             guard !Task.isCancelled, let self else { return }
             self.actionUpdateFlushTask = nil
             let updates = self.pendingActionUpdates
             self.pendingActionUpdates.removeAll()
             for (key, update) in updates {
-                let item = self.presentationItem(
-                    for: update.context,
-                    action: update.action,
-                    panelID: key.panelID
-                )
-                NotificationCenter.default.post(
-                    name: .browserWebExtensionActionDidChange,
-                    object: key.extensionIdentifier,
-                    userInfo: [
-                        BrowserWebExtensionsPresentationSnapshot.NotificationKey.panelID: key.panelID ?? NSNull(),
-                        BrowserWebExtensionsPresentationSnapshot.NotificationKey.profileID: self.profileID ?? NSNull(),
-                        BrowserWebExtensionsPresentationSnapshot.NotificationKey.item: item,
-                    ]
+                self.profileRuntime.publishActionUpdate(
+                    BrowserWebExtensionActionUpdate(
+                        profileID: self.profileRuntime.profileID,
+                        panelID: key.panelID,
+                        item: self.presentationItem(
+                            for: update.context,
+                            action: update.action,
+                            panelID: key.panelID
+                        )
+                    )
                 )
             }
         }
@@ -1204,10 +1267,16 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping ((any Error)?) -> Void
     ) {
+        let key = actionInvocationKey(for: action, extensionContext: extensionContext)
+        if let key, actionsAwaitingReadyPopup.remove(key) != nil {
+            popupHandoffDeadlineTasks.removeValue(forKey: key)?.cancel()
+        }
         do {
             try showPopup(action, for: extensionContext)
+            if let key { refreshActionPresentation(for: key) }
             completionHandler(nil)
         } catch {
+            if let key { cancelPopupHandoff(for: key) }
             completionHandler(error)
         }
     }
@@ -1242,6 +1311,32 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     ) {
         let panelID = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.id
         enqueueActionUpdate(action: action, context: context, panelID: panelID)
+        let pendingKeys = pendingActionInvocations.keys
+            .filter { $0.extensionIdentifier == context.uniqueIdentifier }
+            .sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+        for key in pendingKeys {
+            guard !actionsAwaitingReadyPopup.contains(key),
+                  let tabAdapter = tabAdapters[key.panelID],
+                  let panelAction = context.action(for: tabAdapter),
+                  panelAction.presentsPopup else {
+                continue
+            }
+            actionsAwaitingReadyPopup.insert(key)
+            context.performAction(for: tabAdapter)
+        }
+    }
+
+    private func actionInvocationKey(
+        for action: WKWebExtension.Action,
+        extensionContext: WKWebExtensionContext
+    ) -> ActionInvocationKey? {
+        guard let panelID = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.id else {
+            return nil
+        }
+        return ActionInvocationKey(
+            extensionIdentifier: extensionContext.uniqueIdentifier,
+            panelID: panelID
+        )
     }
 
     private func popupAnchor(
@@ -1332,12 +1427,6 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         orderedWindowAdapters().first { $0.focusPriority() > 0 }?.ownerID
     }
 #endif
-}
-
-extension Notification.Name {
-    static let browserWebExtensionActionDidChange = Notification.Name(
-        "cmux.browserWebExtensionActionDidChange"
-    )
 }
 
 private struct BrowserWebExtensionApprovalValidationError: LocalizedError {

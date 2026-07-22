@@ -397,7 +397,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		44E7A40144E7A40144E7A401 /* BrowserWebExtensionDirectoryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7A50144E7A50144E7A501 /* BrowserWebExtensionDirectoryRepository.swift */; };
 		44E7A10144E7A10144E7A101 /* BrowserWebExtensionsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7B10144E7B10144E7B101 /* BrowserWebExtensionsManager.swift */; };
 		44E7C10144E7C10144E7C101 /* BrowserWebExtensionsManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7D10144E7D10144E7D101 /* BrowserWebExtensionsManagerTests.swift */; };
-		B7191E030000000000000001 /* BrowserWebExtensionsPresentationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7191E040000000000000001 /* BrowserWebExtensionsPresentationSnapshot.swift */; };
 		C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */; };
 		8054B0010000000000000001 /* BrowserWebViewLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054B0020000000000000002 /* BrowserWebViewLifecycleState.swift */; };
 		A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
@@ -2638,7 +2637,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		44E7A50144E7A50144E7A501 /* BrowserWebExtensionDirectoryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionDirectoryRepository.swift; sourceTree = "<group>"; };
 		44E7B10144E7B10144E7B101 /* BrowserWebExtensionsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionsManager.swift; sourceTree = "<group>"; };
 		44E7D10144E7D10144E7D101 /* BrowserWebExtensionsManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionsManagerTests.swift; sourceTree = "<group>"; };
-		B7191E040000000000000001 /* BrowserWebExtensionsPresentationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionsPresentationSnapshot.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebKitKeyDownDispatch.swift; sourceTree = "<group>"; };
 		8054B0020000000000000002 /* BrowserWebViewLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebViewLifecycleState.swift; sourceTree = "<group>"; };
 		A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
@@ -5505,7 +5503,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C67540110000000000000002 /* BrowserDownloadRecord.swift */,
 				C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */,
 				B7191E020000000000000001 /* BrowserExtensionsToolbarButton.swift */,
-				B7191E040000000000000001 /* BrowserWebExtensionsPresentationSnapshot.swift */,
 				C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */,
 				8054A0060000000000000006 /* BrowserAutomationProbeChannel.swift */,
 				8054A0080000000000000008 /* BrowserAutomationSnapshotResult.swift */,
@@ -7388,7 +7385,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B7191E080000000000000001 /* BrowserWebExtensionCatalog.swift in Sources */,
 				44E7A40144E7A40144E7A401 /* BrowserWebExtensionDirectoryRepository.swift in Sources */,
 				44E7A10144E7A10144E7A101 /* BrowserWebExtensionsManager.swift in Sources */,
-				B7191E030000000000000001 /* BrowserWebExtensionsPresentationSnapshot.swift in Sources */,
 				C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */,
 				8054B0010000000000000001 /* BrowserWebViewLifecycleState.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,

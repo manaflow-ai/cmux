@@ -36,13 +36,12 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     }
 
     private var entry: Entry?
-    private var navigationTask: Task<Void, Never>?
     private var expiryTask: Task<Void, Never>?
     private var browserServices: BrowserServices?
+    private let navigationOwnerID = UUID()
     private let timeToLive: Duration
     private let makeWebView: @MainActor (UUID, BrowserServices?) -> CmuxWebView
     private let startLoad: @MainActor (CmuxWebView, URLRequest) -> Void
-    private let waitForWebExtensions: @MainActor (BrowserServices, UUID) async -> Void
     private let expirySleep: @Sendable (Duration) async throws -> Void
 
     init(
@@ -53,9 +52,6 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         startLoad: @escaping @MainActor (CmuxWebView, URLRequest) -> Void = { webView, request in
             webView.load(request)
         },
-        waitForWebExtensions: @escaping @MainActor (BrowserServices, UUID) async -> Void = { browserServices, profileID in
-            await browserServices.waitUntilWebExtensionsLoaded(for: profileID)
-        },
         expirySleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
         }
@@ -63,7 +59,6 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         self.timeToLive = timeToLive
         self.makeWebView = makeWebView
         self.startLoad = startLoad
-        self.waitForWebExtensions = waitForWebExtensions
         self.expirySleep = expirySleep
     }
 
@@ -141,8 +136,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         webView.browserPortalPrepareForHiddenHostAdoption()
         entry.hostWindow.close()
         self.entry = nil
-        navigationTask?.cancel()
-        navigationTask = nil
+        browserServices?.cancelWebExtensionNavigation(ownerID: navigationOwnerID)
         expiryTask?.cancel()
         expiryTask = nil
 #if DEBUG
@@ -152,8 +146,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     }
 
     func discard(reason: String) {
-        navigationTask?.cancel()
-        navigationTask = nil
+        browserServices?.cancelWebExtensionNavigation(ownerID: navigationOwnerID)
         expiryTask?.cancel()
         expiryTask = nil
         guard let entry else { return }
@@ -172,12 +165,14 @@ final class BrowserPrewarmedWebViewPool: NSObject {
             startLoad(webView, request)
             return
         }
-        let waitForWebExtensions = waitForWebExtensions
         let startLoad = startLoad
-        navigationTask = Task { @MainActor [weak self, weak webView] in
-            await waitForWebExtensions(browserServices, profileID)
-            guard !Task.isCancelled,
-                  let self,
+        browserServices.scheduleWebExtensionNavigation(
+            ownerID: navigationOwnerID,
+            profileID: profileID,
+            targetURL: request.url,
+            reason: .prewarm
+        ) { [weak self, weak webView] in
+            guard let self,
                   let webView,
                   let entry = self.entry,
                   entry.webView === webView,
@@ -185,7 +180,6 @@ final class BrowserPrewarmedWebViewPool: NSObject {
                   entry.url.absoluteString == request.url?.absoluteString else {
                 return
             }
-            self.navigationTask = nil
             startLoad(webView, request)
         }
     }

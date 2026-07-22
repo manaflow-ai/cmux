@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowser
 import Testing
 import WebKit
 
@@ -20,7 +21,6 @@ private final class PrewarmPoolHarness {
 
     init(
         browserServices: BrowserServices? = nil,
-        waitForWebExtensions: @escaping @MainActor (BrowserServices, UUID) async -> Void = { _, _ in },
         expirySleep: @escaping @Sendable (Duration) async throws -> Void = { _ in
             try await Task.sleep(for: .seconds(3600))
         }
@@ -39,7 +39,6 @@ private final class PrewarmPoolHarness {
             startLoad: { _, request in
                 recordRequest(request)
             },
-            waitForWebExtensions: waitForWebExtensions,
             expirySleep: expirySleep
         )
         recordWebView = { [weak self] in self?.madeWebViews.append($0) }
@@ -56,12 +55,13 @@ private final class PrewarmExtensionLoadGate {
     private var isOpen = false
     private var continuation: CheckedContinuation<Void, Never>?
 
-    func wait() async {
+    func wait() async -> BrowserWebExtensionLoadOutcome {
         isWaiting = true
-        guard !isOpen else { return }
+        guard !isOpen else { return .ready }
         await withCheckedContinuation { continuation in
             self.continuation = continuation
         }
+        return .ready
     }
 
     func resume() {
@@ -100,16 +100,24 @@ struct BrowserPrewarmedWebViewPoolTests {
     }
 
     @Test func prewarmWaitsForProfileExtensionsBeforeNavigation() async {
-        let browserServices = BrowserServices()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prewarm-extension-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let browserServices = BrowserServices(extensionDirectory: root)
         let gate = PrewarmExtensionLoadGate()
-        let harness = PrewarmPoolHarness(
-            browserServices: browserServices,
-            waitForWebExtensions: { receivedServices, receivedProfileID in
-                #expect(receivedServices === browserServices)
-                #expect(receivedProfileID == profileID)
-                await gate.wait()
-            }
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: profileID,
+            waitForDeadline: { try await Task.sleep(for: .seconds(3600)) }
         )
+        runtime.start { await gate.wait() }
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID,
+            profileRuntime: runtime
+        )
+        browserServices.installWebExtensionsManagerForTesting(manager, profileID: profileID)
+        let harness = PrewarmPoolHarness(browserServices: browserServices)
         defer {
             gate.resume()
             harness.pool.discard(reason: "test-teardown")

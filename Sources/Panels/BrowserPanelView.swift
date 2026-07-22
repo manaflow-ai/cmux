@@ -1388,6 +1388,7 @@ struct BrowserPanelView: View {
             iconPointSize: devToolsButtonIconSize,
             hitSize: addressBarButtonSize,
             loadSnapshot: { await panel.browserWebExtensionsPresentationSnapshot() },
+            updates: { panel.browserWebExtensionUpdates() },
             openManager: { panel.openBrowserExtensionsManager() != nil },
             setToolbarPinned: { identifier, isPinned in
                 await panel.setBrowserWebExtensionToolbarActionPinned(

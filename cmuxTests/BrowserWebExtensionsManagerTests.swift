@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import ObjectiveC.runtime
 import os
@@ -13,6 +14,48 @@ import WebKit
 
 @MainActor
 struct BrowserWebExtensionsManagerTests {
+    private final class RuntimeLoadGate {
+        private var bufferedOutcome: BrowserWebExtensionLoadOutcome?
+        private var continuation: CheckedContinuation<BrowserWebExtensionLoadOutcome, Never>?
+
+        func wait() async -> BrowserWebExtensionLoadOutcome {
+            if let bufferedOutcome {
+                self.bufferedOutcome = nil
+                return bufferedOutcome
+            }
+            return await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        }
+
+        func resume(_ outcome: BrowserWebExtensionLoadOutcome = .ready) {
+            if let continuation {
+                self.continuation = nil
+                continuation.resume(returning: outcome)
+            } else {
+                bufferedOutcome = outcome
+            }
+        }
+    }
+
+    private final class RuntimeDeadlineGate {
+        private var isOpen = false
+        private var continuation: CheckedContinuation<Void, Never>?
+
+        func wait() async throws {
+            guard !isOpen else { return }
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        }
+
+        func resume() {
+            isOpen = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
     private final class RejectingCreateTabDelegate: BonsplitDelegate {
         func splitTabBar(
             _ controller: BonsplitController,
@@ -920,7 +963,7 @@ struct BrowserWebExtensionsManagerTests {
         )
 
         #expect(configuration.webExtensionController === manager.controller)
-        #expect(manager.loadTask == nil)
+        #expect(manager.profileRuntime.phase == .idle)
     }
 
     @Test func installedSafariAppsAreOptInSuggestions() {
@@ -1103,8 +1146,24 @@ struct BrowserWebExtensionsManagerTests {
         defer { _ = BrowserProfileStore.shared.deleteProfile(id: alternateProfile.id) }
         let services = BrowserServices(extensionDirectory: root)
         await services.webExtensionsManager?.loadExtensions()
-        let alternateManager = services.webExtensionsManager(for: alternateProfile.id)
-        alternateManager.loadTask = Task {}
+        let loadGate = RuntimeLoadGate()
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: alternateProfile.id,
+            waitForDeadline: { try await Task.sleep(for: .seconds(3600)) }
+        )
+        runtime.start { await loadGate.wait() }
+        let alternateManager = BrowserWebExtensionsManager(
+            directory: BrowserServices.extensionDirectory(
+                for: alternateProfile.id,
+                defaultProfileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+                root: root
+            ),
+            controllerIdentifier: alternateProfile.id,
+            controllerConfiguration: .nonPersistent(),
+            profileID: alternateProfile.id,
+            profileRuntime: runtime
+        )
+        services.installWebExtensionsManagerForTesting(alternateManager, profileID: alternateProfile.id)
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: try #require(URL(string: "https://example.com/profile-restore")),
@@ -1115,7 +1174,7 @@ struct BrowserWebExtensionsManagerTests {
         #expect(panel.switchToProfile(alternateProfile.id))
         #expect(panel.isWaitingForWebExtensionsBeforeNavigation)
 
-        await alternateManager.loadExtensions()
+        loadGate.resume()
         for _ in 0..<4 { await Task.yield() }
         #expect(!panel.isWaitingForWebExtensionsBeforeNavigation)
     }
@@ -1200,8 +1259,20 @@ struct BrowserWebExtensionsManagerTests {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let services = BrowserServices(extensionDirectory: root)
-        let manager = try #require(services.webExtensionsManager)
-        manager.loadTask = Task {}
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let loadGate = RuntimeLoadGate()
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: profileID,
+            waitForDeadline: { try await Task.sleep(for: .seconds(3600)) }
+        )
+        runtime.start { await loadGate.wait() }
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID,
+            profileRuntime: runtime
+        )
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         let panel = BrowserPanel(workspaceId: UUID(), browserServices: services)
         defer { panel.close() }
         var deferredNavigationCount = 0
@@ -1210,10 +1281,122 @@ struct BrowserWebExtensionsManagerTests {
             deferredNavigationCount += 1
         }
         panel.navigate(to: try #require(URL(string: "https://example.com/newer")))
-        await manager.loadExtensions()
+        loadGate.resume()
         for _ in 0..<4 { await Task.yield() }
 
         #expect(deferredNavigationCount == 0)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func browserServicesExecutesOnlyLatestNavigationAndHonorsCancellation() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profileID = UUID()
+        let loadGate = RuntimeLoadGate()
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: profileID,
+            waitForDeadline: { try await Task.sleep(for: .seconds(3600)) }
+        )
+        runtime.start { await loadGate.wait() }
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID,
+            profileRuntime: runtime
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
+        let ownerID = UUID()
+        var executions: [Int] = []
+
+        services.scheduleWebExtensionNavigation(
+            ownerID: ownerID,
+            profileID: profileID,
+            targetURL: URL(string: "https://example.com/old"),
+            reason: .initial
+        ) { executions.append(1) }
+        services.scheduleWebExtensionNavigation(
+            ownerID: ownerID,
+            profileID: profileID,
+            targetURL: URL(string: "https://example.com/latest"),
+            reason: .userInitiated
+        ) { executions.append(2) }
+        loadGate.resume()
+        for await update in runtime.updates() {
+            if update == .phaseChanged(.ready) { break }
+        }
+        for _ in 0..<20 where services.isWebExtensionNavigationPending(ownerID: ownerID) {
+            await Task.yield()
+        }
+        #expect(executions == [2])
+
+        runtime.start { await loadGate.wait() }
+        services.scheduleWebExtensionNavigation(
+            ownerID: ownerID,
+            profileID: profileID,
+            targetURL: URL(string: "https://example.com/cancelled"),
+            reason: .restore
+        ) { executions.append(3) }
+        services.cancelWebExtensionNavigation(ownerID: ownerID)
+        loadGate.resume()
+        for await update in runtime.updates() {
+            if update == .phaseChanged(.ready) { break }
+        }
+        await Task.yield()
+        #expect(executions == [2])
+    }
+
+    @available(macOS 15.4, *)
+    @Test func browserServicesReleasesAtDeadlineWithoutLateReplayAndRecovers() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profileID = UUID()
+        let loadGate = RuntimeLoadGate()
+        let deadlineGate = RuntimeDeadlineGate()
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: profileID,
+            waitForDeadline: { try await deadlineGate.wait() }
+        )
+        runtime.start { await loadGate.wait() }
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID,
+            profileRuntime: runtime
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
+        let ownerID = UUID()
+        var executionCount = 0
+        services.scheduleWebExtensionNavigation(
+            ownerID: ownerID,
+            profileID: profileID,
+            targetURL: URL(string: "https://example.com/degraded"),
+            reason: .initial
+        ) { executionCount += 1 }
+
+        deadlineGate.resume()
+        for await update in runtime.updates() {
+            if update == .phaseChanged(.degraded(.loadDeadlineExceeded)) { break }
+        }
+        for _ in 0..<20 where executionCount == 0 { await Task.yield() }
+        #expect(executionCount == 1)
+
+        loadGate.resume()
+        for await update in runtime.updates() {
+            if update == .phaseChanged(.ready) { break }
+        }
+        await Task.yield()
+        #expect(executionCount == 1)
+
+        services.scheduleWebExtensionNavigation(
+            ownerID: ownerID,
+            profileID: profileID,
+            targetURL: URL(string: "https://example.com/recovered"),
+            reason: .recovery
+        ) { executionCount += 1 }
+        for _ in 0..<20 where executionCount == 1 { await Task.yield() }
+        #expect(executionCount == 2)
     }
 
     @available(macOS 15.4, *)
@@ -1471,7 +1654,7 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
-    @Test func repeatedActionMutationsCoalesceIntoOneToolbarUpdate() async throws {
+    @Test func actionMutationsCoalesceIntoTypedToolbarUpdateWithoutTimerSynchronization() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         var manifest = Self.minimalManifest
@@ -1486,25 +1669,23 @@ struct BrowserWebExtensionsManagerTests {
             directory: root,
             controllerConfiguration: .nonPersistent()
         )
-        let updateCount = OSAllocatedUnfairLock(initialState: 0)
-        let observer = NotificationCenter.default.addObserver(
-            forName: .browserWebExtensionActionDidChange,
-            object: context.uniqueIdentifier,
-            queue: nil
-        ) { _ in
-            updateCount.withLock { $0 += 1 }
+        let updates = manager.profileRuntime.updates()
+        let collector = Task { @MainActor in
+            for await update in updates {
+                if case .actionChanged(let actionUpdate) = update,
+                   let item = actionUpdate.item {
+                    return [item]
+                }
+            }
+            return []
         }
-        defer { NotificationCenter.default.removeObserver(observer) }
 
         manager.webExtensionController(manager.controller, didUpdate: action, forExtensionContext: context)
         manager.webExtensionController(manager.controller, didUpdate: action, forExtensionContext: context)
         manager.webExtensionController(manager.controller, didUpdate: action, forExtensionContext: context)
-        for _ in 0..<4 { await Task.yield() }
-
-        #expect(updateCount.withLock { $0 } == 0)
-        try await Task.sleep(for: .milliseconds(100))
-
-        #expect(updateCount.withLock { $0 } == 1)
+        let items = await collector.value
+        #expect(items.count == 1)
+        #expect(items.allSatisfy { $0.id == context.uniqueIdentifier })
     }
 
     @available(macOS 15.4, *)
@@ -1655,7 +1836,7 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
-    @Test func userPopupActionPresentsWithoutWaitingForWebKitDelegate() async throws {
+    @Test func popupWaitsForWebKitReadyCallbackAndPresentsOnceFromUserAnchor() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         var manifest = Self.minimalManifest
@@ -1735,12 +1916,150 @@ struct BrowserWebExtensionsManagerTests {
             anchorView: anchor
         ))
         #expect(performCount.withLock { $0 } == 1)
+        #expect(!popover.isShown)
+
+        var presentationError: (any Error)?
+        manager.webExtensionController(
+            manager.controller,
+            presentActionPopup: action,
+            for: context
+        ) { error in
+            presentationError = error
+        }
+
+        #expect(presentationError == nil)
         #expect(popover.isShown)
+        #expect(popover.positioningView === anchor)
+        #expect(popover.positioningRect == anchor.bounds)
+        #expect(performCount.withLock { $0 } == 1)
     }
 
     @available(macOS 15.4, *)
-    @Test func extensionPopupsPreferBelowToolbarAnchor() {
-        #expect(BrowserWebExtensionsManager.actionPopupPreferredEdge == .minY)
+    @Test func mv2DefaultActionUpdateHandsFirstClickToDynamicPopupExactlyOnce() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let initialDirectory = try Self.writeExtension(
+            named: "mv2-dynamic-initial",
+            in: root,
+            manifest: [
+                "manifest_version": 2,
+                "name": "Dynamic popup fixture",
+                "version": "1.0",
+                "browser_action": [:],
+            ]
+        )
+        let updatedDirectory = try Self.writeExtension(
+            named: "mv2-dynamic-updated",
+            in: root,
+            manifest: [
+                "manifest_version": 2,
+                "name": "Dynamic popup fixture",
+                "version": "1.0",
+                "browser_action": ["default_popup": "popup.html"],
+            ]
+        )
+        try "<main>Dynamic popup ready</main>".write(
+            to: updatedDirectory.appendingPathComponent("popup.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(initialDirectory)
+        await manager.loadExtensions()
+        let initialContext = try #require(manager.loadedContexts.first)
+        let updatedContext = WKWebExtensionContext(
+            for: try await WKWebExtension(resourceBaseURL: updatedDirectory)
+        )
+        updatedContext.uniqueIdentifier = initialContext.uniqueIdentifier
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        defer { manager.unregister(panelID: panel.id) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 200, y: 200, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let anchor = NSButton(frame: NSRect(x: 120, y: 160, width: 40, height: 24))
+        window.contentView?.addSubview(anchor)
+        window.orderFront(nil)
+        defer { window.close() }
+
+        let actionSelector = NSSelectorFromString("performActionForTab:")
+        let actionMethod = try #require(class_getInstanceMethod(
+            WKWebExtensionContext.self,
+            actionSelector
+        ))
+        let originalActionImplementation = method_getImplementation(actionMethod)
+        let performCount = OSAllocatedUnfairLock(initialState: 0)
+        let actionReplacement: @convention(block) (WKWebExtensionContext, AnyObject?) -> Void = { _, _ in
+            performCount.withLock { $0 += 1 }
+        }
+        let actionReplacementImplementation = imp_implementationWithBlock(actionReplacement)
+        method_setImplementation(actionMethod, actionReplacementImplementation)
+        defer {
+            method_setImplementation(actionMethod, originalActionImplementation)
+            imp_removeBlock(actionReplacementImplementation)
+        }
+
+        let initialTab = try #require(manager
+            .webExtensionController(manager.controller, openWindowsFor: initialContext)
+            .flatMap { $0.tabs?(for: initialContext) ?? [] }
+            .first)
+        let initialAction = try #require(initialContext.action(for: initialTab))
+        #expect(!initialAction.presentsPopup)
+        #expect(manager.performAction(
+            uniqueIdentifier: initialContext.uniqueIdentifier,
+            in: panel,
+            anchorView: anchor
+        ))
+        #expect(performCount.withLock { $0 } == 1)
+
+        let defaultUpdatedAction = try #require(updatedContext.action(for: nil))
+        #expect(defaultUpdatedAction.associatedTab == nil)
+        manager.webExtensionController(
+            manager.controller,
+            didUpdate: defaultUpdatedAction,
+            forExtensionContext: updatedContext
+        )
+        manager.webExtensionController(
+            manager.controller,
+            didUpdate: defaultUpdatedAction,
+            forExtensionContext: updatedContext
+        )
+        #expect(performCount.withLock { $0 } == 2)
+
+        let updatedAction = try #require(updatedContext.action(for: initialTab))
+        #expect(updatedAction.presentsPopup)
+        var presentationError: (any Error)?
+        manager.webExtensionController(
+            manager.controller,
+            presentActionPopup: updatedAction,
+            for: updatedContext
+        ) { presentationError = $0 }
+
+        #expect(presentationError == nil)
+        #expect(updatedAction.popupPopover?.isShown == true)
+        #expect(updatedAction.popupPopover?.positioningView === anchor)
+        #expect(performCount.withLock { $0 } == 2)
+
+        manager.webExtensionController(
+            manager.controller,
+            didUpdate: defaultUpdatedAction,
+            forExtensionContext: updatedContext
+        )
+        #expect(performCount.withLock { $0 } == 2)
     }
 
     @available(macOS 15.4, *)
@@ -1891,8 +2210,19 @@ struct BrowserWebExtensionsManagerTests {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
-        manager.loadTask = Task {}
+        let profileID = UUID()
+        let loadGate = RuntimeLoadGate()
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: profileID,
+            waitForDeadline: { try await Task.sleep(for: .seconds(3600)) }
+        )
+        runtime.start { await loadGate.wait() }
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID,
+            profileRuntime: runtime
+        )
 
         let waiter = Task { @MainActor in
             await manager.waitUntilLoaded()
@@ -1900,6 +2230,7 @@ struct BrowserWebExtensionsManagerTests {
         await Task.yield()
         waiter.cancel()
         await waiter.value
+        loadGate.resume()
     }
 
     @available(macOS 15.4, *)

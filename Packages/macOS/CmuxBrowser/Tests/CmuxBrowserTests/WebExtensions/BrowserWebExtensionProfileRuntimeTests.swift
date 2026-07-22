@@ -35,7 +35,22 @@ struct BrowserWebExtensionProfileRuntimeTests {
                 releases.append(released)
             }
         }
-        await Task.yield()
+        runtime.start { .ready }
+        var observedRecoveryReady = false
+        while !observedRecoveryReady {
+            guard let update = await updates.next() else {
+                Issue.record("Update stream ended before readiness replay check")
+                return
+            }
+            switch update {
+            case .phaseChanged(.ready):
+                observedRecoveryReady = true
+            case .navigationReleased(let released, _):
+                releases.append(released)
+            default:
+                break
+            }
+        }
         #expect(releases == [intent])
         #expect(runtime.phase == .ready)
         #expect(runtime.pendingNavigationCount == 0)
@@ -61,19 +76,19 @@ struct BrowserWebExtensionProfileRuntimeTests {
         runtime.start { await loadGate.wait() }
         await deadlineGate.resume(with: ())
 
-        var releaseCount = 0
-        while releaseCount == 0 {
+        var releasedIntents: [BrowserWebExtensionNavigationIntent] = []
+        while releasedIntents.isEmpty {
             guard let update = await updates.next() else {
                 Issue.record("Update stream ended before deadline release")
                 return
             }
             if case .navigationReleased(let released, .deadlineExceeded) = update {
                 #expect(released == intent)
-                releaseCount += 1
+                releasedIntents.append(released)
             }
         }
         #expect(runtime.phase == .degraded(.loadDeadlineExceeded))
-        #expect(releaseCount == 1)
+        #expect(releasedIntents == [intent])
     }
 
     @Test func lateLoadCompletionDoesNotReplayReleasedNavigation() async throws {
@@ -96,20 +111,36 @@ struct BrowserWebExtensionProfileRuntimeTests {
         runtime.start { await loadGate.wait() }
         await deadlineGate.resume(with: ())
 
-        var releaseCount = 0
-        while releaseCount == 0 {
+        var releasedIntents: [BrowserWebExtensionNavigationIntent] = []
+        while releasedIntents.isEmpty {
             guard let update = await updates.next() else {
                 Issue.record("Update stream ended before deadline release")
                 return
             }
-            if case .navigationReleased = update { releaseCount += 1 }
+            if case .navigationReleased(let released, _) = update {
+                releasedIntents.append(released)
+            }
         }
         await loadGate.resume(with: .ready)
-        await Task.yield()
+        var observedLateReady = false
+        while !observedLateReady {
+            guard let update = await updates.next() else {
+                Issue.record("Update stream ended before late readiness")
+                return
+            }
+            switch update {
+            case .phaseChanged(.ready):
+                observedLateReady = true
+            case .navigationReleased(let released, _):
+                releasedIntents.append(released)
+            default:
+                break
+            }
+        }
 
         #expect(runtime.phase == .ready)
         #expect(runtime.pendingNavigationCount == 0)
-        #expect(releaseCount == 1)
+        #expect(releasedIntents == [intent])
     }
 
     @Test func cancellationRemovesQueuedNavigation() async throws {
@@ -125,12 +156,19 @@ struct BrowserWebExtensionProfileRuntimeTests {
             profileID: profileID,
             waitForDeadline: { await deadlineGate.wait() }
         )
+        var updates = runtime.updates().makeAsyncIterator()
+        _ = await updates.next()
         runtime.start { await loadGate.wait() }
         runtime.enqueueNavigation(intent)
 
         #expect(runtime.cancelNavigation(id: intent.id))
         await deadlineGate.resume(with: ())
-        await Task.yield()
+        while runtime.phase != .degraded(.loadDeadlineExceeded) {
+            guard await updates.next() != nil else {
+                Issue.record("Update stream ended before degraded phase")
+                return
+            }
+        }
 
         #expect(runtime.pendingNavigationCount == 0)
         #expect(runtime.phase == .degraded(.loadDeadlineExceeded))
