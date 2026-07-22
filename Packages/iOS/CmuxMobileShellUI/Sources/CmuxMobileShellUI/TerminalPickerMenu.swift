@@ -48,7 +48,7 @@ struct TerminalPickerMenu: View, Equatable {
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == value.selectedID.map(TerminalPickerMenuRow.ID.terminal) && !value.hasActiveBrowser
+                        systemImage: terminal.id == value.checkedRowID
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )
@@ -65,7 +65,7 @@ struct TerminalPickerMenu: View, Equatable {
                     } label: {
                         Label(
                             surface.name,
-                            systemImage: surface.id == value.selectedMacSurfaceID.map(TerminalPickerMenuRow.ID.macSurface)
+                            systemImage: surface.id == value.checkedRowID
                                 ? "checkmark.circle.fill"
                                 : surface.surfaceKind.systemImage
                         )

@@ -36,6 +36,19 @@ struct TerminalPickerMenuValue: Equatable {
         self.isChatMode = isChatMode
     }
 
+    /// The single row that carries the checkmark. Nil while the phone-local
+    /// browser overlays the workspace; a Mac-surface selection whose row has
+    /// disappeared falls back to the resolved terminal, matching
+    /// `selectedName`.
+    var checkedRowID: TerminalPickerMenuRow.ID? {
+        if hasActiveBrowser { return nil }
+        if let selectedMacSurfaceID,
+           rows.contains(where: { $0.id == .macSurface(selectedMacSurfaceID) }) {
+            return .macSurface(selectedMacSurfaceID)
+        }
+        return selectedID.map(TerminalPickerMenuRow.ID.terminal)
+    }
+
     var terminalRows: [TerminalPickerMenuRow] {
         rows.filter { if case .terminal = $0.id { true } else { false } }
     }

@@ -95,6 +95,44 @@ import Testing
         #expect(value.selectedName == "README")
     }
 
+    @Test func exactlyOneRowCarriesTheCheckmark() {
+        let terminal = MobileTerminalPreview(id: "terminal-1", name: "Shell")
+        let surface = MobileSurfacePreview(id: "surface-1", kind: .todo, title: "Todos")
+        func value(
+            selectedMacSurfaceID: MobileSurfacePreview.ID?,
+            hasActiveBrowser: Bool = false,
+            liveSurfaces: [MobileSurfacePreview]? = nil
+        ) -> TerminalPickerMenuValue {
+            TerminalPickerMenuValue(
+                liveTerminals: [terminal],
+                liveSurfaces: liveSurfaces ?? [
+                    MobileSurfacePreview(id: "terminal-1", kind: .terminal, title: "Shell"),
+                    surface,
+                ],
+                snapshotRows: [],
+                selectedID: terminal.id,
+                selectedMacSurfaceID: selectedMacSurfaceID,
+                canCreateWorkspace: true,
+                hasActiveBrowser: hasActiveBrowser,
+                isChatMode: false
+            )
+        }
+
+        // Mac surface selected: its row is checked, the terminal row is not.
+        #expect(value(selectedMacSurfaceID: surface.id).checkedRowID == .macSurface(surface.id))
+        // No surface selection: the resolved terminal is checked.
+        #expect(value(selectedMacSurfaceID: nil).checkedRowID == .terminal(terminal.id))
+        // Phone browser overlay owns the screen: nothing is checked.
+        #expect(value(selectedMacSurfaceID: surface.id, hasActiveBrowser: true).checkedRowID == nil)
+        // Stale surface selection (row gone) falls back to the terminal row.
+        #expect(
+            value(
+                selectedMacSurfaceID: surface.id,
+                liveSurfaces: [MobileSurfacePreview(id: "terminal-1", kind: .terminal, title: "Shell")]
+            ).checkedRowID == .terminal(terminal.id)
+        )
+    }
+
     private func menuValue(
         liveTerminals: [MobileTerminalPreview],
         snapshotRows: [TerminalPickerMenuRow],
