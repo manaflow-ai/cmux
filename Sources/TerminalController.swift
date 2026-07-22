@@ -2618,35 +2618,20 @@ class TerminalController {
             v2MainSync {
                 let callerTabManager = AppDelegate.shared?.tabManagerFor(tabId: wsId) ?? tabManager
                 if let ws = callerTabManager.tabs.first(where: { $0.id == wsId }) {
-                    let callerWindowId = v2ResolveWindowId(tabManager: callerTabManager)
-                    var payload: [String: Any] = [
-                        "window_id": v2OrNull(callerWindowId?.uuidString),
-                        "window_ref": v2Ref(kind: .window, uuid: callerWindowId),
-                        "workspace_id": wsId.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
-                    ]
-
-                    if let surfaceId, let target = ws.controlSurfaceTarget(for: surfaceId) {
-                        payload["surface_id"] = target.surfaceID.uuidString
-                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: target.surfaceID)
-                        payload["tab_id"] = target.surfaceID.uuidString
-                        payload["tab_ref"] = v2TabRef(uuid: target.surfaceID)
-                        payload["surface_type"] = target.panel.panelType.rawValue
-                        payload["is_browser_surface"] = target.panel.panelType == .browser
-                        payload["pane_id"] = v2OrNull(target.paneID?.uuidString)
-                        payload["pane_ref"] = v2Ref(kind: .pane, uuid: target.paneID)
-                    } else {
-                        payload["surface_id"] = NSNull()
-                        payload["surface_ref"] = NSNull()
-                        payload["tab_id"] = NSNull()
-                        payload["tab_ref"] = NSNull()
-                        payload["surface_type"] = NSNull()
-                        payload["is_browser_surface"] = NSNull()
-                        payload["pane_id"] = NSNull()
-                        payload["pane_ref"] = NSNull()
-                    }
-                    resolvedCaller = payload
+                    resolvedCaller = v2IdentifyCallerPayload(
+                        workspace: ws,
+                        surfaceId: surfaceId,
+                        tabManager: callerTabManager
+                    )
                 }
+            }
+        }
+        if resolvedCaller == nil, let callerTTY = params["caller_tty"] as? String {
+            v2MainSync {
+                resolvedCaller = v2IdentifyCallerPayload(
+                    callerTTY: callerTTY,
+                    fallbackTabManager: tabManager
+                )
             }
         }
 
@@ -6641,16 +6626,33 @@ class TerminalController {
 
     private nonisolated func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "cli.browser.error.tabManagerUnavailable",
+                    defaultValue: "Browser controls are unavailable"
+                ),
+                data: nil
+            )
         }
         guard let surfaceId = v2UUID(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
         }
         guard let url = v2String(params, "url") else {
             return .err(code: "invalid_params", message: "Missing url", data: nil)
         }
         var basePayload: [String: Any]?
         var resolutionError: V2CallResult?
+        var navigationPanel: BrowserPanel?
+        var navigationTicket: BrowserAutomationNavigationTicket?
+        var navigationTargetURL: URL?
         v2MainSync {
             let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
             if let error = resolvedContext.error {
@@ -6659,7 +6661,20 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
-            if !context.browserPanel.navigateFromCLI(url, expectedURL: v2String(params, "expected_url")) { resolutionError = .err(code: "stale_state", message: "Browser URL changed before navigation", data: nil); return }
+            guard let navigation = context.browserPanel.beginAutomationNavigationFromCLI(
+                url,
+                expectedURL: v2String(params, "expected_url")
+            ) else {
+                resolutionError = .err(
+                    code: "stale_state",
+                    message: "Browser URL changed before navigation",
+                    data: nil
+                )
+                return
+            }
+            navigationPanel = context.browserPanel
+            navigationTicket = navigation.ticket
+            navigationTargetURL = navigation.targetURL
             if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
                 basePayload = v2WindowDockBrowserActionPayload(context)
             } else {
@@ -6678,6 +6693,26 @@ class TerminalController {
         guard var payload = basePayload else {
             return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
         }
+        guard let navigationPanel, let navigationTicket, let navigationTargetURL else {
+            return .err(
+                code: "internal_error",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
+        }
+        let navigationOutcome = v2AwaitBrowserAutomationNavigation(
+            navigationTicket,
+            browserPanel: navigationPanel
+        )
+        if let failure = v2BrowserNavigationFailureResult(
+            navigationOutcome,
+            targetURL: navigationTargetURL
+        ) {
+            return failure
+        }
         // Run the optional --snapshot-after walk on the worker thread (not inside
         // v2MainSync) so a slow accessibility-tree snapshot on a fresh surface
         // can't block SwiftUI and recreate mount deadlocks. Standalone
@@ -6695,7 +6730,92 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserReload(params: [String: Any]) -> V2CallResult {
-        return v2BrowserNavSimple(params: params, action: "reload")
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "cli.browser.error.tabManagerUnavailable",
+                    defaultValue: "Browser controls are unavailable"
+                ),
+                data: nil
+            )
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
+        }
+
+        var setupError: V2CallResult?
+        var basePayload: [String: Any]?
+        var navigationPanel: BrowserPanel?
+        var navigationTicket: BrowserAutomationNavigationTicket?
+        var navigationTargetURL: URL?
+        v2MainSync {
+            let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            if let error = resolvedContext.error {
+                setupError = error
+                return
+            }
+            guard let context = resolvedContext.context,
+                  context.surfaceId == surfaceId else { return }
+            guard let navigation = context.browserPanel.beginAutomationReloadFromCLI() else {
+                setupError = .err(
+                    code: "internal_error",
+                    message: String(
+                        localized: "cli.browser.error.operationFailed",
+                        defaultValue: "Browser operation failed"
+                    ),
+                    data: nil
+                )
+                return
+            }
+            navigationPanel = context.browserPanel
+            navigationTicket = navigation.ticket
+            navigationTargetURL = navigation.targetURL
+            if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
+                basePayload = v2WindowDockBrowserActionPayload(context)
+            } else {
+                basePayload = v2BrowserActionPayload(
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    tabManager: tabManager
+                )
+            }
+        }
+        if let setupError {
+            return setupError
+        }
+        guard var payload = basePayload,
+              let navigationPanel,
+              let navigationTicket,
+              let navigationTargetURL else {
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: ["surface_id": surfaceId.uuidString]
+            )
+        }
+        let navigationOutcome = v2AwaitBrowserAutomationNavigation(
+            navigationTicket,
+            browserPanel: navigationPanel
+        )
+        if let failure = v2BrowserNavigationFailureResult(
+            navigationOutcome,
+            targetURL: navigationTargetURL
+        ) {
+            return failure
+        }
+        v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+        return .ok(payload)
     }
 
     private nonisolated func v2BrowserNotFoundDiagnostics(
@@ -13886,6 +14006,8 @@ class TerminalController {
             result = v2MobileNotificationFeedMarkAllRead(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
+        case "mobile.sync.fetch":
+            result = v2MobileSyncFetch(params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method

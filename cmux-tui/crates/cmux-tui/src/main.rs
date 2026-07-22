@@ -74,7 +74,7 @@ OPTIONS:
 KEYS (prefix: Ctrl-b)
   t  new tab in pane   B    new browser tab    Alt-n  auto-layout new pane
   Tab/BackTab  next/prev tab
-  1-9  select screen
+  0-9  select screen
   %  split right       \"  split down          x/X  close pane/tab
   ,  rename screen     $    rename workspace   c    new screen
   n/p  next/prev screen
@@ -125,6 +125,16 @@ struct Args {
     ws_token: Option<String>,
     ws_insecure_bind: bool,
     term: Option<String>,
+}
+
+impl Args {
+    fn should_attach_existing(&self, ws_addr: &Option<String>, ws_token: &Option<String>) -> bool {
+        !self.headless
+            && ws_addr.is_none()
+            && ws_token.is_none()
+            && !self.ws_insecure_bind
+            && self.term.is_none()
+    }
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
@@ -222,17 +232,27 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
-    let mut surface_options = SurfaceOptions::default();
     let config = config::load();
-    let ws_addr = args.ws.or(config.server.ws.clone());
-    let ws_token = args.ws_token.or(config.server.ws_token.clone());
+    let ws_addr = args.ws.clone().or(config.server.ws.clone());
+    let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
+    // Compute the socket path up front so a normal interactive launch can
+    // reuse an existing local session and surface children inherit it.
+    let socket_path = args
+        .socket
+        .clone()
+        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    if args.should_attach_existing(&ws_addr, &ws_token)
+        && socket_path.exists()
+        && let Ok(remote) = RemoteSession::connect(&socket_path)
+    {
+        return run_tui(Session::Remote(remote), args.session);
+    }
+
+    let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
         surface_options.term = term;
     }
-    // Compute the socket path up front so surface children inherit it.
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 

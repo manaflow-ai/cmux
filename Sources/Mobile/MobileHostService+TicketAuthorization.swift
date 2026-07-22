@@ -41,6 +41,10 @@ extension MobileHostService {
         case "mobile.workspace.list", "workspace.list",
              "mobile.directory.list", "mobile.directory.search":
             return nil
+        case "mobile.sync.fetch":
+            // Cursor-based read of the same Mac-scoped list state as
+            // `mobile.workspace.list`; carries no workspace/terminal selection.
+            return nil
         case "workspace.create":
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
