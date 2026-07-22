@@ -207,7 +207,8 @@ _SLEEP_CALL = re.compile(
 )
 
 _NAMED_SLEEP_CALL = re.compile(
-    r"(?<![.\w])(?:(self)\s*\.\s*)?([A-Za-z_]\w*)[?!]?\.sleep\s*\("
+    r"(?<![.\w])(?:(self|Self)\s*[?!]?\s*\.\s*)?"
+    r"([A-Za-z_]\w*)[?!]?\.sleep\s*\("
 )
 _CONTINUED_SLEEP_CALL = re.compile(r"^\s*[?!]?\s*\.sleep\s*\(")
 _LOCAL_SCOPE_HEADER = re.compile(
@@ -1220,7 +1221,12 @@ def _is_named_real_clock_sleep(
         if not receiver_match:
             return False
         receiver_prefix = previous[: receiver_match.start()].rstrip()
-        self_receiver = bool(re.search(r"\bself\s*\.\s*$", receiver_prefix))
+        self_receiver = bool(
+            re.search(
+                r"\b(?:self|Self)\s*[?!]?\s*\.\s*$",
+                receiver_prefix,
+            )
+        )
         if receiver_prefix.endswith(".") and not self_receiver:
             return False
         receiver = receiver_match.group(1)
