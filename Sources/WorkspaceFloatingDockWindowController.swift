@@ -45,6 +45,35 @@ struct WorkspaceFloatingDockBackdropAppearance {
     }
 }
 
+/// Keeps presentation motion close to the live window so Bonsplit never has
+/// to reflow its contents down to the minimized pill's icon-sized frame.
+nonisolated enum WorkspaceFloatingDockPresentationAnimation {
+    static let closeDuration: TimeInterval = 0.18
+    static let restoreDuration: TimeInterval = 0.2
+    private static let closeScale: CGFloat = 0.96
+    private static let maximumTravel: CGFloat = 18
+
+    static func closingFrame(windowFrame: CGRect, toward targetFrame: CGRect) -> CGRect {
+        guard !windowFrame.isEmpty else { return windowFrame }
+
+        let deltaX = targetFrame.midX - windowFrame.midX
+        let deltaY = targetFrame.midY - windowFrame.midY
+        let distance = hypot(deltaX, deltaY)
+        let travel = min(maximumTravel, distance)
+        let travelX = distance > 0 ? deltaX / distance * travel : 0
+        let travelY = distance > 0 ? deltaY / distance * travel : 0
+        let width = windowFrame.width * closeScale
+        let height = windowFrame.height * closeScale
+
+        return CGRect(
+            x: windowFrame.midX + travelX - width / 2,
+            y: windowFrame.midY + travelY - height / 2,
+            width: width,
+            height: height
+        )
+    }
+}
+
 /// Owns the native child panel for one workspace floating Dock.
 @MainActor
 final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowDelegate {
@@ -144,17 +173,26 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                let floatingPanel = panel as? WorkspaceFloatingDockPanel {
                 let destinationFrame = panel.frame
+                let presentationFrame = WorkspaceFloatingDockPresentationAnimation.closingFrame(
+                    windowFrame: destinationFrame,
+                    toward: sourceFrame
+                )
                 isAnimatingPresentation = true
                 panel.ignoresMouseEvents = true
                 panel.alphaValue = 0
-                floatingPanel.setExplicitFrame(sourceFrame, display: false)
+                floatingPanel.setExplicitFrame(presentationFrame, display: false)
                 panel.orderFront(nil)
                 dock.isPresented = true
                 dock.store.setVisibleInUI(true)
                 floatingPanel.beginAnimatedFrameMutation()
                 NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.2
-                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    context.duration = WorkspaceFloatingDockPresentationAnimation.restoreDuration
+                    context.timingFunction = CAMediaTimingFunction(
+                        controlPoints: 0.0,
+                        0.0,
+                        0.2,
+                        1.0
+                    )
                     panel.animator().setFrame(destinationFrame, display: true)
                     panel.animator().alphaValue = 1
                 } completionHandler: { [weak self, weak floatingPanel] in
@@ -194,6 +232,10 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             itemCount: 1,
             destination: WorkspaceFloatingDockMinimizeDebugSettings.currentDestination()
         )
+        let presentationFrame = WorkspaceFloatingDockPresentationAnimation.closingFrame(
+            windowFrame: originalFrame,
+            toward: targetFrame
+        )
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
               let floatingPanel = panel as? WorkspaceFloatingDockPanel else {
             completeMinimize(panel: panel, originalFrame: originalFrame)
@@ -204,9 +246,14 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         floatingPanel.ignoresMouseEvents = true
         floatingPanel.beginAnimatedFrameMutation()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.22
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            floatingPanel.animator().setFrame(targetFrame, display: true)
+            context.duration = WorkspaceFloatingDockPresentationAnimation.closeDuration
+            context.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.4,
+                0.0,
+                1.0,
+                1.0
+            )
+            floatingPanel.animator().setFrame(presentationFrame, display: true)
             floatingPanel.animator().alphaValue = 0
         } completionHandler: { [weak self, weak floatingPanel] in
             guard let self, let floatingPanel else { return }
