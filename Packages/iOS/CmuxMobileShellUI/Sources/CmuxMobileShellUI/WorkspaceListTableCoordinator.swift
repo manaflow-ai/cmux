@@ -453,6 +453,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             guard let workspace = configuration.workspacesByID[workspaceID] else {
                 return AnyView(EmptyView())
             }
+            let capabilities = workspace.actionCapabilities
             let connectionStatus = workspace.macConnectionStatus ?? configuration.connectionStatus
             return AnyView(
                 WorkspaceRow(
@@ -473,6 +474,30 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .accessibilityValue(
                     workspace.accessibilitySummary(connectionStatus: connectionStatus)
                 )
+                .accessibilityActions {
+                    if capabilities.supportsWorkspaceActions,
+                       capabilities.supportsWorkspaceMetadata,
+                       let customizeRequest = configuration.customizeRequest {
+                        Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
+                            customizeRequest(workspace.id)
+                        }
+                    } else if capabilities.supportsWorkspaceActions,
+                              let renameRequest = configuration.renameRequest {
+                        Button(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename")) {
+                            renameRequest(workspace.id)
+                        }
+                    }
+                    if capabilities.supportsWorkspaceActions,
+                       let setPinned = configuration.setPinned {
+                        Button(
+                            workspace.isPinned
+                                ? L10n.string("mobile.workspace.unpin", defaultValue: "Unpin")
+                                : L10n.string("mobile.workspace.pin", defaultValue: "Pin")
+                        ) {
+                            setPinned(workspace.id, !workspace.isPinned)
+                        }
+                    }
+                }
             )
         case .groupHeader(let groupID):
             guard let group = configuration.groupsByID[groupID] else {

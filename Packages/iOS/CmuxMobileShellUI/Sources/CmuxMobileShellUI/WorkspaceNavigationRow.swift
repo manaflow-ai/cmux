@@ -80,6 +80,15 @@ struct WorkspaceNavigationRow: View {
                     isRenaming = true
                 }
             }
+            if let setPinned {
+                Button(
+                    workspace.isPinned
+                        ? L10n.string("mobile.workspace.unpin", defaultValue: "Unpin")
+                        : L10n.string("mobile.workspace.pin", defaultValue: "Pin")
+                ) {
+                    setPinned(workspace.id, !workspace.isPinned)
+                }
+            }
         }
         .sheet(isPresented: $isRenaming) {
             WorkspaceRenameSheet(currentName: workspace.name) { newName in
