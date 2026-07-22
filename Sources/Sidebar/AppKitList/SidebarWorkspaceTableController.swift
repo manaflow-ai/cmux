@@ -14,6 +14,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
+    private var isPresentationActive = true
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
@@ -128,6 +129,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return container
     }
 
+    func setPresentationActive(_ isActive: Bool) {
+        guard isPresentationActive != isActive else { return }
+        isPresentationActive = isActive
+        if isActive {
+            mutationScheduler.stageViewportChange()
+            return
+        }
+        mutationScheduler.cancelPendingMutations()
+        previewBailoutTask?.cancel()
+        previewBailoutTask = nil
+        widthRemeasureTask?.cancel()
+        widthRemeasureTask = nil
+    }
+
     func apply(
         rows nextRows: [SidebarWorkspaceTableRowConfiguration],
         actions: SidebarWorkspaceTableActions,
@@ -135,6 +150,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedWorkspaceId: UUID?,
         selectedScrollTargetWorkspaceId: UUID?
     ) {
+        guard isPresentationActive else { return }
         mutationScheduler.stageApply(
             SidebarWorkspaceTableApplyInput(
                 rows: nextRows,
@@ -147,7 +163,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
-        guard let containerView else { return }
+        guard isPresentationActive, let containerView else { return }
         let nextRows = input.rows
         let actions = input.actions
         let nextWorkspaceIds = input.workspaceIds
@@ -646,10 +662,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
+        guard isPresentationActive else { return }
         mutationScheduler.stageViewportChange()
     }
 
     private func flushViewportChange() {
+        guard isPresentationActive else { return }
         let width = currentColumnWidth()
 #if DEBUG
         if width != lastMeasuredWidth {
@@ -735,6 +753,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// immediately (drag just ended, geometry is final) and cancels any
     /// pending trailing fallback.
     func performWidthRemeasureNow() {
+        guard isPresentationActive else { return }
         widthRemeasureTask?.cancel()
         widthRemeasureTask = nil
         let width = currentColumnWidth()

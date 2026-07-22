@@ -34,6 +34,11 @@ final class SidebarWorkspaceTableMutationScheduler {
         scheduleFlushIfNeeded()
     }
 
+    func cancelPendingMutations() {
+        pendingApply = nil
+        shouldFlushViewportChange = false
+    }
+
     private func scheduleFlushIfNeeded() {
         guard !isFlushScheduled else { return }
         isFlushScheduled = true

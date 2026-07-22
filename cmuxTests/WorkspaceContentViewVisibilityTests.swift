@@ -328,6 +328,8 @@ final class WorkspaceContentViewVisibilityTests {
         )
         #expect(initialContainers.count == 1)
         let initialContainer = try #require(initialContainers.first)
+        let initialRowCount = initialContainer.tableView.numberOfRows
+        #expect(initialRowCount > 0)
         let focusedWorkspace = try #require(tabManager.selectedWorkspace)
         let focusedPanelId = try #require(focusedWorkspace.focusedPanelId)
         let focusedPanel = try #require(focusedWorkspace.panels[focusedPanelId])
@@ -350,6 +352,12 @@ final class WorkspaceContentViewVisibilityTests {
             focusedPanel.ownedFocusIntent(for: responderAfterHide, in: window) != nil,
             "Hiding the sidebar must return keyboard focus to the selected main panel."
         )
+        tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        await Self.drainMainRunLoop(for: window)
+        #expect(
+            initialContainer.tableView.numberOfRows == initialRowCount,
+            "The retained native table must not apply workspace updates while hidden."
+        )
 
         sidebarState.toggle()
         await Self.drainMainRunLoop(for: window)
@@ -361,6 +369,21 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             reopenedContainers.first === initialContainer,
             "Reopening the sidebar must reuse the existing AppKit table container."
+        )
+        #expect(
+            initialContainer.tableView.numberOfRows > initialRowCount,
+            "Reopening must reconcile the retained table from the current workspace model."
+        )
+        let foreignField = NSTextField(frame: NSRect(x: 500, y: 400, width: 120, height: 24))
+        window.contentView?.addSubview(foreignField)
+        defer { foreignField.removeFromSuperview() }
+        #expect(window.makeFirstResponder(foreignField))
+        #expect(window.firstResponder === foreignField)
+        sidebarState.toggle()
+        await Self.drainMainRunLoop(for: window)
+        #expect(
+            window.firstResponder === foreignField,
+            "Hiding the sidebar must preserve focus owned by non-sidebar main content."
         )
     }
 

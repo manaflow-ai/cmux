@@ -185,6 +185,85 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func hiddenTableRejectsQueuedWorkAndReconcilesOnReveal() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let actions = makeTableActions()
+        var viewportComputations = 0
+        controller.dropTargetComputationProbe = { viewportComputations += 1 }
+
+        controller.apply(
+            rows: [first],
+            actions: actions,
+            workspaceIds: [first.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        controller.setPresentationActive(false)
+        controller.viewportDidChange()
+        controller.performWidthRemeasureNow()
+        await flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 0)
+        #expect(viewportComputations == 0)
+
+        controller.apply(
+            rows: [first, second],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 0)
+
+        controller.setPresentationActive(true)
+        controller.apply(
+            rows: [first, second],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 2)
+    }
+
+    @Test
+    @MainActor
+    func mutationSchedulerCancelsHiddenWorkAndFlushesRevealOnce() async {
+        var appliedInputs = 0
+        var viewportFlushes = 0
+        let scheduler = SidebarWorkspaceTableMutationScheduler(
+            applyFlush: { _ in appliedInputs += 1 },
+            viewportChangeFlush: { viewportFlushes += 1 }
+        )
+        let row = makeRowConfiguration()
+        let input = SidebarWorkspaceTableApplyInput(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+
+        scheduler.stageApply(input)
+        scheduler.stageViewportChange()
+        scheduler.cancelPendingMutations()
+        await flushStagedTableMutations()
+        #expect(appliedInputs == 0)
+        #expect(viewportFlushes == 0)
+
+        scheduler.stageApply(input)
+        scheduler.stageViewportChange()
+        await flushStagedTableMutations()
+        #expect(appliedInputs == 1)
+        #expect(viewportFlushes == 1)
+    }
+
+    @Test
+    @MainActor
     func equivalentCellConfigurationDoesNotRenderAgain() {
         let cell = SidebarWorkspaceTableCellView()
         let workspaceId = UUID()
