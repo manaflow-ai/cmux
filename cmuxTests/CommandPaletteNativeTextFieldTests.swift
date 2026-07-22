@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,62 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct CommandPaletteNativeTextFieldTests {
+    @Test
+    func palettePanelDoesNotUseNativeWindowAnimations() throws {
+        let ownerWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = WindowCommandPalettePanelController(ownerWindow: ownerWindow)
+
+        controller.update(
+            isVisible: true,
+            onDismiss: { _ in },
+            onDidBecomeKey: {}
+        ) { _, _ in
+            AnyView(Color.clear.frame(width: 320, height: 120))
+        }
+
+        let panel = try #require(controller.presentedWindow)
+        #expect(panel.animationBehavior == .none)
+
+        controller.update(
+            isVisible: false,
+            onDismiss: { _ in },
+            onDidBecomeKey: {}
+        ) { _, _ in
+            AnyView(EmptyView())
+        }
+    }
+
+    @Test
+    func commandRowsPublishSynchronouslyForFirstPresentation() {
+        let model = CommandPaletteOverlayRenderModel()
+        let state = CommandPaletteCommandListRenderState(
+            resultsVersion: 1,
+            emptyStateText: "",
+            listIdentity: "commands",
+            rows: [
+                CommandPaletteRenderResultRow(
+                    id: "palette.newTerminalFloatingDock",
+                    title: "New Terminal Floating Window",
+                    matchedIndices: [],
+                    trailingLabel: nil
+                )
+            ],
+            selectedIndex: 0,
+            shouldShowEmptyState: false,
+            scrollTargetID: nil,
+            scrollTargetAnchor: nil
+        )
+
+        model.scheduleCommandListUpdate(state)
+
+        #expect(model.commandList == state)
+    }
+
     @Test
     func pendingFocusRequestIsAppliedWhenPanelBecomesKey() {
         let window = NSPanel(

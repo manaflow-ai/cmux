@@ -3219,6 +3219,66 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(glassBackground?.alphaValue ?? 0, 0.42, accuracy: 0.001)
     }
 
+    func testWorkspaceFloatingDockUsesSharedDragHandleAlignedChromeAndWholeRootMinimizeAnimation() throws {
+        _ = NSApplication.shared
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Floating Window",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            isPresented: true,
+            noteFilePath: url.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        let controller = WorkspaceFloatingDockWindowController(
+            dock: dock,
+            parentWindow: parent,
+            onCloseRequest: { _ in },
+            onMinimizeRequest: { _ in },
+            onCreateRequest: {}
+        )
+        defer { controller.teardown() }
+        let panel = try XCTUnwrap(controller.window)
+
+        controller.show(focus: false)
+        panel.contentView?.layoutSubtreeIfNeeded()
+
+        let dragHandle = try XCTUnwrap(Self.findView(
+            rootedAt: panel.contentView,
+            identifier: WindowDragHandleView.viewIdentifier
+        ))
+        XCTAssertTrue(dragHandle.acceptsFirstMouse(for: nil))
+
+        let closeButton = try XCTUnwrap(panel.standardWindowButton(.closeButton))
+        let titlebarContainer = try XCTUnwrap(closeButton.superview)
+        let desiredTrafficLightMidY = titlebarContainer.bounds.maxY
+            - WindowChromeMetrics.bonsplitTabBarHeight / 2
+        XCTAssertEqual(closeButton.frame.midY, desiredTrafficLightMidY, accuracy: 0.5)
+
+        let frameBeforeMinimize = panel.frame
+        panel.standardWindowButton(.miniaturizeButton)?.performClick(nil)
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            XCTAssertEqual(panel.frame, frameBeforeMinimize)
+            XCTAssertNotNil(
+                panel.contentView?.superview?.layer?.animation(
+                    forKey: "cmux.workspaceFloatingDock.presentation"
+                )
+            )
+        }
+    }
+
     func testWorkspaceFloatingDockRaycastBackdropTracksGhosttyThemeAndStaysStable() throws {
         let darkTheme = try XCTUnwrap(NSColor(hex: "#272822"))
         let lightTheme = try XCTUnwrap(NSColor(hex: "#F8F8F2"))
