@@ -33,16 +33,6 @@ extension BrowserPanel {
         )
     }
 
-    func recordAutomationReplacementNavigationStart(
-        _ navigation: WKNavigation?,
-        ticket: BrowserAutomationNavigationTicket
-    ) {
-        automationNavigationCoordinator.didStart(
-            ticket,
-            navigationID: navigation.map { ObjectIdentifier($0) }
-        )
-    }
-
     func beginAutomationNavigation(
         to targetURL: URL,
         recordTypedNavigation: Bool

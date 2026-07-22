@@ -17,6 +17,7 @@ public final class BrowserAutomationNavigationCoordinator {
     private var activeNavigationID: ObjectIdentifier?
     private var activeTargetURL: URL?
     private var allowsSameDocumentCompletion = false
+    private var downloadPolicyNavigationID: ObjectIdentifier?
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
     public init(navigationTimeout: Duration = .seconds(15)) {
@@ -71,6 +72,7 @@ public final class BrowserAutomationNavigationCoordinator {
         activeNavigationID = nil
         activeTargetURL = targetURL
         self.allowsSameDocumentCompletion = allowsSameDocumentCompletion
+        downloadPolicyNavigationID = nil
         return ticket
     }
 
@@ -116,22 +118,6 @@ public final class BrowserAutomationNavigationCoordinator {
         didAssociate(instanceID: instanceID, navigationID: navigationID, targetURL: targetURL)
     }
 
-    /// Releases the current navigation identity while a policy flow waits to start its replacement.
-    ///
-    /// - Returns: The exact ticket handed to the replacement flow, or `nil` when no transaction is active.
-    @discardableResult
-    public func prepareForNavigationReplacement(
-        instanceID: UUID,
-        targetURL: URL? = nil
-    ) -> BrowserAutomationNavigationTicket? {
-        guard let activeTicket, activeTicket.instanceID == instanceID else { return nil }
-        activeNavigationID = nil
-        if let targetURL {
-            activeTargetURL = targetURL
-        }
-        return activeTicket
-    }
-
     /// Resolves a reload after WebKit returns no navigation identity.
     ///
     /// A document-less new tab is already in its requested state. Active recovery/deferred
@@ -150,15 +136,6 @@ public final class BrowserAutomationNavigationCoordinator {
         finish(ticket, with: outcome)
     }
 
-    /// Terminates the exact deferred replacement when policy resolution starts no navigation.
-    public func didNotStart(_ ticket: BrowserAutomationNavigationTicket) {
-        guard activeTicket == ticket,
-              activeNavigationID == nil else {
-            return
-        }
-        finish(ticket, with: .notStarted)
-    }
-
     /// Completes the active transaction after WebKit reports a same-document navigation.
     ///
     /// The owning WebView must call this only from a trusted main-frame same-document event.
@@ -175,9 +152,45 @@ public final class BrowserAutomationNavigationCoordinator {
         finish(activeTicket, with: .committed)
     }
 
-    /// Completes the transaction when its exact provisional navigation becomes a download.
-    public func didBecomeDownload(instanceID: UUID, navigationID: ObjectIdentifier?) {
-        finishMatching(instanceID: instanceID, navigationID: navigationID, with: .downloaded)
+    /// Authorizes a download outcome for the exact provisional navigation whose response policy changed.
+    ///
+    /// - Parameters:
+    ///   - instanceID: Identity of the WebView instance receiving the response.
+    ///   - navigationID: Identity of the provisional navigation whose response became a download.
+    public func didChooseDownloadPolicy(instanceID: UUID, navigationID: ObjectIdentifier?) {
+        guard let navigationID,
+              let activeTicket,
+              activeTicket.instanceID == instanceID,
+              activeNavigationID == navigationID else {
+            return
+        }
+        downloadPolicyNavigationID = navigationID
+    }
+
+    /// Completes an exact policy-interrupted navigation and reports whether it was an authorized download.
+    ///
+    /// WebKit error 102 covers every policy interruption, so only a preceding response-download decision
+    /// for the same navigation identity is a successful download. All other matching interruptions
+    /// are cancellations.
+    ///
+    /// - Parameters:
+    ///   - instanceID: Identity of the WebView instance reporting the interruption.
+    ///   - navigationID: Identity of the provisional navigation interrupted by policy.
+    /// - Returns: `true` only when the exact navigation had an authorized response-download decision.
+    @discardableResult
+    public func didInterruptByPolicyChange(
+        instanceID: UUID,
+        navigationID: ObjectIdentifier?
+    ) -> Bool {
+        guard let navigationID,
+              let activeTicket,
+              activeTicket.instanceID == instanceID,
+              activeNavigationID == navigationID else {
+            return false
+        }
+        let isDownload = downloadPolicyNavigationID == navigationID
+        finish(activeTicket, with: isDownload ? .downloaded : .cancelled)
+        return isDownload
     }
 
     /// Records a commit only when it belongs to the exact active navigation.
@@ -279,6 +292,7 @@ public final class BrowserAutomationNavigationCoordinator {
         activeNavigationID = nil
         activeTargetURL = nil
         allowsSameDocumentCompletion = false
+        downloadPolicyNavigationID = nil
         ticket.transaction.finish(with: outcome)
     }
 }

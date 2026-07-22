@@ -3884,15 +3884,28 @@ final class BrowserPanel: Panel, ObservableObject {
                 }
             }
         }
-        navigationDelegate.didConvertProvisionalNavigationToDownload = { [weak self] webView, navigation in
+        navigationDelegate.didChooseMainFrameDownloadPolicy = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.automationNavigationCoordinator.didBecomeDownload(
+                self.automationNavigationCoordinator.didChooseDownloadPolicy(
                     instanceID: boundWebViewInstanceID,
                     navigationID: navigation.map { ObjectIdentifier($0) }
                 )
+            }
+        }
+        navigationDelegate.didInterruptProvisionalNavigationByPolicy = { [weak self] webView, navigation in
+            MainActor.assumeIsolated {
+                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                    return false
+                }
+                let isDownload = self.automationNavigationCoordinator.didInterruptByPolicyChange(
+                    instanceID: boundWebViewInstanceID,
+                    navigationID: navigation.map { ObjectIdentifier($0) }
+                )
+                guard isDownload else { return false }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.refreshBackgroundAppearance()
+                return true
             }
         }
         navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, restoreAttemptID in
@@ -4096,20 +4109,8 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             guard let self else { return }
             let restoreAttemptID = self.currentDiscardRestoreAttemptID
-            let automationInstanceID = self.webViewInstanceID
-            let replacementTicket = self.automationNavigationCoordinator
-                .prepareForNavigationReplacement(
-                    instanceID: automationInstanceID,
-                    targetURL: request.url
-                )
-            let onNavigationStarted: ((WKNavigation?) -> Void)? = replacementTicket.map { ticket in
-                { [weak self] navigation in
-                    self?.recordAutomationReplacementNavigationStart(
-                        navigation,
-                        ticket: ticket
-                    )
-                }
-            }
+            // This is an action-policy replacement, which exposes no WKNavigation identity.
+            // Do not transfer an automation ticket based on WebView or URL coincidence.
             self.presentInsecureHTTPAlert(
                 for: request,
                 intent: intent,
@@ -4117,22 +4118,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 onResolution: { [weak self] resolution in
                     guard resolution.isTerminalPolicyCancellation else { return }
                     self?.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
-                },
-                onNavigationStarted: onNavigationStarted
+                }
             )
-        }
-        navDelegate.prepareForPolicyNavigationReplacement = { [weak self] webView, targetURL in
-            guard let self, self.isCurrentWebView(webView) else { return nil }
-            guard let ticket = self.automationNavigationCoordinator.prepareForNavigationReplacement(
-                instanceID: self.webViewInstanceID,
-                targetURL: targetURL
-            ) else { return nil }
-            return { [weak self] navigation in
-                self?.recordAutomationReplacementNavigationStart(
-                    navigation,
-                    ticket: ticket
-                )
-            }
         }
         navDelegate.currentRestoreAttemptID = { [weak self] in self?.currentDiscardRestoreAttemptID }
         navDelegate.terminalPolicyCancellationReporter = { [weak self] navigationAction, webView in

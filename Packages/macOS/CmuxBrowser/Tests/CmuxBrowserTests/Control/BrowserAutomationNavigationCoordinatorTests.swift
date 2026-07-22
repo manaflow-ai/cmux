@@ -153,69 +153,6 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .committed)
     }
 
-    @Test("A policy replacement hands the transaction to the new navigation")
-    func policyReplacementHandsOffNavigationIdentity() async {
-        let coordinator = BrowserAutomationNavigationCoordinator()
-        let instanceID = UUID()
-        let originalNavigation = NSObject()
-        let replacementNavigation = NSObject()
-        let originalURL = URL(string: "https://example.com/launch")!
-        let fallbackURL = URL(string: "https://example.com/fallback")!
-        coordinator.bind(to: instanceID)
-        let ticket = coordinator.begin(instanceID: instanceID, targetURL: originalURL)
-        coordinator.didStart(ticket, navigationID: ObjectIdentifier(originalNavigation))
-
-        #expect(coordinator.prepareForNavigationReplacement(
-            instanceID: instanceID,
-            targetURL: fallbackURL
-        ) == ticket)
-        coordinator.didCancel(
-            instanceID: instanceID,
-            navigationID: ObjectIdentifier(originalNavigation)
-        )
-        coordinator.didAssociate(
-            instanceID: instanceID,
-            navigationID: ObjectIdentifier(replacementNavigation),
-            targetURL: fallbackURL
-        )
-        coordinator.didCommit(
-            instanceID: instanceID,
-            navigationID: ObjectIdentifier(replacementNavigation)
-        )
-
-        #expect(await coordinator.wait(for: ticket) == .committed)
-    }
-
-    @Test("A same-document policy replacement keeps its navigation identity")
-    func sameDocumentPolicyReplacementCompletes() async {
-        let coordinator = BrowserAutomationNavigationCoordinator()
-        let instanceID = UUID()
-        let originalNavigation = NSObject()
-        let replacementNavigation = NSObject()
-        let originalURL = URL(string: "https://example.com/page")!
-        let fallbackURL = URL(string: "https://example.com/page#fallback")!
-        coordinator.bind(to: instanceID)
-        let ticket = coordinator.begin(
-            instanceID: instanceID,
-            targetURL: originalURL,
-            allowsSameDocumentCompletion: true
-        )
-        coordinator.didStart(ticket, navigationID: ObjectIdentifier(originalNavigation))
-
-        #expect(coordinator.prepareForNavigationReplacement(
-            instanceID: instanceID,
-            targetURL: fallbackURL
-        ) == ticket)
-        coordinator.didAssociate(
-            instanceID: instanceID,
-            navigationID: ObjectIdentifier(replacementNavigation),
-            targetURL: fallbackURL
-        )
-        coordinator.didFinishSameDocumentNavigation(instanceID: instanceID, url: fallbackURL)
-
-        #expect(await coordinator.wait(for: ticket) == .committed)
-    }
-
     @Test("An unrelated deferred navigation supersedes the transaction")
     func unrelatedDeferredNavigationSupersedes() async {
         let coordinator = BrowserAutomationNavigationCoordinator()
@@ -233,33 +170,33 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .superseded)
     }
 
-    @Test("A stale deferred cancellation cannot terminate a newer transaction")
-    func staleDeferredCancellationIsIgnored() async {
+    @Test("An uncorrelated policy replacement cannot seize the active transaction")
+    func policyReplacementCannotSeizeTransaction() async {
         let coordinator = BrowserAutomationNavigationCoordinator()
         let instanceID = UUID()
-        let firstURL = URL(string: "https://example.com/first")!
-        let secondURL = URL(string: "https://example.com/second")!
-        let secondNavigation = NSObject()
+        let originalNavigation = NSObject()
+        let replacementNavigation = NSObject()
+        let originalURL = URL(string: "https://example.com/launch")!
+        let fallbackURL = URL(string: "https://example.com/fallback")!
         coordinator.bind(to: instanceID)
-        let firstTicket = coordinator.begin(instanceID: instanceID, targetURL: firstURL)
-        let deferredTicket = coordinator.prepareForNavigationReplacement(
-            instanceID: instanceID,
-            targetURL: firstURL
-        )
-        let secondTicket = coordinator.begin(instanceID: instanceID, targetURL: secondURL)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: originalURL)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(originalNavigation))
 
-        if let deferredTicket {
-            coordinator.didNotStart(deferredTicket)
-        }
-        coordinator.didStart(secondTicket, navigationID: ObjectIdentifier(secondNavigation))
+        coordinator.didStart(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(replacementNavigation),
+            targetURL: fallbackURL
+        )
         coordinator.didCommit(
             instanceID: instanceID,
-            navigationID: ObjectIdentifier(secondNavigation)
+            navigationID: ObjectIdentifier(replacementNavigation)
+        )
+        coordinator.didCancel(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(originalNavigation)
         )
 
-        #expect(deferredTicket == firstTicket)
-        #expect(await coordinator.wait(for: firstTicket) == .superseded)
-        #expect(await coordinator.wait(for: secondTicket) == .committed)
+        #expect(await coordinator.wait(for: ticket) == .cancelled)
     }
 
     @Test("An authoritative same-document navigation event completes the transaction")
@@ -320,17 +257,21 @@ struct BrowserAutomationNavigationCoordinatorTests {
         let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
 
-        coordinator.didBecomeDownload(
+        coordinator.didChooseDownloadPolicy(
             instanceID: instanceID,
             navigationID: ObjectIdentifier(navigation)
         )
+        #expect(coordinator.didInterruptByPolicyChange(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(navigation)
+        ))
 
         #expect(await coordinator.wait(for: ticket) == .downloaded)
     }
 
-    @Test("An unrelated download cannot satisfy the active transaction")
-    func unrelatedDownloadIsIgnored() async {
-        let coordinator = BrowserAutomationNavigationCoordinator(sleep: { _ in })
+    @Test("An unrelated download policy cannot authorize the active transaction")
+    func unrelatedDownloadPolicyIsIgnored() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
         let instanceID = UUID()
         let navigation = NSObject()
         let targetURL = URL(string: "https://example.com/page")!
@@ -338,12 +279,34 @@ struct BrowserAutomationNavigationCoordinatorTests {
         let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
 
-        coordinator.didBecomeDownload(
+        coordinator.didChooseDownloadPolicy(
             instanceID: instanceID,
             navigationID: ObjectIdentifier(NSObject())
         )
+        #expect(!coordinator.didInterruptByPolicyChange(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(navigation)
+        ))
 
-        #expect(await coordinator.wait(for: ticket) == .timedOut)
+        #expect(await coordinator.wait(for: ticket) == .cancelled)
+    }
+
+    @Test("A matching URL without exact download policy identity is a cancellation")
+    func urlMatchCannotAuthorizeDownload() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let navigation = NSObject()
+        let targetURL = URL(string: "https://example.com/archive.zip")!
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+
+        #expect(!coordinator.didInterruptByPolicyChange(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(navigation)
+        ))
+
+        #expect(await coordinator.wait(for: ticket) == .cancelled)
     }
 
     @Test("A document-less new-tab reload can complete without WebKit navigation")

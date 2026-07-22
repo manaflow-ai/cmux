@@ -11,7 +11,8 @@ import WebKit
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String, String, WKNavigation?) -> Void)?
     var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
-    var didConvertProvisionalNavigationToDownload: ((WKWebView, WKNavigation?) -> Void)?
+    var didChooseMainFrameDownloadPolicy: ((WKWebView, WKNavigation?) -> Void)?
+    var didInterruptProvisionalNavigationByPolicy: ((WKWebView, WKNavigation?) -> Bool)?
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
     var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
@@ -22,7 +23,6 @@ import WebKit
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
-    var prepareForPolicyNavigationReplacement: ((WKWebView, URL) -> ((WKNavigation?) -> Void)?)?
     var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
@@ -42,7 +42,8 @@ import WebKit
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
     private var pendingMainFrameDownloadRestoreAttemptID: UUID?
-    private var pendingMainFrameDownloadPolicyURLString: String?
+    // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
+    private var activeMainFrameNavigation: WKNavigation?
 
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -93,6 +94,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        activeMainFrameNavigation = navigation
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
         shouldPrintAfterCurrentNavigationFinishes = false
         didClearPDFDocument?()
@@ -104,10 +106,12 @@ import WebKit
             clearAttemptedRequest(discardPendingBypasses: true)
         }
         didCommit?(webView, navigation)
+        clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         didFinish?(webView)
+        clearActiveMainFrameNavigation(ifMatching: navigation)
         if shouldPrintAfterCurrentNavigationFinishes {
             shouldPrintAfterCurrentNavigationFinishes = false
             webView.cmuxRunPrintOperation()
@@ -120,6 +124,7 @@ import WebKit
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
         didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
+        clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -129,23 +134,18 @@ import WebKit
         // Cancelled navigations (e.g. rapid typing) are not real errors.
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
             didCancelProvisionalNavigation?(webView, navigation)
+            clearActiveMainFrameNavigation(ifMatching: navigation)
             return
         }
 
         // "Frame load interrupted" (WebKitErrorDomain code 102) can result from
         // several policy transfers. Only an explicit .download decision is success.
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
-            let interruptedURLString = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
-                ?? lastAttemptedURL?.absoluteString
-                ?? webView.url?.absoluteString
-            let isPendingDownload = pendingMainFrameDownloadPolicyURLString != nil &&
-                pendingMainFrameDownloadPolicyURLString == interruptedURLString
-            pendingMainFrameDownloadPolicyURLString = nil
-            if isPendingDownload {
-                didConvertProvisionalNavigationToDownload?(webView, navigation)
-            } else {
+            let isDownload = didInterruptProvisionalNavigationByPolicy?(webView, navigation) == true
+            if !isDownload {
                 didCancelProvisionalNavigation?(webView, navigation)
             }
+            clearActiveMainFrameNavigation(ifMatching: navigation)
             return
         }
 
@@ -153,6 +153,7 @@ import WebKit
             ?? lastAttemptedURL?.absoluteString
             ?? ""
         didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
+        clearActiveMainFrameNavigation(ifMatching: navigation)
         loadErrorPage(
             in: webView,
             failedURL: failedURL,
@@ -290,10 +291,6 @@ import WebKit
         )
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
-        let canOwnMainFrameDownloadPolicy = navigationAction.targetFrame?.isMainFrame != false
-        if canOwnMainFrameDownloadPolicy {
-            pendingMainFrameDownloadPolicyURLString = nil
-        }
         if navigationAction.targetFrame?.isMainFrame == true {
             pendingMainFrameDownloadRestoreAttemptID = currentRestoreAttemptID?()
         }
@@ -354,18 +351,14 @@ import WebKit
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
-            let replacementNavigationStarted: ((WKNavigation?) -> Void)?
-            if case .browserFallback(let fallbackURL) = browserExternalNavigationAction(for: url) {
-                replacementNavigationStarted = prepareForPolicyNavigationReplacement?(webView, fallbackURL)
-            } else {
-                replacementNavigationStarted = nil
-            }
+            // WKNavigationAction has no public WKNavigation identity. Keep the replacement
+            // unbound so the exact original policy cancellation terminates automation.
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
                 webView: webView,
                 loadFallbackRequest: { [requestNavigation] request in
-                    requestNavigation?(request, .currentTab, replacementNavigationStarted)
+                    requestNavigation?(request, .currentTab, nil)
                 },
                 presentAlert: presentAlert,
                 onTerminalExternalNavigation: reportTerminalCancellation
@@ -375,6 +368,8 @@ import WebKit
         }
 
         if navigationAction.shouldPerformDownload {
+            // Action-policy downloads expose no WKNavigation identity. Only a response-policy
+            // conversion can authorize automation success for an exact provisional navigation.
             if navigationAction.targetFrame?.isMainFrame == false {
                 guard let url = navigationAction.request.url else {
                     decisionHandler(.cancel)
@@ -389,9 +384,6 @@ import WebKit
                     decisionHandler(.cancel)
                     return
                 }
-            }
-            if canOwnMainFrameDownloadPolicy {
-                pendingMainFrameDownloadPolicyURLString = navigationAction.request.url?.absoluteString
             }
             clearAttemptedRequest(discardPendingBypasses: true)
             decisionHandler(.download)
@@ -601,7 +593,9 @@ import WebKit
             cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
             if navigationResponse.isForMainFrame {
-                pendingMainFrameDownloadPolicyURLString = navigationResponse.response.url?.absoluteString
+                // A main-frame response follows didStartProvisionalNavigation, so this is the
+                // exact WKNavigation whose response WebKit is converting into a download.
+                didChooseMainFrameDownloadPolicy?(webView, activeMainFrameNavigation)
             }
             decisionHandler(.download)
             return
@@ -641,6 +635,11 @@ import WebKit
         mimeType?.split(separator: ";", maxSplits: 1).first?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare("application/pdf") == .orderedSame
+    }
+
+    private func clearActiveMainFrameNavigation(ifMatching navigation: WKNavigation?) {
+        guard activeMainFrameNavigation === navigation else { return }
+        activeMainFrameNavigation = nil
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
