@@ -1161,7 +1161,7 @@ final class SystemWideHotkeyController {
         .showHideAllWindows: 1,
         .globalSearch: 2,
     ]
-    private static let systemWideActions: [KeyboardShortcutSettings.Action] = [
+    static let systemWideActions: [KeyboardShortcutSettings.Action] = [
         .showHideAllWindows,
         .globalSearch,
     ]

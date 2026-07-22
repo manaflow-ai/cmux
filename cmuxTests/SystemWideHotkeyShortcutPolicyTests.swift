@@ -53,6 +53,12 @@ final class SystemWideHotkeyShortcutPolicyTests {
         )
     }
 
+    @Test func registrationPolicyContainsOnlyExplicitlySystemWideActions() {
+        #expect(
+            SystemWideHotkeyController.systemWideActions == [.showHideAllWindows]
+        )
+    }
+
     @Test func globalSearchStillRejectsCommandGraveWindowCyclingHotkey() {
         let shortcut = commandGraveShortcut()
 
