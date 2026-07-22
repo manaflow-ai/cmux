@@ -1002,6 +1002,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var activeSaveGeneration: Int?
     var fileChangeWatcher: FileWatcher?
     var fileChangeTask: Task<Void, Never>?
+    var lastObservedFileState: FilePreviewFileState?
     var isClosed = false
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
@@ -1156,6 +1157,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     /// events share this path so every renderer observes the same revision.
     @discardableResult
     func reloadFromDisk() -> Task<Void, Never> {
+        lastObservedFileState = .capture(path: filePath)
         previewModeGeneration += 1
         let generation = previewModeGeneration
         let fileURL = fileURL
@@ -2349,6 +2351,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var activePDFRegion: FilePreviewPanelFocusIntent?
     private weak var observedPDFClipView: NSClipView?
     private var rotationAccumulator: CGFloat = 0
+    private var pageRotationState = FilePreviewPDFPageRotationState()
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
     private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
@@ -2475,6 +2478,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         titleLabel.stringValue = url.lastPathComponent
         if !isReload {
             rotationAccumulator = 0
+            pageRotationState.reset()
             didUserResizeSidebar = false
             lastSidebarWidth = preferredSidebarWidthForCurrentMode()
             pdfView.autoScales = true
@@ -2506,6 +2510,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         pendingReloadWasAutoScaled = nil
         pendingReloadScale = nil
 
+        pageRotationState.apply(to: document)
         pdfView.document = document
         thumbnailView.setDocument(document)
         outlineRoot = document?.outlineRoot
@@ -3273,6 +3278,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay(pdfView.bounds)
         if let document = pdfView.document {
+            pageRotationState.record(page: page, in: document, rotationBy: degrees)
             thumbnailView.reloadPage(at: document.index(for: page))
         }
     }
