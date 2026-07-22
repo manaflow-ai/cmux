@@ -376,6 +376,25 @@ mod tests {
         assert!(matches!(response_status(rejected), Err(ClientError::Rejected { .. })));
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn management_read_never_copies_trailing_secret_or_reallocates() {
+        let line = format!(
+            "{{\"protocol\":1,\"operation\":\"install_or_rotate\",\"authority\":\"{AUTHORITY_ONE}\"}}\n"
+        );
+        let encoded = format!("{line}trailing-secret-that-must-remain-unread");
+        let mut reader = std::io::Cursor::new(encoded.as_bytes());
+
+        let message = read_message(&mut reader).unwrap();
+
+        assert_eq!(reader.position(), line.len() as u64, "reader copied bytes after the frame");
+        assert!(
+            message.0.capacity() >= (MAX_MESSAGE_BYTES + 1) as usize,
+            "sensitive message storage could reallocate without scrubbing the old allocation"
+        );
+        assert_eq!(message.0, line.as_bytes()[..line.len() - 1]);
+    }
+
     #[test]
     fn initial_install_accepts_a_durable_generation_after_mux_restart() {
         let mux = mux();
