@@ -22,11 +22,14 @@ extension AgentChatTranscriptService {
     }
 
     /// Reuses an already-indexed gallery snapshot without parsing the transcript again.
-    func captureIndexedArtifacts(
+    func scheduleIndexedArtifactCapture(
         record: AgentChatSessionRecord,
         snapshot: AgentChatArtifactIndex.Snapshot
-    ) async {
-        await artifactCaptureCoordinator?.capture(record: record, snapshot: snapshot)
+    ) {
+        guard let artifactCaptureCoordinator else { return }
+        Task {
+            await artifactCaptureCoordinator.capture(record: record, snapshot: snapshot)
+        }
     }
 
     func saveArtifact(

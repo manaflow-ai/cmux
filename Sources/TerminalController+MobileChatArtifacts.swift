@@ -82,7 +82,7 @@ extension TerminalController {
             transcriptPath: transcriptPath,
             workingDirectory: record.workingDirectory
         )
-        await service.captureIndexedArtifacts(record: record, snapshot: snapshot)
+        service.scheduleIndexedArtifactCapture(record: record, snapshot: snapshot)
         return (record.sessionID, snapshot)
     }
 

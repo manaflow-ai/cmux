@@ -76,9 +76,15 @@ public actor LocalArtifactRepository: ArtifactStoring {
         let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
         try prepare(paths: paths)
         let source = sourceURL.standardizedFileURL
-        let size = try validatedSize(source: source, configuration: configuration.normalized)
-        let digest = try ArtifactDigestCalculator().digest(url: source)
         let pathResolver = ArtifactPathResolver()
+        let snapshot = try ArtifactSourceSnapshotter(fileManager: fileManager).snapshot(
+            source: source,
+            paths: paths,
+            configuration: configuration
+        )
+        defer { try? fileManager.removeItem(at: snapshot.url) }
+        let size = snapshot.size
+        let digest = try ArtifactDigestCalculator().digest(url: snapshot.url)
 
         if pathResolver.isInsideStore(source, paths: paths),
            let relativePath = pathResolver.relativePath(source, root: paths.artifactsRoot) {
@@ -128,7 +134,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
             directory: captureDirectory,
             fileManager: fileManager
         )
-        try copyAtomically(source: source, destination: destination)
+        try fileManager.moveItem(at: snapshot.url, to: destination)
         guard let relativePath = pathResolver.relativePath(destination, root: paths.artifactsRoot) else {
             throw ArtifactStoreError.pathOutsideStore(destination.path)
         }
@@ -217,43 +223,46 @@ public actor LocalArtifactRepository: ArtifactStoring {
             from: paths.artifactsRoot,
             through: paths.provenanceRoot
         )
+        try rejectSymbolicLinks(
+            from: paths.artifactsRoot,
+            through: paths.importStagingRoot
+        )
         try ArtifactGitIgnoreManager(fileManager: fileManager).ensureIgnored(projectRoot: paths.projectRoot)
     }
 
-    private func validatedSize(
-        source: URL,
-        configuration: ArtifactCaptureConfiguration
-    ) throws -> Int64 {
-        let values = try? source.resourceValues(forKeys: [
-            .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
-        ])
-        guard values?.isRegularFile == true, values?.isSymbolicLink != true else {
-            throw ArtifactStoreError.sourceNotRegularFile(source.path)
+    private func existingFile(digest: String, size: Int64, paths: ArtifactStorePaths) throws -> URL? {
+        let recorder = ArtifactProvenanceRecorder(
+            fileManager: fileManager,
+            encoder: encoder,
+            decoder: decoder
+        )
+        guard let document = recorder.document(paths: paths, digest: digest),
+              document.size == size else {
+            return nil
         }
-        let pathExtension = source.pathExtension.lowercased()
-        guard configuration.allowedExtensions.contains(pathExtension) else {
-            throw ArtifactStoreError.unsupportedExtension(pathExtension)
+        let pathResolver = ArtifactPathResolver()
+        let lastKnownURL = paths.artifactsRoot
+            .appendingPathComponent(document.lastKnownRelativePath, isDirectory: false)
+        if pathResolver.isInsideStore(lastKnownURL, paths: paths),
+           matches(file: lastKnownURL, digest: digest, size: size) {
+            return lastKnownURL
         }
-        let size = Int64(values?.fileSize ?? 0)
-        let limit = ArtifactFileKind.classify(source) == .text
-            ? configuration.maximumTextFileBytes
-            : configuration.maximumFileBytes
-        guard size <= limit else {
-            throw ArtifactStoreError.fileTooLarge(actual: size, limit: limit)
+        return scanner.firstFile(paths: paths) {
+            matches(file: $0, digest: digest, size: size)
         }
-        return size
     }
 
-    private func existingFile(digest: String, size: Int64, paths: ArtifactStorePaths) throws -> URL? {
-        for file in try scanner.allFiles(paths: paths) {
-            guard let existingSize = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-                  Int64(existingSize) == size,
-                  let existingDigest = try? ArtifactDigestCalculator().digest(url: file) else {
-                continue
-            }
-            if existingDigest == digest { return file }
+    private func matches(file: URL, digest: String, size: Int64) -> Bool {
+        guard let values = try? file.resourceValues(forKeys: [
+            .fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey,
+        ]),
+        values.isRegularFile == true,
+        values.isSymbolicLink != true,
+        Int64(values.fileSize ?? -1) == size,
+        let existingDigest = try? ArtifactDigestCalculator().digest(url: file) else {
+            return false
         }
-        return nil
+        return existingDigest == digest
     }
 
     private func createCaptureDirectory(
@@ -311,18 +320,6 @@ public actor LocalArtifactRepository: ArtifactStoring {
         let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
         guard values.isSymbolicLink != true else {
             throw ArtifactStoreError.pathOutsideStore(url.path)
-        }
-    }
-
-    private func copyAtomically(source: URL, destination: URL) throws {
-        let temporary = destination.deletingLastPathComponent()
-            .appendingPathComponent(".\(UUID().uuidString).artifact-import", isDirectory: false)
-        do {
-            try fileManager.copyItem(at: source, to: temporary)
-            try fileManager.moveItem(at: temporary, to: destination)
-        } catch {
-            try? fileManager.removeItem(at: temporary)
-            throw error
         }
     }
 

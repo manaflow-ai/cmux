@@ -11,7 +11,8 @@ struct ArtifactGitIgnoreManager {
             projectRoot: projectRoot,
             worktreeRoot: repository.worktreeRoot
         )
-        let infoDirectory = repository.gitDirectory.appendingPathComponent("info", isDirectory: true)
+        let commonGitDirectory = commonGitDirectory(for: repository.gitDirectory)
+        let infoDirectory = commonGitDirectory.appendingPathComponent("info", isDirectory: true)
         let excludeURL = infoDirectory.appendingPathComponent("exclude", isDirectory: false)
         try fileManager.createDirectory(at: infoDirectory, withIntermediateDirectories: true)
         let existing = (try? String(contentsOf: excludeURL, encoding: .utf8)) ?? ""
@@ -43,6 +44,25 @@ struct ArtifactGitIgnoreManager {
         let rawPath = contents.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
         let url = URL(fileURLWithPath: rawPath, relativeTo: worktreeRoot).standardizedFileURL
         return fileManager.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private func commonGitDirectory(for gitDirectory: URL) -> URL {
+        let commonDirectoryFile = gitDirectory.appendingPathComponent("commondir", isDirectory: false)
+        guard let rawPath = try? String(contentsOf: commonDirectoryFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return gitDirectory
+        }
+        let commonDirectory = URL(
+            fileURLWithPath: rawPath,
+            relativeTo: gitDirectory
+        ).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: commonDirectory.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return gitDirectory
+        }
+        return commonDirectory
     }
 
     private func relativeIgnoreEntry(projectRoot: URL, worktreeRoot: URL) -> String {

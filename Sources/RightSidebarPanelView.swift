@@ -368,6 +368,7 @@ struct RightSidebarPanelView: View {
                 ArtifactSidebarPanelView(
                     model: artifactSidebarModel,
                     workspace: artifactWorkspace,
+                    isVisible: fileExplorerState.isVisible,
                     onOpenArtifact: onOpenArtifact
                 )
             case .feed:

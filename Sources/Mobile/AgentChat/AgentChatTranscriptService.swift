@@ -415,6 +415,7 @@ final class AgentChatTranscriptService {
         }
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
+            if let record = registry.record(sessionID: sessionID) { scheduleArtifactCapture(for: record) }
         }
     }
 

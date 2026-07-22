@@ -6,6 +6,7 @@ import SwiftUI
 struct ArtifactSidebarPanelView: View {
     let model: ArtifactSidebarModel
     let workspace: ArtifactSidebarWorkspace?
+    let isVisible: Bool
     let onOpenArtifact: (ArtifactSidebarRowSnapshot) -> Void
 
     var body: some View {
@@ -14,8 +15,12 @@ struct ArtifactSidebarPanelView: View {
                 .rightSidebarChromeBottomBorder()
             content
         }
-        .task(id: workspace) {
-            await model.bind(workspace: workspace)
+        .task(id: ArtifactSidebarBinding(workspace: workspace, isVisible: isVisible)) {
+            if isVisible {
+                await model.bind(workspace: workspace)
+            } else {
+                model.stop()
+            }
         }
         .onDisappear {
             model.stop()
@@ -191,4 +196,9 @@ struct ArtifactSidebarPanelView: View {
             return String(localized: "rightSidebar.artifacts.searchFailed.message", defaultValue: "Check the artifact folder and try again.")
         }
     }
+}
+
+private struct ArtifactSidebarBinding: Equatable {
+    let workspace: ArtifactSidebarWorkspace?
+    let isVisible: Bool
 }

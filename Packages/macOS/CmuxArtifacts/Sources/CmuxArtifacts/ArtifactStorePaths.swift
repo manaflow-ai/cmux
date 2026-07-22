@@ -32,6 +32,11 @@ public struct ArtifactStorePaths: Equatable, Sendable {
         artifactsRoot.appendingPathComponent(".cmux", isDirectory: true)
     }
 
+    /// Private import staging directory excluded from the sidebar tree.
+    var importStagingRoot: URL {
+        metadataRoot.appendingPathComponent("imports", isDirectory: true)
+    }
+
     /// Content-addressed provenance directory.
     public var provenanceRoot: URL {
         metadataRoot.appendingPathComponent("provenance", isDirectory: true)

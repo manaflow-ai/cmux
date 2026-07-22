@@ -24,18 +24,17 @@ struct ArtifactTreeScanner {
         )
     }
 
-    func allFiles(paths: ArtifactStorePaths) throws -> [URL] {
-        guard fileManager.fileExists(atPath: paths.artifactsRoot.path) else { return [] }
+    func firstFile(
+        paths: ArtifactStorePaths,
+        matching predicate: (URL) -> Bool
+    ) -> URL? {
+        guard fileManager.fileExists(atPath: paths.artifactsRoot.path) else { return nil }
         guard let enumerator = fileManager.enumerator(
             at: paths.artifactsRoot,
             includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey],
             options: [.skipsPackageDescendants]
-        ) else { return [] }
-        var files: [URL] = []
-        var visited = 0
+        ) else { return nil }
         for case let url as URL in enumerator {
-            guard visited < nodeBudget else { break }
-            visited += 1
             if isManagedMetadataRoot(url, artifactsRoot: paths.artifactsRoot) {
                 enumerator.skipDescendants()
                 continue
@@ -43,9 +42,9 @@ struct ArtifactTreeScanner {
             if isManagedMarker(url) { continue }
             let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard values?.isSymbolicLink != true, values?.isRegularFile == true else { continue }
-            files.append(url)
+            if predicate(url) { return url }
         }
-        return files
+        return nil
     }
 
     private func scanDirectory(

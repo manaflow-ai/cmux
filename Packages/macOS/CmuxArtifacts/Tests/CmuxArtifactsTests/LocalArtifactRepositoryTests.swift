@@ -89,6 +89,48 @@ struct LocalArtifactRepositoryTests {
         #expect(record.relativePath == "organized/final.txt")
     }
 
+    @Test("Moved artifact deduplication is complete beyond the sidebar scan budget")
+    func deduplicatesMovedArtifactBeyondScanBudget() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let source = try ArtifactTestSupport.write(
+            "same bytes",
+            named: "result.txt",
+            under: root.appendingPathComponent("outside")
+        )
+        let repository = LocalArtifactRepository(nodeBudget: 1)
+        let context = ArtifactCaptureContext(projectRoot: root, workspaceID: "one", sessionID: "two")
+        let first = try await repository.importFile(
+            sourceURL: source,
+            context: context,
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: .now
+        )
+        let firstRecord = try #require(first.record)
+        let originalURL = root.appendingPathComponent(".cmux/artifacts/\(firstRecord.relativePath)")
+        let movedURL = root.appendingPathComponent(".cmux/artifacts/z/organized/final.txt")
+        try FileManager.default.createDirectory(
+            at: movedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.moveItem(at: originalURL, to: movedURL)
+
+        let second = try await repository.importFile(
+            sourceURL: source,
+            context: context,
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: .now
+        )
+
+        guard case .deduplicated(let record) = second else {
+            Issue.record("Expected moved content to deduplicate despite the tree budget")
+            return
+        }
+        #expect(record.relativePath == "z/organized/final.txt")
+    }
+
     @Test("A moved session folder remains the target for later captures")
     func reusesMovedSessionFolder() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
@@ -196,6 +238,38 @@ struct LocalArtifactRepositoryTests {
         #expect(exclude == "nested/project/.cmux/artifacts/\n")
     }
 
+    @Test("A linked worktree uses the common Git exclude file")
+    func ignoresStoreFromLinkedWorktree() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let commonGitDirectory = root.appendingPathComponent("repository/.git")
+        let worktreeGitDirectory = commonGitDirectory.appendingPathComponent("worktrees/feature")
+        let worktree = root.appendingPathComponent("feature")
+        try FileManager.default.createDirectory(at: worktreeGitDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+        try "../..\n".write(
+            to: worktreeGitDirectory.appendingPathComponent("commondir"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "gitdir: \(worktreeGitDirectory.path)\n".write(
+            to: worktree.appendingPathComponent(".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        _ = try await LocalArtifactRepository().snapshot(projectRoot: worktree)
+
+        let exclude = try String(
+            contentsOf: commonGitDirectory.appendingPathComponent("info/exclude"),
+            encoding: .utf8
+        )
+        #expect(exclude == ".cmux/artifacts/\n")
+        #expect(!FileManager.default.fileExists(
+            atPath: worktreeGitDirectory.appendingPathComponent("info/exclude").path
+        ))
+    }
+
     @Test("Search combines fuzzy names with bounded text content")
     func searchesNamesAndContents() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
@@ -255,6 +329,9 @@ struct LocalArtifactRepositoryTests {
         #expect(!FileManager.default.fileExists(
             atPath: root.appendingPathComponent(".cmux/artifacts/workspace/session/oversized.txt").path
         ))
+        let stagingRoot = ArtifactStorePaths(projectRoot: root).importStagingRoot
+        let stagingContents = try FileManager.default.contentsOfDirectory(atPath: stagingRoot.path)
+        #expect(stagingContents.isEmpty)
     }
 
     @Test("Recursive changes reflect external filesystem edits")
