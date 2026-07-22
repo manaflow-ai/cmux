@@ -922,6 +922,74 @@ mod tests {
     }
 
     #[test]
+    fn detached_stderr_holder() {
+        let Some(pid_path) = std::env::var_os("CMUX_TEST_DETACHED_STDERR_HOLDER") else {
+            return;
+        };
+        let session = unsafe { libc::setsid() };
+        assert!(session > 0, "detach provider test descendant");
+        fs::write(pid_path, std::process::id().to_string())
+            .expect("record detached descendant pid");
+        thread::sleep(Duration::from_secs(300));
+    }
+
+    #[test]
+    fn dropping_command_io_cancels_diagnostics_from_a_detached_descendant() {
+        let directory = TestDirectory::new();
+        let descendant_path = directory.path.join("detached-descendant-pid");
+        let helper_test = concat!(
+            "machine_provider_client::machine_provider_transport::tests::",
+            "detached_stderr_holder"
+        );
+        let script = directory.script(
+            "detached-descendant",
+            &format!(
+                "test_binary=$1; descendant_path=$2; shift 2; \
+                 CMUX_TEST_DETACHED_STDERR_HOLDER=\"$descendant_path\" \
+                 \"$test_binary\" --exact \"{helper_test}\" --nocapture & \
+                 descendant=$!; \
+                 while [ ! -s \"$descendant_path\" ]; do \
+                   kill -0 \"$descendant\" 2>/dev/null || exit 1; \
+                   sleep 1; \
+                 done; \
+                 exit 0"
+            ),
+        );
+        let test_binary = std::env::current_exe().expect("locate provider test binary");
+        let connector = CommandProviderConnector::new([
+            script.into_os_string(),
+            test_binary.into_os_string(),
+            descendant_path.clone().into_os_string(),
+        ])
+        .expect("create command connector");
+        let connection = connector.connect().expect("start provider child");
+        let (_, control, _) = connection.into_parts();
+        wait_for_file(&descendant_path);
+        let descendant = fs::read_to_string(&descendant_path)
+            .expect("read detached descendant pid")
+            .parse::<i32>()
+            .expect("parse detached descendant pid");
+        assert_eq!(unsafe { libc::kill(descendant, 0) }, 0, "detached descendant must be alive");
+
+        let (finished_tx, finished_rx) = mpsc::sync_channel(1);
+        let cleanup = thread::spawn(move || {
+            drop(control);
+            let _ = finished_tx.send(());
+        });
+        let completed = finished_rx.recv_timeout(Duration::from_secs(2)).is_ok();
+        if !completed {
+            let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
+            finished_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("cleanup finishes after the detached descendant is killed");
+        }
+        cleanup.join().expect("join provider cleanup");
+
+        assert!(completed, "provider cleanup waited for detached descendant diagnostics");
+        let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
+    }
+
+    #[test]
     fn command_stderr_is_drained_bounded_sanitized_and_token_redacted() {
         let directory = TestDirectory::new();
         let ready = directory.path.join("ready");
