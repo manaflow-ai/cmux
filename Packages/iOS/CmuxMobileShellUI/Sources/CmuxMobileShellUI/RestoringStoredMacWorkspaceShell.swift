@@ -8,6 +8,7 @@ struct RestoringStoredMacWorkspaceShell: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
     let showAddDevice: (() -> Void)?
+    let showPairingScanner: (() -> Void)?
     let reconnectStoredMac: () -> Void
 
     @Environment(AuthCoordinator.self) private var authManager
@@ -21,7 +22,8 @@ struct RestoringStoredMacWorkspaceShell: View {
             isInitialConnectionLoading: !loadingTimedOut,
             initialConnectionTimedOut: loadingTimedOut,
             retryInitialConnection: retry,
-            showAddDevice: showAddDevice
+            showAddDevice: showAddDevice,
+            showPairingScanner: showPairingScanner
         )
         .task(id: deadlineTaskID) {
             await updateLoadingDeadline()

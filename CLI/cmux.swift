@@ -133,6 +133,9 @@ struct ClaudeHookSessionRecord: Codable {
     var cwd: String?
     var transcriptPath: String?
     var pid: Int?
+    /// Exact process-generation identity captured when the hook recorded `pid`.
+    var pidStartSeconds: Int64? = nil
+    var pidStartMicroseconds: Int64? = nil
     var launchCommand: AgentHookLaunchCommandRecord?
     /// Last hook-observed `permission_mode`, re-applied as `--permission-mode`
     /// on user-owned session restore (https://github.com/manaflow-ai/cmux/issues/8066).
@@ -1121,7 +1124,17 @@ final class ClaudeHookSessionStore {
             record.transcriptPath = transcriptPath
         }
         if let pid {
+            let previousPID = record.pid
             record.pid = pid
+            if let identity = processStartIdentity(pid: pid) {
+                record.pidStartSeconds = identity.seconds
+                record.pidStartMicroseconds = identity.microseconds
+            } else if previousPID != pid {
+                // A different numeric PID without a captured start identity cannot
+                // inherit generation authority from the previous process.
+                record.pidStartSeconds = nil
+                record.pidStartMicroseconds = nil
+            }
         }
         if let launchCommand {
             let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
@@ -1160,6 +1173,18 @@ final class ClaudeHookSessionStore {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
         }
         record.updatedAt = now
+    }
+
+    private func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        return (
+            seconds: Int64(info.pbi_start_tvsec),
+            microseconds: Int64(info.pbi_start_tvusec)
+        )
     }
 
     func clearNotificationEmission(sessionId: String) throws {
@@ -4255,8 +4280,9 @@ struct CMUXCLI {
             let includeCaller = !hasFlag(commandArgs, name: "--no-caller")
             if includeCaller {
                 let idWsFlag = optionValue(commandArgs, name: "--workspace")
+                let idSurfaceFlag = optionValue(commandArgs, name: "--surface")
                 let workspaceArg = idWsFlag ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-                let surfaceArg = optionValue(commandArgs, name: "--surface") ?? (idWsFlag == nil && effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+                let surfaceArg = idSurfaceFlag ?? (idWsFlag == nil && effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
                 if workspaceArg != nil || surfaceArg != nil {
                     let workspaceId = try normalizeWorkspaceHandle(
                         workspaceArg,
@@ -4282,6 +4308,12 @@ struct CMUXCLI {
                     if !caller.isEmpty {
                         params["caller"] = caller
                     }
+                }
+                if effectiveWindowRaw == nil,
+                   idWsFlag == nil,
+                   idSurfaceFlag == nil,
+                   let callerTTY = resolveCallerDescriptorTTYName() {
+                    params["caller_tty"] = callerTTY
                 }
             }
             let response = try client.sendV2(method: "system.identify", params: params)
@@ -8331,9 +8363,7 @@ struct CMUXCLI {
         )
     }
 
-    /// Emit a `cmux workspace-group` mutation response: JSON when --json,
-    /// otherwise a compact `OK`. Centralized so every mutating subcommand
-    /// honors --json the same way the list/create paths do.
+    /// Emit a workspace-group mutation response, including removal impact.
     private func printWorkspaceGroupResponse(
         _ response: [String: Any],
         jsonOutput: Bool,
@@ -8341,6 +8371,18 @@ struct CMUXCLI {
     ) {
         if jsonOutput {
             print(jsonString(formatIDs(response, mode: idFormat)))
+        } else if response["operation"] as? String == "dissolved",
+                  let count = (response["kept_workspace_count"] as? NSNumber)?.intValue {
+            let format = count == 1
+                ? String(localized: "cli.workspaceGroup.response.dissolved.one", defaultValue: "OK group dissolved (kept %lld workspace)")
+                : String(localized: "cli.workspaceGroup.response.dissolved.other", defaultValue: "OK group dissolved (kept %lld workspaces)")
+            print(String.localizedStringWithFormat(format, Int64(count)))
+        } else if response["operation"] as? String == "closed_workspaces",
+                  let count = (response["closed_workspace_count"] as? NSNumber)?.intValue {
+            let format = count == 1
+                ? String(localized: "cli.workspaceGroup.response.closed.one", defaultValue: "OK group deleted (closed %lld workspace)")
+                : String(localized: "cli.workspaceGroup.response.closed.other", defaultValue: "OK group deleted (closed %lld workspaces)")
+            print(String.localizedStringWithFormat(format, Int64(count)))
         } else {
             print("OK")
         }
@@ -8414,10 +8456,10 @@ struct CMUXCLI {
             let resolvedName = nameOpt ?? rem3.first(where: { !$0.hasPrefix("--") }) ?? ""
             params["name"] = resolvedName
             if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
-            if let fromOpt {
-                let ids = fromOpt.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
-                params["child_workspace_ids"] = ids
-            }
+            let ids = fromOpt?.split(separator: ",").map {
+                String($0).trimmingCharacters(in: .whitespaces)
+            } ?? []
+            params["child_workspace_ids"] = ids
             let response = try client.sendV2(method: "workspace.group.create", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(response, mode: idFormat)))
@@ -8433,10 +8475,15 @@ struct CMUXCLI {
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "delete":
-            // Destructive: closes every workspace inside the group. Use
-            // `ungroup` instead if you want to keep the workspaces.
-            params["group_id"] = try resolveGroupId(in: rest)
-            let resp = try client.sendV2(method: "workspace.group.delete", params: params)
+            let optionTerminator = rest.firstIndex(of: "--") ?? rest.endIndex
+            let closesWorkspaces = rest[..<optionTerminator].contains("--close-workspaces")
+            let routedArgs = rest.enumerated().compactMap { index, argument in
+                index < optionTerminator && argument == "--close-workspaces" ? nil : argument
+            }
+            params["group_id"] = try resolveGroupId(in: routedArgs)
+            let method = closesWorkspaces ? "workspace.group.delete" : "workspace.group.ungroup"
+            if closesWorkspaces { params["close_workspaces"] = true }
+            let resp = try client.sendV2(method: method, params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "rename":
@@ -12928,11 +12975,12 @@ struct CMUXCLI {
         let subArgs = Array(args.dropFirst())
         let browserValueTextFormatter = BrowserValueTextFormatter()
 
-        // A post-action snapshot can spend 3s in document readiness, 10s in the
-        // requested action, 10s in snapshot JavaScript, and 2.5s in recovery.
-        // Keep transport headroom beyond that 25.5s app-side maximum.
+        // A committed navigation can spend up to 15s waiting for its delegate callback.
+        // A post-action snapshot can then spend another 10s in JavaScript and 2.5s in
+        // recovery. Keep transport headroom beyond that 27.5s app-side maximum when
+        // --snapshot-after is requested.
         func sendBrowserAutomationRequest(method: String, params: [String: Any]) throws -> [String: Any] {
-            let responseTimeout: TimeInterval = (params["snapshot_after"] as? Bool) == true ? 30 : 20
+            let responseTimeout: TimeInterval = (params["snapshot_after"] as? Bool) == true ? 35 : 20
             return try client.sendV2(method: method, params: params, responseTimeout: responseTimeout)
         }
 
@@ -13352,7 +13400,10 @@ struct CMUXCLI {
                 guard !url.isEmpty else {
                     throw CLIError(message: "browser <surface> open requires a URL")
                 }
-                let payload = try client.sendV2(method: "browser.navigate", params: ["surface_id": sid, "url": url])
+                let payload = try sendBrowserAutomationRequest(
+                    method: "browser.navigate",
+                    params: ["surface_id": sid, "url": url]
+                )
                 output(payload, fallback: "OK")
                 return
             }
@@ -15633,6 +15684,18 @@ struct CMUXCLI {
         case "layout":
             return Self.layoutHelpText()
         case "workspace-group":
+            let createSafety = String(
+                localized: "cli.workspaceGroup.help.createSafety",
+                defaultValue: "Omitting --from creates an anchor-only group without capturing live workspaces."
+            )
+            let deleteSafety = String(
+                localized: "cli.workspaceGroup.help.deleteSafety",
+                defaultValue: "Dissolve a group, preserving all members"
+            )
+            let destructiveDelete = String(
+                localized: "cli.workspaceGroup.help.destructiveDelete",
+                defaultValue: "Delete the group AND close every member workspace. Explicitly destructive."
+            )
             return """
             Usage: cmux workspace-group <subcommand> [flags]
 
@@ -15644,12 +15707,11 @@ struct CMUXCLI {
             Subcommands:
               list [--json]
               create [--name <name>] [--cwd <path>] [--from <id>,<id>...]
-                                        Defaults --from to the active sidebar
-                                        selection / caller workspace when omitted.
+                                        \(createSafety)
               ungroup <group>           Dissolve a group, preserving all members
-              delete <group>            Delete a group AND close every workspace
-                                        inside it. Destructive. Use `ungroup` to
-                                        keep the workspaces.
+              delete <group>            \(deleteSafety)
+              delete <group> --close-workspaces
+                                        \(destructiveDelete)
               rename <group> --name <new>
               collapse <group>
               expand <group>
@@ -25410,6 +25472,10 @@ struct CMUXCLI {
                 return ttyName
             }
         }
+        return resolveCallerDescriptorTTYName()
+    }
+
+    func resolveCallerDescriptorTTYName() -> String? {
         for fileDescriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
             if let rawTTYName = ttyname(fileDescriptor),
                let ttyName = normalizedTTYName(String(cString: rawTTYName)) {
