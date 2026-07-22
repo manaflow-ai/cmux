@@ -85,6 +85,49 @@ struct SessionIndexTableViewportTests {
 
     @MainActor
     @Test
+    func unrelatedPreviewDoesNotInvalidateASectionRow() {
+        let section = IndexSection(
+            key: .directory("/tmp/vault-scale"),
+            title: "vault-scale",
+            icon: .folder,
+            entries: [Self.makeEntry(index: 0)]
+        )
+        let actions = IndexSectionActions(
+            onBeginDrag: {},
+            onPreviewEntry: { _ in },
+            onDismissPreview: { _ in },
+            onResume: nil,
+            search: { _, _, _, _ in .init(entries: [], errors: []) },
+            loadSnapshot: { cwd in .init(cwd: cwd ?? "", entries: [], errors: []) }
+        )
+        let withoutPreview = SessionIndexTableRow.section(
+            section: section,
+            rowLimit: 5,
+            isDragged: false,
+            previewEntryId: nil,
+            isCollapsed: false,
+            isPopoverOpen: false,
+            actions: actions,
+            setCollapsed: { _ in },
+            setPopoverOpen: { _ in }
+        )
+        let unrelatedPreview = SessionIndexTableRow.section(
+            section: section,
+            rowLimit: 5,
+            isDragged: false,
+            previewEntryId: "claude:/tmp/another-section/session.jsonl",
+            isCollapsed: false,
+            isPopoverOpen: false,
+            actions: actions,
+            setCollapsed: { _ in },
+            setPopoverOpen: { _ in }
+        )
+
+        #expect(withoutPreview.hasEquivalentContent(to: unrelatedPreview))
+    }
+
+    @MainActor
+    @Test
     func vaultUsesViewportBoundedAppKitRowsAtScale() async throws {
         let defaults = SessionIndexDefaultsSnapshot()
         defer { defaults.restore() }

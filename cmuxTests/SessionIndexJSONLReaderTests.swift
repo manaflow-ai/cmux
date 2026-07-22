@@ -156,6 +156,19 @@ struct SessionIndexJSONLReaderTests {
             specifics: .registered(registration)
         )
         let turns = try await SessionTranscriptLoader.load(entry: previewEntry)
+        let oldPreviewEntry = SessionEntry(
+            id: "antigravity:old-session",
+            agent: .registered(RegisteredSessionAgent(registration: registration)),
+            sessionId: "old-session",
+            title: "Old",
+            cwd: nil,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: .distantPast,
+            fileURL: url,
+            specifics: .registered(registration)
+        )
+        let oldTurns = try await SessionTranscriptLoader.load(entry: oldPreviewEntry)
 
         #expect(initialEntries.map(\.sessionId) == ["active-session"])
         #expect(Set(expandedEntries.map(\.sessionId)) == ["active-session", "old-session"])
@@ -169,6 +182,7 @@ struct SessionIndexJSONLReaderTests {
         #expect(entries.map(\.sessionId) == ["old-session"])
         #expect(turns.first?.role == .event)
         #expect(turns.last?.text == "latest prompt")
+        #expect(oldTurns.contains { $0.text == "needle-old" })
     }
 
     @Test
@@ -198,5 +212,43 @@ struct SessionIndexJSONLReaderTests {
         #expect(entries.count == 1)
         #expect(entries.first?.title == "newest title")
         #expect(entries.first?.cwd == "/tmp/newest")
+    }
+
+    @Test
+    func antigravityPaginationIsStableWhenTimestampsAreMissing() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-antigravity-stable-pages-\(UUID().uuidString)", isDirectory: true)
+        let url = root.appendingPathComponent("history.jsonl")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let olderSessionIDs = (0..<100).map { String(format: "a-%03d", $0) }
+        let newerSessionIDs = (0..<100).map { String(format: "z-%03d", $0) }
+        let history = (olderSessionIDs + newerSessionIDs).map { sessionID in
+            #"{"conversationId":"\#(sessionID)","display":"\#(sessionID)"}"#
+        }.joined(separator: "\n") + "\n"
+        try Data(history.utf8).write(to: url)
+
+        var registration = CmuxVaultAgentRegistration.builtInAntigravity
+        registration.sessionDirectory = root.path
+        let firstPage = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 100
+        )
+        let secondPage = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 100,
+            limit: 100
+        )
+        let combinedSessionIDs = (firstPage + secondPage).map(\.sessionId)
+
+        #expect(firstPage.count == 100)
+        #expect(secondPage.count == 100)
+        #expect(Set(combinedSessionIDs).count == 200)
     }
 }
