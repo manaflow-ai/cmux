@@ -42,6 +42,20 @@ struct ProviderSelectionRollback {
 struct PendingConnection {
     candidate: Option<OpenConnection>,
     rollback: Option<ProviderSelectionRollback>,
+    retire_open_on_abort: bool,
+}
+
+#[derive(Clone)]
+struct AcceptedSelectionIntent {
+    scope_id: Option<protocol::OpaqueId>,
+    machine_id: Option<protocol::OpaqueId>,
+}
+
+#[derive(Default)]
+struct AcceptedProviderEffects {
+    session_mutation: Option<ManagedWorkspaceSessionMutation>,
+    session_label: Option<String>,
+    retire_open_on_failure: bool,
 }
 
 struct KeyRegistry {
@@ -62,6 +76,7 @@ pub(crate) struct ProviderMachineRuntime {
     mutation_sequence: AtomicU64,
     open: Option<OpenConnection>,
     pending: Option<PendingConnection>,
+    accepted_selection: Option<AcceptedSelectionIntent>,
     notice: Option<String>,
 }
 
@@ -274,6 +289,7 @@ impl ProviderMachineRuntime {
             mutation_sequence: AtomicU64::new(1),
             open: None,
             pending: None,
+            accepted_selection: None,
             notice: None,
         };
         runtime.reconcile_keys();
@@ -281,24 +297,46 @@ impl ProviderMachineRuntime {
     }
 
     pub(crate) fn refresh(&mut self) -> anyhow::Result<()> {
-        let snapshot = self.client.snapshot(Some(self.snapshot.revision))?;
+        let snapshot = match self.accepted_selection.as_ref().and_then(|intent| {
+            intent
+                .scope_id
+                .as_ref()
+                .filter(|scope_id| *scope_id != &self.snapshot.selected_scope_id)
+        }) {
+            Some(scope_id) => self.client.select_scope(scope_id.clone())?.snapshot,
+            None => self.client.snapshot(Some(self.snapshot.revision))?,
+        };
+        self.install_snapshot(snapshot)?;
+        if let Some(notice) = self.snapshot.notice.as_ref().map(|notice| notice.message.clone()) {
+            self.push_notice(notice);
+        }
+        Ok(())
+    }
+
+    fn install_snapshot(&mut self, mut snapshot: protocol::SnapshotResult) -> anyhow::Result<()> {
+        let selection_applied = self.accepted_selection.as_ref().is_none_or(|intent| {
+            let scope_matches = intent
+                .scope_id
+                .as_ref()
+                .is_none_or(|scope_id| scope_id == &snapshot.selected_scope_id);
+            let machine_matches = intent.machine_id.as_ref().is_none_or(|machine_id| {
+                if snapshot.machines.iter().any(|machine| &machine.id == machine_id) {
+                    snapshot.selected_machine_id = Some(machine_id.clone());
+                    true
+                } else {
+                    false
+                }
+            });
+            scope_matches && machine_matches
+        });
         let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&self.client, &snapshot)?;
         let workspace_snapshot = load_workspace_snapshot(&self.client, &snapshot)?;
         self.snapshot = snapshot;
         self.machine_lifecycle_snapshot = machine_lifecycle_snapshot;
         self.workspace_snapshot = workspace_snapshot;
-        self.reconcile_keys();
-        if let Some(notice) = &self.snapshot.notice {
-            self.notice = Some(notice.message.clone());
+        if selection_applied {
+            self.accepted_selection = None;
         }
-        Ok(())
-    }
-
-    fn select_scope(&mut self, scope_id: protocol::OpaqueId) -> anyhow::Result<()> {
-        self.snapshot = self.client.select_scope(scope_id)?.snapshot;
-        self.machine_lifecycle_snapshot =
-            load_machine_lifecycle_snapshot(&self.client, &self.snapshot)?;
-        self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
         self.reconcile_keys();
         Ok(())
     }
@@ -377,15 +415,32 @@ impl ProviderMachineRuntime {
                 )?;
                 let created_machine_id = created.machine_id;
                 self.set_notice(created.notice);
-                self.refresh()?;
-                if key_for_id(&self.keys, &created_machine_id).is_some() {
-                    self.snapshot.selected_machine_id = Some(created_machine_id);
-                    self.workspace_snapshot =
-                        load_workspace_snapshot(&self.client, &self.snapshot)?;
-                }
+                self.accepted_selection = Some(AcceptedSelectionIntent {
+                    scope_id: Some(self.snapshot.selected_scope_id.clone()),
+                    machine_id: Some(created_machine_id),
+                });
+                return Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects::default(),
+                    |runtime| {
+                        runtime.refresh()?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ));
             }
             MachineRequest::SelectProviderScope(scope_id) => {
-                self.select_scope(protocol::OpaqueId::new(scope_id)?)?;
+                let selected =
+                    self.client.select_scope(protocol::OpaqueId::new(scope_id)?)?.snapshot;
+                self.accepted_selection = Some(AcceptedSelectionIntent {
+                    scope_id: Some(selected.selected_scope_id.clone()),
+                    machine_id: None,
+                });
+                return Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects::default(),
+                    move |runtime| {
+                        runtime.install_snapshot(selected)?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ));
             }
             MachineRequest::InvokeProviderAction { action_id, values } => {
                 let values = values
@@ -409,50 +464,45 @@ impl ProviderMachineRuntime {
                 let selected_machine_id = result.selected_machine_id;
                 self.set_notice(result.notice);
                 if let Some(url) = result.url {
-                    self.notice = Some(format!(
+                    self.push_notice(format!(
                         "{} {url}",
                         localization::catalog().sidebar.provider_action_open_url
                     ));
                 }
-                if let Some(scope_id) = selected_scope_id {
-                    self.select_scope(scope_id)?;
-                } else {
-                    self.refresh()?;
+                if selected_scope_id.is_some() || selected_machine_id.is_some() {
+                    self.accepted_selection = Some(AcceptedSelectionIntent {
+                        scope_id: selected_scope_id,
+                        machine_id: selected_machine_id,
+                    });
                 }
-                if let Some(machine_id) = selected_machine_id
-                    && key_for_id(&self.keys, &machine_id).is_some()
-                {
-                    self.snapshot.selected_machine_id = Some(machine_id);
-                }
+                return Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects::default(),
+                    |runtime| {
+                        runtime.refresh()?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ));
             }
             MachineRequest::RenameManagedMachine { machine, expected_version, name } => {
                 let machine_id = self.machine_id(machine)?;
                 let renames_open_session =
                     self.open.as_ref().is_some_and(|open| open.machine_id == machine_id);
+                let session_label = renames_open_session.then(|| name.clone());
                 let result = self.client.rename_machine(protocol::RenameMachineParams {
                     scope_id: self.snapshot.selected_scope_id.clone(),
-                    machine_id: machine_id.clone(),
+                    machine_id,
                     expected_version,
                     display_name: name,
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                self.refresh()?;
-                let result = MachineActionResult::ui(self.ui_state_for_open_connection());
-                return Ok(if renames_open_session {
-                    let label = self
-                        .snapshot
-                        .machines
-                        .iter()
-                        .find(|machine| machine.id == machine_id)
-                        .map(|machine| machine.display_name.clone())
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("renamed machine is missing from snapshot")
-                        })?;
-                    result.with_session_label(label)
-                } else {
-                    result
-                });
+                return Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects { session_label, ..AcceptedProviderEffects::default() },
+                    |runtime| {
+                        runtime.refresh()?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ));
             }
             MachineRequest::DeleteManagedMachine { machine, expected_version } => {
                 let machine_id = self.machine_id(machine)?;
@@ -465,15 +515,24 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                self.refresh()?;
-                if deletes_open_session {
-                    let (session, label, open) = self.open_selected_candidate()?;
-                    let session_available = open.is_some();
-                    self.stage_connection(open, None)?;
-                    let mut ui = self.ui_state(session_available);
-                    ui.notice = self.notice.take();
-                    return Ok(MachineActionResult::replace(ui, session, label));
-                }
+                return Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects {
+                        retire_open_on_failure: deletes_open_session,
+                        ..AcceptedProviderEffects::default()
+                    },
+                    |runtime| {
+                        runtime.refresh()?;
+                        if deletes_open_session {
+                            let (session, label, open) = runtime.open_selected_candidate()?;
+                            let session_available = open.is_some();
+                            runtime.stage_mandatory_replacement(open);
+                            let mut ui = runtime.ui_state(session_available);
+                            ui.notice = runtime.notice.take();
+                            return Ok(MachineActionResult::replace(ui, session, label));
+                        }
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ));
             }
             MachineRequest::RestoreManagedMachine { machine, expected_version } => {
                 let result = self.client.restore_machine(protocol::MachineMutationParams {
@@ -483,7 +542,13 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                self.refresh()?;
+                return Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects::default(),
+                    |runtime| {
+                        runtime.refresh()?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ));
             }
             MachineRequest::PurgeManagedMachine { machine, expected_version } => {
                 let result = self.client.purge_machine(protocol::MachineMutationParams {
@@ -493,13 +558,19 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                self.refresh()?;
+                return Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects::default(),
+                    |runtime| {
+                        runtime.refresh()?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ));
             }
             MachineRequest::CreateManagedIsolatedWorkspace(key) => {
-                self.create_workspace(key, protocol::WorkspaceCreateMode::Isolated)?;
+                return self.create_workspace(key, protocol::WorkspaceCreateMode::Isolated);
             }
             MachineRequest::CreateManagedHostWorkspace(key) => {
-                self.create_workspace(key, protocol::WorkspaceCreateMode::Host)?;
+                return self.create_workspace(key, protocol::WorkspaceCreateMode::Host);
             }
             MachineRequest::RenameManagedWorkspace {
                 machine,
@@ -539,7 +610,13 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                self.refresh()?;
+                return Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects::default(),
+                    |runtime| {
+                        runtime.refresh()?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ));
             }
             MachineRequest::PurgeManagedWorkspace { machine, workspace_id, expected_version } => {
                 let result = self.client.purge_workspace(protocol::WorkspaceMutationParams {
@@ -549,7 +626,13 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                self.refresh()?;
+                return Ok(self.finish_accepted_action(
+                    AcceptedProviderEffects::default(),
+                    |runtime| {
+                        runtime.refresh()?;
+                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                    },
+                ));
             }
             MachineRequest::Connect(_) => {
                 anyhow::bail!(
@@ -766,15 +849,42 @@ impl ProviderMachineRuntime {
     }
 
     fn reconnect_control(&mut self) -> anyhow::Result<()> {
-        let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
+        let (client, mut snapshot, mut machine_lifecycle_snapshot, mut workspace_snapshot) =
             connect_client(Arc::clone(&self.connector))?;
+        let selection_applied = if let Some(intent) = self.accepted_selection.as_ref() {
+            if let Some(scope_id) =
+                intent.scope_id.as_ref().filter(|scope_id| *scope_id != &snapshot.selected_scope_id)
+            {
+                snapshot = client.select_scope(scope_id.clone())?.snapshot;
+            }
+            let scope_matches = intent
+                .scope_id
+                .as_ref()
+                .is_none_or(|scope_id| scope_id == &snapshot.selected_scope_id);
+            let machine_matches = intent.machine_id.as_ref().is_none_or(|machine_id| {
+                if snapshot.machines.iter().any(|machine| &machine.id == machine_id) {
+                    snapshot.selected_machine_id = Some(machine_id.clone());
+                    true
+                } else {
+                    false
+                }
+            });
+            machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&client, &snapshot)?;
+            workspace_snapshot = load_workspace_snapshot(&client, &snapshot)?;
+            scope_matches && machine_matches
+        } else {
+            true
+        };
         self.client = Arc::new(client);
         self.snapshot = snapshot;
         self.machine_lifecycle_snapshot = machine_lifecycle_snapshot;
         self.workspace_snapshot = workspace_snapshot;
+        if selection_applied {
+            self.accepted_selection = None;
+        }
         self.reconcile_keys();
-        if let Some(notice) = &self.snapshot.notice {
-            self.notice = Some(notice.message.clone());
+        if let Some(notice) = self.snapshot.notice.as_ref().map(|notice| notice.message.clone()) {
+            self.push_notice(notice);
         }
         Ok(())
     }
@@ -845,27 +955,78 @@ impl ProviderMachineRuntime {
         &mut self,
         key: MachineKey,
         mode: protocol::WorkspaceCreateMode,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<MachineActionResult> {
         let result =
             self.client.create_workspace(self.machine_id(key)?, mode, self.next_mutation_id()?)?;
         self.set_notice(result.notice);
-        self.refresh()
+        Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
+            runtime.refresh()?;
+            Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+        }))
     }
 
     fn finish_accepted_workspace_mutation(
         &mut self,
         mutation: ManagedWorkspaceSessionMutation,
     ) -> MachineActionResult {
-        let refresh_error = self.refresh().err();
-        let mut ui = self.ui_state_for_open_connection();
-        if let Some(error) = refresh_error {
-            ui.notice = Some(format!(
-                "{}: {error}",
-                localization::catalog().sidebar.machine_provider_update_failed
-            ));
-            ui.request = Some(MachineRequest::ReconnectProvider);
+        self.finish_accepted_action(
+            AcceptedProviderEffects {
+                session_mutation: Some(mutation),
+                ..AcceptedProviderEffects::default()
+            },
+            |runtime| {
+                runtime.refresh()?;
+                Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+            },
+        )
+    }
+
+    fn finish_accepted_action(
+        &mut self,
+        effects: AcceptedProviderEffects,
+        completion: impl FnOnce(&mut Self) -> anyhow::Result<MachineActionResult>,
+    ) -> MachineActionResult {
+        let mut reconciliation_failed = false;
+        let mut result = match completion(self) {
+            Ok(result) => result,
+            Err(error) => {
+                reconciliation_failed = true;
+                let mut ui = self.ui_state_for_open_connection();
+                append_notice(
+                    &mut ui.notice,
+                    format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_provider_update_failed
+                    ),
+                );
+                ui.request = Some(MachineRequest::ReconnectProvider);
+                MachineActionResult::ui(ui)
+            }
+        };
+        if self.accepted_selection.is_some() {
+            result.ui.request = Some(MachineRequest::ReconnectProvider);
         }
-        MachineActionResult::ui(ui).with_session_mutation(mutation)
+        if let Some(mutation) = effects.session_mutation {
+            result = result.with_session_mutation(mutation);
+        }
+        if let Some(label) = effects.session_label {
+            result = result.with_session_label(label);
+        }
+        if reconciliation_failed && effects.retire_open_on_failure {
+            let label = self
+                .open
+                .as_ref()
+                .and_then(|open| {
+                    self.snapshot.machines.iter().find(|machine| machine.id == open.machine_id)
+                })
+                .map(|machine| machine.display_name.clone())
+                .unwrap_or_else(|| "machines".to_string());
+            self.stage_mandatory_replacement(None);
+            result.replacement =
+                Some(crate::machine::MachineSession { session: placeholder_session(), label });
+            result.restart_updates = true;
+        }
+        result
     }
 
     fn stage_connection(
@@ -882,8 +1043,15 @@ impl ProviderMachineRuntime {
             }
             anyhow::bail!(localization::catalog().sidebar.machine_replacement_pending)
         }
-        self.pending = Some(PendingConnection { candidate, rollback });
+        self.pending = Some(PendingConnection { candidate, rollback, retire_open_on_abort: false });
         Ok(())
+    }
+
+    fn stage_mandatory_replacement(&mut self, candidate: Option<OpenConnection>) {
+        debug_assert!(self.pending.is_none());
+        self.abort_replacement();
+        self.pending =
+            Some(PendingConnection { candidate, rollback: None, retire_open_on_abort: true });
     }
 
     fn commit_replacement(&mut self) -> anyhow::Result<()> {
@@ -904,6 +1072,9 @@ impl ProviderMachineRuntime {
         }
         if let Some(rollback) = pending.rollback {
             self.restore_selection(rollback);
+        }
+        if pending.retire_open_on_abort {
+            self.close_open_connection();
         }
     }
 
@@ -979,9 +1150,21 @@ impl ProviderMachineRuntime {
 
     fn set_notice(&mut self, notice: Option<protocol::ProviderNotice>) {
         if let Some(notice) = notice {
-            self.notice = Some(notice.message);
+            self.push_notice(notice.message);
         }
     }
+
+    fn push_notice(&mut self, notice: impl Into<String>) {
+        append_notice(&mut self.notice, notice);
+    }
+}
+
+fn append_notice(notice: &mut Option<String>, message: impl Into<String>) {
+    let message = message.into();
+    *notice = Some(match notice.take() {
+        Some(existing) => format!("{existing}\n{message}"),
+        None => message,
+    });
 }
 
 fn merge_local_machine_ui(
@@ -1570,20 +1753,22 @@ mod tests {
         DeleteMachine,
         RestoreMachine,
         PurgeMachine,
-        CreateWorkspace,
+        CreateIsolatedWorkspace,
+        CreateHostWorkspace,
         RestoreWorkspace,
         PurgeWorkspace,
         InvokeAction,
     }
 
     impl AcceptedMutationKind {
-        const ALL: [Self; 9] = [
+        const ALL: [Self; 10] = [
             Self::CreateMachine,
             Self::RenameMachine,
             Self::DeleteMachine,
             Self::RestoreMachine,
             Self::PurgeMachine,
-            Self::CreateWorkspace,
+            Self::CreateIsolatedWorkspace,
+            Self::CreateHostWorkspace,
             Self::RestoreWorkspace,
             Self::PurgeWorkspace,
             Self::InvokeAction,
@@ -1610,8 +1795,11 @@ mod tests {
             AcceptedMutationKind::PurgeMachine => {
                 MachineRequest::PurgeManagedMachine { machine, expected_version: 1 }
             }
-            AcceptedMutationKind::CreateWorkspace => {
+            AcceptedMutationKind::CreateIsolatedWorkspace => {
                 MachineRequest::CreateManagedIsolatedWorkspace(machine)
+            }
+            AcceptedMutationKind::CreateHostWorkspace => {
+                MachineRequest::CreateManagedHostWorkspace(machine)
             }
             AcceptedMutationKind::RestoreWorkspace => MachineRequest::RestoreManagedWorkspace {
                 machine,
@@ -1646,7 +1834,10 @@ mod tests {
                         protocol::CreateMachineResult {
                             machine_id: id("created-machine"),
                             revision: 2,
-                            notice: None,
+                            notice: Some(protocol::ProviderNotice {
+                                level: protocol::NoticeLevel::Info,
+                                message: format!("accepted {kind:?}"),
+                            }),
                         },
                     ),
                 );
@@ -1663,7 +1854,10 @@ mod tests {
                             machine_id: id("machine-1"),
                             version: 2,
                             revision: 2,
-                            notice: None,
+                            notice: Some(protocol::ProviderNotice {
+                                level: protocol::NoticeLevel::Info,
+                                message: format!("accepted {kind:?}"),
+                            }),
                         },
                     ),
                 );
@@ -1682,20 +1876,30 @@ mod tests {
                             machine_id: id("machine-1"),
                             version: 2,
                             revision: 2,
-                            notice: None,
+                            notice: Some(protocol::ProviderNotice {
+                                level: protocol::NoticeLevel::Info,
+                                message: format!("accepted {kind:?}"),
+                            }),
                         },
                     ),
                 );
             }
             (
-                AcceptedMutationKind::CreateWorkspace,
+                AcceptedMutationKind::CreateIsolatedWorkspace
+                | AcceptedMutationKind::CreateHostWorkspace,
                 protocol::ProviderRequest::CreateWorkspace(_),
             ) => {
                 write_frame(
                     stream,
                     &protocol::ResponseEnvelope::success(
                         request_id,
-                        protocol::CreateWorkspaceResult { revision: 2, notice: None },
+                        protocol::CreateWorkspaceResult {
+                            revision: 2,
+                            notice: Some(protocol::ProviderNotice {
+                                level: protocol::NoticeLevel::Info,
+                                message: format!("accepted {kind:?}"),
+                            }),
+                        },
                     ),
                 );
             }
@@ -1715,7 +1919,10 @@ mod tests {
                             workspace_id: id("workspace-1"),
                             version: 2,
                             revision: 2,
-                            notice: None,
+                            notice: Some(protocol::ProviderNotice {
+                                level: protocol::NoticeLevel::Info,
+                                message: format!("accepted {kind:?}"),
+                            }),
                         },
                     ),
                 );
@@ -1727,8 +1934,11 @@ mod tests {
                         request_id,
                         protocol::InvokeActionResult {
                             revision: 2,
-                            notice: None,
-                            url: None,
+                            notice: Some(protocol::ProviderNotice {
+                                level: protocol::NoticeLevel::Info,
+                                message: format!("accepted {kind:?}"),
+                            }),
+                            url: Some("https://example.com/accepted".into()),
                             selected_scope_id: None,
                             selected_machine_id: None,
                         },
@@ -1797,8 +2007,34 @@ mod tests {
                             .is_some_and(|notice| notice.contains("refresh failed after accepted")),
                         "accepted {kind:?} did not surface its refresh failure"
                     );
+                    assert!(
+                        result
+                            .ui
+                            .notice
+                            .as_deref()
+                            .is_some_and(|notice| notice.contains(&format!("accepted {kind:?}"))),
+                        "accepted {kind:?} lost its provider notice"
+                    );
+                    if matches!(kind, AcceptedMutationKind::InvokeAction) {
+                        assert!(
+                            result.ui.notice.as_deref().is_some_and(|notice| {
+                                notice.contains("https://example.com/accepted")
+                            }),
+                            "accepted provider action lost its URL"
+                        );
+                    }
                     if matches!(kind, AcceptedMutationKind::RenameMachine) {
                         assert_eq!(result.session_label.as_deref(), Some("Renamed"));
+                    }
+                    if matches!(kind, AcceptedMutationKind::CreateMachine) {
+                        assert_eq!(
+                            runtime
+                                .accepted_selection
+                                .as_ref()
+                                .and_then(|selection| selection.machine_id.as_ref())
+                                .map(protocol::OpaqueId::as_str),
+                            Some("created-machine")
+                        );
                     }
                 }
                 Err(error) => rejected.push(format!("{kind:?}: {error}")),
