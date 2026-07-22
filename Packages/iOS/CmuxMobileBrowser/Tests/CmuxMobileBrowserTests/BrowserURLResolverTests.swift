@@ -73,13 +73,15 @@ import Testing
     }
 
     @Test func wrappedTextCannotConstructADifferentAuthority() {
-        let input = "https://trusted.example\n@evil.example/path"
+        let explicitInput = "https://trusted.example\n@evil.example/path"
+        let schemeLessInput = "trusted.example\n@evil.example/path"
 
-        #expect(BrowserURLResolver.resolve(input)?.host == "duckduckgo.com")
+        #expect(BrowserURLResolver.resolve(explicitInput)?.host == "duckduckgo.com")
         #expect(
-            BrowserURLResolver.resolve(input.replacingOccurrences(of: "\n", with: " "))?.host ==
+            BrowserURLResolver.resolve(explicitInput.replacingOccurrences(of: "\n", with: " "))?.host ==
                 "duckduckgo.com"
         )
+        #expect(BrowserURLResolver.resolve(schemeLessInput)?.host == "duckduckgo.com")
     }
 
     @Test func httpSchemeIsPreserved() {
@@ -107,8 +109,9 @@ import Testing
             BrowserURLResolver.resolve("example.com/path?x=1")?.absoluteString ==
                 "https://example.com/path?x=1"
         )
+        #expect(BrowserURLResolver.resolve("example.\ncom/path?x=1")?.host == "duckduckgo.com")
         #expect(
-            BrowserURLResolver.resolve("example.\ncom/path?x=1")?.absoluteString ==
+            BrowserURLResolver.resolve("example.com/path?\nx=1")?.absoluteString ==
                 "https://example.com/path?x=1"
         )
         #expect(BrowserURLResolver.resolve("node.js tutorial")?.host == "duckduckgo.com")

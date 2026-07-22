@@ -78,11 +78,16 @@ import Testing
     }
 
     @Test func doesNotCompactTextThatConstructsADifferentAuthority() {
-        let input = "https://trusted.example\n@evil.example/path"
+        let explicitInput = "https://trusted.example\n@evil.example/path"
+        let schemeLessInput = "trusted.example\n@evil.example/path"
 
-        #expect(resolver.textForPaste(input) == input)
-        #expect(resolver.navigableURL(from: input) == nil)
-        #expect(resolver.navigableURL(from: input.replacingOccurrences(of: "\n", with: " ")) == nil)
+        #expect(resolver.textForPaste(explicitInput) == explicitInput)
+        #expect(resolver.navigableURL(from: explicitInput) == nil)
+        #expect(
+            resolver.navigableURL(from: explicitInput.replacingOccurrences(of: "\n", with: " ")) == nil
+        )
+        #expect(resolver.textForPaste(schemeLessInput) == schemeLessInput)
+        #expect(resolver.navigableURL(from: schemeLessInput) == nil)
     }
 
     @Test func preservesExistingNavigationAndSearchBoundaries() throws {
@@ -91,8 +96,9 @@ import Testing
             try #require(resolver.navigableURL(from: "example.com/path?x=1")).absoluteString ==
                 "https://example.com/path?x=1"
         )
+        #expect(resolver.navigableURL(from: "example.\ncom/path?x=1") == nil)
         #expect(
-            try #require(resolver.navigableURL(from: "example.\ncom/path?x=1")).absoluteString ==
+            try #require(resolver.navigableURL(from: "example.com/path?\nx=1")).absoluteString ==
                 "https://example.com/path?x=1"
         )
         #expect(resolver.navigableURL(from: "node.js tutorial") == nil)
