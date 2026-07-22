@@ -1,17 +1,12 @@
-name: iOS TestFlight (beta)
+name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # No push trigger. A TestFlight upload is a release action: you only ever want
-  # the LATEST main state in beta, exactly once per change, never one upload per
-  # commit. Triggering on every iOS-affecting push forced a concurrency group to
-  # dedup concurrent uploads, and GitHub cancels the superseded *pending* runs in
-  # that group during merge bursts; those cancelled runs surface as red checks on
-  # the intermediate main commits, making main look like CI is failing. The
-  # schedule below already SHA-compares HEAD to the last uploaded commit (the
-  # `decide` job), which is the correct primitive for a beta lane: it uploads the
-  # current main only when it has actually advanced, and skips (green) otherwise.
-  # For an immediate beta, use workflow_dispatch; intentional cuts go through the
-  # release flow. See nightly.yml for the rolling dogfood lane.
+  # Every main commit gets its own cmux INTERNAL build. Do not add a path filter:
+  # the contract is one TestFlight upload for every main change, regardless of
+  # which part of the repository changed.
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       build_number:
@@ -22,40 +17,12 @@ on:
         description: Optional one-time MARKETING_VERSION override (for example 1.0.1)
         required: false
         default: ""
-      force:
-        # Manual (workflow_dispatch) runs always upload, so this only documents
-        # intent. It exists so the no-new-commits skip can be bypassed if the
-        # 24h commit-window check is ever extended to dispatch runs.
-        description: Force an upload (manual runs already always upload)
-        required: false
-        default: false
-        type: boolean
-  schedule:
-    # Every ~2h (at :17 to stay off the top-of-hour rush). The decide job skips a
-    # run when the current main HEAD was already uploaded by a prior successful
-    # run (SHA compare, not a wall-clock window), and also when main advanced but
-    # the diff since the last uploaded beta touches no iOS-affecting path (every
-    # upload notifies every TestFlight tester, so web-only / macOS-only merges
-    # must not ship a new beta). An iOS-affecting change still reaches the
-    # TestFlight beta lane within ~2h of landing on main, and a failed or missed
-    # run retries the not-yet-uploaded commit instead of permanently stranding
-    # it. These uploads are external-eligible too, and reuse
-    # CMUX_IOS_BETA_MARKETING_VERSION so external testers receive new builds under
-    # the already-approved beta version until that version is intentionally bumped.
-    #
-    # Why ~2h and not a push trigger / per-commit: a per-push lane needs either a
-    # shared concurrency group (which cancels superseded pending runs into red
-    # checks) or per-SHA concurrency (which removes the serialization that keeps
-    # parallel archives from racing on the timestamp build number). ~2h spacing
-    # keeps runs from overlapping (an archive+upload takes ~30-60m), so this
-    # single per-ref lane stays serialized and uploads never collide. If faster
-    # turnaround is ever needed, tighten the interval (still > one archive's
-    # duration) rather than adding a push trigger.
-    - cron: "17 */2 * * *"
 
 concurrency:
-  group: ios-testflight-${{ github.ref_name }}
-  # Queue concurrent runs instead of canceling them so no upload is lost.
+  # A shared group keeps only one pending run and silently replaces older pending
+  # SHAs during merge bursts. Key push runs by SHA so every main commit survives.
+  # Manual runs use run_id because an operator may intentionally rebuild a SHA.
+  group: ios-testflight-${{ github.event_name == 'push' && github.sha || github.run_id }}
   cancel-in-progress: false
 
 permissions:
@@ -65,46 +32,84 @@ permissions:
 
 jobs:
   decide:
-    name: Decide whether a TestFlight upload is needed
+    name: Order main uploads and resolve prior build
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    timeout-minutes: 360
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
-      should_assign_only: ${{ steps.decide.outputs.should_assign_only }}
       last_uploaded_sha: ${{ steps.decide.outputs.last_uploaded_sha }}
-      last_uploaded_run_id: ${{ steps.decide.outputs.last_uploaded_run_id }}
     steps:
       - name: Decide whether a TestFlight upload is needed
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
         with:
           script: |
-            const forceBuild = process.env.FORCE_BUILD === 'true';
             const { owner, repo } = context.repo;
 
-            // The head_sha of the most recent CANONICAL run on main whose *upload
-            // job* succeeded is the last uploaded beta commit. We intentionally do
-            // NOT key this off whole-workflow success: a later post-upload job (for
-            // example external-group assignment) may fail after the IPA has already
-            // been uploaded, and re-uploading the same SHA on the next schedule
-            // would create duplicate TestFlight builds for one commit. We always
-            // resolve this SHA so the schedule SHA-compare can skip an already-
-            // uploaded HEAD, AND the upload job can use it as the base of the
-            // "What to Test" commit range. branch:'main' is required: the upload
-            // job is gated on github.ref == 'refs/heads/main', so a
-            // workflow_dispatch run on a feature branch can succeed without
-            // uploading anything. Without this filter its branch SHA would become
-            // last_uploaded_sha and poison the next real beta's notes base (the
-            // generator also fails closed to a fallback line when the base is not
-            // an ancestor of HEAD).
+            // Per-SHA workflow concurrency preserves every push, but it also lets
+            // several runs reach App Store Connect at once. Build numbers must be
+            // uploaded monotonically, so wait on a cheap Linux runner until every
+            // earlier main-push run has finished its upload job. Assignment can
+            // continue independently after the upload completes.
+            if (context.ref === 'refs/heads/main') {
+              const currentRunId = Number(context.runId);
+              const maxWaits = 300;
+              for (let wait = 0; wait < maxWaits; wait += 1) {
+                const runs = await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: 'ios-testflight.yml',
+                  branch: 'main',
+                  per_page: 100,
+                });
+                const earlierActiveRuns = runs.data.workflow_runs.filter(
+                  (run) =>
+                    Number(run.id) < currentRunId &&
+                    run.status !== 'completed' &&
+                    ['push', 'workflow_dispatch', 'schedule'].includes(run.event)
+                );
+                const blockingRuns = [];
+                for (const run of earlierActiveRuns) {
+                  const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                    owner,
+                    repo,
+                    run_id: run.id,
+                    per_page: 100,
+                  });
+                  const uploadJob = jobs.data.jobs.find(
+                    (job) => job.name === 'Upload to TestFlight'
+                  );
+                  if (!uploadJob || uploadJob.status !== 'completed') {
+                    blockingRuns.push(run.id);
+                  }
+                }
+                if (blockingRuns.length === 0) break;
+                if (wait === maxWaits - 1) {
+                  core.setFailed(
+                    `timed out waiting for earlier main TestFlight upload run(s): ${blockingRuns.join(', ')}`
+                  );
+                  return;
+                }
+                if (wait % 5 === 0) {
+                  core.info(
+                    `waiting for earlier main TestFlight upload run(s): ${blockingRuns.join(', ')}`
+                  );
+                }
+                await new Promise((resolve) => setTimeout(resolve, 60_000));
+              }
+            }
+
+            // Resolve the most recent successful canonical upload as the base for
+            // this build's "What to Test" commit range. Key off the upload job,
+            // not whole-workflow success, because internal-group assignment happens
+            // after the IPA is already in App Store Connect. Restrict the lookup to
+            // main so a blocked feature-branch dispatch cannot poison the notes base.
             //
             // Manual marketing-version-override uploads are deliberately excluded
             // from this canonical lane. They ship the current main SHA under an
             // operator-selected beta marketing version as a one-off escape hatch, but
-            // they must NOT suppress the next scheduled canonical beta for the
-            // same commit. Override runs upload a dedicated
+            // they must not become the notes base for the next canonical main
+            // upload. Override runs upload a dedicated
             // ios-testflight-build-metadata-override artifact instead of the
             // canonical ios-testflight-build-metadata artifact, and we skip only
             // those runs here.
@@ -115,10 +120,6 @@ jobs:
             // is necessarily a normal immediate beta cut and SHOULD count as the
             // last canonical upload.
             let lastUploadedSha = null;
-            let lastUploadedRunId = null;
-            let lastAssignmentSucceeded = false;
-            let lastAssignmentRetrySupported = false;
-            let lookupFailed = false;
             try {
               for (let page = 1; page <= 20 && !lastUploadedSha; page += 1) {
                 const runs = await github.rest.actions.listWorkflowRuns({
@@ -130,7 +131,7 @@ jobs:
                   page,
                 });
                 for (const run of runs.data.workflow_runs) {
-                  if (run.id === context.runId || run.status !== 'completed') continue;
+                  if (run.id === context.runId) continue;
                   const jobs = await github.rest.actions.listJobsForWorkflowRun({
                     owner,
                     repo,
@@ -155,166 +156,35 @@ jobs:
                       continue;
                     }
                     lastUploadedSha = run.head_sha;
-                    lastUploadedRunId = String(run.id);
-                    const assignJob = jobs.data.jobs.find(
-                      (job) =>
-                        job.name === 'Assign build to internal TestFlight group' ||
-                        job.name === 'Assign build to external TestFlight group'
-                    );
-                    // Older successful upload runs predate the external-assignment
-                    // job and metadata artifact entirely. Those runs uploaded the
-                    // current main SHA, but they are NOT safe to treat as
-                    // assign-only retry candidates because there is no artifact to
-                    // download and the build may not even be external-eligible.
-                    // Only the post-migration workflow shape can enter the
-                    // assignment-only path.
-                    lastAssignmentRetrySupported = !!assignJob;
-                    // A same-version sibling already in Beta App Review is a
-                    // legitimate "pending" state outside CI's control, so the
-                    // assign job returns success but uploads a dedicated pending
-                    // artifact. That lets the schedule retry assignment-only
-                    // later without turning the current main commit red.
-                    //
-                    // Fail closed for RECENT pre-migration success runs that
-                    // have NO assignment-state artifact at all. The old helper
-                    // could report success both when the build was truly
-                    // complete and when it was merely pending behind a sibling
-                    // review, so a fresh missing-state run should be retried; a
-                    // genuinely-complete build will short-circuit quickly on
-                    // the recheck.
-                    //
-                    // Do NOT fail closed forever: artifacts expire after 30
-                    // days, and an idle main branch must not fall into
-                    // permanent red assign-only retries just because historical
-                    // metadata aged out. Once the run is past the retention
-                    // horizon, treat missing state as effectively complete.
-                    const assignmentComplete =
-                      artifactNames.has('ios-testflight-assignment-state-complete');
-                    const assignmentPending =
-                      artifactNames.has('ios-testflight-assignment-state-pending');
-                    const runAgeMs = Date.now() - Date.parse(run.created_at);
-                    const assignmentArtifactRetentionMs = 30 * 24 * 60 * 60 * 1000;
-                    const assignmentStateExpired = runAgeMs > assignmentArtifactRetentionMs;
-                    lastAssignmentSucceeded =
-                      assignJob?.conclusion === 'success' &&
-                      (assignmentComplete || (!assignmentPending && assignmentStateExpired));
                     break;
                   }
                 }
                 if (runs.data.workflow_runs.length < 100) break;
               }
             } catch (e) {
-              lookupFailed = true;
               core.warning(`could not resolve last uploaded sha: ${e.message}`);
             }
 
-            // A scheduled run must FAIL CLOSED when the history lookup ERRORED: a
-            // null last-uploaded SHA reads as "not HEAD" below, so the lane would
-            // re-upload the same already-shipped main commit every 2h with a fresh
-            // build number and fallback notes. Before this job wrapped the lookup in
-            // try/catch the throw failed the job here; preserve that. A genuine
-            // no-prior-run (the API SUCCEEDED but returned no runs) is NOT a failure:
-            // lookupFailed stays false and the first beta builds normally.
-            if (context.eventName === 'schedule' && lookupFailed) {
-              core.setFailed('could not resolve the last uploaded beta SHA (workflow run history lookup failed); refusing to auto-upload to avoid duplicate TestFlight builds');
-              return;
-            }
-
-            // workflow_dispatch always builds (the operator asked for it).
-            // Scheduled runs build unless HEAD was ALREADY uploaded by a prior
-            // successful run (a SHA compare, not a wall-clock window: a failed or
-            // missed run leaves the last success on an older SHA, so the next run
-            // retries the un-uploaded commit instead of stranding it).
-            let needsBuild = true;
-            if (!forceBuild && context.eventName === 'schedule') {
-              needsBuild = lastUploadedSha !== context.sha;
-            }
-
-            // Path gate: even when main advanced, a scheduled beta only ships if
-            // the range since the last uploaded beta touches something that can
-            // change the iOS IPA. Every TestFlight upload notifies every tester,
-            // so web-only / macOS-only / docs-only merges must not produce a new
-            // build. The path set mirrors test-ios.yml's should_run gate plus the
-            // inputs the archive actually consumes: the ghostty submodule pointer
-            // (GhosttyKit is linked into the app), the GhosttyKit provisioning
-            // scripts, the zig toolchain pin, and this workflow itself (archive /
-            // export settings live here). This gate FAILS OPEN (builds anyway) on
-            // any doubt - a compare-API error, a diverged range, a >=300-file
-            // diff where the API truncates the file list - because a spurious
-            // upload costs one notification while a wrong skip silently strands
-            // an iOS change out of beta.
-            const iosPathPattern = /^(ios\/|Packages\/Shared\/|Packages\/iOS\/|Sources\/Mobile\/|vendor\/stack-auth-swift-sdk-prerelease\/|ghostty$|scripts\/ensure-ghosttykit\.sh$|scripts\/ghosttykit-checksums\.txt$|scripts\/install-zig-ci\.sh$|\.github\/workflows\/ios-testflight\.yml$)/;
-            let iosPathsChanged = 'not-evaluated';
-            if (!forceBuild && context.eventName === 'schedule' && needsBuild && lastUploadedSha) {
-              try {
-                const compare = await github.rest.repos.compareCommitsWithBasehead({
-                  owner,
-                  repo,
-                  basehead: `${lastUploadedSha}...${context.sha}`,
-                });
-                const files = compare.data.files || [];
-                if (compare.data.status !== 'ahead') {
-                  core.warning(`compare status is '${compare.data.status}', not 'ahead'; assuming iOS paths changed`);
-                  iosPathsChanged = 'assumed (non-linear history)';
-                } else if (files.length >= 300) {
-                  // The compare API caps the files list at 300 entries.
-                  core.warning('diff since last upload has >=300 files (API truncates); assuming iOS paths changed');
-                  iosPathsChanged = 'assumed (diff too large)';
-                } else {
-                  const changed = files.some(
-                    (f) =>
-                      iosPathPattern.test(f.filename) ||
-                      (f.previous_filename && iosPathPattern.test(f.previous_filename))
-                  );
-                  iosPathsChanged = String(changed);
-                  if (!changed) {
-                    needsBuild = false;
-                    core.notice(`skipping TestFlight upload: ${files.length} changed file(s) since ${lastUploadedSha} touch no iOS-affecting path`);
-                  }
-                }
-              } catch (e) {
-                core.warning(`could not diff ${lastUploadedSha}...${context.sha}; assuming iOS paths changed: ${e.message}`);
-                iosPathsChanged = 'assumed (compare failed)';
-              }
-            }
-
-            // Retry a not-yet-complete external-group assignment whenever this
-            // run is NOT building: both when HEAD was already uploaded and when
-            // the path gate skipped a non-iOS range (the previously uploaded
-            // build is still the current beta and its assignment must not be
-            // stranded until the next iOS change lands).
-            const shouldAssignOnly =
-              !forceBuild &&
-              context.eventName === 'schedule' &&
-              !needsBuild &&
-              lastAssignmentRetrySupported &&
-              !lastAssignmentSucceeded;
-
+            // Push and manual runs always build. There is deliberately no SHA or
+            // path gate: every main push owns one CMUX INTERNAL upload.
             const shouldBuild =
-              forceBuild || context.eventName === 'workflow_dispatch' || needsBuild;
+              context.eventName === 'push' || context.eventName === 'workflow_dispatch';
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
-            core.setOutput('should_assign_only', shouldAssignOnly ? 'true' : 'false');
             core.setOutput('last_uploaded_sha', lastUploadedSha || '');
-            core.setOutput('last_uploaded_run_id', lastUploadedRunId || '');
             core.summary
               .addHeading('iOS TestFlight upload decision')
               .addTable([
                 [{ data: 'event', header: true }, context.eventName],
-                [{ data: 'force', header: true }, String(forceBuild)],
                 [{ data: 'head sha', header: true }, context.sha],
-                [{ data: 'last uploaded sha (schedule only)', header: true }, String(lastUploadedSha)],
-                [{ data: 'last uploaded run id', header: true }, String(lastUploadedRunId)],
-                [{ data: 'ios paths changed since last upload', header: true }, iosPathsChanged],
-                [{ data: 'last external assignment succeeded', header: true }, String(lastAssignmentSucceeded)],
+                [{ data: 'last uploaded sha (notes base)', header: true }, String(lastUploadedSha)],
                 [{ data: 'should build', header: true }, String(shouldBuild)],
-                [{ data: 'should assign only', header: true }, String(shouldAssignOnly)],
               ])
               .write();
 
   upload:
     name: Upload to TestFlight
     needs: decide
-    # Only ever publish from main. push/schedule always run on main; this also
+    # Only ever publish from main. Push runs always use main; this also
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
@@ -483,7 +353,7 @@ jobs:
         id: upload
         env:
           # Only set for manual workflow_dispatch with an explicit build number.
-          # For push/schedule this is empty and the script generates a monotonic
+          # For push this is empty and the script generates a monotonic
           # 14-digit UTC timestamp itself (single source of the numbering scheme,
           # so the workflow can't drift from it the way it did before). An empty
           # value here means "let the script decide", which also keeps the guard's
@@ -500,7 +370,7 @@ jobs:
           # Optional manual one-off override that reuses an older approved beta
           # marketing version so external testers can install it immediately.
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
-          # Display name for scheduled internal builds (auto-synced to internal group).
+          # Display name for automatic internal builds (auto-synced to internal group).
           IOS_BETA_DISPLAY_NAME: cmux INTERNAL
           # Internal builds use separate bundle ID (dev.cmux.app.internal) so internal
           # and external can coexist on same device.
@@ -525,8 +395,8 @@ jobs:
               --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
               --skip-notes
           else
-            # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for scheduled betas.
-            # Scheduled builds use:
+            # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for automatic betas.
+            # Main-push builds use:
             # - "cmux INTERNAL" display name
             # - dev.cmux.app.internal bundle ID (separate app, can coexist with external)
             # - assigned to internal TestFlight group for dogfooding within the team
@@ -606,7 +476,7 @@ jobs:
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && github.ref == 'refs/heads/main' && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
+    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
@@ -619,24 +489,10 @@ jobs:
       # or --group-name"), which failed every internal assignment while both
       # repo variables were wired in.
       CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}
-      GH_TOKEN: ${{ github.token }}
-      SHOULD_BUILD: ${{ needs.decide.outputs.should_build }}
-      SHOULD_ASSIGN_ONLY: ${{ needs.decide.outputs.should_assign_only }}
-      LAST_UPLOADED_RUN_ID: ${{ needs.decide.outputs.last_uploaded_run_id }}
       BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Restore previous uploaded build metadata
-        if: env.SHOULD_ASSIGN_ONLY == 'true'
-        run: |
-          set -euo pipefail
-          gh run download "$LAST_UPLOADED_RUN_ID" --repo manaflow-ai/cmux \
-            -n ios-testflight-build-metadata \
-            -D "$RUNNER_TEMP/ios-testflight-build"
-          BUILD_NUMBER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_number"])' "$RUNNER_TEMP/ios-testflight-build/ios-testflight-build.json")"
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
 
       - name: Assign uploaded build to the internal beta group
         id: assign
