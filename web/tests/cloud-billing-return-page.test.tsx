@@ -76,6 +76,11 @@ describe("cloud billing return page", () => {
         title: "Back from the billing portal",
       },
       {
+        accepted: "en-US,ja",
+        locale: "en",
+        title: "Back from the billing portal",
+      },
+      {
         accepted: "ja;q=0,en;q=0.5",
         locale: "en",
         title: "Back from the billing portal",

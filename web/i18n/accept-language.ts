@@ -22,8 +22,8 @@ export function preferredLocaleFromAcceptLanguage(
     .sort(
       (left, right) =>
         right.quality - left.quality ||
-        right.specificity - left.specificity ||
         left.index - right.index ||
+        right.specificity - left.specificity ||
         left.localeIndex - right.localeIndex,
     )[0];
 
