@@ -70,6 +70,26 @@ struct ArtifactCaptureServiceTests {
         #expect(await store.importCount == 1)
     }
 
+    @Test("Manual selections share configuration and use bounded persistence batches")
+    func batchesManualSelection() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        var configuration = ArtifactCaptureConfiguration.defaultValue
+        configuration.maximumFilesPerCapture = 2
+        let store = ConfiguredArtifactStore(configuration: configuration)
+        let sources = (0..<5).map { root.appendingPathComponent("artifact-\($0).md") }
+
+        let attempts = await ArtifactCaptureService(store: store).add(
+            sourceURLs: sources,
+            context: ArtifactCaptureContext(projectRoot: root)
+        )
+
+        #expect(attempts.count == sources.count)
+        #expect(await store.configurationReadCount == 1)
+        #expect(await store.batchImportCount == 3)
+        #expect(await store.importCount == sources.count)
+    }
+
     @Test("Ephemeral prefixes match canonical macOS path aliases")
     func matchesCanonicalTemporaryAlias() throws {
         let temporary = try ArtifactTestSupport.temporaryDirectory()

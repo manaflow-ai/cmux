@@ -190,21 +190,18 @@ public final class ArtifactSidebarModel {
             workspaceID: workspace.id,
             workspaceTitle: workspace.title
         )
-        do {
-            for url in urls {
-                try Task.checkCancellation()
-                _ = try await captureService.add(
-                    sourceURL: url,
-                    context: context,
-                    capturedAt: .now
-                )
-            }
-            try Task.checkCancellation()
-            await reload(projectRoot: projectRoot, revision: bindingRevision)
-        } catch is CancellationError {
-            return
-        } catch {
-            guard !Task.isCancelled else { return }
+        let attempts = await captureService.add(
+            sourceURLs: urls,
+            context: context,
+            capturedAt: .now
+        )
+        guard !Task.isCancelled else { return }
+        await reload(projectRoot: projectRoot, revision: bindingRevision)
+        guard !Task.isCancelled else { return }
+        if attempts.contains(where: { attempt in
+            if case .rejected = attempt { return true }
+            return false
+        }) {
             actionFailure = .add
         }
     }

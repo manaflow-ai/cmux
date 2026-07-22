@@ -18,4 +18,6 @@ public enum ArtifactStoreError: Error, Equatable, Sendable {
     case corruptProvenance(String)
     /// Git does not prove the local artifact store is ignored and untracked.
     case gitPrivacyUnavailable(String)
+    /// Another app or CLI process currently owns the artifact mutation boundary.
+    case storeBusy(String)
 }

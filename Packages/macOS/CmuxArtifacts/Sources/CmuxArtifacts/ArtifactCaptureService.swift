@@ -74,26 +74,46 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         return outcomes.map { $0 ?? .skipped(.notARegularFile) }
     }
 
-    /// Explicitly adds one file through the same validated persistence path.
+    /// Explicitly adds files through the same validated persistence path.
+    ///
+    /// Large user selections are split into policy-sized persistence batches so
+    /// each batch shares one bounded deduplication scan without exceeding the
+    /// project's automatic-capture work limit.
     ///
     /// - Parameters:
-    ///   - sourceURL: Existing regular file to add.
+    ///   - sourceURLs: Existing regular files to add.
     ///   - context: Project, workspace, and session grouping identity.
     ///   - capturedAt: Timestamp recorded in provenance.
-    /// - Returns: Copy, deduplication, or already-stored result.
+    /// - Returns: One import attempt per source URL, preserving input order.
     public func add(
-        sourceURL: URL,
+        sourceURLs: [URL],
         context: ArtifactCaptureContext,
         capturedAt: Date = .now
-    ) async throws -> ArtifactImportOutcome {
-        let configuration = await store.configuration(projectRoot: context.projectRoot)
-        return try await store.importFile(
-            sourceURL: sourceURL,
-            context: context,
-            provenance: .manual,
-            configuration: configuration,
-            capturedAt: capturedAt
-        )
+    ) async -> [ArtifactImportAttempt] {
+        guard !sourceURLs.isEmpty else { return [] }
+        let configuration = await store.configuration(projectRoot: context.projectRoot).normalized
+        let batchSize = configuration.maximumFilesPerCapture
+        var attempts: [ArtifactImportAttempt] = []
+        attempts.reserveCapacity(sourceURLs.count)
+        var batchStart = sourceURLs.startIndex
+        while batchStart < sourceURLs.endIndex {
+            let batchEnd = sourceURLs.index(
+                batchStart,
+                offsetBy: batchSize,
+                limitedBy: sourceURLs.endIndex
+            ) ?? sourceURLs.endIndex
+            let candidates = sourceURLs[batchStart..<batchEnd].map {
+                ArtifactCandidate(sourceURL: $0, provenance: .manual)
+            }
+            attempts.append(contentsOf: await store.importFiles(
+                candidates: candidates,
+                context: context,
+                configuration: configuration,
+                capturedAt: capturedAt
+            ))
+            batchStart = batchEnd
+        }
+        return attempts
     }
 
     private func isEligible(
@@ -140,6 +160,8 @@ private extension ArtifactStoreError {
             return .corruptProvenance
         case .gitPrivacyUnavailable:
             return .gitPrivacyUnavailable
+        case .storeBusy:
+            return .storeBusy
         }
     }
 }

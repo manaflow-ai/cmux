@@ -153,6 +153,15 @@ public actor LocalArtifactRepository: ArtifactStoring {
         } catch {
             return candidates.map { _ in .rejected(.pathOutsideStore(paths.artifactsRoot.path)) }
         }
+        let mutationLease: ArtifactStoreMutationLease
+        do {
+            mutationLease = try ArtifactStoreMutationLease.acquire(directory: paths.artifactsRoot)
+        } catch let error as ArtifactStoreError {
+            return candidates.map { _ in .rejected(error) }
+        } catch {
+            return candidates.map { _ in .rejected(.pathOutsideStore(paths.artifactsRoot.path)) }
+        }
+        defer { mutationLease.finish() }
         var attempts = Array<ArtifactImportAttempt?>(repeating: nil, count: candidates.count)
         var preparedByIndex: [Int: PreparedArtifactImport] = [:]
         let stagingLease: ArtifactImportStagingLease

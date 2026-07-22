@@ -15,6 +15,21 @@ public protocol ArtifactCapturing: Sendable {
         capturedAt: Date
     ) async -> [ArtifactImportOutcome]
 
+    /// Explicitly adds regular files through the validated capture path.
+    ///
+    /// - Parameters:
+    ///   - sourceURLs: Existing regular files to add.
+    ///   - context: Project and workspace grouping identity.
+    ///   - capturedAt: Timestamp recorded in provenance.
+    /// - Returns: One import attempt per source URL, preserving input order.
+    func add(
+        sourceURLs: [URL],
+        context: ArtifactCaptureContext,
+        capturedAt: Date
+    ) async -> [ArtifactImportAttempt]
+}
+
+public extension ArtifactCapturing {
     /// Explicitly adds one regular file through the validated capture path.
     ///
     /// - Parameters:
@@ -22,9 +37,24 @@ public protocol ArtifactCapturing: Sendable {
     ///   - context: Project and workspace grouping identity.
     ///   - capturedAt: Timestamp recorded in provenance.
     /// - Returns: Copy, deduplication, or already-stored result.
+    /// - Throws: ``ArtifactStoreError`` when repository validation rejects the file.
     func add(
         sourceURL: URL,
         context: ArtifactCaptureContext,
-        capturedAt: Date
-    ) async throws -> ArtifactImportOutcome
+        capturedAt: Date = .now
+    ) async throws -> ArtifactImportOutcome {
+        guard let attempt = await add(
+            sourceURLs: [sourceURL],
+            context: context,
+            capturedAt: capturedAt
+        ).first else {
+            throw ArtifactStoreError.sourceNotRegularFile(sourceURL.path)
+        }
+        switch attempt {
+        case .imported(let outcome):
+            return outcome
+        case .rejected(let error):
+            throw error
+        }
+    }
 }

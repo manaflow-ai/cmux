@@ -102,7 +102,8 @@ struct ArtifactCLITerminalSafetyTests {
 
     private func containsUnsafeTerminalControl(_ text: String) -> Bool {
         text.unicodeScalars.contains { scalar in
-            scalar != "\n" && (scalar.value <= 0x1F || (0x7F...0x9F).contains(scalar.value))
+            scalar.value != 0x0A
+                && (scalar.value <= 0x1F || (0x7F...0x9F).contains(scalar.value))
         }
     }
 }

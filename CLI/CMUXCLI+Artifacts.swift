@@ -10,6 +10,7 @@ extension CMUXCLI {
         let parsed = try artifactArguments(commandArgs)
         let projectRoot = artifactProjectRoot(explicitPath: parsed.projectPath)
         let repository = LocalArtifactRepository()
+        let terminalText = ArtifactTerminalTextSanitizer()
 
         do {
             switch parsed.subcommand {
@@ -31,7 +32,7 @@ extension CMUXCLI {
                         defaultValue: "No artifacts found."
                     ))
                 } else {
-                    files.forEach { print($0.relativePath) }
+                    files.forEach { print(terminalText.sanitize($0.relativePath)) }
                 }
 
             case "path":
@@ -40,7 +41,7 @@ extension CMUXCLI {
                 if jsonOutput {
                     print(jsonString(artifactPayload(node)))
                 } else {
-                    print(node.absolutePath)
+                    print(terminalText.sanitize(node.absolutePath))
                 }
 
             case "open":
@@ -79,7 +80,7 @@ extension CMUXCLI {
                         "result": artifactOutcomeName(outcome),
                     ]))
                 } else {
-                    print(absolutePath)
+                    print(terminalText.sanitize(absolutePath))
                 }
 
             case "search":
@@ -103,9 +104,9 @@ extension CMUXCLI {
                 } else {
                     for result in results {
                         if let snippet = result.snippet {
-                            print("\(result.node.relativePath): \(snippet)")
+                            print(terminalText.sanitize("\(result.node.relativePath): \(snippet)"))
                         } else {
-                            print(result.node.relativePath)
+                            print(terminalText.sanitize(result.node.relativePath))
                         }
                     }
                 }
@@ -114,7 +115,10 @@ extension CMUXCLI {
                 throw CLIError(message: artifactUsage(), exitCode: 2)
             }
         } catch let error as ArtifactStoreError {
-            throw CLIError(message: artifactErrorMessage(error), exitCode: 2)
+            throw CLIError(
+                message: terminalText.sanitize(artifactErrorMessage(error)),
+                exitCode: 2
+            )
         }
     }
 
@@ -279,6 +283,11 @@ extension CMUXCLI {
                 localized: "cli.artifact.error.gitPrivacyUnavailable",
                 defaultValue: "Automatic capture paused because Git does not prove the artifact store is ignored and untracked."
             )
+        case .storeBusy:
+            return String(
+                localized: "cli.artifact.error.storeBusy",
+                defaultValue: "The artifact store is busy. Try again."
+            )
         case .unsupportedExtension:
             return String(
                 localized: "cli.artifact.error.rejectedExtension",
@@ -304,13 +313,14 @@ extension CMUXCLI {
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            throw CLIError(message: String(
+            let message = String(
                 format: String(
                     localized: "cli.artifact.error.openFailed",
                     defaultValue: "Could not open artifact at %@"
                 ),
                 node.absolutePath
-            ))
+            )
+            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(message))
         }
     }
 
@@ -332,6 +342,8 @@ extension CMUXCLI {
             return String(format: String(localized: "cli.artifact.error.corruptProvenance", defaultValue: "Artifact provenance metadata is corrupt: %@"), path)
         case .gitPrivacyUnavailable(let path):
             return String(format: String(localized: "cli.artifact.error.gitPrivacyPath", defaultValue: "Git privacy could not be verified for artifact store: %@"), path)
+        case .storeBusy(let path):
+            return String(format: String(localized: "cli.artifact.error.storeBusyPath", defaultValue: "Artifact store is busy: %@"), path)
         }
     }
 }
