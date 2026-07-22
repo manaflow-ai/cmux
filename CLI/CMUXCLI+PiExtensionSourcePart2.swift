@@ -2,9 +2,30 @@ extension CMUXCLI {
     static let piExtensionSourcePart2 = #"""
 }
 
-function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = {}): boolean {
+// When the inherited CMUX_SURFACE_ID no longer resolves (for example Pi is
+// running in a nested terminal multiplexer that inherited cmux environment
+// from the pane that launched it), every cmux call fails the same way. Warn
+// once, then stop dispatching for the rest of the process instead of paying
+// a subprocess round-trip per event.
+let surfaceUnavailable = false;
+
+function markSurfaceUnavailable(ctx: ExtensionContext, result: CommandResult, operation: string): boolean {
+  const stderr = result.stderr.toLowerCase();
+  if (!stderr.includes("not_found") && !stderr.includes("not found") && !stderr.includes("invalid surface handle")) return false;
+  if (!surfaceUnavailable) {
+    surfaceUnavailable = true;
+    warn(ctx, "cmux surface not found; disabling cmux Pi hooks for this process", {
+      operation,
+      hint: "CMUX_SURFACE_ID is stale (nested terminal?); set CMUX_PI_HOOKS_DISABLED=1 to silence",
+    });
+  }
+  return true;
+}
+
+async function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = {}): Promise<boolean> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
   if (!process.env.CMUX_SURFACE_ID) return true;
+  if (surfaceUnavailable) return true;
 
   const sessionId = sessionIdFrom(ctx);
   if (!sessionId) return true;
@@ -17,8 +38,9 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = 
     event: eventName(subcommand),
     ...extra,
   };
-  const result = runCmux(["hooks", "pi", subcommand], cwd, JSON.stringify(payload));
+  const result = await runCmux(["hooks", "pi", subcommand], cwd, JSON.stringify(payload));
   if (!result.ok) {
+    if (markSurfaceUnavailable(ctx, result, `hooks pi ${subcommand}`)) return false;
     warn(ctx, "cmux hook command failed", {
       subcommand,
       status: result.status,
@@ -129,13 +151,14 @@ function sanitizedResumeArgv(sessionId: string): string[] {
   return out;
 }
 
-function ensureResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: string): void {
+async function ensureResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: string): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
+  if (surfaceUnavailable) return;
   const target = surfaceTargetArgs();
   if (!target) return;
 
   const resumeArgv = sanitizedResumeArgv(sessionId);
-  const set = runCmux([
+  const set = await runCmux([
     "--json",
     "surface",
     "resume",
@@ -155,25 +178,28 @@ function ensureResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: stri
     ...resumeArgv,
   ], cwd);
   if (!set.ok) {
-    warn(ctx, "failed to set Pi resume binding", {
-      status: set.status,
-      stderr_available: set.stderr.trim().length > 0,
-      error_available: set.error !== undefined,
-    });
+    if (!markSurfaceUnavailable(ctx, set, "surface resume set")) {
+      warn(ctx, "failed to set Pi resume binding", {
+        status: set.status,
+        stderr_available: set.stderr.trim().length > 0,
+        error_available: set.error !== undefined,
+      });
+    }
     return;
   }
 
-  const verified = parseJSONOutput(runCmux(["--json", "surface", "resume", "get", ...target], cwd));
+  const verified = parseJSONOutput(await runCmux(["--json", "surface", "resume", "get", ...target], cwd));
   if (!resumeBindingMatches(verified, sessionId)) {
     warn(ctx, "Pi resume binding did not verify after write", { session_id: sessionId });
   }
 }
 
-function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: string): boolean {
+async function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: string): Promise<boolean> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
+  if (surfaceUnavailable) return true;
   const target = surfaceTargetArgs();
   if (!target) return true;
-  const result = runCmux([
+  const result = await runCmux([
     "--json",
     "surface",
     "resume",
@@ -185,6 +211,7 @@ function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: strin
     "agent-hook",
   ], cwd);
   if (!result.ok) {
+    if (markSurfaceUnavailable(ctx, result, "surface resume clear")) return true;
     warn(ctx, "failed to clear Pi resume binding", {
       status: result.status,
       stderr_available: result.stderr.trim().length > 0,
@@ -224,10 +251,10 @@ function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext
   } catch (_) {}
 }
 
-function publishPendingCompletion(ctx: ExtensionContext, sessionId: string): void {
+async function publishPendingCompletion(ctx: ExtensionContext, sessionId: string): Promise<void> {
   const completion = settleTurn(sessionId);
   if (!completion) return;
-  const notificationRouted = sendHook("notification", ctx, {
+  const notificationRouted = await sendHook("notification", ctx, {
     message: completion.lastAssistantMessage || "Task completed",
     turn_id: completion.turnId,
     notification: { type: completion.notificationType },
@@ -237,7 +264,7 @@ function publishPendingCompletion(ctx: ExtensionContext, sessionId: string): voi
     turn_id: completion.turnId,
   };
   if (notificationRouted) stopPayload.cmux_notification_routed = true;
-  sendHook("stop", ctx, stopPayload);
+  await sendHook("stop", ctx, stopPayload);
 }
 
 export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
@@ -249,14 +276,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       state.pendingCompletion = undefined;
       state.stopped = false;
     }
-    const ok = sendHook("session-start", ctx);
-    if (ok && sessionId) ensureResumeBinding(ctx, sessionId, cwd);
+    const ok = await sendHook("session-start", ctx);
+    if (ok && sessionId) await ensureResumeBinding(ctx, sessionId, cwd);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
     const turnId = sessionId ? beginTurn(sessionId, event) : undefined;
-    sendHook("prompt-submit", ctx, { prompt: event.prompt, turn_id: turnId });
+    await sendHook("prompt-submit", ctx, { prompt: event.prompt, turn_id: turnId });
   });
 
   pi.on("tool_execution_start", async (event, ctx) => {
@@ -282,14 +309,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       turnId: currentTurnId(sessionId, event),
     };
     // Older Pi versions do not emit agent_settled, so retain their established completion behavior.
-    if (!supportsAgentSettled()) publishPendingCompletion(ctx, sessionId);
+    if (!supportsAgentSettled()) await publishPendingCompletion(ctx, sessionId);
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
     if (!sessionId || !ctx.isIdle()) return;
     // Consume pending completion before subprocess calls so duplicate settlement cannot notify twice.
-    publishPendingCompletion(ctx, sessionId);
+    await publishPendingCompletion(ctx, sessionId);
   });
 
   pi.on("session_shutdown", async (event, ctx) => {
@@ -299,12 +326,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const cwd = cwdFrom(ctx);
     if (!state.stopped) {
       const turnId = finishTurn(sessionId, event);
-      sendHook("stop", ctx, {
+      await sendHook("stop", ctx, {
         turn_id: turnId,
         terminationReason: firstString(objectValue(event, ["reason"])) || "session_shutdown",
       });
     }
-    if (clearResumeBinding(ctx, sessionId, cwd)) sessionStates.delete(sessionId);
+    if (await clearResumeBinding(ctx, sessionId, cwd)) sessionStates.delete(sessionId);
   });
 }
 """#
