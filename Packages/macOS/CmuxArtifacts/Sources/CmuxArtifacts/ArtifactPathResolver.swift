@@ -70,12 +70,17 @@ struct ArtifactPathResolver: Sendable {
         reservedPaths: Set<String> = []
     ) -> URL {
         let proposed = directory.appendingPathComponent(source.lastPathComponent, isDirectory: false)
-        let sessionMarkerPath = directory
-            .appendingPathComponent(Self.sessionMarkerName, isDirectory: false)
-            .standardizedFileURL.path
+        let usesCaseSensitiveNames = volumeSupportsCaseSensitiveNames(
+            at: directory,
+            fileManager: fileManager
+        ) == true
+        let isSessionMarkerName: (String) -> Bool = { name in
+            if usesCaseSensitiveNames { return name == Self.sessionMarkerName }
+            return name.caseInsensitiveCompare(Self.sessionMarkerName) == .orderedSame
+        }
         guard fileManager.fileExists(atPath: proposed.path)
                 || reservedPaths.contains(proposed.standardizedFileURL.path)
-                || proposed.standardizedFileURL.path == sessionMarkerPath else {
+                || isSessionMarkerName(proposed.lastPathComponent) else {
             return proposed
         }
         let basename = source.deletingPathExtension().lastPathComponent
@@ -86,11 +91,28 @@ struct ArtifactPathResolver: Sendable {
             let candidate = directory.appendingPathComponent(name, isDirectory: false)
             if !fileManager.fileExists(atPath: candidate.path),
                !reservedPaths.contains(candidate.standardizedFileURL.path),
-               candidate.standardizedFileURL.path != sessionMarkerPath {
+               !isSessionMarkerName(candidate.lastPathComponent) {
                 return candidate
             }
         }
         return directory.appendingPathComponent("\(UUID().uuidString)-\(source.lastPathComponent)")
+    }
+
+    private func volumeSupportsCaseSensitiveNames(
+        at url: URL,
+        fileManager: FileManager
+    ) -> Bool? {
+        for ancestor in ArtifactAncestorDirectories(startingAt: url) {
+            guard fileManager.fileExists(atPath: ancestor.path),
+                  let values = try? ancestor.resourceValues(
+                      forKeys: [.volumeSupportsCaseSensitiveNamesKey]
+                  ),
+                  let supportsCaseSensitiveNames = values.volumeSupportsCaseSensitiveNames else {
+                continue
+            }
+            return supportsCaseSensitiveNames
+        }
+        return nil
     }
 
     private func normalized(_ raw: String?) -> String? {
