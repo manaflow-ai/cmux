@@ -21,6 +21,14 @@ public struct AgentGUITheme: Hashable, Sendable {
     /// First qualifying cool ANSI color, or the terminal foreground.
     public let accent: AgentGUIRGBColor
 
+    /// Whether adaptive system colors should use their dark-appearance values.
+    public var prefersDarkAppearance: Bool {
+        let luminance = background.relativeLuminance
+        let whiteContrast = 1.05 / (luminance + 0.05)
+        let blackContrast = (luminance + 0.05) / 0.05
+        return whiteContrast > blackContrast
+    }
+
     /// Derives the GUI palette from one terminal theme value.
     /// - Parameter terminalTheme: The Ghostty theme transported from the Mac.
     public init(terminalTheme: TerminalTheme) {

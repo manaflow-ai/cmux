@@ -25,6 +25,7 @@ public struct TranscriptDemoScreen: View {
 
     public var body: some View {
         let theme = AgentGUITheme(terminalTheme: .monokai)
+        let appearance = AgentTranscriptAppearance(theme: theme, density: density)
         let rows = AgentTranscriptRenderAdapter().rows(
             from: TranscriptProjector().project(model.input).rows
         )
@@ -55,8 +56,10 @@ public struct TranscriptDemoScreen: View {
                 jumpToBottom: jumpToBottom
             )
         }
+        .environment(\.chatTheme, appearance.chatTheme)
         .environment(\.chatMarkdownRenderer, markdownRenderer)
         .environment(\.chatContentCache, contentCache)
+        .environment(\.colorScheme, appearance.colorScheme)
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .background(Color(theme.background).ignoresSafeArea())
         .navigationTitle(AgentGUIL10n.string("agent.demo.title", defaultValue: "Transcript Demo"))

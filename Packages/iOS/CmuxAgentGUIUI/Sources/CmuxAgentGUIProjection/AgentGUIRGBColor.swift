@@ -52,6 +52,19 @@ public struct AgentGUIRGBColor: Hashable, Sendable {
         )
     }
 
+    var relativeLuminance: Double {
+        0.2126 * Self.linearized(red)
+            + 0.7152 * Self.linearized(green)
+            + 0.0722 * Self.linearized(blue)
+    }
+
+    private static func linearized(_ component: Double) -> Double {
+        if component <= 0.04045 {
+            return component / 12.92
+        }
+        return pow((component + 0.055) / 1.055, 2.4)
+    }
+
     var hueAndSaturation: (hue: Double, saturation: Double) {
         let maximum = max(red, green, blue)
         let minimum = min(red, green, blue)

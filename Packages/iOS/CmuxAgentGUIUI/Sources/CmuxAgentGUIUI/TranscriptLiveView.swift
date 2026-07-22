@@ -60,7 +60,7 @@ public struct TranscriptLiveView: View {
 
     public var body: some View {
         let theme = AgentGUITheme(terminalTheme: terminalTheme)
-        let chatTheme = makeChatTheme(theme)
+        let appearance = AgentTranscriptAppearance(theme: theme, density: density)
         let projection = TranscriptProjector().project(input)
         let syncPresentation = TranscriptSyncPresentation(
             phase: engine.connectivity.phase,
@@ -130,9 +130,10 @@ public struct TranscriptLiveView: View {
                 onOpenTerminal: onShowTerminal
             )
         }
-        .environment(\.chatTheme, chatTheme)
+        .environment(\.chatTheme, appearance.chatTheme)
         .environment(\.chatMarkdownRenderer, markdownRenderer)
         .environment(\.chatContentCache, contentCache)
+        .environment(\.colorScheme, appearance.colorScheme)
         .background(Color(theme.background))
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .sheet(item: $selectedSheet) { sheet in
@@ -244,21 +245,6 @@ public struct TranscriptLiveView: View {
             allowsInterrupt: isConnected,
             allowsHardInterrupt: isConnected,
             allowsOfflineSendQueue: true
-        )
-    }
-
-    private func makeChatTheme(_ theme: AgentGUITheme) -> ChatTheme {
-        ChatTheme(
-            accent: Color(theme.accent),
-            incomingBubbleFill: .clear,
-            terminalCardText: Color(theme.foreground),
-            outgoingBubbleFill: Color(theme.inputBackground),
-            terminalCardFill: Color(theme.raisedBackground),
-            hairline: Color(theme.border),
-            horizontalMargin: 12,
-            groupSpacing: density == .compact ? 8 : 12,
-            intraGroupSpacing: 4,
-            bubbleMaxWidthFraction: 0.94
         )
     }
 
