@@ -1054,7 +1054,7 @@ private extension SessionEntry {
     }
 }
 
-private enum SessionTranscriptLoader {
+enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
     private static let maxPreviewTurns = 500
@@ -1326,10 +1326,10 @@ private enum SessionTranscriptLoader {
             turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
             return false
         }
-        turns.reverse()
         if didHitTurnLimit {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
+        turns.reverse()
         return coalesce(turns)
     }
 

@@ -4,7 +4,13 @@ struct SessionIndexSnapshotLoader: Sendable {
 
     private let loadOperation: LoadOperation
 
-    init(loadOperation: @escaping LoadOperation = SessionIndexStore.loadInitialEntries) {
+    init() {
+        self.loadOperation = {
+            await SessionIndexStore.loadInitialEntries()
+        }
+    }
+
+    init(loadOperation: @escaping LoadOperation) {
         self.loadOperation = loadOperation
     }
 

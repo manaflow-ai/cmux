@@ -38,4 +38,41 @@ struct SessionIndexJSONLReaderTests {
         #expect(metrics.bytesRead <= byteLimit)
         #expect(metrics.recordsVisited < 2_000)
     }
+
+    @Test
+    func antigravityTailPreviewPlacesTruncationBeforeVisibleTurns() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-antigravity-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let sessionID = "antigravity-session"
+        let history = (0...500).map { index in
+            "{\"conversationId\":\"\(sessionID)\",\"display\":\"prompt-\(index)\"}"
+        }.joined(separator: "\n") + "\n"
+        try Data(history.utf8).write(to: url)
+
+        let entry = SessionEntry(
+            id: "antigravity:\(url.path)",
+            agent: .registered(RegisteredSessionAgent(id: "antigravity")),
+            sessionId: sessionID,
+            title: "Antigravity",
+            cwd: nil,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: .distantPast,
+            fileURL: url,
+            specifics: .rovodev
+        )
+
+        let turns = try await SessionTranscriptLoader.load(entry: entry)
+
+        #expect(turns.first?.role == .event)
+        #expect(
+            turns.first?.text == String(
+                localized: "sessionIndex.preview.truncated",
+                defaultValue: "Preview truncated"
+            )
+        )
+        #expect(turns.last?.text.contains("prompt-500") == true)
+    }
 }
