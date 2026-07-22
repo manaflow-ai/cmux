@@ -418,7 +418,7 @@ final class AgentChatTranscriptService {
         if !batch.appended.isEmpty {
             // The authoritative prose for the turn just landed: settle the live
             // preview so the committed message takes over with no duplicate.
-            if Self.batchContainsAgentProse(batch.appended) {
+            if batch.appended.containsAgentProse {
                 proseStreamer.authoritativeProseArrived(sessionID: sessionID)
             }
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .appended(batch.appended)))
@@ -426,7 +426,7 @@ final class AgentChatTranscriptService {
         if !batch.updated.isEmpty {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
         }
-        if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
+        if let completedAt = batch.appended.completedAssistantTurnTimestamp {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
             if let record = registry.record(sessionID: sessionID) { scheduleArtifactCapture(for: record) }
         }

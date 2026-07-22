@@ -59,6 +59,13 @@ public struct ArtifactNode: Identifiable, Equatable, Sendable {
 extension Array where Element == ArtifactNode {
     /// Returns every node in depth-first tree order.
     public func flattenedArtifactNodes() -> [ArtifactNode] {
-        flatMap { [$0] + $0.children.flattenedArtifactNodes() }
+        var flattened: [ArtifactNode] = []
+        flattened.reserveCapacity(count)
+        var stack = reversed().map { $0 }
+        while let node = stack.popLast() {
+            flattened.append(node)
+            stack.append(contentsOf: node.children.reversed())
+        }
+        return flattened
     }
 }

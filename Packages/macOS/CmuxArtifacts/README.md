@@ -16,7 +16,8 @@ repository below a list boundary.
 Projects can override the conservative defaults with a partial
 `.cmux/artifacts.json` file. Supported keys are `automaticCaptureEnabled`,
 `captureCreatedAndAttached`, `captureReferencedEphemeral`, `maximumFileBytes`,
-`maximumTextFileBytes`, `maximumFilesPerCapture`, `contentSearchMaximumBytes`,
-`contentSearchTotalMaximumBytes`, `maximumSearchResults`, `allowedExtensions`,
-and `ephemeralPathPrefixes`; omitted keys inherit the defaults in
+`maximumTextFileBytes`, `maximumFilesPerCapture`, `deduplicationScanNodeLimit`,
+`deduplicationHashByteLimit`, `contentSearchMaximumBytes`,
+`contentSearchTotalMaximumBytes`, `maximumSearchResults`, `allowedExtensions`, and
+`ephemeralPathPrefixes`; omitted keys inherit the defaults in
 `ArtifactCaptureConfiguration`.

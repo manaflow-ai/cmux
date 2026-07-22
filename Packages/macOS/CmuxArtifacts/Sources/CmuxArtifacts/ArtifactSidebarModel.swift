@@ -22,6 +22,7 @@ public final class ArtifactSidebarModel {
     private let store: any ArtifactStoring
     private let captureService: any ArtifactCapturing
     private let searchDebounce: Duration
+    private let searchClock: any Clock<Duration>
     private var workspace: ArtifactSidebarWorkspace?
     private var nodes: [ArtifactNode] = []
     private var expandedPaths: Set<String> = []
@@ -39,14 +40,17 @@ public final class ArtifactSidebarModel {
     ///   - store: Authoritative filesystem repository.
     ///   - captureService: Shared validated manual-capture service.
     ///   - searchDebounce: Cancellable delay used to coalesce typing into searches.
+    ///   - searchClock: Clock that owns the cancellable debounce deadline.
     public init(
         store: any ArtifactStoring,
         captureService: any ArtifactCapturing,
-        searchDebounce: Duration = .milliseconds(150)
+        searchDebounce: Duration = .milliseconds(150),
+        searchClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.store = store
         self.captureService = captureService
         self.searchDebounce = searchDebounce
+        self.searchClock = searchClock
     }
 
     deinit {
@@ -267,10 +271,11 @@ public final class ArtifactSidebarModel {
         let revision = bindingRevision
         let store = self.store
         let searchDebounce = self.searchDebounce
+        let searchClock = self.searchClock
         searchTask = Task { [weak self] in
             do {
-                // This bounded, injected delay is the intended search debounce and is cancelled on new input.
-                try await Task.sleep(for: searchDebounce)
+                // This bounded, injected deadline is the intended search debounce and is cancelled on new input.
+                try await searchClock.sleep(for: searchDebounce)
                 let results = try await store.search(projectRoot: projectRoot, query: trimmedQuery)
                 guard !Task.isCancelled else { return }
                 self?.applySearchResults(results, revision: revision, query: trimmedQuery)
@@ -304,17 +309,18 @@ public final class ArtifactSidebarModel {
 
     private func rebuildTreeRows() {
         guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        rows = flattened(nodes: nodes, depth: 0)
-    }
-
-    private func flattened(nodes: [ArtifactNode], depth: Int) -> [ArtifactSidebarRowSnapshot] {
-        nodes.flatMap { node in
-            var result = [row(node: node, depth: depth)]
-            if node.isDirectory, expandedPaths.contains(node.relativePath) {
-                result.append(contentsOf: flattened(nodes: node.children, depth: depth + 1))
+        var flattenedRows: [ArtifactSidebarRowSnapshot] = []
+        flattenedRows.reserveCapacity(nodes.count)
+        var stack = nodes.reversed().map { (node: $0, depth: 0) }
+        while let entry = stack.popLast() {
+            flattenedRows.append(row(node: entry.node, depth: entry.depth))
+            if entry.node.isDirectory, expandedPaths.contains(entry.node.relativePath) {
+                for child in entry.node.children.reversed() {
+                    stack.append((node: child, depth: entry.depth + 1))
+                }
             }
-            return result
         }
+        rows = flattenedRows
     }
 
     private func row(

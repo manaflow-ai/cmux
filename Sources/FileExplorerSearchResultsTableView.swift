@@ -40,11 +40,11 @@ final class FileExplorerSearchResultsTableView: NSTableView {
             onCancel?()
             return
         }
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+        if let delta = event.rightSidebarMoveDelta {
             onMoveSelection?(delta)
             return
         }
-        if RightSidebarKeyboardNavigation.isPlainPrintableText(event) {
+        if event.isPlainRightSidebarPrintableText {
             return
         }
         super.keyDown(with: event)
@@ -52,7 +52,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if handleOpenSelectionShortcut(event) { return true }
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+        if let delta = event.rightSidebarMoveDelta {
             onMoveSelection?(delta)
             return true
         }
