@@ -6,6 +6,35 @@ import Testing
 @testable import CmuxIrohTransport
 
 extension CmxIrohRegistryContextProviderTests {
+    /// With no verified managed fleet (relay policy unavailable) the discovery
+    /// fleet cannot be cross-checked; direct dial plans must still resolve so
+    /// LAN reconnects work while relays stay unusable.
+    @Test
+    func emptyManagedFleetStillResolvesDirectDialContext() async throws {
+        let fixture = try RegistryFixture()
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(
+                targetHints: [],
+                relayFleet: [fixture.relayURL]
+            ),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [],
+            activeNetworkProfiles: { [] },
+            now: { fixture.now }
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+        #expect(context.dialPlan.privateFallbackPaths.isEmpty)
+    }
+
     @Test
     func discoveryMustPublishTheExactConfiguredRelayFleet() async throws {
         let fixture = try RegistryFixture()
