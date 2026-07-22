@@ -1,11 +1,28 @@
 import Foundation
 
 /// Reuses one tracked-store decision while validating exact write paths in batches.
-struct ArtifactGitPrivacyValidator {
+struct ArtifactGitPrivacyValidator: Sendable {
     let worktreeRoot: URL?
     let commandRunner: any ArtifactGitCommandRunning
 
-    func permits(destinations: [URL]) -> Bool {
+    func storeIsUntracked(artifactsRoot: URL) async -> Bool {
+        guard let worktreeRoot else { return true }
+        guard let relativeArtifactsPath = ArtifactPathResolver().relativePath(
+            artifactsRoot,
+            root: worktreeRoot
+        ) else {
+            return false
+        }
+        guard let trackedStatus = try? await commandRunner.terminationStatus(arguments: [
+            "-C", worktreeRoot.path,
+            "ls-files", "--error-unmatch", "--", relativeArtifactsPath,
+        ]) else {
+            return false
+        }
+        return trackedStatus == 1
+    }
+
+    func permits(destinations: [URL]) async -> Bool {
         guard !destinations.isEmpty else { return false }
         guard let worktreeRoot else { return true }
         let resolver = ArtifactPathResolver()
@@ -24,7 +41,7 @@ struct ArtifactGitPrivacyValidator {
             standardInput.append(encodedPath)
             standardInput.append(0)
         }
-        guard let result = try? commandRunner.run(
+        guard let result = try? await commandRunner.run(
             arguments: [
                 "-C", worktreeRoot.path,
                 "check-ignore", "-z", "--stdin",

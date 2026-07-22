@@ -38,7 +38,7 @@ struct SystemArtifactGitCommandRunnerTests {
         )
         let task = Task {
             try await runner.terminationStatus(arguments: [
-                "-c", "printf ready > \(started.path); sleep 60",
+                "-c", "printf ready > \(started.path); while :; do :; done",
             ])
         }
         #expect(await waitUntilFileExists(started))
@@ -59,7 +59,7 @@ struct SystemArtifactGitCommandRunnerTests {
         )
 
         await #expect(throws: ArtifactGitCommandError.timedOut) {
-            _ = try await runner.terminationStatus(arguments: ["-c", "sleep 60"])
+            _ = try await runner.terminationStatus(arguments: ["-c", "while :; do :; done"])
         }
     }
 
