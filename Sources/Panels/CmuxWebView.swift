@@ -10,6 +10,13 @@ import WebKit
 /// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
 /// find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
+    enum UserContentControllerPolicy {
+        case installBrowserHooks
+        /// WebKit shares extension-owned controllers across sibling pages.
+        /// The creator remains the sole authority allowed to mutate them.
+        case preserveSuppliedConfiguration
+    }
+
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
 
@@ -317,6 +324,24 @@ final class CmuxWebView: WKWebView {
 
     override init(frame: NSRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
+        installBrowserUserContentHooks()
+    }
+
+    init(
+        frame: NSRect,
+        configuration: WKWebViewConfiguration,
+        userContentControllerPolicy: UserContentControllerPolicy
+    ) {
+        super.init(frame: frame, configuration: configuration)
+        switch userContentControllerPolicy {
+        case .installBrowserHooks:
+            installBrowserUserContentHooks()
+        case .preserveSuppliedConfiguration:
+            break
+        }
+    }
+
+    private func installBrowserUserContentHooks() {
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
@@ -324,10 +349,7 @@ final class CmuxWebView: WKWebView {
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        installPasteAsPlainTextFocusTracking()
-        installScriptedDownloadInterception()
-        installContextMenuLinkCapture()
-        installDiffViewerEditableFocusTracking()
+        installBrowserUserContentHooks()
     }
 
     private func installDiffViewerEditableFocusTracking() {
