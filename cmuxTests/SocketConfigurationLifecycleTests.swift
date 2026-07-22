@@ -357,6 +357,29 @@ extension SocketACLReloadRegressionTests {
         #expect(controller.socketServer.transport.pathIdentity(at: socketPath) == listenerIdentity)
     }
 
+    @Test func socketPathMarkersKeepLegacyExternalClientDiscoveryLive() throws {
+        let fileManager = FileManager.default
+        let currentDirectory = CmuxStateDirectory.url(
+            homeDirectory: fileManager.homeDirectoryForCurrentUser
+        )
+        let legacyDirectory = try #require(
+            CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager)
+        )
+        let markerPaths = SocketControlSettings.lastSocketPathFiles(
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            fileManager: fileManager
+        )
+
+        #expect(markerPaths.contains(
+            currentDirectory.appendingPathComponent("last-socket-path").path
+        ))
+        #expect(markerPaths.contains(
+            legacyDirectory.appendingPathComponent("last-socket-path").path
+        ))
+        #expect(markerPaths.contains(SocketPathMarkerFiles.stableTmpPath))
+    }
+
     private func capturedSocketDefaults(_ defaults: UserDefaults) -> [(String, Any?)] {
         socketDefaultsKeys.map { ($0, defaults.object(forKey: $0)) }
     }

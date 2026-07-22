@@ -3,6 +3,7 @@ import Foundation
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -67,7 +68,8 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let openDevices: () -> Void
     let title: String
     let isLoading: Bool
-    @Binding var selection: WorkspaceMacSelection
+    let selection: WorkspaceMacSelection
+    let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
 
@@ -81,13 +83,20 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
         }
         ToolbarItem(id: "workspace-list-title", placement: .principal) {
             WorkspaceMacTitlePicker(
-                title: title,
-                isLoading: isLoading,
-                selection: $selection,
-                machines: machines,
-                showAddDevice: showAddDevice,
-                labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+                value: WorkspaceMacTitlePickerValue(
+                    title: title,
+                    isLoading: isLoading,
+                    selection: selection,
+                    machines: machines,
+                    canAddDevice: showAddDevice != nil,
+                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+                ),
+                actions: WorkspaceMacTitlePickerActions(
+                    select: select,
+                    addDevice: showAddDevice
+                )
             )
+            .equatable()
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
@@ -114,10 +123,8 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             openDevices: openDevices,
             title: renderContext.title,
             isLoading: pendingSelection != nil,
-            selection: Binding(
-                get: { pendingSelection ?? renderContext.visibleSelection },
-                set: select
-            ),
+            selection: pendingSelection ?? renderContext.visibleSelection,
+            select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice
         )
@@ -143,6 +150,7 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
+    var showPairingScanner: (() -> Void)?
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -151,6 +159,7 @@ struct WorkspaceShellView: View {
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var showingRootSettings = false
+    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
     @State private var rootToolbarMachineSnapshots: WorkspaceMachineSnapshots?
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
@@ -160,11 +169,17 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
+    @Environment(ToastCenter.self) var toasts
+    /// Legacy fallback while the Toasts beta flag is off: the old dismissible
+    /// bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
+    var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
-    var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
+    /// True once this shell has held a live connection, so only genuine
+    /// reconnections toast (the expected first attach stays silent).
+    @State private var hasHeldConnection = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -239,10 +254,17 @@ struct WorkspaceShellView: View {
             .onChange(of: presentation.toolbarMachineSnapshots) { _, snapshots in
                 updateRootToolbarMachineSnapshots(snapshots)
             }
-            .sheet(isPresented: $showingRootSettings) {
+            .sheet(isPresented: $showingRootSettings, onDismiss: {
+                settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+            }) {
                 MobileSettingsView(
                     connectedHostName: store.connectedHostName,
                     rescanQR: { store.disconnectAndForgetActiveMac() },
+                    startPairingScanner: {
+                        settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                            isSettingsPresented: $showingRootSettings
+                        )
+                    },
                     signOut: signOut,
                     store: store
                 )
@@ -267,6 +289,9 @@ struct WorkspaceShellView: View {
     }
 
     private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
+        // With the Toasts beta flag on, failures surface through the app-wide
+        // toast layer; the legacy bottom banner below only ever receives
+        // content while the flag is off.
         ZStack(alignment: .bottom) {
             layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
             if let workspaceActionToast {
@@ -305,6 +330,21 @@ struct WorkspaceShellView: View {
             )
         }
         #endif
+        // `initial: true` primes `hasHeldConnection` when the view mounts
+        // already connected, so the first genuine reconnect still toasts.
+        .onChange(of: store.connectionState, initial: true) { _, state in
+            guard state == .connected else { return }
+            if hasHeldConnection {
+                toasts.present(.success(
+                    L10n.string(
+                        "mobile.connection.reconnectedToast",
+                        defaultValue: "Reconnected to your Mac."
+                    ),
+                    coalescingKey: "connection.reconnected"
+                ))
+            }
+            hasHeldConnection = true
+        }
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
@@ -469,6 +509,7 @@ struct WorkspaceShellView: View {
             signOut: signOut,
             reconnect: reconnectClosure,
             showAddDevice: showAddDevice,
+            showPairingScanner: showPairingScanner,
             store: store,
             renameWorkspace: renameWorkspaceClosure,
             setPinned: setWorkspacePinnedClosure,

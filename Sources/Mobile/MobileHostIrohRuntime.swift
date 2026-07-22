@@ -77,6 +77,7 @@ final class MobileHostIrohRuntime {
     let appInstances: CmxIrohAppInstanceRepository
     let identities: CmxIrohIdentityRepository
     let brokerCredentials: CmxIrohBrokerCredentialRepository
+    let brokerBackpressureGate: CmxIrohBrokerBackpressureGate
     let hostPolicies: CmxIrohHostPolicyCache
     let pendingRevocations: CmxIrohPendingRevocationOutbox
     let customRelayProfiles: CmxIrohCustomRelayProfileStore
@@ -117,23 +118,27 @@ final class MobileHostIrohRuntime {
     var lifecycleRevision: UInt64 = 0
 
     private init() {
+        let installState = CmxIrohUserDefaultsInstallStateStore()
         diagnosticLog = DiagnosticLog(
             buildStamp: Self.diagnosticBuildStamp,
             role: .macHost
         )
-        appInstances = CmxIrohAppInstanceRepository()
+        appInstances = CmxIrohAppInstanceRepository(store: installState)
+        brokerBackpressureGate = CmxIrohBrokerBackpressureGate(store: installState)
         #if DEBUG
         identities = CmxIrohIdentityRepository(
             secureStore: CmxIrohDevelopmentFileIdentityStore(
                 directory: Self.developmentStoreDirectory(service: "identity")
-            )
+            ),
+            installState: installState
         )
         brokerCredentials = CmxIrohBrokerCredentialRepository(
             secureStore: CmxIrohDevelopmentFileCredentialStore(
                 directory: Self.developmentStoreDirectory(
                     service: "broker-credentials"
                 )
-            )
+            ),
+            installState: installState
         )
         hostPolicies = CmxIrohHostPolicyCache(
             secureStore: CmxIrohDevelopmentFileCredentialStore(
@@ -168,8 +173,10 @@ final class MobileHostIrohRuntime {
             )
         )
         #else
-        identities = CmxIrohIdentityRepository()
-        brokerCredentials = CmxIrohBrokerCredentialRepository()
+        identities = CmxIrohIdentityRepository(installState: installState)
+        brokerCredentials = CmxIrohBrokerCredentialRepository(
+            installState: installState
+        )
         hostPolicies = CmxIrohHostPolicyCache()
         pendingRevocations = CmxIrohPendingRevocationOutbox(
             secureStore: CmxIrohKeychainCredentialStore(

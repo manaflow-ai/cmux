@@ -224,11 +224,31 @@ function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext
   } catch (_) {}
 }
 
+function publishPendingCompletion(ctx: ExtensionContext, sessionId: string): void {
+  const completion = settleTurn(sessionId);
+  if (!completion) return;
+  const notificationRouted = sendHook("notification", ctx, {
+    message: completion.lastAssistantMessage || "Task completed",
+    turn_id: completion.turnId,
+    notification: { type: completion.notificationType },
+  });
+  const stopPayload: HookExtra = {
+    last_assistant_message: completion.lastAssistantMessage,
+    turn_id: completion.turnId,
+  };
+  if (notificationRouted) stopPayload.cmux_notification_routed = true;
+  sendHook("stop", ctx, stopPayload);
+}
+
 export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
     const cwd = cwdFrom(ctx);
-    if (sessionId) stateFor(sessionId).stopped = false;
+    if (sessionId) {
+      const state = stateFor(sessionId);
+      state.pendingCompletion = undefined;
+      state.stopped = false;
+    }
     const ok = sendHook("session-start", ctx);
     if (ok && sessionId) ensureResumeBinding(ctx, sessionId, cwd);
   });
@@ -252,21 +272,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
   pi.on("agent_end", async (event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
-    const turnId = sessionId ? finishTurn(sessionId, event) : undefined;
+    if (!sessionId) return;
+    const state = stateFor(sessionId);
     const message = lastAssistantMessage(event);
-    const notificationRouted = sendHook("notification", ctx, {
-      message: message || "Task completed",
-      turn_id: turnId,
-      notification: {
-        type: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
-      },
-    });
-    const stopPayload: HookExtra = {
-      last_assistant_message: message,
-      turn_id: turnId,
+    // Preserve the latest low-level result until Pi confirms no automatic work remains.
+    state.pendingCompletion = {
+      lastAssistantMessage: message || state.pendingCompletion?.lastAssistantMessage,
+      notificationType: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
+      turnId: currentTurnId(sessionId, event),
     };
-    if (notificationRouted) stopPayload.cmux_notification_routed = true;
-    sendHook("stop", ctx, stopPayload);
+    // Older Pi versions do not emit agent_settled, so retain their established completion behavior.
+    if (!supportsAgentSettled()) publishPendingCompletion(ctx, sessionId);
+  });
+
+  pi.on("agent_settled", async (_event, ctx) => {
+    const sessionId = sessionIdFrom(ctx);
+    if (!sessionId || !ctx.isIdle()) return;
+    // Consume pending completion before subprocess calls so duplicate settlement cannot notify twice.
+    publishPendingCompletion(ctx, sessionId);
   });
 
   pi.on("session_shutdown", async (event, ctx) => {

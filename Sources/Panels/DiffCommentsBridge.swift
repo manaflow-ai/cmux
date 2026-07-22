@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -275,17 +276,28 @@ extension BrowserPanel {
         (webView.url ?? currentURL)?.absoluteString == expectedURL
     }
 
-    @discardableResult
-    func navigateFromCLI(_ url: String, expectedURL: String? = nil) -> Bool {
-        guard expectedURL.map(hasCurrentURL) != false else { return false }
+    func beginAutomationNavigationFromCLI(
+        _ url: String,
+        expectedURL: String? = nil
+    ) -> (ticket: BrowserAutomationNavigationTicket, targetURL: URL)? {
+        guard expectedURL.map(hasCurrentURL) != false else { return nil }
+        let targetURL: URL
         if let internalURL = URL(string: url),
            internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
-            guard CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: internalURL) else { return false }
-            navigate(to: internalURL)
+            guard CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: internalURL) else { return nil }
+            targetURL = internalURL
         } else {
-            navigateSmart(url)
+            guard let resolvedNavigation = resolveSmartNavigation(from: url) else { return nil }
+            targetURL = resolvedNavigation.url
+            return (
+                beginAutomationNavigation(
+                    to: targetURL,
+                    recordTypedNavigation: resolvedNavigation.recordTypedNavigation
+                ),
+                targetURL
+            )
         }
-        return true
+        return (beginAutomationNavigation(to: targetURL, recordTypedNavigation: false), targetURL)
     }
 }
 
