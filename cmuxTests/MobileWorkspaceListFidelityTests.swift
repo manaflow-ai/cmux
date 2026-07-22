@@ -18,6 +18,31 @@ import CmuxCore
 @MainActor
 @Suite(.serialized)
 struct MobileWorkspaceListFidelityTests {
+    @Test func legacyAndStateSyncSurfaceInventoriesMatch() throws {
+        let controller = TerminalController.shared
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let legacy = controller.mobileWorkspacePayload(
+            workspace: workspace,
+            windowID: UUID(),
+            isSelected: true,
+            requestedTerminalID: nil,
+            notificationStore: nil
+        )
+        let sync = MobileStateSyncHost().workspaceRow(
+            workspace: workspace,
+            windowID: UUID(),
+            isSelected: true,
+            sortIndex: 0,
+            controller: controller,
+            notificationStore: nil
+        )
+        let legacySurfaces = try #require(legacy["surfaces"] as? [[String: Any]])
+        #expect(legacySurfaces.map { $0["surface_id"] as? String } == sync.surfaces?.map(\.surfaceID))
+        #expect(legacySurfaces.map { $0["kind"] as? String } == sync.surfaces?.map(\.kind))
+        #expect(legacySurfaces.map { $0["title"] as? String } == sync.surfaces?.map(\.title))
+    }
+
     /// Builds a workspace with `count` terminals as tabs in a single pane so that
     /// a within-pane `reorderTab` genuinely changes their on-screen order. Returns
     /// the workspace and panel ids in spatial (tab) order.

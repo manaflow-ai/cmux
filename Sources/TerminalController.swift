@@ -13976,6 +13976,8 @@ class TerminalController {
             )
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "mobile.surface.focus":
+            result = v2MobileSurfaceFocus(params: request.params)
         case "workspace.move":
             result = v2MobileWorkspaceMove(params: request.params)
         case "workspace.group.action", "workspace.group.create":

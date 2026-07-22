@@ -208,6 +208,14 @@ extension TerminalController {
                 "is_focused": terminal.id == workspace.focusedPanelId
             ]
         }
+        let surfaces = mobileSurfaceDescriptors(in: workspace).map { surface -> [String: Any] in
+            [
+                "surface_id": surface.surfaceID,
+                "kind": surface.kind,
+                "title": surface.title,
+                "file_path": v2OrNull(surface.filePath),
+            ]
+        }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
@@ -237,7 +245,8 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
-            "terminals": terminals
+            "terminals": terminals,
+            "surfaces": surfaces
         ]
     }
 
