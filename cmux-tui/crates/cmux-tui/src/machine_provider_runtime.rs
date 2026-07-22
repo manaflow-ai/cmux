@@ -1749,6 +1749,68 @@ mod tests {
     }
 
     #[test]
+    fn switching_to_a_lifecycle_tombstone_disables_the_placeholder_session() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
+        let mut lifecycle = machine_lifecycle_snapshot(&catalog);
+        lifecycle.machines.push(protocol::MachineLifecycleDescriptor {
+            id: id("deleted-machine-uuid"),
+            display_name: "quiet-forest".into(),
+            status: protocol::MachineLifecycleStatus::Recoverable,
+            version: 12,
+            recoverable_until: Some("2030-01-02T03:04:05Z".into()),
+            capabilities: protocol::MachineLifecycleCapabilities {
+                rename: false,
+                delete: false,
+                restore: true,
+                purge: true,
+            },
+        });
+        let server_catalog = catalog.clone();
+        let server_lifecycle = lifecycle.clone();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_catalog.clone());
+
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, server_catalog),
+            );
+
+            let lifecycle_request: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                lifecycle_request.request,
+                protocol::ProviderRequest::MachineLifecycleSnapshot(_)
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(lifecycle_request.id, server_lifecycle),
+            );
+            finished.recv().unwrap();
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        runtime.machine_lifecycle_snapshot = lifecycle;
+        runtime.reconcile_keys();
+        let tombstone_key = key_for_id(&runtime.keys, &id("deleted-machine-uuid")).unwrap();
+
+        let result = runtime.perform_request(MachineRequest::Switch(tombstone_key)).unwrap();
+
+        assert!(result.replacement.is_some());
+        assert_eq!(result.ui.snapshot.active, Some(tombstone_key));
+        assert!(!result.ui.session_available);
+        assert!(runtime.open.is_none());
+        finish.send(()).unwrap();
+        drop(result);
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn mutation_nonce_is_cryptographically_unique_and_pid_independent() {
         let first = random_mutation_nonce().unwrap();
         let second = random_mutation_nonce().unwrap();
