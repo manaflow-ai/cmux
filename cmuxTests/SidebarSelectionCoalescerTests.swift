@@ -45,6 +45,12 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
 
     var minimumResolution: Duration { .zero }
 
+    var retainedCancellationMarkerCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelledSleeperIDs.count
+    }
+
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
@@ -99,7 +105,7 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
         }
     }
 
-    func advance(by duration: Duration) {
+    func advance(by duration: Duration, beforeResuming: () -> Void = {}) {
         lock.lock()
         _now = _now.advanced(by: duration)
         let dueIDs = sleepers.compactMap { id, sleeper in
@@ -109,6 +115,7 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
         let waiters = sleepers.isEmpty ? idleWaiters : []
         if sleepers.isEmpty { idleWaiters.removeAll() }
         lock.unlock()
+        beforeResuming()
         for sleeper in due {
             sleeper.continuation.resume()
         }
@@ -217,5 +224,21 @@ struct SidebarSelectionCoalescerTests {
         coalescer.request { applied.append("a") }
         coalescer.flushNow()
         #expect(applied == ["a"])
+    }
+
+    @Test
+    func cancellationAfterDeadlineDoesNotRetainMarker() async {
+        let clock = SidebarTestManualClock()
+        let sleep = Task {
+            try await clock.sleep(for: .milliseconds(100))
+        }
+
+        await clock.waitUntilSleeping(for: .milliseconds(100))
+        clock.advance(by: .milliseconds(100)) {
+            sleep.cancel()
+        }
+        _ = await sleep.result
+
+        #expect(clock.retainedCancellationMarkerCount == 0)
     }
 }
