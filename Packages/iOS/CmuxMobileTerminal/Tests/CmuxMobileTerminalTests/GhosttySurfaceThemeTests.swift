@@ -86,6 +86,34 @@ import UIKit
 }
 
 @MainActor
+@Test func staleKeyboardHideDoesNotOverrideLiveTerminalFirstResponder() throws {
+    let runtime = try GhosttyRuntime.shared()
+    let surface = GhosttySurfaceView(runtime: runtime, delegate: ThemeTestSurfaceDelegate())
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+    let root = UIViewController()
+    window.rootViewController = root
+    root.view.addSubview(surface)
+    surface.frame = root.view.bounds
+    window.makeKeyAndVisible()
+    defer {
+        surface.prepareForDismantle()
+        window.isHidden = true
+    }
+    surface.focusInput()
+    let button = try #require(surface.bottomScrollEdgeElementContainers.compactMap {
+        $0.descendant(withAccessibilityIdentifier: "terminal.inputAccessory.hideKeyboard") as? UIButton
+    }.first)
+
+    surface.handleKeyboardDidHide(Notification(name: UIResponder.keyboardDidHideNotification))
+
+    #expect(surface.inputProxy.isFirstResponder)
+    #expect(button.accessibilityLabel == String(
+        localized: "terminal.input_accessory.hideKeyboard",
+        defaultValue: "Hide Keyboard"
+    ))
+}
+
+@MainActor
 @Test func reverseModeOSCResetsUseRawConfigDefaults() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()

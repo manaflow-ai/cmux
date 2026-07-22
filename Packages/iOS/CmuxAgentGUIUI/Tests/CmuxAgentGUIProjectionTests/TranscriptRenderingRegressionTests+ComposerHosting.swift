@@ -221,7 +221,7 @@ extension TranscriptRenderingRegressionTests {
         }.first)
         #expect(interaction.scrollView === transcript.transcript.collectionView)
         #expect(interaction.edge == .bottom)
-        #expect(transcript.view.backgroundColor == UIColor.clear)
+        #expect(transcript.view.backgroundColor == UIColor(AgentGUITheme(terminalTheme: .monokai).background))
         #expect(transcript.transcript.view.backgroundColor == UIColor.clear)
     }
 

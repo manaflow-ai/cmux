@@ -124,7 +124,7 @@ import UIKit
         let cell = try #require(
             controller.transcript.collectionView.visibleCells.first as? TranscriptCollectionCell
         )
-        #expect(controller.view.backgroundColor == UIColor.clear)
+        #expect(controller.view.backgroundColor == UIColor(theme.background))
         #expect(controller.transcript.view.backgroundColor == UIColor.clear)
         #expect(controller.transcript.collectionView.backgroundColor == UIColor(theme.background))
         #expect(cell.backgroundConfiguration?.backgroundColor == UIColor.clear)

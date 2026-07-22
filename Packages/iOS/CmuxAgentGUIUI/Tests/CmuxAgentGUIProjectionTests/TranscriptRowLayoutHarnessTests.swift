@@ -240,8 +240,12 @@ extension TranscriptRenderingRegressionTests {
         print(String(format: "transcript-layout-perf initial-600 %.3fms", initialMilliseconds))
 
         #expect(controller.currentRows.count == 600)
+        #expect(initialCount <= 24)
+        let fillDeadline = CACurrentMediaTime() + 5
+        while controller.heightCache.count < 600, CACurrentMediaTime() < fillDeadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
         #expect(controller.heightCache.count == 600)
-        #expect(initialCount == 600)
 
         controller.apply(input: TranscriptProjectionInput(entries: Self.perfEntries(tailRevision: 1)))
         controller.collectionView.layoutIfNeeded()
