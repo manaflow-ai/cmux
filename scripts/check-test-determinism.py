@@ -3450,7 +3450,10 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
     bundle_typealiases: dict[str, dict[str, set[str]]] = {}
     file_real_clock_aliases: dict[str, set[str]] = {}
     file_visible_real_clock_types: dict[str, set[str]] = {}
+    swift_source_texts: dict[str, str] = {}
     literal_clock_bundles: set[str] = set()
+    repository_clock_bundles: set[str] = set()
+    repository_clock_index_files: set[str] = set()
     for path, rel_posix in source_paths:
         if pathlib.PurePosixPath(rel_posix).suffix != ".swift":
             continue
@@ -3458,11 +3461,14 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        swift_source_texts[rel_posix] = text
         bundle = _swift_test_bundle_key(rel_posix)
-        uses_repository_clock = any(
-            type_name in text
+        referenced_repository_clocks = {
+            type_name
             for type_name in repository_real_clock_leaves
-        )
+            if type_name in text
+        }
+        uses_repository_clock = bool(referenced_repository_clocks)
         if "ContinuousClock" in text or "SuspendingClock" in text:
             literal_clock_bundles.add(bundle)
         aliases: dict[str, set[str]] = {}
@@ -3488,6 +3494,13 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
         file_visible_real_clock_types[rel_posix] = (
             visible_real_clock_types
         )
+        visible_real_clock_leaves = {
+            type_name.rsplit(".", 1)[-1]
+            for type_name in visible_real_clock_types
+        }
+        if referenced_repository_clocks & visible_real_clock_leaves:
+            repository_clock_bundles.add(bundle)
+            repository_clock_index_files.add(rel_posix)
         file_typealiases[rel_posix] = aliases
         _merge_typealias_targets(
             bundle_typealiases.setdefault(bundle, {}),
@@ -3511,12 +3524,44 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
         )
         file_real_clock_aliases[rel_posix] = real_clock_aliases
 
-    indexed_bundles = set(literal_clock_bundles)
-    indexed_bundles.update(
+    # Standard-library clocks are common enough that their test bundles retain
+    # the complete member index. Repository clocks are indexed only where their
+    # type (or a resolved alias) appears, plus lightweight declaration and
+    # inheritance metadata needed for cross-file identity checks.
+    fully_indexed_bundles = set(literal_clock_bundles)
+    fully_indexed_bundles.update(
         bundle
         for bundle, aliases in bundle_typealiases.items()
         if _resolved_real_clock_aliases(aliases)
     )
+    indexed_bundles = fully_indexed_bundles | repository_clock_bundles
+    repository_aliases_by_bundle = {
+        bundle: _resolved_real_clock_aliases(
+            bundle_typealiases.get(bundle, {}),
+            repository_real_clock_types,
+        )
+        - _resolved_real_clock_aliases(bundle_typealiases.get(bundle, {}))
+        for bundle in repository_clock_bundles
+    }
+    for rel_posix, text in swift_source_texts.items():
+        bundle = _swift_test_bundle_key(rel_posix)
+        if bundle not in repository_clock_bundles:
+            continue
+        if any(
+            alias.rsplit(".", 1)[-1] in text
+            for alias in repository_aliases_by_bundle[bundle]
+        ):
+            repository_clock_index_files.add(rel_posix)
+    repository_clock_owner_leaves: dict[str, set[str]] = {}
+    for rel_posix in repository_clock_index_files:
+        bundle = _swift_test_bundle_key(rel_posix)
+        owner_leaves = repository_clock_owner_leaves.setdefault(bundle, set())
+        owner_leaves.update(
+            match.group(2).rsplit(".", 1)[-1]
+            for match in _TYPE_SCOPE_HEADER.finditer(
+                swift_source_texts.get(rel_posix, "")
+            )
+        )
 
     bundle_members: dict[str, dict[str, set[str]]] = {}
     bundle_member_types: dict[
@@ -3531,14 +3576,46 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
         bundle = _swift_test_bundle_key(rel_posix)
         if bundle not in indexed_bundles:
             continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        text = swift_source_texts.get(rel_posix)
+        if text is None:
             continue
+        project_clock_only = bundle not in fully_indexed_bundles
+        is_repository_clock_index_file = (
+            rel_posix in repository_clock_index_files
+        )
+        has_inheritance = bool(_CLASS_INHERITANCE_HEADER.search(text))
+        if project_clock_only and not is_repository_clock_index_file:
+            has_related_declaration = any(
+                re.search(
+                    rf"\b(?:actor|class|enum|struct)\s+"
+                    rf"{re.escape(owner_leaf)}\b",
+                    text,
+                )
+                for owner_leaf in repository_clock_owner_leaves.get(
+                    bundle, set()
+                )
+            )
+            if not has_inheritance and not has_related_declaration:
+                continue
         masked_lines = [
             _strip_comment(line, ".swift")
             for line in _mask_noncode(text.splitlines(), ".swift")
         ]
+        declared_types = (
+            _declared_type_names(masked_lines)
+            if project_clock_only
+            else set()
+        )
+        declaration_files = bundle_declaration_files.setdefault(bundle, {})
+        if project_clock_only:
+            for type_name in declared_types:
+                declaration_files.setdefault(type_name, set()).add(rel_posix)
+        if has_inheritance:
+            bundle_parents.setdefault(bundle, {}).update(
+                _explicit_type_parents(masked_lines)
+            )
+        if project_clock_only and not is_repository_clock_index_file:
+            continue
         visible_real_clock_types = file_visible_real_clock_types.get(
             rel_posix, set()
         )
@@ -3553,7 +3630,6 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             )
         )
         file_real_clock_aliases[rel_posix] = real_clock_aliases
-        declared_types: set[str] = set()
         file_real_members: dict[str, set[str]] = {}
         member_types = _explicit_member_types(
             masked_lines,
@@ -3569,13 +3645,9 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             bundle_member_types.setdefault(bundle, {}),
             member_types,
         )
-        declaration_files = bundle_declaration_files.setdefault(bundle, {})
-        for type_name in declared_types:
-            declaration_files.setdefault(type_name, set()).add(rel_posix)
-        if _CLASS_INHERITANCE_HEADER.search(text):
-            bundle_parents.setdefault(bundle, {}).update(
-                _explicit_type_parents(masked_lines)
-            )
+        if not project_clock_only:
+            for type_name in declared_types:
+                declaration_files.setdefault(type_name, set()).add(rel_posix)
 
     for bundle in bundle_members:
         parents = bundle_parents.setdefault(bundle, {})
@@ -3598,10 +3670,12 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             external_real_members = bundle_members.get(bundle)
             external_member_types = bundle_member_types.get(bundle)
             external_typealiases = bundle_typealiases.get(bundle)
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
+        text = swift_source_texts.get(rel_posix)
+        if text is None:
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
         findings.extend(
             scan_text(
                 rel_posix,
