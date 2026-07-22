@@ -7959,6 +7959,29 @@ mod tests {
     }
 
     #[test]
+    fn command_k_clears_the_active_pty_screen_and_scrollback() {
+        let (mux, surface) = test_mux("command-k-clear-history-test", None);
+        surface.with_terminal(|term| {
+            for line in 0..24 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"visible-content");
+        });
+        assert!(surface.with_terminal(|term| term.history_rows()).unwrap() > 0);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert!(term.viewport_text().unwrap().trim().is_empty());
+        });
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
     fn alt_n_rejects_a_new_pane_with_no_visible_content() {
         let (mux, _) = test_mux("alt-n-zero-content-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
