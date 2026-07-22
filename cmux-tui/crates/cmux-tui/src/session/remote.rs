@@ -397,6 +397,7 @@ pub struct RemoteSession {
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
+    capabilities: Mutex<HashSet<String>>,
 }
 
 /// Receive complete JSON protocol messages from one transport.
@@ -517,6 +518,7 @@ impl RemoteSession {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            capabilities: Mutex::new(HashSet::new()),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -536,6 +538,14 @@ impl RemoteSession {
         // Identify (validates the endpoint) and subscribe to events.
         let ident = session.request(json!({"cmd": "identify"}))?;
         validate_remote_identity(&ident)?;
+        *session.capabilities.lock().unwrap() = ident
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
@@ -543,6 +553,10 @@ impl RemoteSession {
         session.request(client_info)?;
         session.request(json!({"cmd": "subscribe"}))?;
         Ok(session)
+    }
+
+    pub(super) fn supports_capability(&self, capability: &str) -> bool {
+        self.capabilities.lock().unwrap().contains(capability)
     }
 
     fn emit(&self, event: MuxEvent) {
@@ -1411,6 +1425,18 @@ mod tests {
         }
     }
 
+    struct UnexpectedWriteWriter;
+
+    impl RemoteMessageWriter for UnexpectedWriteWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            panic!("unexpected remote write: {message}")
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
             writer: Mutex::new(writer),
@@ -1426,7 +1452,21 @@ mod tests {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            capabilities: Mutex::new(HashSet::new()),
         })
+    }
+
+    #[test]
+    fn provider_guard_fails_before_writing_to_an_older_remote_server() {
+        let session =
+            crate::session::Session::Remote(test_session(Box::new(UnexpectedWriteWriter)));
+
+        let error = session.mark_workspaces_provider_managed().unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
+        );
     }
 
     #[test]

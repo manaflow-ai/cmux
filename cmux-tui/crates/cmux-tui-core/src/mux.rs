@@ -524,6 +524,7 @@ pub struct Mux {
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<LatestClientSize>,
+    provider_managed_workspaces: Mutex<bool>,
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
@@ -593,6 +594,7 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(LatestClientSize::default()),
+            provider_managed_workspaces: Mutex::new(false),
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
@@ -706,6 +708,36 @@ impl Mux {
         let lifecycle = Arc::new(Mutex::new(()));
         lifecycles.insert(workspace, Arc::downgrade(&lifecycle));
         lifecycle
+    }
+
+    /// Permanently assigns workspace rename/delete ownership to the external
+    /// provider for this mux generation. The transition is intentionally
+    /// one-way so a stale frontend cannot reopen ordinary mutation paths.
+    pub fn mark_workspaces_provider_managed(&self) {
+        *self.provider_managed_workspaces.lock().unwrap() = true;
+    }
+
+    pub fn workspaces_are_provider_managed(&self) -> bool {
+        *self.provider_managed_workspaces.lock().unwrap()
+    }
+
+    fn authorize_workspace_lifecycle_mutation(
+        &self,
+        provider_authorized: bool,
+        operation: &str,
+    ) -> anyhow::Result<MutexGuard<'_, bool>> {
+        let authority = self.provider_managed_workspaces.lock().unwrap();
+        if *authority && !provider_authorized {
+            anyhow::bail!(
+                "cannot {operation} a provider-managed workspace directly; use the managed workspace lifecycle controls"
+            );
+        }
+        if !*authority && provider_authorized {
+            anyhow::bail!(
+                "cannot apply provider workspace {operation}; this session is not provider-managed"
+            );
+        }
+        Ok(authority)
     }
 
     fn pending_workspace_surface(&self, surface: SurfaceId) -> PendingWorkspaceSurface<'_> {
@@ -3314,6 +3346,28 @@ impl Mux {
         key: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
+        self.close_workspace_selector_with_authority(id, key, expected_revision, false)
+    }
+
+    pub fn close_provider_managed_workspace(
+        &self,
+        id: WorkspaceId,
+        key: &str,
+    ) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .close_workspace_selector_with_authority(Some(id), Some(key), None, true)?
+            .map(|(_, _, revision)| revision))
+    }
+
+    fn close_workspace_selector_with_authority(
+        &self,
+        id: Option<WorkspaceId>,
+        key: Option<&str>,
+        expected_revision: Option<u64>,
+        provider_authorized: bool,
+    ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
+        let authority =
+            self.authorize_workspace_lifecycle_mutation(provider_authorized, "close")?;
         let notifications = self.surface_notifications();
         loop {
             let target = {
@@ -3377,6 +3431,7 @@ impl Mux {
             let selection_resync = was_active && empty_revision.is_none();
             drop(state);
             drop(workspace_lifecycle);
+            drop(authority);
             for surface in removed {
                 self.purge_surface_side_tables(surface.id);
                 surface.kill();
@@ -3411,6 +3466,30 @@ impl Mux {
         name: String,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
+        self.rename_workspace_selector_with_authority(id, key, name, expected_revision, false)
+    }
+
+    pub fn rename_provider_managed_workspace(
+        &self,
+        id: WorkspaceId,
+        key: &str,
+        name: String,
+    ) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .rename_workspace_selector_with_authority(Some(id), Some(key), name, None, true)?
+            .map(|(_, _, revision)| revision))
+    }
+
+    fn rename_workspace_selector_with_authority(
+        &self,
+        id: Option<WorkspaceId>,
+        key: Option<&str>,
+        name: String,
+        expected_revision: Option<u64>,
+        provider_authorized: bool,
+    ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
+        let authority =
+            self.authorize_workspace_lifecycle_mutation(provider_authorized, "rename")?;
         Self::validate_workspace_name(&name)?;
         let notifications = self.surface_notifications();
         let (target, key, renamed) = {
@@ -3445,6 +3524,7 @@ impl Mux {
             );
             (target, key, renamed)
         };
+        drop(authority);
         self.emit(MuxEvent::TreeDelta(renamed.0));
         Ok(Some((target, key, renamed.1)))
     }
@@ -7003,6 +7083,59 @@ mod tests {
             Some((replacement.workspace, key, replacement.revision + 1))
         );
         surface.kill();
+        mux.shutdown();
+    }
+
+    #[test]
+    fn provider_ownership_handoff_waits_for_an_entered_ordinary_close() {
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(Some("ordinary".into()), Some("ordinary-key".into()), None)
+            .unwrap();
+        let entered = Arc::new(AtomicBool::new(false));
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.workspace_close_after_selector_resolution.lock().unwrap() = Some(Arc::new({
+            move || {
+                if !entered.swap(true, Ordering::SeqCst) {
+                    entered_tx.send(()).unwrap();
+                    release_rx.lock().unwrap().recv().unwrap();
+                }
+            }
+        }));
+
+        let close = std::thread::spawn({
+            let mux = mux.clone();
+            move || mux.close_workspace_at_revision(workspace.workspace, None)
+        });
+        entered_rx.recv().unwrap();
+
+        let (marked_tx, marked_rx) = std::sync::mpsc::sync_channel(1);
+        let mark = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                mux.mark_workspaces_provider_managed();
+                marked_tx.send(()).unwrap();
+            }
+        });
+        for _ in 0..1_000 {
+            std::thread::yield_now();
+        }
+        assert!(matches!(marked_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+
+        release_tx.send(()).unwrap();
+        assert_eq!(close.join().unwrap().unwrap(), Some(2));
+        marked_rx.recv().unwrap();
+        mark.join().unwrap();
+
+        let managed = mux
+            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .unwrap();
+        assert!(!mux.rename_workspace(managed.workspace, "raw rename".into()));
+        assert!(!mux.close_workspace(managed.workspace));
+
+        *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
         mux.shutdown();
     }
 

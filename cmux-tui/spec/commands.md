@@ -158,7 +158,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-guard-v1` advertises the one-way provider ownership handoff and the dedicated post-provider rename and close commands.
 
 Errors:
 
@@ -180,7 +180,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-guard-v1"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
@@ -1491,7 +1491,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
+Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it. After provider ownership is enabled, this ordinary command fails without changing workspace state.
 
 Params:
 
@@ -1515,6 +1515,7 @@ Errors:
 | `unknown workspace key <key>` | Workspace key does not exist |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `workspace revision conflict: ...` | Compare-and-swap guard is stale |
+| `cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls` | Provider ownership is enabled for this mux generation |
 | `bad request: ...` | Missing selector or wrong JSON type |
 
 CLI mapping:
@@ -1532,6 +1533,69 @@ Example:
 ```json
 {"id":16,"cmd":"close-workspace","workspace":4}
 {"id":16,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
+```
+
+### mark-workspaces-provider-managed
+
+Requires the `provider-managed-workspace-guard-v1` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `mark-workspaces-provider-managed` |
+| status | implemented |
+| since | protocol 9 additive capability |
+
+Permanently assigns ordinary workspace rename and close ownership to an external provider for this mux generation. Repeated requests are idempotent. After success, `rename-workspace` and `close-workspace` fail for every current and future workspace in the generation. This remains true while provider descriptors are temporarily unavailable.
+
+Params: none.
+
+Result: `object{}`.
+
+This control-only command has no public CLI mapping. The provider-aware TUI sends it before exposing provider-owned workspace lifecycle controls.
+
+Example:
+
+```json
+{"id":17,"cmd":"mark-workspaces-provider-managed"}
+{"id":17,"ok":true,"data":{}}
+```
+
+### close-provider-managed-workspace
+
+Requires the `provider-managed-workspace-guard-v1` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `close-provider-managed-workspace` |
+| status | implemented |
+| since | protocol 9 additive capability |
+
+Commits a provider-approved close to the local mux mirror. Both selectors are required and must identify the same live workspace. Clients must send this command only after the external provider durably accepts the close.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | required | Must identify a live workspace |
+| `key` | `string` | required | Must identify the same workspace as `workspace` |
+
+Result: `object{workspace:Id,key:string,workspace_revision:uint64}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `cannot apply provider workspace close; this session is not provider-managed` | Provider ownership was not enabled first |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":18,"cmd":"close-provider-managed-workspace","workspace":4,"key":"ops-stable"}
+{"id":18,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
 ```
 
 ### rename-pane
@@ -1683,7 +1747,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets a workspace name. The workspace may be selected by stable key or numeric id. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
+Sets a workspace name. The workspace may be selected by stable key or numeric id. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it. After provider ownership is enabled, this ordinary command fails without changing workspace state.
 
 Params:
 
@@ -1708,6 +1772,7 @@ Errors:
 | `unknown workspace key <key>` | Workspace key does not exist |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `workspace revision conflict: ...` | Compare-and-swap guard is stale |
+| `cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls` | Provider ownership is enabled for this mux generation |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1725,6 +1790,45 @@ Example:
 ```json
 {"id":20,"cmd":"rename-workspace","workspace":4,"name":"prod"}
 {"id":20,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
+```
+
+### rename-provider-managed-workspace
+
+Requires the `provider-managed-workspace-guard-v1` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `rename-provider-managed-workspace` |
+| status | implemented |
+| since | protocol 9 additive capability |
+
+Commits a provider-approved rename to the local mux mirror. Both selectors are required and must identify the same live workspace. Clients must send this command only after the external provider durably accepts the rename.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | required | Must identify a live workspace |
+| `key` | `string` | required | Must identify the same workspace as `workspace` |
+| `name` | `string` | required | Empty string is stored |
+
+Result: `object{workspace:Id,key:string,workspace_revision:uint64}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `cannot apply provider workspace rename; this session is not provider-managed` | Provider ownership was not enabled first |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":21,"cmd":"rename-provider-managed-workspace","workspace":4,"key":"ops-stable","name":"prod"}
+{"id":21,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
 ```
 
 ### resize-surface

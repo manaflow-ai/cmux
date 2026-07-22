@@ -13,6 +13,7 @@ pub(crate) mod tree;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY;
 use cmux_tui_core::{
     BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
     SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
@@ -768,12 +769,49 @@ impl Session {
 
     pub fn close_workspace(&self, workspace: WorkspaceId) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.close_workspace(workspace);
-                Ok(())
-            }
+            Session::Local(mux) => mux
+                .close_workspace_at_revision(workspace, None)?
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
                 .request(json!({"cmd": "close-workspace", "workspace": workspace}))
+                .map(|_| ()),
+        }
+    }
+
+    pub fn mark_workspaces_provider_managed(&self) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                mux.mark_workspaces_provider_managed();
+                Ok(())
+            }
+            Session::Remote(remote) => {
+                if !remote.supports_capability(PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY) {
+                    anyhow::bail!(
+                        "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
+                    );
+                }
+                remote.request(json!({"cmd": "mark-workspaces-provider-managed"})).map(|_| ())
+            }
+        }
+    }
+
+    pub fn close_provider_managed_workspace(
+        &self,
+        workspace: WorkspaceId,
+        key: String,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .close_provider_managed_workspace(workspace, &key)?
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "close-provider-managed-workspace",
+                    "workspace": workspace,
+                    "key": key,
+                }))
                 .map(|_| ()),
         }
     }
@@ -792,15 +830,37 @@ impl Session {
 
     pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.rename_workspace(workspace, name);
-                Ok(())
-            }
+            Session::Local(mux) => mux
+                .rename_workspace_at_revision(workspace, name, None)?
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "rename-workspace",
                     "workspace": workspace,
                     "name": name
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    pub fn rename_provider_managed_workspace(
+        &self,
+        workspace: WorkspaceId,
+        key: String,
+        name: String,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .rename_provider_managed_workspace(workspace, &key, name)?
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "rename-provider-managed-workspace",
+                    "workspace": workspace,
+                    "key": key,
+                    "name": name,
                 }))
                 .map(|_| ()),
         }
@@ -1396,5 +1456,32 @@ mod tests {
 
         let error = session.set_split_ratio(999_999, 0.5).unwrap_err();
         assert_eq!(error.to_string(), "unknown split 999999");
+    }
+
+    #[test]
+    fn local_provider_guard_surfaces_actionable_ordinary_mutation_errors() {
+        let mux = Mux::new("local-provider-guard-test", SurfaceOptions::default());
+        let workspace = mux
+            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .unwrap();
+        let session = Session::Local(mux.clone());
+        session.mark_workspaces_provider_managed().unwrap();
+
+        let rename_error =
+            session.rename_workspace(workspace.workspace, "raw rename".into()).unwrap_err();
+        let close_error = session.close_workspace(workspace.workspace).unwrap_err();
+
+        assert_eq!(
+            rename_error.to_string(),
+            "cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls"
+        );
+        assert_eq!(
+            close_error.to_string(),
+            "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls"
+        );
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].name, "managed");
+        });
     }
 }

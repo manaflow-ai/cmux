@@ -1844,12 +1844,33 @@ impl OrderedSession {
         self.enqueue_routing("close workspace", move |session| session.close_workspace(workspace));
     }
 
+    pub fn mark_workspaces_provider_managed(&self) -> anyhow::Result<()> {
+        self.inner.mark_workspaces_provider_managed()
+    }
+
+    pub fn close_provider_managed_workspace(&self, workspace: WorkspaceId, key: String) {
+        self.enqueue_routing("close managed workspace", move |session| {
+            session.close_provider_managed_workspace(workspace, key)
+        });
+    }
+
     pub fn rename_surface(&self, surface: SurfaceId, name: String) {
         self.enqueue("rename tab", move |session| session.rename_surface(surface, name));
     }
 
     pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) {
         self.enqueue("rename workspace", move |session| session.rename_workspace(workspace, name));
+    }
+
+    pub fn rename_provider_managed_workspace(
+        &self,
+        workspace: WorkspaceId,
+        key: String,
+        name: String,
+    ) {
+        self.enqueue("rename managed workspace", move |session| {
+            session.rename_provider_managed_workspace(workspace, key, name)
+        });
     }
 
     pub fn focus_pane(&self, pane: PaneId) {
@@ -3209,6 +3230,23 @@ fn ensure_initial_for_machine_ui(
     Ok(())
 }
 
+fn uses_provider_managed_workspaces(machine_ui: Option<&MachineUiState>) -> bool {
+    matches!(
+        machine_ui.and_then(MachineUiState::workspace_creation_policy),
+        Some(WorkspaceCreationPolicy::ProviderOwned { .. })
+    )
+}
+
+fn ensure_managed_workspace_guard(
+    session: &Session,
+    machine_ui: Option<&MachineUiState>,
+) -> anyhow::Result<()> {
+    if uses_provider_managed_workspaces(machine_ui) {
+        session.mark_workspaces_provider_managed()?;
+    }
+    Ok(())
+}
+
 pub fn run_with_machine_updates(
     session: Session,
     session_label: String,
@@ -3230,6 +3268,7 @@ pub fn run_with_machine_updates(
             sidebar_layout_for(&config, true, machine_ui.is_some(), (w, h), None, None).content;
         content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
     });
+    ensure_managed_workspace_guard(&session, machine_ui.as_ref())?;
     ensure_initial_for_machine_ui(&session, initial_size, machine_ui.as_ref())?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
@@ -3739,6 +3778,10 @@ impl App {
         &mut self,
         mutation: ManagedWorkspaceSessionMutation,
     ) {
+        if let Err(error) = self.session.mark_workspaces_provider_managed() {
+            self.status_message = Some(error.to_string());
+            return;
+        }
         let (workspace_key, rename) = match mutation {
             ManagedWorkspaceSessionMutation::Rename { workspace_key, name } => {
                 (workspace_key, Some(name))
@@ -3755,13 +3798,20 @@ impl App {
             return;
         };
         if let Some(name) = rename {
-            self.session.rename_workspace(workspace_id, name);
+            self.session.rename_provider_managed_workspace(workspace_id, workspace_key, name);
         } else {
-            self.session.close_workspace(workspace_id);
+            self.session.close_provider_managed_workspace(workspace_id, workspace_key);
         }
     }
 
     fn apply_machine_ui_update(&mut self, mut update: MachineUiState) -> RenderAction {
+        let guard_error = uses_provider_managed_workspaces(Some(&update))
+            .then(|| self.session.mark_workspaces_provider_managed().err())
+            .flatten()
+            .map(|error| error.to_string());
+        if guard_error.is_some() {
+            update.session_available = false;
+        }
         let provider_changed = self
             .machine_ui
             .as_ref()
@@ -3796,7 +3846,9 @@ impl App {
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
         self.reconcile_workspace_rail_selection();
-        if let Some(notice) = notice {
+        if let Some(error) = guard_error {
+            self.status_message = Some(error);
+        } else if let Some(notice) = notice {
             self.status_message = Some(notice);
         }
         RenderAction::Draw
@@ -3808,6 +3860,7 @@ impl App {
         machine_ui: &MachineUiState,
     ) -> anyhow::Result<()> {
         let initial_size = content_size_for_rect(self.content_area, self.config.scrollbar.position);
+        ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
         ensure_initial_for_machine_ui(&replacement.session, initial_size, Some(machine_ui))?;
         let session_available = machine_ui.session_available;
         if let Err(error) = replacement.session.set_default_colors(self.default_colors) {
@@ -5804,9 +5857,24 @@ impl App {
             .cloned()
     }
 
+    fn reject_unavailable_managed_workspace_operation(&mut self) {
+        self.status_message =
+            Some(localization::catalog().sidebar.managed_workspace_unavailable.to_string());
+    }
+
+    fn reject_disallowed_managed_workspace_operation(&mut self) {
+        self.status_message = Some(
+            localization::catalog().sidebar.managed_workspace_operation_not_allowed.to_string(),
+        );
+    }
+
     fn request_rename_managed_workspace(&mut self, workspace_id: WorkspaceId, name: String) {
-        let Some(workspace) = self.managed_workspace_for_view(workspace_id) else { return };
+        let Some(workspace) = self.managed_workspace_for_view(workspace_id) else {
+            self.reject_unavailable_managed_workspace_operation();
+            return;
+        };
         let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+            self.reject_unavailable_managed_workspace_operation();
             return;
         };
         if workspace.capabilities.rename
@@ -5818,12 +5886,23 @@ impl App {
                 expected_version: workspace.version,
                 name,
             });
+        } else {
+            self.reject_disallowed_managed_workspace_operation();
+        }
+    }
+
+    fn request_rename_workspace(&mut self, workspace_id: WorkspaceId, name: String) {
+        if uses_provider_managed_workspaces(self.machine_ui.as_ref()) {
+            self.request_rename_managed_workspace(workspace_id, name);
+        } else {
+            self.session.rename_workspace(workspace_id, name);
         }
     }
 
     fn request_delete_workspace(&mut self, workspace_id: WorkspaceId) {
         if let Some(workspace) = self.managed_workspace_for_view(workspace_id) {
             let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+                self.reject_unavailable_managed_workspace_operation();
                 return;
             };
             if workspace.capabilities.delete
@@ -5834,7 +5913,13 @@ impl App {
                     workspace_id: workspace.id,
                     expected_version: workspace.version,
                 });
+            } else {
+                self.reject_disallowed_managed_workspace_operation();
             }
+            return;
+        }
+        if uses_provider_managed_workspaces(self.machine_ui.as_ref()) {
+            self.reject_unavailable_managed_workspace_operation();
             return;
         }
         self.session.close_workspace(workspace_id);
@@ -6487,7 +6572,7 @@ impl App {
         match prompt.target {
             PromptTarget::Workspace(id) => {
                 if !input.is_empty() {
-                    self.session.rename_workspace(id, input);
+                    self.request_rename_workspace(id, input);
                 }
             }
             // Empty screen/tab names clear back to the default.
@@ -6824,22 +6909,30 @@ impl App {
     }
 
     fn open_rename_workspace_prompt_for(&mut self, workspace_id: WorkspaceId) {
-        let Some(workspace) = self.tree.workspaces.iter().find(|ws| ws.id == workspace_id) else {
+        let Some(buffer) = self
+            .tree
+            .workspaces
+            .iter()
+            .find(|ws| ws.id == workspace_id)
+            .map(|workspace| workspace.name.clone())
+        else {
             return;
         };
-        let target = if self
-            .managed_workspace_for_view(workspace_id)
-            .is_some_and(|managed| managed.capabilities.rename)
-        {
+        let provider_managed = uses_provider_managed_workspaces(self.machine_ui.as_ref());
+        let target = if provider_managed {
+            let Some(managed) = self.managed_workspace_for_view(workspace_id) else {
+                self.reject_unavailable_managed_workspace_operation();
+                return;
+            };
+            if !managed.capabilities.rename {
+                self.reject_disallowed_managed_workspace_operation();
+                return;
+            }
             PromptTarget::ManagedWorkspace(workspace_id)
         } else {
             PromptTarget::Workspace(workspace_id)
         };
-        let prompt = Prompt::new(
-            localization::catalog().sidebar.rename_workspace,
-            workspace.name.clone(),
-            target,
-        );
+        let prompt = Prompt::new(localization::catalog().sidebar.rename_workspace, buffer, target);
         self.cancel_pty_mouse_drag();
         self.prompt = Some(prompt);
     }
@@ -7008,21 +7101,11 @@ impl App {
             MenuAction::PurgeManagedMachine(key) => {
                 self.open_purge_managed_machine_prompt(key);
             }
-            MenuAction::RenameWorkspace(id) => {
-                let buffer = self
-                    .tree
-                    .workspaces
-                    .iter()
-                    .find(|ws| ws.id == id)
-                    .map(|ws| ws.name.clone())
-                    .unwrap_or_default();
-                self.prompt =
-                    Some(Prompt::new("Rename workspace", buffer, PromptTarget::Workspace(id)));
-            }
+            MenuAction::RenameWorkspace(id) => self.open_rename_workspace_prompt_for(id),
             MenuAction::RenameManagedWorkspace(id) => {
                 self.open_rename_workspace_prompt_for(id);
             }
-            MenuAction::CloseWorkspace(id) => self.session.close_workspace(id),
+            MenuAction::CloseWorkspace(id) => self.request_delete_workspace(id),
             MenuAction::DeleteManagedWorkspace(id) => self.request_delete_workspace(id),
             MenuAction::RestoreManagedWorkspace(index) => {
                 let workspace_id = self
@@ -9154,13 +9237,21 @@ impl App {
                 return;
             }
             Some(Hit::Workspace { id, .. }) => {
-                if let Some(workspace) = self.managed_workspace_for_view(id) {
+                if uses_provider_managed_workspaces(self.machine_ui.as_ref()) {
+                    let Some(workspace) = self.managed_workspace_for_view(id) else {
+                        self.reject_unavailable_managed_workspace_operation();
+                        return;
+                    };
                     let mut actions = Vec::new();
                     if workspace.capabilities.rename {
                         actions.push(MenuAction::RenameManagedWorkspace(id));
                     }
                     if workspace.capabilities.delete {
                         actions.push(MenuAction::DeleteManagedWorkspace(id));
+                    }
+                    if actions.is_empty() {
+                        self.reject_disallowed_managed_workspace_operation();
+                        return;
                     }
                     self.menu = Some(ContextMenu::at(x, y, vec![actions]));
                     return;
@@ -9635,10 +9726,10 @@ mod tests {
         MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
         MachineRailSelection, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
         ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
-        ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceStatus,
-        ProviderActionDescriptor, ProviderActionFieldDescriptor, ProviderActionFieldKind,
-        ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor, ProviderScopeKind,
-        WorkspaceCreationMode, WorkspaceCreationPolicy,
+        ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
+        ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
+        ProviderActionFieldKind, ProviderActionValue, ProviderPresentation,
+        ProviderScopeDescriptor, ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
     };
     use crate::pty_input::{
         PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind,
@@ -13592,12 +13683,46 @@ mod tests {
         app.machine_ui.as_mut().unwrap().request = None;
         app.tree.workspaces[0].key = "local-workspace".into();
         app.open_rename_workspace_prompt_for(4);
-        assert!(matches!(
-            app.prompt.as_ref().map(|prompt| prompt.target),
-            Some(PromptTarget::Workspace(4))
-        ));
+        assert!(app.prompt.is_none());
+        assert!(app.status_message.is_some());
         app.request_delete_workspace(4);
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn provider_denied_workspace_actions_do_not_recommend_refreshing() {
+        let mux = Mux::new("managed-workspace-denied-action-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(1, false);
+        let mut ui = provider_machine_ui();
+        ui.set_managed_workspaces(
+            MachineKey(41),
+            vec![ManagedWorkspaceDescriptor {
+                id: "00000000-0000-4000-8000-000000000004".into(),
+                name: "work".into(),
+                mode: WorkspaceCreationMode::Isolated,
+                status: ManagedWorkspaceStatus::Active,
+                version: 7,
+                recoverable_until: None,
+                capabilities: ManagedWorkspaceCapabilities::default(),
+            }],
+        );
+        app.machine_ui = Some(ui);
+
+        app.open_rename_workspace_prompt_for(4);
+        assert!(app.prompt.is_none());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_operation_not_allowed)
+        );
+
+        app.status_message = None;
+        app.request_delete_workspace(4);
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_operation_not_allowed)
+        );
     }
 
     #[test]
@@ -13652,7 +13777,7 @@ mod tests {
         assert!(
             app.status_message
                 .as_deref()
-                .is_some_and(|message| message.contains("managed workspace"))
+                .is_some_and(|message| message.to_ascii_lowercase().contains("managed workspace"))
         );
     }
 
@@ -13691,6 +13816,69 @@ mod tests {
             assert_eq!(workspace.name, "work");
         });
         assert!(!app.session.has_pending_mutations());
+    }
+
+    #[test]
+    fn provider_success_commits_through_the_managed_workspace_boundary() {
+        let mux = Mux::new("managed-workspace-provider-success-test", SurfaceOptions::default());
+        let workspace_key = "00000000-0000-4000-8000-000000000004";
+        let placement = mux
+            .create_empty_workspace(Some("work".into()), Some(workspace_key.into()), None)
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        app.machine_controller = Some(Box::new(FakeMachineController {
+            actions: VecDeque::from([
+                FakeMachineAction::Return(Box::new(
+                    MachineActionResult::ui(provider_machine_ui_with_lifecycle())
+                        .with_session_mutation(ManagedWorkspaceSessionMutation::Rename {
+                            workspace_key: workspace_key.into(),
+                            name: "renamed".into(),
+                        }),
+                )),
+                FakeMachineAction::Return(Box::new(
+                    MachineActionResult::ui(provider_machine_ui_with_lifecycle())
+                        .with_session_mutation(ManagedWorkspaceSessionMutation::Close {
+                            workspace_key: workspace_key.into(),
+                        }),
+                )),
+            ]),
+            requests: requests.clone(),
+        }));
+
+        app.request_rename_managed_workspace(placement.workspace, "renamed".into());
+        app.process_machine_requests();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(mux.with_state(|state| {
+            state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == placement.workspace)
+                .is_some_and(|workspace| workspace.name == "renamed")
+        }));
+
+        app.request_delete_workspace(placement.workspace);
+        app.process_machine_requests();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(!mux.with_state(|state| {
+            state.workspaces.iter().any(|workspace| workspace.id == placement.workspace)
+        }));
+        assert!(matches!(
+            requests.lock().unwrap().as_slice(),
+            [
+                MachineRequest::RenameManagedWorkspace { workspace_id, .. },
+                MachineRequest::DeleteManagedWorkspace {
+                    workspace_id: delete_workspace_id,
+                    ..
+                }
+            ] if workspace_id == workspace_key && delete_workspace_id == workspace_key
+        ));
     }
 
     #[test]

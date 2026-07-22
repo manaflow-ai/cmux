@@ -53,6 +53,7 @@ use crate::{
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str = "provider-managed-workspace-guard-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -428,6 +429,13 @@ enum Command {
         #[serde(default)]
         expected_revision: Option<u64>,
     },
+    /// One-way ownership handoff. Ordinary workspace rename/close commands
+    /// fail after this point; only post-provider lifecycle commits may mutate.
+    MarkWorkspacesProviderManaged,
+    CloseProviderManagedWorkspace {
+        workspace: WorkspaceId,
+        key: String,
+    },
     RenamePane {
         pane: PaneId,
         /// Empty clears the name (falls back to the tab title).
@@ -451,6 +459,11 @@ enum Command {
         name: String,
         #[serde(default)]
         expected_revision: Option<u64>,
+    },
+    RenameProviderManagedWorkspace {
+        workspace: WorkspaceId,
+        key: String,
+        name: String,
     },
     ResizeSurface {
         surface: SurfaceId,
@@ -2698,7 +2711,11 @@ fn handle_command(
             "build_commit": stamped_build_commit(),
             "ghostty_commit": stamped_ghostty_commit(),
             "protocol": PROTOCOL_VERSION,
-            "capabilities": [ATTACH_INITIAL_SIZE_CAPABILITY, WORKSPACE_REGISTRY_CAPABILITY],
+            "capabilities": [
+                ATTACH_INITIAL_SIZE_CAPABILITY,
+                WORKSPACE_REGISTRY_CAPABILITY,
+                PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
+            ],
             "session": mux.session,
             "pid": std::process::id(),
         })),
@@ -3297,6 +3314,16 @@ fn handle_command(
             };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
+        Command::MarkWorkspacesProviderManaged => {
+            mux.mark_workspaces_provider_managed();
+            Ok(json!({}))
+        }
+        Command::CloseProviderManagedWorkspace { workspace, key } => {
+            let Some(revision) = mux.close_provider_managed_workspace(workspace, &key)? else {
+                anyhow::bail!("unknown provider-managed workspace selector");
+            };
+            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+        }
         Command::RenamePane { pane, name } => {
             if !mux.rename_pane(pane, name) {
                 anyhow::bail!("unknown pane {pane}");
@@ -3324,6 +3351,13 @@ fn handle_command(
             )?
             else {
                 anyhow::bail!("unknown workspace selector");
+            };
+            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+        }
+        Command::RenameProviderManagedWorkspace { workspace, key, name } => {
+            let Some(revision) = mux.rename_provider_managed_workspace(workspace, &key, name)?
+            else {
+                anyhow::bail!("unknown provider-managed workspace selector");
             };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
@@ -5375,12 +5409,93 @@ mod tests {
     }
 
     #[test]
+    fn provider_managed_workspaces_reject_ordinary_server_mutations() {
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        handle_command(&mux, client, Command::MarkWorkspacesProviderManaged, &writer).unwrap();
+        for (command, expected_error) in [
+            (
+                Command::RenameWorkspace {
+                    workspace: Some(workspace.workspace),
+                    key: Some(workspace.key.clone()),
+                    name: "raw rename".into(),
+                    expected_revision: None,
+                },
+                "cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls",
+            ),
+            (
+                Command::CloseWorkspace {
+                    workspace: Some(workspace.workspace),
+                    key: Some(workspace.key.clone()),
+                    expected_revision: None,
+                },
+                "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls",
+            ),
+        ] {
+            let error = handle_command(&mux, client, command, &writer).unwrap_err();
+            assert_eq!(error.to_string(), expected_error);
+        }
+        mux.with_state(|state| {
+            assert_eq!(state.workspace_revision, 1);
+            let current = state
+                .workspaces
+                .iter()
+                .find(|candidate| candidate.id == workspace.workspace)
+                .unwrap();
+            assert_eq!(current.name, "managed");
+        });
+
+        handle_command(
+            &mux,
+            client,
+            Command::RenameProviderManagedWorkspace {
+                workspace: workspace.workspace,
+                key: workspace.key.clone(),
+                name: "provider rename".into(),
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(
+            mux.with_state(|state| state
+                .workspaces
+                .iter()
+                .find(|candidate| candidate.id == workspace.workspace)
+                .unwrap()
+                .name
+                .clone()),
+            "provider rename"
+        );
+
+        handle_command(
+            &mux,
+            client,
+            Command::CloseProviderManagedWorkspace {
+                workspace: workspace.workspace,
+                key: workspace.key,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert!(mux.with_state(|state| state.workspaces.is_empty()));
+    }
+
+    #[test]
     fn identify_advertises_additive_capabilities() {
         let mux = test_mux();
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
 
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
-        for expected in ["attach-initial-size", "workspace-registry-v1"] {
+        for expected in [
+            "attach-initial-size",
+            "workspace-registry-v1",
+            PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+        ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
     }
