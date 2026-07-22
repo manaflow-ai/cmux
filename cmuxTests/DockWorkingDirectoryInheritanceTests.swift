@@ -117,6 +117,31 @@ struct DockWorkingDirectoryInheritanceTests {
         }
     }
 
+    @Test("Remote Dock directory is not inherited by a new local terminal")
+    @MainActor
+    func remoteDirectoryDoesNotBecomeLocalStartupDirectory() throws {
+        try withDock(inheritanceEnabled: true) { store, rootPane, root, sourceDirectory in
+            let sourcePanelId = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                workingDirectory: sourceDirectory.path,
+                focus: true
+            ))
+            let sourcePanel = try terminalPanel(in: store, panelId: sourcePanelId)
+            let remoteDirectory = "/home/cmux/remote-project"
+            store.detachedSurfaceTransfersByPanelId[sourcePanelId] = remoteTerminalTransfer(
+                panel: sourcePanel,
+                sourceWorkspaceId: store.workspaceId,
+                directory: remoteDirectory
+            )
+
+            #expect(store.terminalLinkWorkingDirectory(for: sourcePanelId) == remoteDirectory)
+            let newPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+
+            #expect(try terminalPanel(in: store, panelId: newPanelId).requestedWorkingDirectory == root.path)
+        }
+    }
+
     @Test("Explicit Dock terminal directory overrides inherited directory")
     @MainActor
     func explicitDirectoryOverridesInheritance() throws {
@@ -179,5 +204,44 @@ struct DockWorkingDirectoryInheritanceTests {
     private func terminalPanel(in store: DockSplitStore, panelId: UUID) throws -> TerminalPanel {
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
         return try #require(store.panel(for: tabId) as? TerminalPanel)
+    }
+
+    @MainActor
+    private func remoteTerminalTransfer(
+        panel: TerminalPanel,
+        sourceWorkspaceId: UUID,
+        directory: String
+    ) -> Workspace.DetachedSurfaceTransfer {
+        Workspace.DetachedSurfaceTransfer(
+            sourceWorkspaceId: sourceWorkspaceId,
+            panelId: panel.id,
+            panel: panel,
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            iconImageData: nil,
+            kind: "terminal",
+            isLoading: false,
+            isPinned: false,
+            directory: directory,
+            directoryIsTrustedRemoteReport: true,
+            directoryDisplayLabel: nil,
+            ttyName: nil,
+            cachedTitle: nil,
+            customTitle: nil,
+            customTitleSource: nil,
+            manuallyUnread: false,
+            restoredUnreadIndicator: nil,
+            restorableAgent: nil,
+            restorableAgentResumeState: nil,
+            restoredAgentCompletedGeneration: nil,
+            shellActivityState: nil,
+            restoredResumeSessionWorkingDirectory: nil,
+            resumeBinding: nil,
+            agentRuntime: nil,
+            isRemoteTerminal: true,
+            remoteRelayPort: nil,
+            remotePTYSessionID: nil,
+            remoteCleanupConfiguration: nil
+        )
     }
 }
