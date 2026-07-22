@@ -76,7 +76,7 @@ OPTIONS:
 KEYS (prefix: Ctrl-b)
   t  new tab in pane   B    new browser tab    Alt-n  auto-layout new pane
   Tab/BackTab  next/prev tab
-  1-9  select screen
+  0-9  select screen
   %  split right       \"  split down          x/X  close pane/tab
   ,  rename screen     $    rename workspace   c    new screen
   n/p  next/prev screen

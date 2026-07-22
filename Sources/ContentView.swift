@@ -111,6 +111,15 @@ private func debugCommandPaletteResponderSummary(_ responder: NSResponder?) -> S
 #endif
 
 @MainActor
+final class WeakWindowReference {
+    weak var window: NSWindow?
+
+    init(_ window: NSWindow? = nil) {
+        self.window = window
+    }
+}
+
+@MainActor
 private final class WindowCommandPaletteOverlayController: NSObject {
     private weak var window: NSWindow?
     private let containerView = CommandPaletteOverlayContainerView(frame: .zero)
@@ -848,7 +857,8 @@ struct ContentView: View {
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
-    @State private var observedWindow: NSWindow?
+    @State private var observedWindowReference = WeakWindowReference()
+    private var observedWindow: NSWindow? { observedWindowReference.window }
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
@@ -1684,7 +1694,7 @@ struct ContentView: View {
                     debugSource: "titlebar.hiddenNewWorkspace"
                 )
             },
-            observedWindow: observedWindow,
+            observedWindowReference: observedWindowReference,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -3252,7 +3262,7 @@ struct ContentView: View {
         // Track this window for fullscreen notifications
         if observedWindow !== window {
             DispatchQueue.main.async {
-                observedWindow = window
+                observedWindowReference = WeakWindowReference(window)
                 isFullScreen = window.styleMask.contains(.fullScreen)
                 let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
                 clampSidebarWidthIfNeeded(availableWidth: availableWidth)
@@ -10401,7 +10411,7 @@ struct VerticalTabsSidebar: View, Equatable {
     // precedent.
     static func == (lhs: VerticalTabsSidebar, rhs: VerticalTabsSidebar) -> Bool {
         lhs.windowId == rhs.windowId
-            && lhs.observedWindow === rhs.observedWindow
+            && lhs.observedWindowReference.window === rhs.observedWindowReference.window
             && lhs.updateViewModel === rhs.updateViewModel
             && lhs.fileExplorerState === rhs.fileExplorerState
     }
@@ -10412,7 +10422,8 @@ struct VerticalTabsSidebar: View, Equatable {
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
-    let observedWindow: NSWindow?
+    let observedWindowReference: WeakWindowReference
+    var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
     // Observe the coalesced unread projection instead of the notification store
     // so notification churn (terminal/agent activity) no longer reconstructs
@@ -10456,6 +10467,10 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var expandedMetadataWorkspaceIds: Set<UUID> = []
     @State private var expandedMarkdownWorkspaceIds: Set<UUID> = []
     @State private var checklistAddFieldActivationTokens: [UUID: Int] = [:]
+    /// AppKit-table tap-to-edit sessions (workspace id → checklist item id).
+    /// Container-owned so the row model (and the height cache's prototype
+    /// measurement) sees the edit-field swap.
+    @State private var editingChecklistItemIds: [UUID: UUID] = [:]
     // Which workspace row's checklist popover is open (at most one across
     // the sidebar). Held at the container so rows stay behind the snapshot
     // boundary.
@@ -11579,6 +11594,9 @@ struct VerticalTabsSidebar: View, Equatable {
             globalFontMagnificationPercent: environment.globalFontMagnificationPercent,
             isChecklistExpanded: input.isChecklistExpanded,
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
+            isChecklistPopoverPresented: input.isChecklistPopoverPresented,
+            editingChecklistItemId: editingChecklistItemIds[tab.id],
+            todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
             isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id)
         )
@@ -11663,6 +11681,50 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             checklistEditItem: { [tab] itemId, text in
                 WorkspaceTodoActions.editChecklistItem(id: itemId, text: text, in: tab)
+            },
+            checklistMoveItem: { [tab] itemId, toIndex in
+                WorkspaceTodoActions.moveChecklistItem(id: itemId, toIndex: toIndex, in: tab)
+            },
+            checklistOpenPane: { [tab] in
+                WorkspaceTodoActions.openTodoPane(for: tab)
+            },
+            checklistAddAttachments: { [tab] itemId in
+                WorkspaceTodoActions.addImageAttachments(to: itemId, in: tab)
+            },
+            checklistRemoveAttachment: { [tab] itemId, attachmentId in
+                WorkspaceTodoActions.removeImageAttachment(itemId: itemId, attachmentId: attachmentId, from: tab)
+            },
+            checklistOpenAttachments: { [tab] itemId, selectedAttachmentId in
+                guard let item = tab.todoState.checklist.first(where: { $0.id == itemId }) else { return }
+                WorkspaceTodoActions.openImageAttachments(
+                    item.attachments,
+                    selectedAttachmentId: selectedAttachmentId
+                )
+            },
+            onChecklistPopoverPresentedChange: { [tabId = tab.id] presented in
+                if presented {
+                    checklistPopoverWorkspaceId = tabId
+                } else if checklistPopoverWorkspaceId == tabId {
+                    checklistPopoverWorkspaceId = nil
+                }
+            },
+            onBeginChecklistItemEdit: { [tabId = tab.id] itemId in
+                if let itemId {
+                    editingChecklistItemIds[tabId] = itemId
+                } else {
+                    editingChecklistItemIds[tabId] = nil
+                }
+            },
+            onEndChecklistItemEdit: { [tabId = tab.id] itemId in
+                if editingChecklistItemIds[tabId] == itemId {
+                    editingChecklistItemIds[tabId] = nil
+                }
+            },
+            applyTodoStatus: { [tab] status in
+                WorkspaceTodoActions.applyStatusOverride(status, to: [tab])
+            },
+            hideTodoStatus: { [tab] in
+                WorkspaceTodoActions.hideStatus(for: [tab])
             },
             commitRename: { [weak tabManager, workspaceId = tab.id] text in
                 tabManager?.setCustomTitle(tabId: workspaceId, title: text)
