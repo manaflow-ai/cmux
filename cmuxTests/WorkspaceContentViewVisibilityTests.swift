@@ -348,9 +348,14 @@ final class WorkspaceContentViewVisibilityTests {
         coordinator.request(target: secondTarget)
         #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
 
-        for _ in 0..<5 {
+        #expect(coordinator.claimRestoreAttempt())
+        #expect(!coordinator.claimRestoreAttempt())
+        coordinator.finishRestoreAttempt()
+
+        for _ in 0..<4 {
             #expect(coordinator.claimRestoreAttempt())
             #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+            coordinator.finishRestoreAttempt()
         }
         #expect(!coordinator.claimRestoreAttempt())
         #expect(coordinator.pendingTarget?.workspaceId == nil)

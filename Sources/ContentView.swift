@@ -9466,6 +9466,7 @@ struct ContentView: View {
             return
         }
         guard commandPaletteFocusRestoreCoordinator.claimRestoreAttempt() else { return }
+        defer { commandPaletteFocusRestoreCoordinator.finishRestoreAttempt() }
 
         if let window = observedWindow, !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
