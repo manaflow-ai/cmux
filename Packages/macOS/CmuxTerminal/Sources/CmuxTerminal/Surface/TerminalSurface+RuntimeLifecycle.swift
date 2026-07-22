@@ -613,11 +613,11 @@ extension TerminalSurface {
         // wrapping at Ghostty's default grid.
         flushPendingRemoteOutput(to: createdSurface)
 
-        // Some GhosttyKit builds can drop inherited font_size during post-create
-        // config/scale reconciliation. Re-apply runtime points so all creation
-        // paths preserve zoom from the source terminal. Explicit lineage is
-        // always applied so Ghostty retains surface-local ownership; otherwise
-        // Cmd+0 could not clear the restored override for the next snapshot.
+        // Some GhosttyKit builds can drop explicit font_size during post-create
+        // config/scale reconciliation. Re-apply explicit runtime points so
+        // Ghostty retains surface-local ownership; otherwise Cmd+0 could not
+        // clear the restored override for the next snapshot. Non-explicit
+        // lineage intentionally reconciles to the current terminal config.
         if let inheritedFontSizeLineage = lastKnownFontSizeLineage,
            inheritedFontSizeLineage.isExplicitOverride,
            inheritedFontSizeLineage.basePoints > 0 {

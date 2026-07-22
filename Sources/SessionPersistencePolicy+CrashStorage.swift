@@ -249,7 +249,12 @@ extension SessionPersistencePolicy {
     }
 
     private static func terminalCarriesRestorableUserState(_ terminal: SessionTerminalPanelSnapshot) -> Bool {
-        !isNilOrBlank(terminal.scrollback) || terminal.textBoxDraft != nil
+        if let fontSize = terminal.fontSize,
+           fontSize.isFinite,
+           fontSize > 0 {
+            return true
+        }
+        return !isNilOrBlank(terminal.scrollback) || terminal.textBoxDraft != nil
     }
 
     private static func adjustedSelectedWorkspaceIndex(

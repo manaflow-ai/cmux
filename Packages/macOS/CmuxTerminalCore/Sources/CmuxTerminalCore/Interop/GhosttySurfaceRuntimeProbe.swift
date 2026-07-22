@@ -46,6 +46,7 @@ public struct GhosttySurfaceRuntimeProbe {
     /// - Parameter surface: The runtime surface to read.
     /// - Returns: The live app-thread-owned font size in points, or nil when
     ///   the surface pointer is stale or the runtime reports no font.
+    @MainActor
     public static func currentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
         guard surfacePointerAppearsLive(surface) else {
             return nil

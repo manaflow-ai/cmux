@@ -11,6 +11,11 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     public var fontSizeLineage: TerminalFontSizeLineage? = nil
 
     /// The unscaled base font size in points; `0` means the runtime default.
+    ///
+    /// Assigning a valid size to a fresh template creates an explicit override.
+    /// Assigning through this property later preserves the lineage's existing
+    /// ownership. Use ``setFontSize(_:isExplicitOverride:)`` for inherited or
+    /// observed sizes that should keep following terminal config.
     public var fontSize: Float32 {
         get { fontSizeLineage?.basePoints ?? 0 }
         set {
@@ -20,7 +25,7 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
             }
             fontSizeLineage = TerminalFontSizeLineage(
                 basePoints: newValue,
-                isExplicitOverride: fontSizeLineage?.isExplicitOverride ?? false
+                isExplicitOverride: fontSizeLineage?.isExplicitOverride ?? true
             )
         }
     }
@@ -74,9 +79,12 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
         cConfig: ghostty_surface_config_s,
         globalFontMagnificationPercent: Int = 100
     ) {
-        fontSize = Self.baseFontSize(
-            fromRuntimePoints: cConfig.font_size,
-            percent: globalFontMagnificationPercent
+        setFontSize(
+            Self.baseFontSize(
+                fromRuntimePoints: cConfig.font_size,
+                percent: globalFontMagnificationPercent
+            ),
+            isExplicitOverride: false
         )
         if let workingDirectory = cConfig.working_directory {
             self.workingDirectory = String(cString: workingDirectory, encoding: .utf8)
