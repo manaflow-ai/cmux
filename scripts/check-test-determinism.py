@@ -221,7 +221,7 @@ _PYTHON_MODULE_SLEEP_CALL = re.compile(
     r"(?<![.\w])([A-Za-z_]\w*)\.sleep\s*\("
 )
 _PYTHON_ASSIGNMENT_TARGET = re.compile(
-    r"(?<![.\w])([A-Za-z_]\w*)\s*(?::[^=,\n]+)?=(?!=)"
+    r"(?:^|;)\s*([A-Za-z_]\w*)\s*(?::[^=,\n]+)?=(?!=)"
 )
 _PYTHON_DEFINITION_TARGET = re.compile(
     r"^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)\b"
@@ -274,6 +274,10 @@ _REAL_CLOCK_TYPE = re.compile(
 _REAL_CLOCK_INIT = re.compile(
     r"^\s*(?::[^=]+)?=\s*(?:[A-Za-z_]\w*\.)*"
     r"(?:ContinuousClock|SuspendingClock)\s*(?:\.\s*init)?\s*\("
+)
+_REAL_CLOCK_CAST = re.compile(
+    r".+\bas[!?]?\s+"
+    r"((?:[A-Za-z_]\w*\.)*(?:ContinuousClock|SuspendingClock))\??\s*$"
 )
 _SLASH_NONCODE_MARKER = re.compile(r'//|/\*|"""|["\']')
 _HASH_NONCODE_MARKER = re.compile(r'#|"""|["\']')
@@ -624,6 +628,32 @@ def _annotated_receiver_type(text: str, receiver: str) -> Optional[str]:
     return annotation.group(1) if annotation else None
 
 
+def _real_clock_cast_type(declaration: str) -> Optional[str]:
+    """Return a concrete clock type when the initializer ends in a cast."""
+    assignment = re.match(r"^\s*(?::[^=]+)?=\s*(.+)$", declaration)
+    if not assignment:
+        return None
+    expression = assignment.group(1).strip()
+
+    while expression.startswith("(") and expression.endswith(")"):
+        depth = 0
+        wraps_expression = True
+        for index, character in enumerate(expression):
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                depth -= 1
+                if depth == 0 and index != len(expression) - 1:
+                    wraps_expression = False
+                    break
+        if not wraps_expression or depth != 0:
+            break
+        expression = expression[1:-1].strip()
+
+    cast = _REAL_CLOCK_CAST.fullmatch(expression)
+    return cast.group(1) if cast else None
+
+
 def _captured_receiver_expression(text: str, receiver: str) -> Optional[str]:
     assignment = re.search(
         rf"(?:^|,)\s*(?:(?:weak|unowned(?:\([^)]*\))?)\s+)?"
@@ -639,7 +669,11 @@ def _captured_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     expression = _captured_receiver_expression(text, receiver)
     if expression is None:
         return None
-    return bool(_REAL_CLOCK_INIT.search(f"= {expression}"))
+    declaration = f"= {expression}"
+    return bool(
+        _REAL_CLOCK_INIT.search(declaration)
+        or _real_clock_cast_type(declaration)
+    )
 
 
 def _captured_receiver_alias(
@@ -899,7 +933,11 @@ def _receiver_declaration_kind(
             "",
         )
         probe = f"{probe} {continuation}"
-    return bool(_REAL_CLOCK_TYPE.search(probe) or _REAL_CLOCK_INIT.search(probe))
+    return bool(
+        _REAL_CLOCK_TYPE.search(probe)
+        or _REAL_CLOCK_INIT.search(probe)
+        or _real_clock_cast_type(probe)
+    )
 
 
 def _receiver_declaration_type(
@@ -920,6 +958,9 @@ def _receiver_declaration_type(
     )
     if annotation:
         return annotation.group(1)
+    cast_type = _real_clock_cast_type(probe)
+    if cast_type:
+        return cast_type
     initializer = re.match(
         r"^\s*(?::[^=]+)?=\s*"
         r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\s*(?:[?!]\s*)?\(",
@@ -2216,7 +2257,7 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
                 )
                 if direct:
                     bound_name = direct.group(1).split(".", 1)[0]
-                    if direct.group(1) in _PYTHON_SLEEP_MODULES:
+                    if bound_name in _PYTHON_SLEEP_MODULES:
                         set_alias(bound_name, True)
                     else:
                         set_alias(bound_name, False)
@@ -2657,6 +2698,21 @@ def _self_test() -> int:
             "let clock = makeClock() as ContinuousClock\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
             "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ParenthesizedCastRealClockTests.swift",
+            "let clock = (makeClock() as Swift.SuspendingClock)\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/CastCaptureRealClockTests.swift",
+            "let work = { [clock = makeClock() as ContinuousClock] in\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
@@ -3606,6 +3662,12 @@ def _self_test() -> int:
             "try await clock.sleep(until: deadline)\n"
             "#expect(await clockEvents.next() == expected)\n",
         ),
+        (
+            "Packages/CmuxClock/Tests/NestedCastVirtualClockTests.swift",
+            "let clock = TestRelayClock(reference: makeClock() as ContinuousClock)\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
         # A conditional real-clock binding must disappear with its branch and
         # leave the injected outer fake clock authoritative afterward.
         (
@@ -3849,6 +3911,13 @@ def _self_test() -> int:
             "tests/ShadowedSleepModuleAliasTests.py",
             "import time as clock_time\n"
             "clock_time = TestClock()\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+        ),
+        (
+            "tests/SemicolonShadowedSleepModuleAliasTests.py",
+            "import time as clock_time\n"
+            "prepare(); clock_time = TestClock()\n"
             "clock_time.sleep(0.3)\n"
             "assert widget.is_rendered\n",
         ),
