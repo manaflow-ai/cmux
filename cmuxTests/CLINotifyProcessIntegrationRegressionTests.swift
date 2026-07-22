@@ -241,9 +241,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             expectedConnectionCount: 4,
             autoNamingWorkspaceUserOwned: true,
             autoNamingWorkspaceApplied: false,
+            autoNamingWorkspaceApplySkipped: true,
             autoNamingPanelApplied: true,
-            autoNamingPanelApplySkipped: false,
-            autoNamingWorkspaceApplySkipped: true
+            autoNamingPanelApplySkipped: false
         )
         XCTAssertFalse(compact.timedOut, compact.stderr)
         XCTAssertEqual(compact.status, 0, compact.stderr)
