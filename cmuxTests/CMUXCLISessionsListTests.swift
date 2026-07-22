@@ -2,6 +2,74 @@ import Foundation
 import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func agentsListExcludesSessionsOwnedByAnotherCmuxInstance() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-instance-scope-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "activeSessionsByWorkspace": [
+                "workspace-foreign": [
+                    "sessionId": "foreign-session",
+                    "updatedAt": 200.0,
+                ],
+            ],
+            "activeSessionsBySurface": [
+                "surface-foreign": [
+                    "sessionId": "foreign-session",
+                    "updatedAt": 200.0,
+                ],
+            ],
+            "sessions": [
+                "foreign-session": [
+                    "sessionId": "foreign-session",
+                    "workspaceId": "workspace-foreign",
+                    "surfaceId": "surface-foreign",
+                    "runtimeStatus": "running",
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let socketPath = "/tmp/cmux-agents-scope-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"windows":[{"id":"window-local","workspaces":[{"id":"workspace-local","panes":[{"id":"pane-local","surfaces":[{"id":"surface-local","type":"terminal"}]}]}]}]}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "agents", "--agent", "codex", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try #require(payload["sessions"] as? [[String: Any]])
+        #expect(sessions.isEmpty)
+        #expect(responder.receivedRequests.contains { $0.contains("system.tree") })
+    }
+
     @Test func agentsListProvidesVersionedOfflineSessionInspection() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
