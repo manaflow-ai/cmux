@@ -146,7 +146,10 @@ public final class BrowserAutomationNavigationCoordinator {
               activeTicket.instanceID == instanceID,
               activeNavigationID != nil,
               allowsSameDocumentCompletion,
-              activeTargetURL == url else {
+              let activeTargetURL,
+              let observedNavigationURL = BrowserAutomationNavigationURL(url),
+              let targetNavigationURL = BrowserAutomationNavigationURL(activeTargetURL),
+              observedNavigationURL == targetNavigationURL else {
             return
         }
         finish(activeTicket, with: .committed)

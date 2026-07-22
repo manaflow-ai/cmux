@@ -218,6 +218,61 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .committed)
     }
 
+    @Test("WebKit-canonical same-document URLs complete the transaction")
+    func canonicalSameDocumentURLsComplete() async {
+        let equivalents = [
+            ("https://example.com#verified", "https://example.com/#verified"),
+            (
+                "HTTPS://EXAMPLE.COM:443/%7euser?q=%7e#part%2fvalue",
+                "https://example.com/~user?q=~#part%2Fvalue"
+            ),
+            ("http://EXAMPLE.COM:80#verified", "http://example.com/#verified"),
+        ]
+
+        for (target, observed) in equivalents {
+            let coordinator = BrowserAutomationNavigationCoordinator()
+            let instanceID = UUID()
+            let navigation = NSObject()
+            let targetURL = URL(string: target)!
+            coordinator.bind(to: instanceID)
+            let ticket = coordinator.begin(
+                instanceID: instanceID,
+                targetURL: targetURL,
+                allowsSameDocumentCompletion: true
+            )
+            coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+
+            coordinator.didFinishSameDocumentNavigation(
+                instanceID: instanceID,
+                url: URL(string: observed)
+            )
+
+            #expect(await coordinator.wait(for: ticket) == .committed)
+        }
+    }
+
+    @Test("Reserved escapes are not collapsed when matching same-document URLs")
+    func reservedEscapeRemainsDistinct() async {
+        let coordinator = BrowserAutomationNavigationCoordinator(sleep: { _ in })
+        let instanceID = UUID()
+        let navigation = NSObject()
+        let targetURL = URL(string: "https://example.com/a%2Fb#verified")!
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(
+            instanceID: instanceID,
+            targetURL: targetURL,
+            allowsSameDocumentCompletion: true
+        )
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+
+        coordinator.didFinishSameDocumentNavigation(
+            instanceID: instanceID,
+            url: URL(string: "https://example.com/a/b#verified")
+        )
+
+        #expect(await coordinator.wait(for: ticket) == .timedOut)
+    }
+
     @Test("An error document cannot satisfy a navigation with a fragment event")
     func errorDocumentSameDocumentEventIsIgnored() async {
         let coordinator = BrowserAutomationNavigationCoordinator(sleep: { _ in })
