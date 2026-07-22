@@ -9449,7 +9449,11 @@ struct ContentView: View {
     private func attemptCommandPaletteFocusRestoreIfNeeded() {
         guard !isCommandPalettePresented else { return }
         guard let target = commandPaletteFocusRestoreCoordinator.pendingTarget else { return }
-        guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
+        guard let targetWorkspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }) else {
+            commandPaletteFocusRestoreCoordinator.clear()
+            return
+        }
+        guard targetWorkspace.panels[target.panelId] != nil else {
             commandPaletteFocusRestoreCoordinator.clear()
             return
         }
@@ -9469,7 +9473,10 @@ struct ContentView: View {
               context.panelId == target.panelId else {
             return
         }
-        guard context.panel.restoreFocusIntent(target.intent) else { return }
+        guard context.panel.restoreFocusIntent(target.intent) else {
+            commandPaletteFocusRestoreCoordinator.clear()
+            return
+        }
         commandPaletteFocusRestoreCoordinator.clear()
     }
 

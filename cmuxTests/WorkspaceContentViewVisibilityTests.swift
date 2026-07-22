@@ -305,6 +305,26 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func commandPaletteFocusRestoreClearsUnresolvableTargetsWithoutTimedTasks() throws {
+        let contentViewSource = try Self.sourceText("Sources/ContentView.swift")
+        let restoreBody = try Self.functionBody(named: "attemptCommandPaletteFocusRestoreIfNeeded", in: contentViewSource)
+        #expect(
+            restoreBody.contains(
+                "guard targetWorkspace.panels[target.panelId] != nil else {\n            commandPaletteFocusRestoreCoordinator.clear()"
+            )
+        )
+        #expect(
+            restoreBody.contains(
+                "guard context.panel.restoreFocusIntent(target.intent) else {\n            commandPaletteFocusRestoreCoordinator.clear()"
+            )
+        )
+
+        let coordinatorSource = try Self.sourceText("Sources/CommandPaletteFocusRestoreCoordinator.swift")
+        #expect(!coordinatorSource.contains("Task"))
+        #expect(!coordinatorSource.contains("sleep"))
+    }
+
+    @Test
     @MainActor
     func commandPaletteFocusRestoreCoordinatorKeepsLatestTargetUntilExplicitClear() {
         let coordinator = CommandPaletteFocusRestoreCoordinator()
