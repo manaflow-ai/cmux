@@ -381,6 +381,8 @@ impl SshMachineStreamConnector {
             OsString::from("-o"),
             OsString::from("BatchMode=yes"),
             OsString::from("-o"),
+            OsString::from("ForwardAgent=no"),
+            OsString::from("-o"),
             OsString::from("ClearAllForwardings=yes"),
             OsString::from("-o"),
             OsString::from("PermitLocalCommand=no"),

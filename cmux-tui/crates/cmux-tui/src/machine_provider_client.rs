@@ -215,13 +215,47 @@ impl ProviderEventQueue {
         if state.disconnected {
             return;
         }
-        if matches!(&event, ProviderEvent::ConnectionClosed(_)) {
-            // Connection revocation changes transport validity. Preserve every
-            // closure without charging it to the bounded catalog/notice budget.
+        if let ProviderEvent::ConnectionClosed(closed) = &event {
+            if let Some(index) = state.events.iter().position(|queued| {
+                matches!(
+                    queued,
+                    ProviderEvent::ConnectionClosed(queued)
+                        if queued.connection_id == closed.connection_id
+                            && queued.machine_id == closed.machine_id
+                )
+            }) {
+                // One connection can only be closed once. Retain its latest
+                // provider reason without growing the priority queue.
+                state.events[index] = event;
+                drop(state);
+                self.ready.notify_one();
+                return;
+            }
+            if state.events.len() >= PROVIDER_EVENT_QUEUE_CAPACITY {
+                let best_effort = state
+                    .events
+                    .iter()
+                    .position(|queued| !matches!(queued, ProviderEvent::ConnectionClosed(_)));
+                let Some(best_effort) = best_effort else {
+                    // More distinct closures than the bounded priority budget
+                    // means the consumer cannot safely keep up. Force a
+                    // provider resync instead of dropping an arbitrary closure.
+                    state.events.clear();
+                    state.best_effort_len = 0;
+                    state.disconnected = true;
+                    drop(state);
+                    self.ready.notify_all();
+                    return;
+                };
+                state.events.remove(best_effort);
+                state.best_effort_len -= 1;
+            }
             state.events.push_back(event);
-        } else if state.best_effort_len < PROVIDER_EVENT_QUEUE_CAPACITY {
+        } else if state.events.len() < PROVIDER_EVENT_QUEUE_CAPACITY {
             state.events.push_back(event);
             state.best_effort_len += 1;
+        } else {
+            return;
         }
         drop(state);
         self.ready.notify_one();
