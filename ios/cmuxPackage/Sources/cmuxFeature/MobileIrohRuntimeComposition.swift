@@ -2307,7 +2307,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     }
                     let retryDelay = CmxIrohRetrySchedule().delay(
                         failureCount: failureCount,
-                        retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+                        retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                             .retryAfterSeconds,
                         jitterUnitInterval: Double.random(in: 0 ... 1)
                     )

@@ -158,9 +158,7 @@ struct CmxIrohBrokerBackpressureGateTests {
                 return true
             }
         }
-        for _ in 0 ..< 100 where await probe.requestCount() == 0 {
-            await Task.yield()
-        }
+        await probe.waitForRequestCount(1)
         #expect(await probe.requestCount() == 1)
 
         let second = Task {
@@ -254,9 +252,15 @@ private final class BackpressureGateClock: @unchecked Sendable {
 private actor BackpressureGateProbe {
     private var count = 0
     private var firstRequestContinuation: CheckedContinuation<Void, Never>?
+    private var requestCountWaiters: [
+        (minimum: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
 
     func request() async throws -> Int {
         count += 1
+        let ready = requestCountWaiters.filter { count >= $0.minimum }
+        requestCountWaiters.removeAll { count >= $0.minimum }
+        for waiter in ready { waiter.continuation.resume() }
         if count == 1 {
             await withCheckedContinuation { continuation in
                 firstRequestContinuation = continuation
@@ -269,6 +273,13 @@ private actor BackpressureGateProbe {
     }
 
     func requestCount() -> Int { count }
+
+    func waitForRequestCount(_ minimum: Int) async {
+        guard count < minimum else { return }
+        await withCheckedContinuation { continuation in
+            requestCountWaiters.append((minimum, continuation))
+        }
+    }
 
     func releaseFirstRequest() {
         firstRequestContinuation?.resume()

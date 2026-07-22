@@ -69,6 +69,71 @@ public struct CmxIrohBackpressuredClientBroker: CmxIrohClientBrokerServing, Send
     }
 }
 
+/// Operation-gated host broker used by an account-owned Mac runtime.
+public struct CmxIrohBackpressuredHostBroker: CmxIrohHostBrokerServing, Sendable {
+    private let broker: any CmxIrohHostBrokerServing
+    private let gate: CmxIrohBrokerBackpressureGate
+    private let accountID: String
+
+    public init(
+        broker: any CmxIrohHostBrokerServing,
+        gate: CmxIrohBrokerBackpressureGate,
+        accountID: String
+    ) {
+        self.broker = broker
+        self.gate = gate
+        self.accountID = accountID
+    }
+
+    public func preflight(operation: CmxIrohBrokerOperation) async throws {
+        try await gate.preflight(accountID: accountID, operation: operation)
+    }
+
+    public func register(
+        prepared: CmxIrohPreparedRegistration,
+        signer: CmxIrohRegistrationSigner
+    ) async throws -> CmxIrohRegistrationResponse {
+        try await gate.perform(accountID: accountID, operation: .registration) {
+            try await broker.register(prepared: prepared, signer: signer)
+        }
+    }
+
+    public func discover() async throws -> CmxIrohDiscoveryResponse {
+        try await gate.perform(accountID: accountID, operation: .discovery) {
+            try await broker.discover()
+        }
+    }
+
+    public func issueEndpointAttestation(
+        bindingID: String
+    ) async throws -> CmxIrohEndpointAttestationResponse {
+        try await gate.perform(
+            accountID: accountID,
+            operation: .endpointAttestation
+        ) {
+            try await broker.issueEndpointAttestation(bindingID: bindingID)
+        }
+    }
+
+    public func issueRelayToken(
+        bindingID: String,
+        endpointID: CmxIrohPeerIdentity
+    ) async throws -> CmxIrohRelayTokenResponse {
+        try await gate.perform(accountID: accountID, operation: .relayCredential) {
+            try await broker.issueRelayToken(
+                bindingID: bindingID,
+                endpointID: endpointID
+            )
+        }
+    }
+
+    public func revoke(bindingID: String) async throws {
+        try await gate.perform(accountID: accountID, operation: .revocation) {
+            try await broker.revoke(bindingID: bindingID)
+        }
+    }
+}
+
 /// Operation-gated relay-policy broker sharing a runtime's account gate.
 public struct CmxIrohBackpressuredRelayPolicyBroker: CmxIrohRelayPolicyServing, Sendable {
     private let broker: any CmxIrohRelayPolicyServing
