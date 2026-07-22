@@ -122,12 +122,7 @@ public struct PromptLineTurnDetector: Sendable {
                printableBytesCannotChangeState {
                 // Skip the rest of the printable run without state machine
                 // work; only control bytes below can change detection state.
-                var cursor = index + 1
-                while cursor < bytes.endIndex {
-                    let next = bytes[cursor]
-                    if next < 0x20 || next == 0x7F { break }
-                    cursor += 1
-                }
+                let cursor = Self.firstNonPrintableByteIndex(in: bytes, from: index)
                 unstoredLineByteCount += cursor - index
                 index = cursor
                 continue
@@ -135,6 +130,44 @@ public struct PromptLineTurnDetector: Sendable {
             consume(byte)
             index += 1
         }
+    }
+
+    /// Returns the first C0 control or DEL byte at or after `startIndex`.
+    /// Eight-byte probes keep ordinary PTY output close to memcpy cost while
+    /// the scalar tail preserves the exact logical-line boundary semantics.
+    @inline(__always)
+    static func firstNonPrintableByteIndex(
+        in bytes: UnsafeBufferPointer<UInt8>,
+        from startIndex: Int
+    ) -> Int {
+        precondition(startIndex >= bytes.startIndex && startIndex <= bytes.endIndex)
+        guard let baseAddress = bytes.baseAddress else { return bytes.endIndex }
+
+        var index = startIndex
+        while index + MemoryLayout<UInt64>.size <= bytes.endIndex {
+            let word = UnsafeRawPointer(baseAddress.advanced(by: index))
+                .loadUnaligned(as: UInt64.self)
+            if wordContainsNonPrintableByte(word) { break }
+            index += MemoryLayout<UInt64>.size
+        }
+        while index < bytes.endIndex {
+            let byte = bytes[index]
+            if byte < 0x20 || byte == 0x7F { break }
+            index += 1
+        }
+        return index
+    }
+
+    @inline(__always)
+    private static func wordContainsNonPrintableByte(_ word: UInt64) -> Bool {
+        let highBits: UInt64 = 0x8080_8080_8080_8080
+        let repeatedOnes: UInt64 = 0x0101_0101_0101_0101
+        let repeatedSpaces: UInt64 = 0x2020_2020_2020_2020
+        let repeatedDeletes: UInt64 = 0x7F7F_7F7F_7F7F_7F7F
+        let containsC0Control = ((word &- repeatedSpaces) & ~word & highBits) != 0
+        let deleteCandidates = word ^ repeatedDeletes
+        let containsDelete = ((deleteCandidates &- repeatedOnes) & ~deleteCandidates & highBits) != 0
+        return containsC0Control || containsDelete
     }
 
     /// Confirms a prompt boundary after its debounce interval elapsed.

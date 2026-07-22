@@ -261,6 +261,39 @@ struct PromptLineTurnDetectorTests {
         #expect(detector.confirm(confirmation) == 1)
     }
 
+    @Test("Printable-run scanning stops exactly at control bytes")
+    func printableRunScanningStopsAtControls() {
+        let controlBytes = Array(UInt8(0x00)...UInt8(0x1F)) + [UInt8(0x7F)]
+        for controlByte in controlBytes {
+            for printableCount in [0, 1, 7, 8, 15, 16, 19] {
+                let bytes = [UInt8(0x00)]
+                    + Array(repeating: UInt8(ascii: "x"), count: printableCount)
+                    + [controlByte, 0x80, 0xFF]
+                bytes.withUnsafeBufferPointer { buffer in
+                    #expect(
+                        PromptLineTurnDetector.firstNonPrintableByteIndex(
+                            in: buffer,
+                            from: 1
+                        ) == printableCount + 1,
+                        "control byte: \(controlByte), printable count: \(printableCount)"
+                    )
+                }
+            }
+        }
+
+        let printableBytes = [UInt8(0x00)]
+            + Array(repeating: UInt8(ascii: "x"), count: 19)
+            + [0x20, 0x7E, 0x80, 0xFF]
+        printableBytes.withUnsafeBufferPointer { buffer in
+            #expect(
+                PromptLineTurnDetector.firstNonPrintableByteIndex(
+                    in: buffer,
+                    from: 1
+                ) == buffer.endIndex
+            )
+        }
+    }
+
     private func readyDetector() -> PromptLineTurnDetector {
         var detector = PromptLineTurnDetector(configuration: configuration)
         detector.consume(Data(">>> ".utf8))
