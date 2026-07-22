@@ -2,19 +2,9 @@
 import CmuxMobileShellModel
 
 struct TaskComposerCompletedOperationRecovery: Equatable {
-    enum Phase: Equatable {
-        case refreshRequired
-        case startAgainAvailable
-    }
-
-    enum RequestRelation: Equatable {
-        case equivalent
-        case different
-    }
-
     let submittedSnapshot: MobileTaskSubmissionSnapshot
-    private(set) var phase: Phase = .refreshRequired
-    private(set) var requestRelation: RequestRelation = .equivalent
+    private(set) var phase: TaskComposerCompletedOperationRecoveryPhase = .refreshRequired
+    private(set) var requestRelation: TaskComposerCompletedOperationRequestRelation = .equivalent
 
     var appliesToCurrentRequest: Bool {
         requestRelation == .equivalent

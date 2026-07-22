@@ -85,7 +85,7 @@ extension TaskComposerSheet {
         )
     }
 
-    static func recoveryFailureMessage(for phase: TaskComposerCompletedOperationRecovery.Phase) -> String {
+    static func recoveryFailureMessage(for phase: TaskComposerCompletedOperationRecoveryPhase) -> String {
         switch phase {
         case .refreshRequired:
             failureMessage(.alreadyCompleted(hostDisplayName: nil))
