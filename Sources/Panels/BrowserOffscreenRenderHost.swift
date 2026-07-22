@@ -16,6 +16,7 @@ final class BrowserOffscreenRenderHost {
     private let restorePosition: NSWindow.OrderingMode
     private let window: BrowserOffscreenRenderPanel
     private let contentView: NSView
+    private let mirrorView: BrowserStreamMacMirrorView?
     private var isFinished = false
 
     init(webView: WKWebView, viewportSize: NSSize) {
@@ -35,6 +36,12 @@ final class BrowserOffscreenRenderHost {
             capturedRestoreAnchor = nil
             capturedRestorePosition = .above
         }
+
+        // While the live web view renders offscreen, the pane would otherwise be
+        // blank; a read-only mirror keeps the Mac pane showing what the phone sees.
+        let capturedMirrorView = capturedPreviousSuperview != nil
+            ? BrowserStreamMacMirrorView(frame: .zero)
+            : nil
 
         let normalizedSize = Self.normalizedViewportSize(viewportSize)
         let frame = Self.offscreenFrame(for: normalizedSize)
@@ -69,9 +76,15 @@ final class BrowserOffscreenRenderHost {
         restorePosition = capturedRestorePosition
         window = renderWindow
         contentView = renderContentView
+        mirrorView = capturedMirrorView
 
         webView.cmuxBeginBrowserViewportExternalRenderHost()
         capturedPresentationView.removeFromSuperview()
+        if let capturedMirrorView, let capturedPreviousSuperview {
+            capturedMirrorView.frame = capturedPreviousSuperview.bounds
+            capturedMirrorView.autoresizingMask = [.width, .height]
+            capturedPreviousSuperview.addSubview(capturedMirrorView)
+        }
         renderContentView.addSubview(capturedPresentationView)
         webView.cmuxApplyBrowserViewportLayout(in: renderContentView.bounds)
         renderWindow.contentView = renderContentView
@@ -92,6 +105,12 @@ final class BrowserOffscreenRenderHost {
         return true
     }
 
+    /// Feeds the latest streamed frame to the Mac-side mirror shown in the pane.
+    func updateMirror(_ image: NSImage) {
+        guard !isFinished else { return }
+        mirrorView?.updateImage(image)
+    }
+
     /// Restores the captured presentation root to its prior hierarchy and geometry.
     @discardableResult
     func restore() -> Bool {
@@ -107,6 +126,8 @@ final class BrowserOffscreenRenderHost {
     private func finish(restorePresentation: Bool) -> Bool {
         guard !isFinished else { return false }
         isFinished = true
+
+        mirrorView?.removeFromSuperview()
 
         let policy = BrowserViewportRestorationPolicy(
             temporaryHostIsCurrent: presentationView.superview === contentView,
@@ -181,5 +202,41 @@ final class BrowserOffscreenRenderHost {
             width: viewportSize.width,
             height: viewportSize.height
         )
+    }
+}
+
+/// Read-only mirror of the streamed frames, shown in the Mac pane while the live
+/// web view renders in the offscreen host. Letterboxes the phone-width frame so
+/// the pane reflects what the phone shows instead of going blank; click-through
+/// because the phone owns interaction. Removed on teardown when the web view
+/// returns to the pane.
+@MainActor
+final class BrowserStreamMacMirrorView: NSView {
+    private let imageView = NSImageView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.imageAlignment = .alignCenter
+        imageView.animates = false
+        imageView.wantsLayer = true
+        imageView.frame = bounds
+        imageView.autoresizingMask = [.width, .height]
+        addSubview(imageView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateImage(_ image: NSImage) {
+        imageView.image = image
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }

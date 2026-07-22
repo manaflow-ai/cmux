@@ -1,3 +1,4 @@
+import AppKit
 import CMUXMobileCore
 import CmuxBrowser
 import WebKit
@@ -182,6 +183,12 @@ extension BrowserPanel {
     /// Restores the presentation hierarchy and viewport that preceded phone streaming.
     func clearMobileStreamViewport() {
         restoreMobileStreamPresentation(endingStream: true)
+    }
+
+    /// Mirrors the latest streamed frame into the Mac pane so it is not blank while
+    /// the live web view renders offscreen. No-op unless the offscreen host is active.
+    func updateMobileBrowserStreamMirror(_ image: NSImage) {
+        mobileBrowserStreamRenderHost?.updateMirror(image)
     }
 
     func publishMobileBrowserStreamSignal(_ signal: MobileBrowserPanelNativeSignal) {

@@ -30,9 +30,13 @@ idle. Rotation resizes the same host; it does not reparent the view per frame.
 The snapshot renders in the web content process, so it never picks up cmux
 chrome or overlays. No Screen Recording permission is required. ScreenCaptureKit
 was rejected for exactly those reasons: TCC prompt, captures overlays, and
-cannot capture a pane whose portal is detached. While streaming, the Mac pane
-does not show the live web view; teardown restores the presentation root to its
-captured on-screen superview, sibling position, and geometry.
+cannot capture a pane whose portal is detached. While streaming, the live web
+view renders in the offscreen host at phone width, so the Mac pane cannot show
+it at Mac width at the same time. Instead the pane shows a read-only mirror of
+the same frames the phone receives, letterboxed and click-through, so the Mac
+reflects the phone session rather than going blank. Teardown removes the mirror
+and restores the presentation root to its captured on-screen superview, sibling
+position, and geometry, returning the pane to a full-width live web view.
 
 Capture is dirty-driven, not clocked. While a stream is active, the panel
 injects a user script that reports paint activity (a throttled

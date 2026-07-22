@@ -183,6 +183,7 @@ final class MobileBrowserStreamSession {
                 afterScreenUpdates: true
             )
             guard !isStopped, !Task.isCancelled else { return false }
+            panel.updateMobileBrowserStreamMirror(image)
             let encoded = try frameEncoder.encode(image, format: format)
             guard let sequence = pacing.recordEmission(
                 format: format,
