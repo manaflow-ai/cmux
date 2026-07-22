@@ -15,13 +15,6 @@ struct TaskComposerRoutePicker: View {
         HStack(spacing: 8) {
             machinePicker
 
-            Image(systemName: "arrow.right")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 24, height: 24)
-                .background(Color.accentColor.opacity(0.11), in: Circle())
-                .accessibilityHidden(true)
-
             Button(action: selectDirectory) {
                 HStack(spacing: 8) {
                     contextSymbol("folder.fill", tint: .blue)
@@ -66,7 +59,7 @@ struct TaskComposerRoutePicker: View {
     private var machinePicker: some View {
         if machines.isEmpty {
             HStack(spacing: 8) {
-                contextSymbol("desktopcomputer.trianglebadge.exclamationmark", tint: .orange)
+                contextSymbol("desktopcomputer.trianglebadge.exclamationmark", tint: .accentColor)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L10n.string("mobile.taskComposer.machine.none", defaultValue: "No paired Macs"))
                         .font(.caption.weight(.semibold))

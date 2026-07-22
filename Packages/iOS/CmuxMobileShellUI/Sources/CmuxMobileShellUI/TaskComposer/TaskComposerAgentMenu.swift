@@ -86,12 +86,14 @@ struct TaskComposerAgentMenu: View, Equatable {
                     .lineLimit(1)
                 }
 
+                Spacer(minLength: 8)
+
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
             }
-            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
             // Keep the chrome around the prompt compact while allowing the
             // menu's choices to retain the caller's full Dynamic Type size.

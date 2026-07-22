@@ -180,19 +180,6 @@ struct TaskComposerSheet: View {
                 Color(uiColor: .systemGroupedBackground)
                     .ignoresSafeArea()
 
-                RadialGradient(
-                    colors: [
-                        Color.accentColor.opacity(0.2),
-                        Color.accentColor.opacity(0.055),
-                        .clear,
-                    ],
-                    center: .topLeading,
-                    startRadius: 8,
-                    endRadius: 430
-                )
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-
                 ScrollView {
                     VStack(spacing: 12) {
                         TaskComposerPromptCard(

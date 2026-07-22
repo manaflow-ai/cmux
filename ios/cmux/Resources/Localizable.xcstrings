@@ -11068,6 +11068,23 @@
         }
       }
     },
+    "mobile.taskComposer.workspaceName.optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace name (optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名（任意）"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.workspaceName.generatedPlaceholder": {
       "extractionState": "manual",
       "localizations": {

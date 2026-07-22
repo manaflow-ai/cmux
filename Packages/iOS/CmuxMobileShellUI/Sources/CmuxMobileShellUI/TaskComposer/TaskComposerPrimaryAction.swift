@@ -83,11 +83,6 @@ struct TaskComposerPrimaryAction: View {
                             .fontWeight(.semibold)
                             .lineLimit(1)
                             .minimumScaleFactor(0.82)
-                        if !isSubmitting {
-                            Image(systemName: "paperplane.fill")
-                                .font(.subheadline.weight(.bold))
-                                .accessibilityHidden(true)
-                        }
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(.capsule)
