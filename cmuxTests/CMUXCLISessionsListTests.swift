@@ -7,7 +7,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let responder = try agentsInstanceResponder(workspaces: [:])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -69,7 +69,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
@@ -85,7 +85,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         #expect(result.status != 0)
-        #expect(result.stderr.contains("more than 1 nodes"))
+        #expect(result.stderr.contains("more than 1 node matched"))
     }
 
     @Test func agentsIncludeWorkspaceOwnedSessionsWhenSavedSurfaceIsStale() throws {
@@ -116,7 +116,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
@@ -175,7 +175,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
@@ -274,7 +274,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
@@ -373,6 +373,64 @@ extension CMUXCLIErrorOutputRegressionTests {
                     "startedAt": 130.0,
                     "updatedAt": 130.0,
                 ],
+                "shared-session-a": [
+                    "sessionId": "shared-parent-session",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-shared-session-a",
+                    "runId": "shared-session-run-a",
+                    "restoreAuthority": true,
+                    "startedAt": 140.0,
+                    "updatedAt": 140.0,
+                ],
+                "shared-session-b": [
+                    "sessionId": "shared-parent-session",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-shared-session-b",
+                    "runId": "shared-session-run-b",
+                    "restoreAuthority": true,
+                    "startedAt": 150.0,
+                    "updatedAt": 150.0,
+                ],
+                "ambiguous-session-child": [
+                    "sessionId": "ambiguous-session-child",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-ambiguous-session-child",
+                    "runId": "ambiguous-session-child-run",
+                    "parentSessionId": "shared-parent-session",
+                    "parentRunId": "other-parent-run",
+                    "restoreAuthority": true,
+                    "startedAt": 160.0,
+                    "updatedAt": 160.0,
+                ],
+                "shared-run-a": [
+                    "sessionId": "shared-run-parent-a",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-shared-run-a",
+                    "runId": "shared-parent-run",
+                    "restoreAuthority": true,
+                    "startedAt": 170.0,
+                    "updatedAt": 170.0,
+                ],
+                "shared-run-b": [
+                    "sessionId": "shared-run-parent-b",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-shared-run-b",
+                    "runId": "shared-parent-run",
+                    "restoreAuthority": true,
+                    "startedAt": 180.0,
+                    "updatedAt": 180.0,
+                ],
+                "ambiguous-run-child": [
+                    "sessionId": "ambiguous-run-child",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-ambiguous-run-child",
+                    "runId": "ambiguous-run-child-run",
+                    "parentSessionId": "other-parent",
+                    "parentRunId": "shared-parent-run",
+                    "restoreAuthority": true,
+                    "startedAt": 190.0,
+                    "updatedAt": 190.0,
+                ],
             ],
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
@@ -384,11 +442,17 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "surface-grandchild",
                 "surface-other",
                 "surface-conflict",
+                "surface-shared-session-a",
+                "surface-shared-session-b",
+                "surface-ambiguous-session-child",
+                "surface-shared-run-a",
+                "surface-shared-run-b",
+                "surface-ambiguous-run-child",
             ],
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
@@ -411,6 +475,8 @@ extension CMUXCLIErrorOutputRegressionTests {
                 && $0["to_session_id"] as? String == "visible-child"
         })
         #expect(!edges.contains { $0["to_session_id"] as? String == "conflicting-child" })
+        #expect(!edges.contains { $0["to_session_id"] as? String == "ambiguous-session-child" })
+        #expect(!edges.contains { $0["to_session_id"] as? String == "ambiguous-run-child" })
 
         let depthResult = runProcess(
             executablePath: cliPath,
@@ -429,7 +495,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let responder = try agentsInstanceResponder(workspaces: [:])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         let result = runProcess(
             executablePath: cliPath,
@@ -486,7 +552,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
@@ -565,7 +631,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
@@ -623,7 +689,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
@@ -686,7 +752,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
@@ -754,7 +820,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
@@ -834,7 +900,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
@@ -933,7 +999,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
@@ -1030,7 +1096,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = agentsTestEnvironment()
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
@@ -1060,6 +1126,15 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["codex_indexed"] as? Bool == false)
         #expect(session["codex_transcript_found"] as? Bool == false)
         #expect(session["session_home"] as? String == codexHome.path)
+    }
+
+    private func agentsTestEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        return environment
     }
 
     private func agentsInstanceResponder(
