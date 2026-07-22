@@ -356,6 +356,29 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func workspaceDescriptionURLClickDoesNotExpandIntoAdjacentPlainText() throws {
+        let url = try #require(URL(string: "https://linear.app/attendu/issue/ATD-366"))
+        let prefix = "See "
+        let model = Self.makeModel(customDescription: "\(prefix)\(url.absoluteString)")
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        _ = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+        let font = try #require(textView.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let prefixWidth = (prefix as NSString).size(withAttributes: [.font: font]).width
+
+        try Self.click(
+            textView,
+            at: NSPoint(x: max(0, prefixWidth - 0.5), y: textView.bounds.midY)
+        )
+
+        #expect(openedURL == nil)
+    }
+
+    @Test
     func hoverEnforcementShortCircuitsWhenAlreadyCorrect() {
         let model = Self.makeModel()
         let cell = Self.configuredCell(model: model)
