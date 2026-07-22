@@ -1,7 +1,11 @@
 //! Bounded subprocess diagnostics that are safe to surface inside the TUI.
 
 use std::io::{self, Read};
+use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::sync::Mutex;
+
+use zeroize::Zeroize;
 
 pub(crate) struct BoundedDiagnosticBuffer {
     max_bytes: usize,
@@ -36,6 +40,44 @@ impl BoundedDiagnosticBuffer {
     pub(crate) fn drain(&self, mut reader: impl Read) {
         let mut buffer = [0_u8; 4096];
         loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => {
+                    self.finish();
+                    return;
+                }
+                Ok(read) => self.append(&buffer[..read]),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => {
+                    self.finish();
+                    return;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn drain_cancellable(&self, mut reader: impl Read + AsRawFd, cancel: UnixStream) {
+        let mut poll_fds = [
+            libc::pollfd { fd: cancel.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: reader.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+        ];
+        let terminal_events = libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL;
+        let mut buffer = [0_u8; 4096];
+        loop {
+            let ready = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as _, -1) };
+            if ready < 0 {
+                if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                self.finish();
+                return;
+            }
+            if poll_fds[0].revents & terminal_events != 0 {
+                self.cancel();
+                return;
+            }
+            if poll_fds[1].revents & terminal_events == 0 {
+                continue;
+            }
             match reader.read(&mut buffer) {
                 Ok(0) => {
                     self.finish();
@@ -103,6 +145,14 @@ impl BoundedDiagnosticBuffer {
         };
         let pending = redact(&std::mem::take(&mut state.pending), &self.redactions);
         append_bounded(&mut state, &pending, self.max_bytes);
+    }
+
+    fn cancel(&self) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        state.pending.zeroize();
+        state.pending.clear();
     }
 }
 
