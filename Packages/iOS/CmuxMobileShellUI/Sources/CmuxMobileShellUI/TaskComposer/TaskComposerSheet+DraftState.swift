@@ -36,17 +36,35 @@ extension TaskComposerSheet {
         )
     }
 
-    /// Applies a composer mutation and defers request comparison to a low-
-    /// frequency persistence or submission boundary.
+    /// Applies a composer mutation. Ordinary edits stay O(1); while duplicate-
+    /// prevention recovery is active, compare the effective request so harmless
+    /// whitespace edits and edit-revert cycles keep the recovery guard.
     func updateSubmissionRequest(_ update: () -> Void) {
         if submissionPhase.offersRetry {
             submissionPhase = .idle
         }
         failureText = nil
+        failureTitleStyle = .launchFailed
         update()
         submissionIdentity.markRequestDirty()
-        completedOperationRecovery = nil
+        reconcileCompletedOperationRecoveryWithCurrentRequest()
         isStartAgainConfirmationPresented = false
+    }
+
+    var activeCompletedOperationRecovery: TaskComposerCompletedOperationRecovery? {
+        guard completedOperationRecovery?.appliesToCurrentRequest == true else { return nil }
+        return completedOperationRecovery
+    }
+
+    private func reconcileCompletedOperationRecoveryWithCurrentRequest() {
+        guard var recovery = completedOperationRecovery else { return }
+        recovery.reconcileCurrentRequest(
+            makeSubmissionSnapshot(operationID: recovery.submittedSnapshot.operationID)
+        )
+        completedOperationRecovery = recovery
+        guard recovery.appliesToCurrentRequest else { return }
+        failureTitleStyle = .taskAccepted
+        failureText = Self.recoveryFailureMessage(for: recovery.phase)
     }
 
     func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
@@ -69,7 +87,7 @@ extension TaskComposerSheet {
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName,
             operationID: resolved?.operationID ?? submissionIdentity.id,
-            completedOperationID: completedOperationRecovery?.submittedSnapshot.operationID
+            completedOperationID: activeCompletedOperationRecovery?.submittedSnapshot.operationID
         )
     }
 

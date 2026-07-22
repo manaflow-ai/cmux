@@ -16,7 +16,6 @@ extension TaskComposerSheet {
             directory = path
             didEditDirectory = true
         }
-        failureText = nil
     }
 }
 #endif

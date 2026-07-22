@@ -23,6 +23,7 @@ struct TaskComposerSheet: View {
     @State var submissionPhase: TaskComposerSubmissionPhase = .idle
     @State var submitTask: Task<Void, Never>?
     @State var failureText: String?
+    @State var failureTitleStyle: TaskComposerFailureTitleStyle = .launchFailed
     @State private var isEditorPresented = false
     @State var isDirectoryPickerPresented = false
     @State var shouldPersistDraftOnDisappear = true
@@ -168,6 +169,9 @@ struct TaskComposerSheet: View {
                 ? nil
                 : Self.failureMessage(.alreadyCompleted(hostDisplayName: nil))
         )
+        _failureTitleStyle = State(
+            initialValue: initialCompletedOperationRecovery == nil ? .launchFailed : .taskAccepted
+        )
     }
 
     var body: some View {
@@ -228,9 +232,9 @@ struct TaskComposerSheet: View {
                     actionTitle: primaryActionTitle,
                     progressTitle: primaryActionProgressTitle,
                     caption: primaryActionCaption,
-                    failureTitle: failureTitle(templateName: selectedTemplate?.name),
+                    failureTitle: failureTitleStyle.title(templateName: selectedTemplate?.name),
                     failureText: failureText,
-                    completedOperationRecovery: completedOperationRecovery,
+                    completedOperationRecovery: activeCompletedOperationRecovery,
                     action: startSubmission,
                     refreshCompletedOperation: startCompletedOperationReconciliation,
                     requestStartAgain: { isStartAgainConfirmationPresented = true }
@@ -443,7 +447,6 @@ struct TaskComposerSheet: View {
                 updateSubmissionRequest {
                     prompt = newValue
                 }
-                failureText = nil
             }
         )
     }
@@ -464,7 +467,6 @@ struct TaskComposerSheet: View {
         guard !submissionPhase.disablesRequestEditing else { return }
         withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.2)) {
             selectTemplate(template)
-            failureText = nil
         }
     }
 
@@ -479,13 +481,15 @@ struct TaskComposerSheet: View {
             selectedMacDeviceID = mac.macDeviceID
             syncSuggestedDirectory()
         }
-        failureText = nil
     }
 
     func startSubmission() {
         guard submitTask == nil,
-              completedOperationRecovery == nil,
+              activeCompletedOperationRecovery == nil,
               submissionPhase.allowsSubmission else { return }
+        // Once the user sends a genuinely different request, the prior
+        // recovery anchor can no longer become relevant through further edits.
+        completedOperationRecovery = nil
         if submissionPhase.offersRetry {
             failureText = nil
         }
@@ -502,6 +506,7 @@ struct TaskComposerSheet: View {
             snapshot.draft,
             ifSessionGeneration: sessionGeneration
         ) else {
+            failureTitleStyle = .launchFailed
             let message = Self.draftPersistenceFailureMessage
             failureText = message
             announceFailure(message)
@@ -543,6 +548,7 @@ struct TaskComposerSheet: View {
                 )
                 submissionPhase = .retryReady
             }
+            failureTitleStyle = .forFailure(failure)
             let message = Self.failureMessage(failure)
             failureText = message
             announceFailure(message)
@@ -579,7 +585,6 @@ struct TaskComposerSheet: View {
             // Sync template edits unless the user typed the directory.
             syncSuggestedDirectory()
         }
-        failureText = nil
     }
 
     private func validateMacSelection() {
@@ -589,7 +594,6 @@ struct TaskComposerSheet: View {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""
             syncSuggestedDirectory()
         }
-        failureText = nil
     }
 
     private func persistDraft() {

@@ -38,13 +38,65 @@ struct TaskComposerCompletedOperationRecovery: Equatable {
 
     let submittedSnapshot: MobileTaskSubmissionSnapshot
     private(set) var phase: Phase = .refreshRequired
+    private(set) var appliesToCurrentRequest = true
 
     var allowsStartAgain: Bool {
-        phase == .startAgainAvailable
+        appliesToCurrentRequest && phase == .startAgainAvailable
     }
 
     mutating func recordReconciliationStillMissing() {
         phase = .startAgainAvailable
+    }
+
+    mutating func reconcileCurrentRequest(_ currentSnapshot: MobileTaskSubmissionSnapshot?) {
+        appliesToCurrentRequest = currentSnapshot?.isRequestEquivalent(to: submittedSnapshot) == true
+    }
+}
+
+enum TaskComposerFailureTitleStyle: Equatable {
+    case launchFailed
+    case statusUnconfirmed
+    case taskAccepted
+
+    func title(templateName: String?) -> String {
+        switch self {
+        case .statusUnconfirmed:
+            return L10n.string(
+                "mobile.taskComposer.failure.title.statusUnconfirmed",
+                defaultValue: "Task status unconfirmed"
+            )
+        case .taskAccepted:
+            return L10n.string(
+                "mobile.taskComposer.failure.title.taskAccepted",
+                defaultValue: "Task already accepted"
+            )
+        case .launchFailed:
+            guard let templateName = templateName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !templateName.isEmpty else {
+                return L10n.string(
+                    "mobile.taskComposer.failure.title",
+                    defaultValue: "Couldn’t start this task"
+                )
+            }
+            return String.localizedStringWithFormat(
+                L10n.string(
+                    "mobile.taskComposer.failure.titleFormat",
+                    defaultValue: "Couldn’t start %@"
+                ),
+                templateName
+            )
+        }
+    }
+
+    static func forFailure(_ failure: MobileWorkspaceMutationFailure) -> Self {
+        switch failure {
+        case .alreadyCompleted:
+            .taskAccepted
+        case .notConnected, .requestTimedOut:
+            .statusUnconfirmed
+        default:
+            .launchFailed
+        }
     }
 }
 
@@ -88,23 +140,6 @@ extension TaskComposerSheet {
         L10n.string(
             "mobile.taskComposer.failure.draftPersistence",
             defaultValue: "cmux couldn’t save this draft safely. Reopen the composer and try again."
-        )
-    }
-
-    func failureTitle(templateName: String?) -> String {
-        guard let templateName = templateName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !templateName.isEmpty else {
-            return L10n.string(
-                "mobile.taskComposer.failure.title",
-                defaultValue: "Couldn’t start this task"
-            )
-        }
-        return String.localizedStringWithFormat(
-            L10n.string(
-                "mobile.taskComposer.failure.titleFormat",
-                defaultValue: "Couldn’t start %@"
-            ),
-            templateName
         )
     }
 
