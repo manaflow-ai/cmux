@@ -5486,6 +5486,48 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_control_client_cannot_forge_provider_workspace_commits() {
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .unwrap();
+        let writer = test_writer();
+        let provider = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let ordinary = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(&mux, provider, Command::MarkWorkspacesProviderManaged, &writer).unwrap();
+
+        let rename_error = handle_command(
+            &mux,
+            ordinary,
+            Command::RenameProviderManagedWorkspace {
+                workspace: workspace.workspace,
+                key: workspace.key.clone(),
+                name: "forged rename".into(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+        let close_error = handle_command(
+            &mux,
+            ordinary,
+            Command::CloseProviderManagedWorkspace {
+                workspace: workspace.workspace,
+                key: workspace.key.clone(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+
+        assert!(rename_error.to_string().contains("provider workspace authority"));
+        assert!(close_error.to_string().contains("provider workspace authority"));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].name, "managed");
+            assert_eq!(state.workspace_revision, 1);
+        });
+    }
+
+    #[test]
     fn identify_advertises_additive_capabilities() {
         let mux = test_mux();
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();

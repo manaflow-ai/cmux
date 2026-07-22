@@ -13726,6 +13726,46 @@ mod tests {
     }
 
     #[test]
+    fn inactive_provider_machine_blocks_workspace_mutations_with_actionable_status() {
+        let mux = Mux::new("inactive-provider-machine-workspace-test", SurfaceOptions::default());
+        let workspace = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let mut inactive = provider_machine_ui_with_lifecycle();
+        inactive.snapshot.active = None;
+        app.machine_ui = Some(inactive);
+
+        app.open_rename_workspace_prompt_for(workspace.workspace);
+        assert!(app.prompt.is_none());
+        assert!(
+            app.status_message
+                .as_deref()
+                .is_some_and(|message| message.contains("select or reconnect"))
+        );
+
+        app.status_message = None;
+        app.request_delete_workspace(workspace.workspace);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|candidate| candidate.id == workspace.workspace)
+        }));
+        assert!(
+            app.status_message
+                .as_deref()
+                .is_some_and(|message| message.contains("select or reconnect"))
+        );
+    }
+
+    #[test]
     fn provider_workspace_policy_blocks_raw_mux_rename_and_close() {
         let mux = Mux::new("managed-workspace-raw-mutation-test", SurfaceOptions::default());
         let placement = mux
