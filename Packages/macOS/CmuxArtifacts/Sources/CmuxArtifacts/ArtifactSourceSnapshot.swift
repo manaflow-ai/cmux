@@ -18,6 +18,7 @@ struct ArtifactSourceSnapshotter {
         configuration: ArtifactCaptureConfiguration,
         stagedURL: URL
     ) throws -> ArtifactSourceSnapshot {
+        try Task.checkCancellation()
         let normalizedConfiguration = configuration.normalized
         let pathExtension = source.pathExtension.lowercased()
         guard normalizedConfiguration.allowedExtensions.contains(pathExtension) else {
@@ -59,7 +60,9 @@ struct ArtifactSourceSnapshotter {
         }
 
         var size: Int64 = 0
-        while let data = try sourceHandle.read(upToCount: chunkSize), !data.isEmpty {
+        while true {
+            try Task.checkCancellation()
+            guard let data = try sourceHandle.read(upToCount: chunkSize), !data.isEmpty else { break }
             size += Int64(data.count)
             guard size <= limit else {
                 throw ArtifactStoreError.fileTooLarge(actual: size, limit: limit)
