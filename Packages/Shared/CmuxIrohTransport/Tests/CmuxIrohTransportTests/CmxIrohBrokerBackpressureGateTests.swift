@@ -204,6 +204,46 @@ struct CmxIrohBrokerBackpressureGateTests {
         #expect(!String(decoding: persisted, as: UTF8.self).contains(accountID))
     }
 
+    @Test
+    func persistenceOverflowConservativelyProtectsEveryActiveFloor() async throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let original = CmxIrohBrokerBackpressureGate(
+            store: store,
+            now: { start }
+        )
+        let accounts = (0 ... 64).map { "account-\($0)" }
+        for accountID in accounts {
+            await recordRateLimit(
+                gate: original,
+                accountID: accountID,
+                operation: .discovery,
+                seconds: 600
+            )
+        }
+
+        let recreated = CmxIrohBrokerBackpressureGate(
+            store: store,
+            now: { start.addingTimeInterval(1) }
+        )
+        var protectedAccountCount = 0
+        for accountID in accounts {
+            if await recreated.remainingSeconds(
+                accountID: accountID,
+                operation: .discovery
+            ) == 599 {
+                protectedAccountCount += 1
+            }
+        }
+
+        #expect(protectedAccountCount == accounts.count)
+        #expect(await recreated.remainingSeconds(
+            accountID: "account-not-in-record",
+            operation: .registration
+        ) == 599)
+    }
+
     private func recordRateLimit(
         gate: CmxIrohBrokerBackpressureGate,
         accountID: String,
