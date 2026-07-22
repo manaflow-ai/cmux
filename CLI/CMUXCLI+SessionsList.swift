@@ -554,6 +554,15 @@ extension CMUXCLI {
                 if rawRecord.sessionId != record.sessionId {
                     outputNode["hook_session_id"] = rawRecord.sessionId
                 }
+                guard candidateNodes.count < maximumNodes else {
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.agents.tree.error.nodeLimit",
+                            defaultValue: "agents tree: more than %lld nodes matched; narrow the filters or raise --max-nodes"
+                        ),
+                        maximumNodes
+                    ))
+                }
                 candidateNodes.append((
                     node: outputNode,
                     matchesFilters: matchesFilters,
