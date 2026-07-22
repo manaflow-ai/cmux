@@ -30,8 +30,6 @@ jobs:
     env:
       BASELINE_TAG: perfmixedb${{ github.run_id }}a${{ github.run_attempt }}
       CANDIDATE_TAG: perfmixedc${{ github.run_id }}a${{ github.run_attempt }}
-      RESULTS_DIR: ${{ runner.temp }}/perf-mixed-workload-${{ github.run_id }}-${{ github.run_attempt }}
-      PERF_HOST_CONTROLS_PATH: ${{ runner.temp }}/perf-mixed-workload-${{ github.run_id }}-${{ github.run_attempt }}/host-controls.json
     steps:
       - name: Initialize evidence directory
         env:
@@ -39,6 +37,13 @@ jobs:
           CANDIDATE_SHA_INPUT: ${{ inputs.candidate_sha }}
         run: |
           set -euo pipefail
+          RESULTS_DIR="$RUNNER_TEMP/perf-mixed-workload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PERF_HOST_CONTROLS_PATH="$RESULTS_DIR/host-controls.json"
+          export RESULTS_DIR PERF_HOST_CONTROLS_PATH
+          {
+            echo "RESULTS_DIR=$RESULTS_DIR"
+            echo "PERF_HOST_CONTROLS_PATH=$PERF_HOST_CONTROLS_PATH"
+          } >> "$GITHUB_ENV"
           mkdir -p "$RESULTS_DIR"
           python3 - <<'PY'
           import json
