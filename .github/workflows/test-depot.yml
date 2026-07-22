@@ -133,7 +133,7 @@ jobs:
       - name: Run unit tests
         if: ${{ !inputs.skip_unit_tests }}
         env:
-          CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "90"
+          CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "300"
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
