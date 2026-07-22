@@ -199,7 +199,8 @@ _SLEEP_CALL = re.compile(
   | Thread\.sleep\s*\(
   | \bTask(?:\s*<[^>\n]+>)?\s*\.sleep\s*\(
   | try\s+await\s+Task\.sleep
-  | \b(?:ContinuousClock|SuspendingClock)\s*\(\s*\)\.sleep\s*\(
+  | \b(?:ContinuousClock|SuspendingClock)\s*(?:\.\s*init)?\s*
+    \(\s*\)\.sleep\s*\(
   | \b(?:asyncio|trio|anyio|gevent)\.sleep\s*\(
   | \bBun\.sleep\s*\(
   | \bsetTimeout\s*\(                       # JS, when used as a bare delay
@@ -237,7 +238,7 @@ _REAL_CLOCK_TYPE = re.compile(
 )
 _REAL_CLOCK_INIT = re.compile(
     r"^\s*(?::[^=]+)?=\s*(?:[A-Za-z_]\w*\.)*"
-    r"(?:ContinuousClock|SuspendingClock)\s*\("
+    r"(?:ContinuousClock|SuspendingClock)\s*(?:\.\s*init)?\s*\("
 )
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
@@ -1214,7 +1215,9 @@ def _is_named_real_clock_sleep(
             "",
         )
         if re.search(
-            r"\b(?:ContinuousClock|SuspendingClock)\s*\(\s*\)\s*$", previous
+            r"\b(?:ContinuousClock|SuspendingClock)\s*"
+            r"(?:\.\s*init)?\s*\(\s*\)\s*$",
+            previous,
         ) or re.search(r"\bTask(?:\s*<[^>\n]+>)?\s*$", previous):
             return True
         receiver_match = re.search(r"\b([A-Za-z_]\w*)[?!]?\s*$", previous)
