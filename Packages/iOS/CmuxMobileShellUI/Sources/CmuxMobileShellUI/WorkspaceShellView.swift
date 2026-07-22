@@ -68,7 +68,8 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let openDevices: () -> Void
     let title: String
     let isLoading: Bool
-    @Binding var selection: WorkspaceMacSelection
+    let selection: WorkspaceMacSelection
+    let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
 
@@ -82,13 +83,20 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
         }
         ToolbarItem(id: "workspace-list-title", placement: .principal) {
             WorkspaceMacTitlePicker(
-                title: title,
-                isLoading: isLoading,
-                selection: $selection,
-                machines: machines,
-                showAddDevice: showAddDevice,
-                labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+                value: WorkspaceMacTitlePickerValue(
+                    title: title,
+                    isLoading: isLoading,
+                    selection: selection,
+                    machines: machines,
+                    canAddDevice: showAddDevice != nil,
+                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+                ),
+                actions: WorkspaceMacTitlePickerActions(
+                    select: select,
+                    addDevice: showAddDevice
+                )
             )
+            .equatable()
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
@@ -115,10 +123,8 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             openDevices: openDevices,
             title: renderContext.title,
             isLoading: pendingSelection != nil,
-            selection: Binding(
-                get: { pendingSelection ?? renderContext.visibleSelection },
-                set: select
-            ),
+            selection: pendingSelection ?? renderContext.visibleSelection,
+            select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice
         )
