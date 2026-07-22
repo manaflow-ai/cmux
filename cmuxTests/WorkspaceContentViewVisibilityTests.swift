@@ -308,42 +308,73 @@ final class WorkspaceContentViewVisibilityTests {
     func commandPaletteFocusRestoreBoundsUnresolvableTargetsWithoutTimedTasks() throws {
         let contentViewSource = try Self.sourceText("Sources/ContentView.swift")
         let restoreBody = try Self.functionBody(named: "attemptCommandPaletteFocusRestoreIfNeeded", in: contentViewSource)
-        #expect(
-            restoreBody.contains(
-                "guard tabManager.selectedTabId == nil || tabManager.selectedTabId == target.workspaceId else {\n            commandPaletteFocusRestoreCoordinator.clear()"
-            )
-        )
-        #expect(
-            restoreBody.contains(
-                "guard targetWorkspace.focusedPanelId == nil || targetWorkspace.focusedPanelId == target.panelId else {\n            commandPaletteFocusRestoreCoordinator.clear()"
-            )
-        )
-        #expect(
-            restoreBody.contains(
-                "guard targetWorkspace.panels[target.panelId] != nil else {\n            commandPaletteFocusRestoreCoordinator.clear()"
-            )
-        )
-        #expect(restoreBody.contains("guard commandPaletteFocusRestoreCoordinator.claimRestoreAttempt() else { return }"))
-        #expect(
-            restoreBody.contains(
-                "guard context.panel.restoreFocusIntent(target.intent) else { return }"
-            )
-        )
+        #expect(!restoreBody.contains("DispatchWorkItem"))
+        #expect(!restoreBody.contains("DispatchQueue.main.async"))
+        #expect(!restoreBody.contains("DispatchQueue.main.asyncAfter"))
+        #expect(!restoreBody.contains("Task"))
+        #expect(!restoreBody.contains("sleep"))
 
         let coordinatorSource = try Self.sourceText("Sources/CommandPaletteFocusRestoreCoordinator.swift")
+        #expect(!coordinatorSource.contains("DispatchWorkItem"))
         #expect(!coordinatorSource.contains("Task"))
         #expect(!coordinatorSource.contains("sleep"))
     }
 
     @Test
     @MainActor
-    func commandPaletteFocusRestoreCoordinatorKeepsLatestTargetUntilExplicitClear() {
+    func commandPaletteFocusRestoreCoordinatorClearsOnlyStaleTargets() {
         let coordinator = CommandPaletteFocusRestoreCoordinator()
         let firstTarget = Self.restoreFocusTarget()
         let secondTarget = Self.restoreFocusTarget()
 
         coordinator.request(target: firstTarget)
         #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+
+        #expect(
+            !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: nil,
+                focusedPanelId: nil,
+                targetPanelExists: true
+            )
+        )
+        #expect(
+            !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: firstTarget.workspaceId,
+                focusedPanelId: firstTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+
+        coordinator.request(target: firstTarget)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: secondTarget.workspaceId,
+                focusedPanelId: firstTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
+
+        coordinator.request(target: firstTarget)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: firstTarget.workspaceId,
+                focusedPanelId: secondTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
+
+        coordinator.request(target: firstTarget)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: firstTarget.workspaceId,
+                focusedPanelId: firstTarget.panelId,
+                targetPanelExists: false
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
 
         coordinator.request(target: secondTarget)
         #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
