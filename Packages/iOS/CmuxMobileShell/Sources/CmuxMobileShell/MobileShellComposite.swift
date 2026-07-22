@@ -1259,6 +1259,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacs = []
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
+        hasRecoverableDeletedComputers = false
         resetTerminalThemes()
         // Likewise drop the registry-backed device tree so a shared device never
         // shows the previous user's team devices after sign-out.
@@ -1371,6 +1372,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         forgottenMacDeviceIDsByScope = [:]
+        hasRecoverableDeletedComputers = false
         registryDevices = []
         teamScopeReconnectTask?.cancel()
         teamScopeReconnectTask = Task { @MainActor [weak self] in
@@ -2131,6 +2133,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// completes. Filtering the current scope keeps that late write hidden until
     /// the user explicitly pairs/connects that Mac again.
     @ObservationIgnored var forgottenMacDeviceIDsByScope: [String: Set<String>] = [:]
+    /// True when the current account/team scope has a deleted-computer marker
+    /// that can be recovered through explicit same-account Iroh discovery.
+    public internal(set) var hasRecoverableDeletedComputers = false
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
@@ -2365,6 +2370,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             storedPairedMacs = []
             pairedMacAliasIDsByRepresentativeID = [:]
             pairedMacs = []
+            hasRecoverableDeletedComputers = false
             return
         }
         let loaded: [MobilePairedMac]
@@ -2381,9 +2387,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let visibleLoaded = await visibleStoredPairedMacs(from: loaded, scope: scope)
+        let hasForgottenMacs = !(await forgottenMacDeviceIDs(scope: scope)).isEmpty
         guard await isScopeCurrent(scope) else {
             return
         }
+        hasRecoverableDeletedComputers = hasForgottenMacs
         storedPairedMacs = visibleLoaded
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
         let coalesced = Self.coalescePairedMacsByDialEndpoint(
