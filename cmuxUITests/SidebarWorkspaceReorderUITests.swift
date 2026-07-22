@@ -34,6 +34,40 @@ final class SidebarWorkspaceReorderUITests: XCTestCase {
         )
     }
 
+    func testSlowHeldDragKeepsTheChosenSlot() throws {
+        let app = launchFixture()
+        defer { app.terminate() }
+        let titles = try createRootWorkspaces(count: 5, app: app)
+        let targetTitle = titles[1]
+        let draggedTitle = titles[4]
+        let target = try workspaceRow(targetTitle, app: app)
+        let dragged = try workspaceRow(draggedTitle, app: app)
+        let start = fixedCoordinate(
+            at: dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint,
+            app: app
+        )
+        let destination = fixedCoordinate(
+            at: target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).screenPoint,
+            app: app
+        )
+
+        // The one-second hold exposes any resolver/presentation feedback
+        // loop: a stable implementation keeps the selected gap unchanged
+        // while no new pointer movement arrives.
+        start.press(
+            forDuration: 0.25,
+            thenDragTo: destination,
+            withVelocity: .slow,
+            thenHoldForDuration: 1.0
+        )
+
+        addScreenshot(named: "slow-held-drag")
+        XCTAssertTrue(
+            waitForWorkspace(draggedTitle, immediatelyBefore: targetTitle, app: app),
+            "Expected a slow held drag to keep and commit its chosen slot. order=\(workspaceOrder(app: app))"
+        )
+    }
+
     func testCanEnterAndLeaveGroupAtLastMember() throws {
         let app = launchFixture()
         defer { app.terminate() }
