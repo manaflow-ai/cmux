@@ -18,6 +18,84 @@ import WebKit
 @Suite(.serialized)
 @MainActor
 struct BrowserWebExtensionsManagerTests {
+    private actor CatalogRequestGate {
+        private var didStart = false
+        private var didCancel = false
+        private var isReleased = false
+        private var startedContinuation: CheckedContinuation<Void, Never>?
+        private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+        func markStarted() async {
+            didStart = true
+            startedContinuation?.resume()
+            startedContinuation = nil
+            guard !isReleased else { return }
+            await withCheckedContinuation { continuation in
+                releaseContinuation = continuation
+            }
+        }
+
+        func waitUntilStarted() async {
+            guard !didStart else { return }
+            await withCheckedContinuation { continuation in
+                startedContinuation = continuation
+            }
+        }
+
+        func markCancelled() {
+            didCancel = true
+        }
+
+        func wasCancelled() -> Bool {
+            didCancel
+        }
+
+        func release() {
+            isReleased = true
+            releaseContinuation?.resume()
+            releaseContinuation = nil
+        }
+    }
+
+    private final class SuspendedCatalogURLProtocol: URLProtocol, @unchecked Sendable {
+        nonisolated(unsafe) static var gate: CatalogRequestGate?
+        private var requestTask: Task<Void, Never>?
+
+        override class func canInit(with request: URLRequest) -> Bool {
+            request.url?.scheme?.lowercased() == "https"
+        }
+
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+            request
+        }
+
+        override func startLoading() {
+            guard let gate = Self.gate else {
+                client?.urlProtocol(
+                    self,
+                    didFailWithError: URLError(.resourceUnavailable)
+                )
+                return
+            }
+            requestTask = Task { [weak self] in
+                await gate.markStarted()
+                guard let self, !Task.isCancelled else { return }
+                client?.urlProtocol(
+                    self,
+                    didFailWithError: URLError(.cancelled)
+                )
+            }
+        }
+
+        override func stopLoading() {
+            requestTask?.cancel()
+            requestTask = nil
+            if let gate = Self.gate {
+                Task { await gate.markCancelled() }
+            }
+        }
+    }
+
     private final class RuntimeLoadGate {
         private var bufferedOutcome: BrowserWebExtensionLoadOutcome?
         private var continuation: CheckedContinuation<BrowserWebExtensionLoadOutcome, Never>?
@@ -419,6 +497,71 @@ struct BrowserWebExtensionsManagerTests {
         )
     }
 
+    private static func accessibilityIdentifier(of element: Any) -> String? {
+        if let view = element as? NSView {
+            return view.accessibilityIdentifier()
+        }
+        if let accessibilityElement = element as? NSAccessibilityElement {
+            return accessibilityElement.accessibilityIdentifier()
+        }
+        return nil
+    }
+
+    private static func accessibilityChildren(of element: Any) -> [Any] {
+        if let view = element as? NSView {
+            return view.accessibilityChildren() ?? []
+        }
+        if let accessibilityElement = element as? NSAccessibilityElement {
+            return accessibilityElement.accessibilityChildren() ?? []
+        }
+        return []
+    }
+
+    private static func accessibilityElement(
+        identifier: String,
+        in root: NSView
+    ) -> Any? {
+        var queue: [Any] = [root]
+        var visited = Set<ObjectIdentifier>()
+        while !queue.isEmpty {
+            let element = queue.removeFirst()
+            if let object = element as? AnyObject {
+                guard visited.insert(ObjectIdentifier(object)).inserted else { continue }
+            }
+            if accessibilityIdentifier(of: element) == identifier {
+                return element
+            }
+            queue.append(contentsOf: accessibilityChildren(of: element))
+        }
+        return nil
+    }
+
+    private static func accessibilityIdentifiers(in root: NSView) -> [String] {
+        var queue: [Any] = [root]
+        var identifiers: [String] = []
+        var visited = Set<ObjectIdentifier>()
+        while !queue.isEmpty {
+            let element = queue.removeFirst()
+            let object = element as AnyObject
+            guard visited.insert(ObjectIdentifier(object)).inserted else { continue }
+            if let identifier = accessibilityIdentifier(of: element) {
+                identifiers.append(identifier)
+            }
+            queue.append(contentsOf: accessibilityChildren(of: element))
+        }
+        return identifiers
+    }
+
+    private static func pressAccessibilityElement(_ element: Any) -> Bool {
+        if let view = element as? NSView {
+            return view.accessibilityPerformPress()
+        }
+        if let accessibilityElement = element as? NSAccessibilityElement {
+            return accessibilityElement.accessibilityPerformPress()
+        }
+        return false
+    }
+
     @available(macOS 15.4, *)
     private static func loadExtensionPage(
         _ relativePath: String,
@@ -744,6 +887,157 @@ struct BrowserWebExtensionsManagerTests {
 
         updateChannel.continuation.yield(.snapshotInvalidated(profileID))
         try await Self.waitUntil("toolbar second live refresh") { loadCount == 4 }
+    }
+
+    @Test func pinnedToolbarActionsRespectMountedWidthBudget() async throws {
+        func visiblePinnedIdentifiers(width: CGFloat, pinCount: Int) async throws -> [String] {
+            let items = (0..<pinCount).map { index in
+                BrowserWebExtensionPresentationItem(
+                    id: "pin-\(index)",
+                    managementID: "disk:pin-\(index)",
+                    name: "Pinned \(index)",
+                    hasAction: true,
+                    isToolbarPinned: true,
+                    isActionEnabled: true,
+                    isAwaitingPopup: false,
+                    badgeText: "",
+                    iconData: nil
+                )
+            }
+            var loadCount = 0
+            let toolbar = BrowserExtensionsToolbarButton(
+                isPresented: .constant(false),
+                panelID: UUID(),
+                profileID: UUID(),
+                iconPointSize: 16,
+                hitSize: 24,
+                loadSnapshot: {
+                    loadCount += 1
+                    return BrowserWebExtensionsPresentationSnapshot(
+                        state: .ready,
+                        extensions: items,
+                        failures: []
+                    )
+                },
+                updates: {
+                    AsyncStream { continuation in continuation.finish() }
+                },
+                openManager: { true },
+                setToolbarPinned: { _, _ in true },
+                performAction: { _, _ in true }
+            )
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: width, height: 40),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
+            let hostingView = NSHostingView(
+                rootView: toolbar.frame(width: width, height: 24, alignment: .trailing)
+            )
+            hostingView.frame = window.contentLayoutRect
+            window.contentView = hostingView
+            window.makeKeyAndOrderFront(nil)
+            defer {
+                window.orderOut(nil)
+                window.contentView = nil
+            }
+            try await Self.waitUntil("mounted toolbar snapshot") { loadCount == 1 }
+            window.displayIfNeeded()
+            hostingView.layoutSubtreeIfNeeded()
+            for _ in 0..<3 { await Task.yield() }
+            return Self.accessibilityIdentifiers(in: hostingView)
+                .filter { $0.hasPrefix("BrowserExtensionToolbarAction-") }
+                .sorted()
+        }
+
+        #expect(try await visiblePinnedIdentifiers(width: 24, pinCount: 0) == [])
+        #expect(try await visiblePinnedIdentifiers(width: 24, pinCount: 4) == [])
+        #expect(try await visiblePinnedIdentifiers(width: 48, pinCount: 4) == [
+            "BrowserExtensionToolbarAction-pin-0"
+        ])
+        #expect(try await visiblePinnedIdentifiers(width: 120, pinCount: 4).count == 4)
+        #expect(try await visiblePinnedIdentifiers(width: 120, pinCount: 12).count == 4)
+    }
+
+    @Test func managerPageDisappearanceCancelsSuspendedCatalogPreparation() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let requestGate = CatalogRequestGate()
+        SuspendedCatalogURLProtocol.gate = requestGate
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [SuspendedCatalogURLProtocol.self]
+        let packageRepository = BrowserWebExtensionCatalogPackageRepository(
+            packageSession: BrowserWebExtensionPackageSession(
+                configuration: sessionConfiguration
+            )
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            catalogPackageRepository: packageRepository
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        services.installWebExtensionsManagerForTesting(
+            manager,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID
+        )
+        let panel = BrowserPanel(workspaceId: UUID(), browserServices: services)
+        let appearance = PanelAppearance(
+            backgroundColor: .windowBackgroundColor,
+            foregroundColor: .labelColor,
+            dividerColor: .separator,
+            unfocusedOverlayNSColor: .clear,
+            unfocusedOverlayOpacity: 0,
+            usesClearContentBackground: false
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let hostingView = NSHostingView(
+            rootView: BrowserExtensionsManagerPage(
+                panel: panel,
+                appearance: appearance
+            )
+        )
+        hostingView.frame = window.contentLayoutRect
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            Task { await requestGate.release() }
+            SuspendedCatalogURLProtocol.gate = nil
+            window.orderOut(nil)
+            window.contentView = nil
+            panel.close()
+            manager.shutdown()
+        }
+
+        var getButton: Any?
+        let buttonDeadline = Date().addingTimeInterval(3)
+        repeat {
+            window.displayIfNeeded()
+            hostingView.layoutSubtreeIfNeeded()
+            getButton = Self.accessibilityElement(
+                identifier: "BrowserExtensionsCatalogGet-1password",
+                in: hostingView
+            )
+            if getButton != nil { break }
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+            await Task.yield()
+        } while Date() < buttonDeadline
+        #expect(Self.pressAccessibilityElement(try #require(getButton)))
+        await requestGate.waitUntilStarted()
+
+        window.contentView = nil
+        for _ in 0..<100 where !(await requestGate.wasCancelled()) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(await requestGate.wasCancelled())
+        await requestGate.release()
     }
 
     @available(macOS 15.4, *)
