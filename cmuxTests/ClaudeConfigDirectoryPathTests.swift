@@ -60,7 +60,7 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
         )
 
         XCTAssertFalse(command.contains("CLAUDE_CONFIG_DIR="))
-        XCTAssertTrue(command.hasPrefix("cd /tmp/repo && "))
+        XCTAssertTrue(command.hasPrefix("cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && "))
         XCTAssertTrue(command.contains(
             AgentResumeArgv.claudeWrapperShellExecutableToken
                 .replacingOccurrences(of: "'", with: "'\\''") + " --resume session-123"

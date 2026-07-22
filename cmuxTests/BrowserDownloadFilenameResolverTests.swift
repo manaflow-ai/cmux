@@ -209,8 +209,13 @@ import WebKit
         #expect(properties[kLSQuarantineTypeKey as String] as? String == kLSQuarantineTypeWebDownload as String)
         #expect(properties[kLSQuarantineAgentNameKey as String] as? String != nil)
         #expect(properties[kLSQuarantineTimeStampKey as String] is Date)
-        #expect((properties[kLSQuarantineDataURLKey as String] as? URL)?.absoluteString == "https://example.test/report.csv")
-        #expect((properties[kLSQuarantineOriginURLKey as String] as? URL)?.absoluteString == "https://example.test/report.csv")
+
+        // LaunchServices keeps the quarantine URLs in its own events database, and a
+        // quarantineProperties readback only returns what lives in the com.apple.quarantine
+        // xattr, so check the sanitized source URL on the dictionary the write path builds.
+        let writtenProperties = try #require(URL.cmuxWebDownloadQuarantineProperties(sourceURL: sourceURL))
+        #expect((writtenProperties[kLSQuarantineDataURLKey as String] as? URL)?.absoluteString == "https://example.test/report.csv")
+        #expect((writtenProperties[kLSQuarantineOriginURLKey as String] as? URL)?.absoluteString == "https://example.test/report.csv")
     }
 
     @Test func webDownloadQuarantineMetadataSkipsLocalFileSources() throws {

@@ -154,34 +154,38 @@ struct BrowserWebContentProcessTests {
             baseURL: URL(string: "https://example.com/")!
         )
 
-        let result = try await webView.evaluateJavaScript(
+        // The bridge's navigator.credentials.get returns a promise, and
+        // evaluateJavaScript cannot serialize a promise (WKError 5). Call the body
+        // as an async function instead, in the page world that holds the override.
+        let result = try await webView.callAsyncJavaScript(
             """
-            (async () => {
-              const handlerVisible = !!(
-                window.webkit &&
-                window.webkit.messageHandlers &&
-                window.webkit.messageHandlers.cmuxWebAuthn &&
-                typeof window.webkit.messageHandlers.cmuxWebAuthn.postMessage === "function"
-              );
-              const credential = await navigator.credentials.get({
-                publicKey: {
-                  challenge: new Uint8Array([1, 2, 3, 4]).buffer,
-                  rpId: "example.com",
-                  userVerification: "preferred"
-                }
-              });
-              return {
-                handlerVisible,
-                credentialId: credential && credential.id,
-                rawIDLength: credential && credential.rawId && credential.rawId.byteLength,
-                signatureLength:
-                  credential &&
-                  credential.response &&
-                  credential.response.signature &&
-                  credential.response.signature.byteLength
-              };
-            })()
-            """
+            const handlerVisible = !!(
+              window.webkit &&
+              window.webkit.messageHandlers &&
+              window.webkit.messageHandlers.cmuxWebAuthn &&
+              typeof window.webkit.messageHandlers.cmuxWebAuthn.postMessage === "function"
+            );
+            const credential = await navigator.credentials.get({
+              publicKey: {
+                challenge: new Uint8Array([1, 2, 3, 4]).buffer,
+                rpId: "example.com",
+                userVerification: "preferred"
+              }
+            });
+            return {
+              handlerVisible,
+              credentialId: credential && credential.id,
+              rawIDLength: credential && credential.rawId && credential.rawId.byteLength,
+              signatureLength:
+                credential &&
+                credential.response &&
+                credential.response.signature &&
+                credential.response.signature.byteLength
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
         ) as? [String: Any]
 
         #expect(result?["handlerVisible"] as? Bool == false)
@@ -419,8 +423,12 @@ struct BrowserWebContentProcessTests {
 
         #expect(popupWebView.navigationDelegate == nil)
         #expect(popupWebView.uiDelegate == nil)
-        #expect(popupWebView.window == nil)
         #expect(!popupWindow.isVisible)
+        // Teardown closes the panel and unregisters the popup from its opener, but
+        // it never detaches the web view, and this test holds the panel alive
+        // (isReleasedWhenClosed is false), so popupWebView.window still points at
+        // the closed panel.
+        #expect(!panel.hiddenWebViewDiscardSnapshot.hasPopups)
     }
 }
 
