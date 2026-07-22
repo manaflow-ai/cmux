@@ -133,6 +133,41 @@ struct AgentStatusReconciliationSchedulingTests {
     }
 }
 
+@Suite("Codex permission delivery ordering")
+struct CodexPermissionDeliveryOrderingTests {
+    @Test @MainActor func lateNeedsInputSignalCannotOverrideNewerResumeRevision() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let pid = getpid()
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "codex.session",
+            pid: pid,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        let resumed = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .preToolUse,
+            source: "codex",
+            ppid: Int(pid),
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":2}"#
+        )))
+        let latePermission = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(pid),
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1}"#
+        )))
+
+        workspace.noteAgentStatusHookSignal(resumed, panelId: panelID)
+        workspace.noteAgentStatusHookSignal(latePermission, panelId: panelID)
+
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .running)
+    }
+}
+
 extension AgentNotificationRegressionTests {
     @Test("Accepted Codex resume clears its panel notification with the lifecycle")
     @MainActor
