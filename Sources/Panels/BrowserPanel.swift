@@ -968,6 +968,7 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
     guard let url = request.url else { return nil }
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
+    webView.browserPortalConfigureFirstSizedRevealGeometryNudge(forNavigationURL: url)
     if url.isFileURL {
         guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
         webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
