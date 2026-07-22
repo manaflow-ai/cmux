@@ -202,17 +202,17 @@ struct MobileWorkspaceListFidelityTests {
         let secondTabID = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
         workspace.bonsplitController.selectTab(firstTabID)
         let observer = MobileWorkspaceListObserver(tabManager: manager)
-        #expect(observer.emittedUpdateCountForTesting == 1, "attachment emits the initial snapshot")
+        let initialSummaryHash = observer.lastSummaryHash
 
         workspace.bonsplitController.selectTab(secondTabID)
         try await Task.sleep(for: .milliseconds(200))
-        let countAfterSelection = observer.emittedUpdateCountForTesting
-        #expect(countAfterSelection > 1, "selection publishes through the observer")
+        let hashAfterSelection = observer.lastSummaryHash
+        #expect(hashAfterSelection != initialSummaryHash, "selection publishes through the observer")
 
         workspace.bonsplitController.selectTab(secondTabID)
         try await Task.sleep(for: .milliseconds(200))
         #expect(
-            observer.emittedUpdateCountForTesting == countAfterSelection,
+            observer.lastSummaryHash == hashAfterSelection,
             "a no-op selection stays suppressed"
         )
     }

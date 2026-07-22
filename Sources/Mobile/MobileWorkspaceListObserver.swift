@@ -27,7 +27,7 @@ final class MobileWorkspaceListObserver {
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var subscriptionsChangeObserver: NSObjectProtocol?
     private var pipelinesAttached = false
-    private var lastSummaryHash: Int = 0
+    private(set) var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
@@ -41,7 +41,6 @@ final class MobileWorkspaceListObserver {
     /// mobile subscriber.
     static var subscriberPresenceOverrideForTesting: Bool?
     var pipelinesAttachedForTesting: Bool { pipelinesAttached }
-    private(set) var emittedUpdateCountForTesting = 0
     #endif
 
     /// Whether any mobile client currently subscribes to `workspace.updated`.
@@ -288,9 +287,6 @@ final class MobileWorkspaceListObserver {
             return
         }
         lastSummaryHash = hash
-        #if DEBUG
-        emittedUpdateCountForTesting += 1
-        #endif
         mobileWorkspaceObserverLog.debug("emitting workspace.updated (hash=\(hash, privacy: .public))")
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
