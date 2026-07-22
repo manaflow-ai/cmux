@@ -584,3 +584,46 @@ def test_platform_bridge_passes_exact_variant_scenario_and_profile_scope(
     assert outcome["metrics"] == {"steady_full_tree_cpu_percent": 4.0}
     assert outcome["cleanup"] == {"owned": True}
     assert outcome["evidence"]["profiles"] == [{"role": "parent", "pid": 100}]
+
+
+def test_platform_bridge_rejects_recorded_churn_failures(tmp_path: Path) -> None:
+    baseline, _ = _variants()
+
+    class FakeAdapter:
+        raw_details = {"churn": {"failures": [{"phase": "profile_churn"}]}}
+
+        def __init__(self, config: Any) -> None:
+            del config
+
+    class FakeAdapterModule:
+        AdapterConfig = lambda **values: values
+        CmuxRuntimeAdapter = FakeAdapter
+        extract_metrics = staticmethod(lambda result, details: {})
+
+    class FakeRuntimeModule:
+        @staticmethod
+        def run_invocation(**kwargs: Any) -> Any:
+            del kwargs
+            return type(
+                "Result",
+                (),
+                {
+                    "failures": [{"phase": "profile_churn"}],
+                    "cleanup": {"owned": True},
+                },
+            )()
+
+    bridge = perf_driver.build_platform_run_variant(
+        output_root=tmp_path,
+        adapter_module=FakeAdapterModule,
+        runtime_module=FakeRuntimeModule,
+    )
+    scenario_value = perf_driver._contract.scenario_matrix()[0]
+    run = perf_driver._contract.build_experiment_plan(BASELINE_SHA, CANDIDATE_SHA)[1]
+
+    with pytest.raises(RuntimeError, match="recorded workload failures") as caught:
+        bridge(baseline, scenario_value, run)
+    assert caught.value.cleanup == {"owned": True}
+    assert caught.value.evidence["churn"]["failures"] == [
+        {"phase": "profile_churn"}
+    ]

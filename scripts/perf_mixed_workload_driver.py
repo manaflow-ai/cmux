@@ -690,11 +690,18 @@ def build_platform_run_variant(
                 owned_root=invocation_root,
                 adapter=adapter,
             )
+            if getattr(result, "failures", None):
+                failure = RuntimeError("adapter recorded workload failures")
+                failure.cleanup = _plain_json(result.cleanup)
+                failure.evidence = _plain_json(adapter.raw_details)
+                raise failure
         except Exception as error:
-            error.cleanup = _plain_json(
-                getattr(adapter, "raw_details", {}).get("cleanup", {})
-            )
-            error.evidence = _plain_json(getattr(adapter, "raw_details", {}))
+            if not hasattr(error, "cleanup"):
+                error.cleanup = _plain_json(
+                    getattr(adapter, "raw_details", {}).get("cleanup", {})
+                )
+            if not hasattr(error, "evidence"):
+                error.evidence = _plain_json(getattr(adapter, "raw_details", {}))
             raise
 
         evidence = _plain_json(adapter.raw_details)
