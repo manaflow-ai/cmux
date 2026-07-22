@@ -69,6 +69,116 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
+    @Test("oversized persisted zoom follows config instead of restoring")
+    func oversizedPersistedZoomIsRejected() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let oversizedSnapshot = try snapshotBySettingTerminalFontSize(
+            511,
+            panelID: panelID,
+            in: workspace.sessionSnapshot(includeScrollback: false)
+        )
+
+        let restoredWorkspace = Workspace()
+        let restoredPanelIDs = restoredWorkspace.restoreSessionSnapshot(oversizedSnapshot)
+        let restoredPanelID = restoredPanelIDs[panelID] ?? panelID
+        let restoredPanel = try #require(
+            restoredWorkspace.panels[restoredPanelID] as? TerminalPanel
+        )
+
+        #expect(restoredPanel.surface.fontSizeLineageSnapshot() == nil)
+        #expect(
+            try optionalTerminalFontSize(
+                panelID: restoredPanelID,
+                in: restoredWorkspace.sessionSnapshot(includeScrollback: false)
+            ) == nil
+        )
+    }
+
+    @Test("remembered source publishes zoom and reset lineage for new workspaces")
+    func rememberedSourceLineageChangesRefreshNewWorkspaceCache() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let sourcePanel = try #require(workspace.panels[panelID] as? TerminalPanel)
+
+        sourcePanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 7, isExplicitOverride: true)
+        )
+
+        #expect(
+            TabManager().inheritedTerminalConfigForNewWorkspace(workspace: workspace)?
+                .fontSizeLineage == TerminalFontSizeLineage(
+                    basePoints: 7,
+                    isExplicitOverride: true
+                )
+        )
+
+        sourcePanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 12, isExplicitOverride: false)
+        )
+
+        #expect(
+            TabManager().inheritedTerminalConfigForNewWorkspace(workspace: workspace)?
+                .fontSizeLineage == TerminalFontSizeLineage(
+                    basePoints: 12,
+                    isExplicitOverride: false
+                )
+        )
+    }
+
+    @Test("temporary mobile fit does not replace remembered durable lineage")
+    func rememberedSourceMasksTemporaryMobileFitLineage() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let sourcePanel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let durableLineage = TerminalFontSizeLineage(
+            basePoints: 12,
+            isExplicitOverride: false
+        )
+        sourcePanel.surface.recordCurrentFontSizeLineage(durableLineage)
+        sourcePanel.surface.mobileViewportFontFitState = MobileViewportFontFitState(
+            baseRuntimePointSize: 12,
+            fittedRuntimePointSize: 6
+        )
+
+        _ = sourcePanel.surface.recordObservedFontSizeLineage(
+            runtimePoints: 6,
+            isExplicitOverride: true,
+            globalFontMagnificationPercent: 100
+        )
+
+        #expect(
+            TabManager().inheritedTerminalConfigForNewWorkspace(workspace: workspace)?
+                .fontSizeLineage == durableLineage
+        )
+    }
+
+    @Test("removed remembered source cannot publish stale lineage")
+    func removedRememberedSourceCannotRefreshNewWorkspaceCache() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let sourcePanel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        _ = try #require(
+            workspace.newBrowserSurface(
+                inPane: paneID,
+                url: URL(string: "about:blank"),
+                focus: false,
+                creationPolicy: .restoration
+            )
+        )
+        sourcePanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 7, isExplicitOverride: true)
+        )
+        #expect(workspace.closePanel(panelID, force: true))
+
+        sourcePanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 9, isExplicitOverride: true)
+        )
+
+        #expect(TabManager().inheritedTerminalConfigForNewWorkspace(workspace: workspace) == nil)
+    }
+
     @Test("cleared zoom follows current config when the runtime is recreated")
     func clearedZoomDoesNotSeedRuntimeRecreation() {
         var restoredTemplate = CmuxSurfaceConfigTemplate()

@@ -44,6 +44,8 @@ import Testing
         -1,
         Float32.nan,
         Float32.infinity,
+        511,
+        Float32.greatestFiniteMagnitude,
     ] as [Float32?])
     func invalidSessionRestoreClearsOnlyFontLineage(
         overrideBasePoints: Float32?
@@ -68,5 +70,17 @@ import Testing
         #expect(applied.environmentVariables == inherited.environmentVariables)
         #expect(applied.initialInput == inherited.initialInput)
         #expect(applied.waitAfterCommand == inherited.waitAfterCommand)
+    }
+
+    @Test func sessionRestoreAcceptsMaximumPersistableBaseFontSize() throws {
+        let applied = try #require(
+            TerminalFontSizeCreationPolicy.sessionRestore(overrideBasePoints: 510)
+                .applying(to: nil)
+        )
+
+        #expect(applied.fontSizeLineage == TerminalFontSizeLineage(
+            basePoints: 510,
+            isExplicitOverride: true
+        ))
     }
 }

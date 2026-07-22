@@ -33,6 +33,24 @@ import Testing
         #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == nil)
     }
 
+    @Test func oversizedExplicitLineageIsNotPersisted() {
+        let surface = makeSurface(configTemplate: CmuxSurfaceConfigTemplate())
+        surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 511, isExplicitOverride: true)
+        )
+
+        #expect(surface.sessionFontSizeOverrideBasePoints() == nil)
+    }
+
+    @Test func maximumExplicitLineageIsPersisted() {
+        let surface = makeSurface(configTemplate: CmuxSurfaceConfigTemplate())
+        surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 510, isExplicitOverride: true)
+        )
+
+        #expect(surface.sessionFontSizeOverrideBasePoints() == 510)
+    }
+
     private func makeSurface(
         configTemplate: CmuxSurfaceConfigTemplate
     ) -> TerminalSurface {

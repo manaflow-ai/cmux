@@ -69,6 +69,47 @@ import GhosttyKit
         #expect(template.fontSizeLineage == nil)
     }
 
+    @Test(arguments: [Float32(511), Float32.greatestFiniteMagnitude])
+    func oversizedFontSizeClearsLineage(basePoints: Float32) {
+        var propertyTemplate = CmuxSurfaceConfigTemplate()
+        propertyTemplate.fontSize = basePoints
+
+        var methodTemplate = CmuxSurfaceConfigTemplate()
+        methodTemplate.setFontSize(basePoints, isExplicitOverride: true)
+
+        #expect(propertyTemplate.fontSizeLineage == nil)
+        #expect(methodTemplate.fontSizeLineage == nil)
+    }
+
+    @Test func maximumPersistableBaseFontSizeIsAccepted() {
+        var template = CmuxSurfaceConfigTemplate()
+
+        template.setFontSize(510, isExplicitOverride: true)
+
+        #expect(template.fontSizeLineage == TerminalFontSizeLineage(
+            basePoints: 510,
+            isExplicitOverride: true
+        ))
+    }
+
+    @Test func runtimeFontSizeClampsToGhosttyMaximumAtIncreasedMagnification() {
+        let runtimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+            fromBasePoints: 510,
+            percent: 200
+        )
+
+        #expect(runtimePoints == 255)
+    }
+
+    @Test func maximumRuntimeFontConvertsToMaximumPersistableBaseAtMinimumMagnification() {
+        let basePoints = CmuxSurfaceConfigTemplate.baseFontSize(
+            fromRuntimePoints: 255,
+            percent: 50
+        )
+
+        #expect(basePoints == 510)
+    }
+
     @Test func minimumRuntimeFontRoundTripsAtIncreasedMagnification() {
         let basePoints = CmuxSurfaceConfigTemplate.baseFontSize(
             fromRuntimePoints: 1,

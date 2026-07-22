@@ -202,8 +202,8 @@ struct CrashDiagnosticSessionPolicyTests {
         ])
     }
 
-    @Test
-    func sessionSnapshotKeepsCrashWorkspaceWithValidExplicitFontSize() {
+    @Test(arguments: [Float(13), Float(510)])
+    func sessionSnapshotKeepsCrashWorkspaceWithValidExplicitFontSize(fontSize: Float) {
         let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
             .path
@@ -211,7 +211,7 @@ struct CrashDiagnosticSessionPolicyTests {
         let snapshot = crashAndProjectSnapshot(
             crashDirectory: crashDirectory,
             projectDirectory: projectDirectory,
-            fontSize: 13
+            fontSize: fontSize
         )
 
         let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
@@ -223,7 +223,7 @@ struct CrashDiagnosticSessionPolicyTests {
         ])
     }
 
-    @Test(arguments: [Float.zero, -1, .nan, .infinity])
+    @Test(arguments: [Float.zero, -1, .nan, .infinity, 511, .greatestFiniteMagnitude])
     func sessionSnapshotPrunesCrashWorkspaceWithInvalidFontSize(fontSize: Float) {
         let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
