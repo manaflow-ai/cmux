@@ -6728,12 +6728,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarIntentActive = keyboardFocusCoordinator(for: window)?.activeRightSidebarMode != nil
         guard let responder = window.firstResponder else { return sidebarIntentActive }
         if isRightSidebarFocusResponder(responder, in: window) { return true }
-        if sidebarIntentActive {
-            if responder is NSWindow { return true }
-            if cmuxTerminalKeyEquivalentOwningGhosttyView(for: responder) != nil {
-                return true
-            }
-        }
+        if sidebarIntentActive, responder is NSWindow { return true }
         if terminalKeyboardFocusRequest(for: responder) != nil { return false }
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let panelId = ghosttyView.terminalSurface?.id else { return false }
@@ -6765,7 +6760,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     fileprivate func terminalKeyboardFocusRequest(for responder: NSResponder?) -> TerminalKeyboardFocusRequest? {
-        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+        guard let ghosttyView = cmuxTerminalFocusOwningGhosttyView(for: responder),
               let workspaceId = ghosttyView.tabId,
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil

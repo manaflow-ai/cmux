@@ -765,8 +765,12 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     cmuxOwningGhosttyView(for: responder, includingHostedSurfaceDescendants: false)
 }
 
-func cmuxTerminalKeyEquivalentOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+func cmuxTerminalFocusOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     cmuxOwningGhosttyView(for: responder, includingHostedSurfaceDescendants: true)
+}
+
+func cmuxTerminalKeyEquivalentOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+    cmuxTerminalFocusOwningGhosttyView(for: responder)
 }
 
 private func cmuxOwningGhosttyView(
