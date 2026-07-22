@@ -87,6 +87,28 @@ struct ArtifactMutationAuthorizationTests {
         #expect(toolUse.status == .failed)
     }
 
+    @Test("Unknown Codex custom-tool output does not authorize a mutation")
+    func unknownCodexCustomToolOutputIsReference() throws {
+        let patch = "*** Begin Patch\n*** Add File: /tmp/generated.md\n+draft\n*** End Patch"
+        let call = codexLine(type: "response_item", payload: [
+            "type": "custom_tool_call",
+            "name": "apply_patch",
+            "input": patch,
+            "call_id": "custom-patch",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "custom_tool_call_output",
+            "call_id": "custom-patch",
+            "output": "permission denied",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifact = try #require(indexedArtifacts(result).first)
+
+        #expect(artifact.path.hasSuffix("/tmp/generated.md"))
+        #expect(artifact.provenance == .referenced)
+    }
+
     @Test("Successful shell output targets are created but shell inputs remain references")
     func successfulShellMutationClassifiesOnlyOutputTargetAsCreated() throws {
         let renderCall = codexLine(type: "response_item", payload: [
@@ -120,6 +142,27 @@ struct ArtifactMutationAuthorizationTests {
 
         #expect(artifacts.first { $0.path.hasSuffix("/tmp/rendered.html") }?.provenance == .created)
         #expect(artifacts.first { $0.path.hasSuffix("/tmp/existing.md") }?.provenance == .referenced)
+    }
+
+    @Test("Shell option operands are not inferred as mutation targets")
+    func shellOptionOperandsRemainReferences() throws {
+        let call = codexLine(type: "response_item", payload: [
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": #"{"cmd":"touch -r /Users/me/private.md /tmp/stamp.md"}"#,
+            "call_id": "touch",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "function_call_output",
+            "call_id": "touch",
+            "output": "Process exited with code 0\nOutput:\n",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifacts = indexedArtifacts(result)
+
+        #expect(artifacts.first { $0.path == "/Users/me/private.md" }?.provenance == .referenced)
+        #expect(artifacts.allSatisfy { $0.provenance == .referenced })
     }
 
     @Test("Failed sidechain mutations do not grant created provenance")
