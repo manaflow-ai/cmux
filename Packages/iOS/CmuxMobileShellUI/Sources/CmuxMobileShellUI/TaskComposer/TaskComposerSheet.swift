@@ -228,7 +228,7 @@ struct TaskComposerSheet: View {
                     actionTitle: primaryActionTitle,
                     progressTitle: primaryActionProgressTitle,
                     caption: primaryActionCaption,
-                    failureTitle: Self.failureTitle(templateName: selectedTemplate?.name),
+                    failureTitle: failureTitle(templateName: selectedTemplate?.name),
                     failureText: failureText,
                     completedOperationRecovery: completedOperationRecovery,
                     action: startSubmission,

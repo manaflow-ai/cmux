@@ -91,7 +91,7 @@ extension TaskComposerSheet {
         )
     }
 
-    static func failureTitle(templateName: String?) -> String {
+    func failureTitle(templateName: String?) -> String {
         guard let templateName = templateName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !templateName.isEmpty else {
             return L10n.string(
