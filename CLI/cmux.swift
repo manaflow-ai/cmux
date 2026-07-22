@@ -17107,12 +17107,11 @@ struct CMUXCLI {
 
         let env = ProcessInfo.processInfo.environment
         let workspaceHandle = try normalizeWorkspaceHandle(env["CMUX_WORKSPACE_ID"], client: client)
-        if let workspaceHandle {
-            params["workspace_id"] = workspaceHandle
-        }
         let surfaceHandle = try normalizeSurfaceHandle(env["CMUX_SURFACE_ID"], client: client, workspaceHandle: workspaceHandle)
         if let surfaceHandle {
             params["surface_id"] = surfaceHandle
+        } else if let workspaceHandle {
+            params["workspace_id"] = workspaceHandle
         }
         if workspaceHandle == nil,
            surfaceHandle == nil,
