@@ -407,6 +407,23 @@ struct NotificationChronologyTests {
     }
 
     @Test
+    func provisionalCooldownDoesNotPublishCommittedAdmissionDate() throws {
+        var reservations = NotificationCooldownReservations()
+        var dates: [String: Date] = [:]
+        let key = "agent-finished"
+        let reservation = try #require(reservations.reserve(
+            key: key,
+            interval: 60,
+            acceptedAt: Date(timeIntervalSince1970: 100),
+            dates: &dates
+        ))
+
+        #expect(dates[key] == nil)
+
+        reservations.restore(reservation, dates: &dates)
+    }
+
+    @Test
     func reversedCooldownCompletionKeepsNewestReservationMonotonic() throws {
         var reservations = NotificationCooldownReservations()
         var dates: [String: Date] = [:]
@@ -453,7 +470,7 @@ struct NotificationChronologyTests {
         ))
 
         reservations.restore(later, dates: &dates)
-        #expect(dates[key] == Date(timeIntervalSince1970: 10))
+        #expect(dates[key] == nil)
 
         reservations.restore(earlier, dates: &dates)
         #expect(dates[key] == nil)

@@ -229,6 +229,137 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.store.notifications.map(\.body) == ["Replacement after clear"])
     }
 
+    @Test("A filtered in-flight notification does not consume a later arrival's cooldown")
+    func filteredEarlierInFlightCooldownAllowsLaterArrival() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-filtered-cooldown-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let firstStartedURL = root.appendingPathComponent("first-started")
+        let releaseFirstURL = root.appendingPathComponent("release-first")
+        let command = """
+        payload="$(cat)"
+        if printf '%s' "$payload" | grep -q 'Filtered first'; then
+          touch '\(firstStartedURL.path)'
+          while [ ! -e '\(releaseFirstURL.path)' ]; do sleep 0.01; done
+          printf '%s' '{"effects":{"record":false,"markUnread":false,"desktop":false,"sound":false,"command":false,"reorderWorkspace":false,"paneFlash":false},"stop":true}'
+        else
+          printf '%s' "$payload"
+        fi
+        """
+        let fixture = try makeFixture(
+            policyHookCommand: command,
+            policyHookTimeoutSeconds: 30
+        )
+        defer {
+            FileManager.default.createFile(atPath: releaseFirstURL.path, contents: nil)
+            fixture.restore()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let cooldownKey = "filtered-in-flight-\(UUID().uuidString)"
+
+        fixture.store.addNotification(
+            acceptedAt: Date(timeIntervalSince1970: 100),
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Filtered first",
+            cooldownKey: cooldownKey,
+            cooldownInterval: 60
+        )
+        #expect(await waitForMarker(at: firstStartedURL))
+
+        fixture.store.addNotification(
+            acceptedAt: Date(timeIntervalSince1970: 101),
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Later must survive",
+            cooldownKey: cooldownKey,
+            cooldownInterval: 60
+        )
+        FileManager.default.createFile(atPath: releaseFirstURL.path, contents: nil)
+
+        let deadline = ContinuousClock.now + .seconds(5)
+        while fixture.store.notifications.isEmpty, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(fixture.store.notifications.map(\.body) == ["Later must survive"])
+    }
+
+    @Test("A shared cooldown orders policy results across delivery targets")
+    func sharedCooldownKeySerializesAcrossDistinctDeliveryTargets() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-shared-cooldown-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let firstStartedURL = root.appendingPathComponent("first-started")
+        let releaseFirstURL = root.appendingPathComponent("release-first")
+        let laterEvaluatedURL = root.appendingPathComponent("later-evaluated")
+        let command = """
+        payload="$(cat)"
+        if printf '%s' "$payload" | grep -q 'First must win'; then
+          touch '\(firstStartedURL.path)'
+          while [ ! -e '\(releaseFirstURL.path)' ]; do sleep 0.01; done
+        elif printf '%s' "$payload" | grep -q 'Later must cool down'; then
+          touch '\(laterEvaluatedURL.path)'
+        fi
+        printf '%s' "$payload"
+        """
+        let fixture = try makeFixture(
+            policyHookCommand: command,
+            policyHookTimeoutSeconds: 30
+        )
+        defer {
+            FileManager.default.createFile(atPath: releaseFirstURL.path, contents: nil)
+            fixture.restore()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let destinationPanelId = try #require(fixture.destination.focusedPanelId)
+        let cooldownKey = "shared-targets-\(UUID().uuidString)"
+
+        fixture.store.addNotification(
+            acceptedAt: Date(timeIntervalSince1970: 100),
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "First must win",
+            cooldownKey: cooldownKey,
+            cooldownInterval: 60
+        )
+        #expect(await waitForMarker(at: firstStartedURL))
+
+        fixture.store.addNotification(
+            acceptedAt: Date(timeIntervalSince1970: 101),
+            tabId: fixture.destination.id,
+            surfaceId: destinationPanelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Later must cool down",
+            cooldownKey: cooldownKey,
+            cooldownInterval: 60
+        )
+        #expect(await waitForMarker(at: laterEvaluatedURL, timeout: .seconds(2)))
+        FileManager.default.createFile(atPath: releaseFirstURL.path, contents: nil)
+
+        let deadline = ContinuousClock.now + .seconds(5)
+        while (
+            fixture.store.hasPendingNotification(forTabId: fixture.source.id, surfaceId: fixture.panelId)
+                || fixture.store.hasPendingNotification(
+                    forTabId: fixture.destination.id,
+                    surfaceId: destinationPanelId
+                )
+        ), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(fixture.store.notifications.map(\.body) == ["First must win"])
+    }
+
     @Test("Clearing policy work discards a hook result that completes afterwards")
     func clearTerminatesInFlightPolicyHookProcess() async throws {
         // Subprocess termination on cancellation is best-effort and is NOT
