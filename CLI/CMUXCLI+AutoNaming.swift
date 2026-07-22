@@ -335,7 +335,8 @@ struct AutoNamingEngine: Sendable {
         totalMessageCount: Int? = nil
     ) -> Int {
         let count = max(messages.count, totalMessageCount ?? 0)
-        // A single initial prompt qualifies; later turns retain monotonic growth units.
+        // Empty caches stay ineligible; one initial prompt reaches the naming floor.
+        guard count > 0 else { return 0 }
         return max(config.minTranscriptLines, count * config.minLineGrowth)
     }
 
