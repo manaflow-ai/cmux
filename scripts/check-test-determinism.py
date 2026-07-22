@@ -210,8 +210,15 @@ _NAMED_SLEEP_CALL = re.compile(
     r"([A-Za-z_]\w*)[?!]?\.sleep\s*\("
 )
 _MEMBER_CHAIN_SLEEP_CALL = re.compile(
-    r"(?<![.\w])([A-Za-z_]\w*)[?!]?\s*\.\s*"
-    r"([A-Za-z_]\w*)[?!]?\s*\.sleep\s*\("
+    r"(?<![.\w])"
+    r"((?:self|Self|[A-Za-z_]\w*)[?!]?"
+    r"(?:\s*\.\s*[A-Za-z_]\w*[?!]?){1,})"
+    r"\s*\.sleep\s*\("
+)
+_MEMBER_CHAIN_VALUE = re.compile(
+    r"(?<![.\w])"
+    r"((?:self|Self|[A-Za-z_]\w*)[?!]?"
+    r"(?:\s*\.\s*[A-Za-z_]\w*[?!]?){1,})\s*$"
 )
 _CONTINUED_SLEEP_CALL = re.compile(r"^\s*[?!]?\s*\.sleep\s*\(")
 _PYTHON_SLEEP_MODULES = frozenset(
@@ -627,10 +634,17 @@ def _receiver_default_expression(text: str, receiver: str) -> Optional[str]:
         ):
             assignment_index = index
             break
+        if character == "," and not (
+            paren_depth or bracket_depth or brace_depth or angle_depth
+        ):
+            return None
         if character == "(":
             paren_depth += 1
-        elif character == ")" and paren_depth:
-            paren_depth -= 1
+        elif character == ")":
+            if paren_depth:
+                paren_depth -= 1
+            elif not (bracket_depth or brace_depth or angle_depth):
+                return None
         elif character == "[":
             bracket_depth += 1
         elif character == "]" and bracket_depth:
@@ -1567,6 +1581,114 @@ def _explicit_clock_member_kind(
     return all(kinds)
 
 
+def _explicit_member_types(
+    masked_lines: list[str],
+) -> dict[str, dict[str, set[str]]]:
+    """Index explicit member value types by fully nested owner type."""
+    depth = 0
+    pending_type: Optional[str] = None
+    active_types: list[tuple[str, int]] = []
+    member_types: dict[str, dict[str, set[str]]] = {}
+
+    for line_index, candidate in enumerate(masked_lines):
+        type_header = _TYPE_SCOPE_HEADER.search(candidate)
+        if type_header:
+            type_kind = type_header.group(1)
+            declared_type = type_header.group(2)
+            if (
+                type_kind != "extension"
+                and "." not in declared_type
+                and active_types
+            ):
+                declared_type = f"{active_types[-1][0]}.{declared_type}"
+            pending_type = declared_type
+
+        events: list[
+            tuple[int, str, Optional[tuple[str, str]]]
+        ] = []
+        events.extend(
+            (position, "binding", (name, declaration))
+            for position, name, declaration in _local_declarations(candidate)
+        )
+        events.extend(
+            (position, token, None)
+            for position, token in enumerate(candidate)
+            if token in "{}"
+        )
+        events.sort(key=lambda event: event[0])
+
+        for _, event, binding in events:
+            if event == "{":
+                depth += 1
+                if pending_type is not None:
+                    active_types.append((pending_type, depth))
+                    pending_type = None
+            elif event == "}":
+                if active_types and active_types[-1][1] == depth:
+                    active_types.pop()
+                depth = max(0, depth - 1)
+            elif (
+                binding is not None
+                and active_types
+                and depth == active_types[-1][1]
+            ):
+                member_type = _receiver_declaration_type(
+                    binding[1], masked_lines[line_index + 1 :]
+                )
+                if member_type is not None:
+                    owner = active_types[-1][0]
+                    member_types.setdefault(owner, {}).setdefault(
+                        binding[0], set()
+                    ).add(member_type)
+
+    return member_types
+
+
+def _merge_member_type_index(
+    target: dict[str, dict[str, set[str]]],
+    addition: dict[str, dict[str, set[str]]],
+) -> None:
+    for owner_type, members in addition.items():
+        owner_index = target.setdefault(owner_type, {})
+        for member, declared_types in members.items():
+            owner_index.setdefault(member, set()).update(declared_types)
+
+
+def _resolved_member_type(
+    owner_type: str,
+    member: str,
+    same_file_member_types: dict[str, dict[str, set[str]]],
+    external_member_types: Optional[
+        dict[str, dict[str, set[str]]]
+    ] = None,
+) -> Optional[str]:
+    declared_types = set(
+        same_file_member_types.get(owner_type, {}).get(member, set())
+    )
+    if external_member_types is not None:
+        declared_types.update(
+            external_member_types.get(owner_type, {}).get(member, set())
+        )
+    if len(declared_types) != 1:
+        return None
+
+    declared_type = next(iter(declared_types))
+    known_types = set(same_file_member_types)
+    if external_member_types is not None:
+        known_types.update(external_member_types)
+    candidates = [declared_type]
+    if "." not in declared_type:
+        candidates.append(f"{owner_type}.{declared_type}")
+        if "." in owner_type:
+            candidates.append(
+                f"{owner_type.rsplit('.', 1)[0]}.{declared_type}"
+            )
+    return next(
+        (candidate for candidate in candidates if candidate in known_types),
+        declared_type,
+    )
+
+
 def _resolve_named_receiver_type(
     masked_lines: list[str],
     call_index: int,
@@ -1704,14 +1826,19 @@ def _is_explicit_real_clock_member_chain(
     masked_lines: list[str],
     idx: int,
     external_real_members: Optional[dict[str, set[str]]] = None,
+    same_file_member_types: Optional[
+        dict[str, dict[str, set[str]]]
+    ] = None,
+    external_member_types: Optional[
+        dict[str, dict[str, set[str]]]
+    ] = None,
 ) -> bool:
-    """Recognize `value.clock.sleep` when both value type and member are explicit."""
+    """Recognize a member chain whose terminal value is a real clock."""
     current = masked_lines[idx]
     chain = _MEMBER_CHAIN_SLEEP_CALL.search(current)
     call_column: int
     if chain:
-        receiver = chain.group(1)
-        member = chain.group(2)
+        chain_text = chain.group(1)
         call_column = chain.start()
     else:
         continuation = _CONTINUED_SLEEP_CALL.search(current)
@@ -1728,23 +1855,43 @@ def _is_explicit_real_clock_member_chain(
         if previous_index is None:
             return False
         previous = masked_lines[previous_index]
-        chain = re.search(
-            r"(?<![.\w])([A-Za-z_]\w*)[?!]?\s*\.\s*"
-            r"([A-Za-z_]\w*)[?!]?\s*$",
-            previous,
-        )
+        chain = _MEMBER_CHAIN_VALUE.search(previous)
         if not chain:
             return False
-        receiver = chain.group(1)
-        member = chain.group(2)
+        chain_text = chain.group(1)
         call_column = chain.start()
         idx = previous_index
+
+    components = re.findall(r"[A-Za-z_]\w*", chain_text)
+    if components and components[0] in ("self", "Self"):
+        if len(components) < 3:
+            return False
+        receiver = components[1]
+        members = components[2:]
+    else:
+        if len(components) < 2:
+            return False
+        receiver = components[0]
+        members = components[1:]
 
     receiver_type = _resolve_named_receiver_type(
         masked_lines, idx, call_column, receiver
     )
     if receiver_type is None:
         return False
+    if same_file_member_types is None:
+        same_file_member_types = _explicit_member_types(masked_lines)
+    for member in members[:-1]:
+        receiver_type = _resolved_member_type(
+            receiver_type,
+            member,
+            same_file_member_types,
+            external_member_types,
+        )
+        if receiver_type is None:
+            return False
+
+    member = members[-1]
     same_file_kind = _explicit_clock_member_kind(
         masked_lines, receiver_type, member
     )
@@ -2179,10 +2326,20 @@ def _is_named_real_clock_sleep(
     masked_lines: list[str],
     idx: int,
     external_real_members: Optional[dict[str, set[str]]] = None,
+    same_file_member_types: Optional[
+        dict[str, dict[str, set[str]]]
+    ] = None,
+    external_member_types: Optional[
+        dict[str, dict[str, set[str]]]
+    ] = None,
 ) -> bool:
     """Resolve a named receiver through Swift-like lexical brace scopes."""
     if _is_explicit_real_clock_member_chain(
-        masked_lines, idx, external_real_members
+        masked_lines,
+        idx,
+        external_real_members,
+        same_file_member_types,
+        external_member_types,
     ):
         return True
     current = masked_lines[idx]
@@ -2240,11 +2397,13 @@ def _is_named_real_clock_sleep(
     )
 
 
-def _python_function_parameter_names(signature: str) -> set[str]:
-    """Extract parameter bindings while respecting nested default expressions."""
+def _python_function_parameters(
+    signature: str,
+) -> dict[str, Optional[str]]:
+    """Extract parameter bindings and simple default aliases."""
     open_paren = signature.find("(")
     if open_paren < 0:
-        return set()
+        return {}
 
     depth = 0
     start = open_paren + 1
@@ -2262,15 +2421,48 @@ def _python_function_parameter_names(signature: str) -> set[str]:
             chunks.append(signature[start:index])
             start = index + 1
 
-    names: set[str] = set()
+    parameters: dict[str, Optional[str]] = {}
     for chunk in chunks:
         parameter = chunk.strip().lstrip("*").strip()
         if not parameter or parameter == "/":
             continue
         binding = re.match(r"([A-Za-z_]\w*)\b", parameter)
-        if binding:
-            names.add(binding.group(1))
-    return names
+        if not binding:
+            continue
+
+        default_index: Optional[int] = None
+        paren_depth = 0
+        bracket_depth = 0
+        brace_depth = 0
+        for index, character in enumerate(parameter[binding.end() :]):
+            if character == "=" and not (
+                paren_depth or bracket_depth or brace_depth
+            ):
+                default_index = binding.end() + index
+                break
+            if character == "(":
+                paren_depth += 1
+            elif character == ")" and paren_depth:
+                paren_depth -= 1
+            elif character == "[":
+                bracket_depth += 1
+            elif character == "]" and bracket_depth:
+                bracket_depth -= 1
+            elif character == "{":
+                brace_depth += 1
+            elif character == "}" and brace_depth:
+                brace_depth -= 1
+
+        default_alias = None
+        if default_index is not None:
+            default = parameter[default_index + 1 :].strip()
+            alias = re.fullmatch(
+                r"\(*\s*([A-Za-z_]\w*)\s*\)*", default
+            )
+            if alias:
+                default_alias = alias.group(1)
+        parameters[binding.group(1)] = default_alias
+    return parameters
 
 
 @dataclass
@@ -2391,12 +2583,19 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
                     paren_depth,
                 )
                 continue
-            enter_scope(header_indent, kind)
+            signature = " ".join(signature_lines)
+            parameter_kinds: dict[str, bool] = {}
             if kind == "function":
-                for name in _python_function_parameter_names(
-                    " ".join(signature_lines)
-                ):
-                    set_alias(name, False)
+                parameter_kinds = {
+                    name: default_alias is not None
+                    and default_alias in active
+                    for name, default_alias in (
+                        _python_function_parameters(signature).items()
+                    )
+                }
+            enter_scope(header_indent, kind)
+            for name, is_active in parameter_kinds.items():
+                set_alias(name, is_active)
             pending_scope_header = None
             continue
 
@@ -2421,9 +2620,16 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
                     paren_depth,
                 )
             else:
+                parameter_kinds = {
+                    name: default_alias is not None
+                    and default_alias in active
+                    for name, default_alias in (
+                        _python_function_parameters(line).items()
+                    )
+                }
                 enter_scope(indent, "function")
-                for name in _python_function_parameter_names(line):
-                    set_alias(name, False)
+                for name, is_active in parameter_kinds.items():
+                    set_alias(name, is_active)
             continue
 
         class_header = _PYTHON_CLASS_HEADER.match(line)
@@ -2517,6 +2723,12 @@ def detect_sleep_then_assert(
     idx: int,
     path_suffix: str,
     external_real_members: Optional[dict[str, set[str]]] = None,
+    same_file_member_types: Optional[
+        dict[str, dict[str, set[str]]]
+    ] = None,
+    external_member_types: Optional[
+        dict[str, dict[str, set[str]]]
+    ] = None,
     python_standard_sleep: bool = False,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
@@ -2525,7 +2737,11 @@ def detect_sleep_then_assert(
     is_sleep = has_sleep_token and (
         bool(_SLEEP_CALL.search(line))
         or _is_named_real_clock_sleep(
-            masked_lines, idx, external_real_members
+            masked_lines,
+            idx,
+            external_real_members,
+            same_file_member_types,
+            external_member_types,
         )
     )
     if not is_sleep and path_suffix == ".py":
@@ -2577,6 +2793,12 @@ def scan_text(
     rel_posix: str,
     text: str,
     external_real_members: Optional[dict[str, set[str]]] = None,
+    external_member_types: Optional[
+        dict[str, dict[str, set[str]]]
+    ] = None,
+    same_file_member_types: Optional[
+        dict[str, dict[str, set[str]]]
+    ] = None,
 ) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
@@ -2587,6 +2809,12 @@ def scan_text(
         if needs_sleep_mask
         else code_lines
     )
+    if (
+        same_file_member_types is None
+        and suffix == ".swift"
+        and needs_sleep_mask
+    ):
+        same_file_member_types = _explicit_member_types(masked_lines)
     python_standard_sleep_lines = (
         _python_standard_sleep_lines(masked_lines)
         if suffix == ".py" and needs_sleep_mask
@@ -2612,7 +2840,9 @@ def scan_text(
             i,
             suffix,
             external_real_members,
-            i in python_standard_sleep_lines,
+            same_file_member_types,
+            external_member_types,
+            python_standard_sleep=i in python_standard_sleep_lines,
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
@@ -2641,6 +2871,10 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
     """Scan sources while sharing Swift members within each test target."""
     source_list = list(sources)
     bundle_members: dict[str, dict[str, set[str]]] = {}
+    bundle_member_types: dict[
+        str, dict[str, dict[str, set[str]]]
+    ] = {}
+    file_member_types: dict[str, dict[str, dict[str, set[str]]]] = {}
 
     for rel_posix, text in source_list:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
@@ -2665,14 +2899,19 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
         if pathlib.PurePosixPath(rel_posix).suffix != ".swift":
             continue
         bundle = _swift_test_bundle_key(rel_posix)
-        if bundle not in bundle_members or not _CLASS_INHERITANCE_HEADER.search(
-            text
-        ):
+        if bundle not in bundle_members:
             continue
         masked_lines = _mask_noncode(text.splitlines(), ".swift")
-        bundle_parents.setdefault(bundle, {}).update(
-            _explicit_type_parents(masked_lines)
+        member_types = _explicit_member_types(masked_lines)
+        file_member_types[rel_posix] = member_types
+        _merge_member_type_index(
+            bundle_member_types.setdefault(bundle, {}),
+            member_types,
         )
+        if _CLASS_INHERITANCE_HEADER.search(text):
+            bundle_parents.setdefault(bundle, {}).update(
+                _explicit_type_parents(masked_lines)
+            )
 
     for bundle, parents in bundle_parents.items():
         _propagate_inherited_real_members(
@@ -2683,10 +2922,20 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
     for rel_posix, text in source_list:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
         external_real_members = None
+        external_member_types = None
         if suffix == ".swift":
             bundle = _swift_test_bundle_key(rel_posix)
             external_real_members = bundle_members.get(bundle)
-        findings.extend(scan_text(rel_posix, text, external_real_members))
+            external_member_types = bundle_member_types.get(bundle)
+        findings.extend(
+            scan_text(
+                rel_posix,
+                text,
+                external_real_members,
+                external_member_types,
+                file_member_types.get(rel_posix),
+            )
+        )
     return findings
 
 
@@ -2712,6 +2961,10 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             source_paths.append((path, rel_posix))
 
     bundle_members: dict[str, dict[str, set[str]]] = {}
+    bundle_member_types: dict[
+        str, dict[str, dict[str, set[str]]]
+    ] = {}
+    file_member_types: dict[str, dict[str, dict[str, set[str]]]] = {}
     for path, rel_posix in source_paths:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
         if suffix != ".swift":
@@ -2744,12 +2997,17 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if not _CLASS_INHERITANCE_HEADER.search(text):
-            continue
         masked_lines = _mask_noncode(text.splitlines(), ".swift")
-        bundle_parents.setdefault(bundle, {}).update(
-            _explicit_type_parents(masked_lines)
+        member_types = _explicit_member_types(masked_lines)
+        file_member_types[rel_posix] = member_types
+        _merge_member_type_index(
+            bundle_member_types.setdefault(bundle, {}),
+            member_types,
         )
+        if _CLASS_INHERITANCE_HEADER.search(text):
+            bundle_parents.setdefault(bundle, {}).update(
+                _explicit_type_parents(masked_lines)
+            )
 
     for bundle, parents in bundle_parents.items():
         _propagate_inherited_real_members(
@@ -2760,14 +3018,24 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
     for path, rel_posix in source_paths:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
         external_real_members = None
+        external_member_types = None
         if suffix == ".swift":
             bundle = _swift_test_bundle_key(rel_posix)
             external_real_members = bundle_members.get(bundle)
+            external_member_types = bundle_member_types.get(bundle)
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        findings.extend(scan_text(rel_posix, text, external_real_members))
+        findings.extend(
+            scan_text(
+                rel_posix,
+                text,
+                external_real_members,
+                external_member_types,
+                file_member_types.get(rel_posix),
+            )
+        )
     findings.sort(key=lambda f: (f.path, f.line, f.rule))
     return findings
 
@@ -3458,6 +3726,20 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/DeepRealClockMemberChainTests.swift",
+            "struct Timing {\n"
+            "    let clock: ContinuousClock\n"
+            "}\n"
+            "struct Environment {\n"
+            "    let timing: Timing\n"
+            "}\n"
+            "func verify(environment: Environment) async {\n"
+            "    try await environment.timing.clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/SecondRealClockBindingTests.swift",
             "let fakeClock = TestRelayClock(), clock = ContinuousClock()\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
@@ -4105,6 +4387,19 @@ def _self_test() -> int:
             "#expect(await fixture.events.next() == expected)\n",
         ),
         (
+            "Packages/CmuxClock/Tests/LongMemberClockTests.swift",
+            "struct VirtualFixture {\n"
+            "    let clock: TestRelayClock\n"
+            "}\n"
+            "struct Harness {\n"
+            "    let fixture: VirtualFixture\n"
+            "    func verify() async {\n"
+            "        try await self.fixture.clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
             "Packages/CmuxClock/Tests/WrappedMemberClockTests.swift",
             "let clock = ContinuousClock()\n"
             "let fixture = VirtualClockFixture()\n"
@@ -4252,6 +4547,13 @@ def _self_test() -> int:
             "    assert widget.is_rendered\n",
         ),
         (
+            "tests/VirtualDefaultSleepModuleAliasTests.py",
+            "import time as wall_clock\n"
+            "def verify(clock=TestClock()):\n"
+            "    clock.sleep(0.3)\n"
+            "    assert widget.is_rendered\n",
+        ),
+        (
             "tests/ClassScopedSleepModuleAliasTests.py",
             "import time\n"
             "class Fixture:\n"
@@ -4359,6 +4661,38 @@ def _self_test() -> int:
             "POSITIVE cross-file chained real clock member: missing "
             f"{RULE_SLEEP_THEN_ASSERT!r} "
             f"(got {sorted(cross_file_chain_rules)})"
+        )
+
+    cross_file_deep_chain_sources = [
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/Timing.swift",
+            "struct Timing {\n"
+            "    let clock: ContinuousClock\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/Environment.swift",
+            "struct Environment {\n"
+            "    let timing: Timing\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/DeepClockTests.swift",
+            "func verify(environment: Environment) async {\n"
+            "    try await environment.timing.clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+        ),
+    ]
+    cross_file_deep_chain_rules = {
+        finding.rule
+        for finding in scan_sources(cross_file_deep_chain_sources)
+    }
+    if RULE_SLEEP_THEN_ASSERT not in cross_file_deep_chain_rules:
+        failures.append(
+            "POSITIVE cross-file deep real clock member chain: missing "
+            f"{RULE_SLEEP_THEN_ASSERT!r} "
+            f"(got {sorted(cross_file_deep_chain_rules)})"
         )
 
     cross_target_sources = [
