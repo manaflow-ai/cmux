@@ -300,6 +300,22 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             ("workspace.close", ["workspace_id": "other-workspace"], "forbidden"),
             ("mobile.surface.focus", ["workspace_id": "workspace", "surface_id": "surface"], nil),
             ("mobile.surface.focus", ["workspace_id": "other-workspace", "surface_id": "surface"], "forbidden"),
+            ("mobile.todo.add", ["workspace_id": "workspace", "text": "item"], nil),
+            ("mobile.todo.add", ["workspace_id": "other-workspace", "text": "item"], "forbidden"),
+            ("mobile.todo.set_state", ["workspace_id": "workspace", "id": "item", "state": "completed"], nil),
+            ("mobile.todo.set_state", ["workspace_id": "other-workspace", "id": "item", "state": "completed"], "forbidden"),
+            ("mobile.todo.edit", ["workspace_id": "workspace", "id": "item", "text": "edited"], nil),
+            ("mobile.todo.edit", ["workspace_id": "other-workspace", "id": "item", "text": "edited"], "forbidden"),
+            ("mobile.todo.move", ["workspace_id": "workspace", "id": "item", "to_index": "0"], nil),
+            ("mobile.todo.move", ["workspace_id": "other-workspace", "id": "item", "to_index": "0"], "forbidden"),
+            ("mobile.todo.remove", ["workspace_id": "workspace", "id": "item"], nil),
+            ("mobile.todo.remove", ["workspace_id": "other-workspace", "id": "item"], "forbidden"),
+            ("mobile.todo.open", ["workspace_id": "workspace"], nil),
+            ("mobile.todo.open", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.status.set", ["workspace_id": "workspace", "status": "done"], nil),
+            ("mobile.status.set", ["workspace_id": "other-workspace", "status": "done"], "forbidden"),
+            ("mobile.status.cycle", ["workspace_id": "workspace"], nil),
+            ("mobile.status.cycle", ["workspace_id": "other-workspace"], "forbidden"),
         ]
 
         for testCase in cases {

@@ -29,13 +29,24 @@ extension WorkspaceDetailView {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if case let .macSurface(macSurface) = surface {
-                SurfaceFallbackCardView(
-                    surface: macSurface,
-                    canOpenOnMac: store.supportsSurfaceFocus(in: workspace.id),
-                    openOnMac: { [store, workspaceID = workspace.id, surfaceID = macSurface.id] in
-                        await store.focusSurfaceOnMac(workspaceID: workspaceID, surfaceID: surfaceID)
+                Group {
+                    if macSurface.kind == .todo,
+                       let todo = macSurface.todo,
+                       store.supportsTodo(in: workspace.id) {
+                        TodoSurfaceView(surface: macSurface, todo: todo) { mutation in
+                            try await store.performTodoMutation(mutation, workspaceID: workspace.id)
+                        }
+                        .id(macSurface.id.rawValue)
+                    } else {
+                        SurfaceFallbackCardView(
+                            surface: macSurface,
+                            canOpenOnMac: store.supportsSurfaceFocus(in: workspace.id),
+                            openOnMac: { [store, workspaceID = workspace.id, surfaceID = macSurface.id] in
+                                await store.focusSurfaceOnMac(workspaceID: workspaceID, surfaceID: surfaceID)
+                            }
+                        )
                     }
-                )
+                }
                 .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
         }

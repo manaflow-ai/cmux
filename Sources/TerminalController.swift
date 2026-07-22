@@ -13927,11 +13927,10 @@ class TerminalController {
         // `MobileHostRPCResult` and dispatches directly to the app-side
         // `v2Mobile*` bodies. It deliberately does NOT route through the v2
         // control-socket `ControlCommandCoordinator` (whose native result type is
-        // `ControlCallResult`): doing so would force a
-        // `MobileHostRPCRequest → ControlRequest → ControlCallResult →
-        // MobileHostRPCResult` type round-trip with no behavior change. The v2
-        // control socket shares the same bodies through `handleMobileHost`, so the
-        // wire bytes stay identical across both entrypoints without a bridge here.
+        // `ControlCallResult`). Todo is the deliberate exception: those verbs
+        // originated in the control coordinator, so the thin mobile namespace
+        // adapter routes through that existing mutation path instead of cloning it.
+        // Every other mobile domain still dispatches directly to its app-side body.
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
@@ -13978,6 +13977,10 @@ class TerminalController {
             result = v2MobileWorkspaceAction(params: request.params)
         case "mobile.surface.focus":
             result = v2MobileSurfaceFocus(params: request.params)
+        case "mobile.todo.add", "mobile.todo.set_state", "mobile.todo.edit",
+             "mobile.todo.move", "mobile.todo.remove", "mobile.todo.open",
+             "mobile.status.set", "mobile.status.cycle":
+            result = v2MobileTodoDispatch(method: request.method, params: request.params)
         case "workspace.move":
             result = v2MobileWorkspaceMove(params: request.params)
         case "workspace.group.action", "workspace.group.create":

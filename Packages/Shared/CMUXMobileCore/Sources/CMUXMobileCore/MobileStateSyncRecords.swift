@@ -45,13 +45,22 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         public let title: String
         /// Backing file path for file-based surfaces, when reported.
         public let filePath: String?
+        /// Bounded checklist/status payload for todo surfaces.
+        public let todo: MobileTodoSnapshot?
 
         /// Creates a surface row from its wire fields.
-        public init(surfaceID: String, kind: String, title: String, filePath: String?) {
+        public init(
+            surfaceID: String,
+            kind: String,
+            title: String,
+            filePath: String?,
+            todo: MobileTodoSnapshot? = nil
+        ) {
             self.surfaceID = surfaceID
             self.kind = kind
             self.title = title
             self.filePath = filePath
+            self.todo = todo
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -59,6 +68,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             case kind
             case title
             case filePath = "file_path"
+            case todo
         }
     }
 

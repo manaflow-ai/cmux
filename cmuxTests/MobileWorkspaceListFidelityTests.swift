@@ -28,6 +28,13 @@ struct MobileWorkspaceListFidelityTests {
             filePath: "/tmp/iosrf-fidelity.txt",
             focus: false
         ))
+        _ = try #require(WorkspaceTodoActions.openTodoPane(for: workspace, focus: false))
+        let todoItem = try workspace.addChecklistItem(
+            text: "Review mobile transport",
+            state: .inProgress,
+            origin: .agent
+        ).get()
+        workspace.setTaskStatusOverride(.review)
         let legacy = controller.mobileWorkspacePayload(
             workspace: workspace,
             windowID: UUID(),
@@ -49,6 +56,113 @@ struct MobileWorkspaceListFidelityTests {
         #expect(legacySurfaces.map { $0["title"] as? String } == sync.surfaces?.map(\.title))
         #expect(legacySurfaces.map { $0["file_path"] as? String } == sync.surfaces?.map(\.filePath))
         #expect(sync.surfaces?.contains { $0.kind == "filePreview" && $0.filePath == "/tmp/iosrf-fidelity.txt" } == true)
+
+        let legacyTodoSurface = try #require(legacySurfaces.first { $0["kind"] as? String == "todo" })
+        let legacyTodo = try #require(legacyTodoSurface["todo"] as? [String: Any])
+        let syncTodo = try #require(sync.surfaces?.first { $0.kind == "todo" }?.todo)
+        #expect(legacyTodo["status"] as? String == syncTodo.status.rawValue)
+        #expect(legacyTodo["status_hidden"] as? Bool == syncTodo.statusHidden)
+        let legacyItems = try #require(legacyTodo["items"] as? [[String: Any]])
+        #expect(legacyItems.count == syncTodo.items.count)
+        #expect(legacyItems.first?["id"] as? String == todoItem.id.uuidString)
+        #expect(legacyItems.first?["id"] as? String == syncTodo.items.first?.id)
+        #expect(legacyItems.first?["text"] as? String == syncTodo.items.first?.text)
+        #expect(legacyItems.first?["state"] as? String == syncTodo.items.first?.state.rawValue)
+        #expect(legacyItems.first?["origin"] as? String == syncTodo.items.first?.origin.rawValue)
+        #expect(Set(legacyItems[0].keys) == ["id", "text", "state", "origin"])
+    }
+
+    @Test func mobileTodoVerbsReuseTheWorkspaceMutationPath() throws {
+        let controller = TerminalController.shared
+        let previousManager = controller.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        controller.setActiveTabManager(manager)
+        defer { controller.setActiveTabManager(previousManager) }
+        let workspace = try #require(manager.selectedWorkspace)
+
+        #expect(todoCallSucceeded("mobile.todo.add", params: [
+            "workspace_id": workspace.id.uuidString,
+            "text": "First",
+        ]))
+        #expect(todoCallSucceeded("mobile.todo.add", params: [
+            "workspace_id": workspace.id.uuidString,
+            "text": "Second",
+        ]))
+        let firstID = try #require(workspace.todoState.checklist.first?.id)
+        let secondID = try #require(workspace.todoState.checklist.last?.id)
+
+        #expect(todoCallSucceeded("mobile.todo.edit", params: [
+            "workspace_id": workspace.id.uuidString,
+            "id": firstID.uuidString,
+            "text": "Edited",
+        ]))
+        #expect(workspace.todoState.checklist.first?.text == "Edited")
+
+        #expect(todoCallSucceeded("mobile.todo.set_state", params: [
+            "workspace_id": workspace.id.uuidString,
+            "id": firstID.uuidString,
+            "state": "in_progress",
+        ]))
+        #expect(workspace.todoState.checklist.first?.state == .inProgress)
+
+        #expect(todoCallSucceeded("mobile.todo.move", params: [
+            "workspace_id": workspace.id.uuidString,
+            "id": secondID.uuidString,
+            "to_index": 0,
+        ]))
+        #expect(workspace.todoState.checklist.first?.id == secondID)
+
+        #expect(todoCallSucceeded("mobile.todo.remove", params: [
+            "workspace_id": workspace.id.uuidString,
+            "id": firstID.uuidString,
+        ]))
+        #expect(workspace.todoState.checklist.map(\.id) == [secondID])
+
+        #expect(todoCallSucceeded("mobile.status.set", params: [
+            "workspace_id": workspace.id.uuidString,
+            "status": "done",
+        ]))
+        #expect(workspace.effectiveTaskStatus == .done)
+        #expect(todoCallSucceeded("mobile.status.cycle", params: [
+            "workspace_id": workspace.id.uuidString,
+        ]))
+        #expect(workspace.effectiveTaskStatus == .todo)
+
+        #expect(todoCallSucceeded("mobile.todo.open", params: [
+            "workspace_id": workspace.id.uuidString,
+            "focus": true,
+        ]))
+        #expect(workspace.panels.values.contains { $0.panelType == .workspaceTodo })
+    }
+
+    @Test func todoSnapshotChangesWakeTheWorkspaceObserver() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let initial = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+
+        workspace.clearTaskStatusOverride()
+        let visibleStatus = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(initial != visibleStatus)
+
+        _ = try workspace.addChecklistItem(text: "Wake mobile").get()
+        let checklistChanged = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(visibleStatus != checklistChanged)
+    }
+
+    private func todoCallSucceeded(_ method: String, params: [String: Any]) -> Bool {
+        if case .ok = TerminalController.shared.v2MobileTodoDispatch(method: method, params: params) {
+            return true
+        }
+        return false
     }
 
     /// Builds a workspace with `count` terminals as tabs in a single pane so that

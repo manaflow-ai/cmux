@@ -33,6 +33,24 @@ struct MobileStateSyncFrameCodingTests {
                     kind: "simulator",
                     title: "iPhone 17 Pro",
                     filePath: nil
+                ),
+                WorkspaceSyncRecord.Surface(
+                    surfaceID: "surface-todo",
+                    kind: MobileSurfaceKind.todo.rawValue,
+                    title: "Todo",
+                    filePath: nil,
+                    todo: MobileTodoSnapshot(
+                        status: .needsAttention,
+                        statusHidden: false,
+                        items: [
+                            MobileTodoItem(
+                                id: "item-1",
+                                text: "Review the renderer",
+                                state: .inProgress,
+                                origin: .agent
+                            ),
+                        ]
+                    )
                 )
             ]
         )
@@ -57,6 +75,13 @@ struct MobileStateSyncFrameCodingTests {
         #expect(surfaces?.first?["surface_id"] as? String == "surface-future")
         #expect(surfaces?.first?["kind"] as? String == "simulator")
         #expect(surfaces?.first?["file_path"] == nil)
+        let todo = surfaces?[1]["todo"] as? [String: Any]
+        #expect(todo?["status"] as? String == "needs-attention")
+        #expect(todo?["status_hidden"] as? Bool == false)
+        let items = todo?["items"] as? [[String: Any]]
+        #expect(items?.first?["id"] as? String == "item-1")
+        #expect(items?.first?["state"] as? String == "in_progress")
+        #expect(items?.first?["origin"] as? String == "agent")
     }
 
     @Test func mobileSurfaceKindPreservesUnknownRawValues() throws {
@@ -84,6 +109,8 @@ struct MobileStateSyncFrameCodingTests {
         )
         #expect(decoded == workspace)
         #expect(decoded.surfaces?.first?.kind == "simulator")
+        #expect(decoded.surfaces?[1].todo?.status == .needsAttention)
+        #expect(decoded.surfaces?[1].todo?.items.first?.state == .inProgress)
     }
 
     @Test func deltaEventRoundTripsThroughJSONObject() throws {

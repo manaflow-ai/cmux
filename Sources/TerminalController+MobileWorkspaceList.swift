@@ -209,12 +209,16 @@ extension TerminalController {
             ]
         }
         let surfaces = mobileSurfaceDescriptors(in: workspace).map { surface -> [String: Any] in
-            [
+            var payload: [String: Any] = [
                 "surface_id": surface.surfaceID,
                 "kind": surface.kind,
                 "title": surface.title,
                 "file_path": v2OrNull(surface.filePath),
             ]
+            if let todo = surface.todo {
+                payload["todo"] = mobileTodoPayload(todo)
+            }
+            return payload
         }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
