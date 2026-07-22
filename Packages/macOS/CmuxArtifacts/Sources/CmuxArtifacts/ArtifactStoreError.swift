@@ -16,4 +16,6 @@ public enum ArtifactStoreError: Error, Equatable, Sendable {
     case pathOutsideStore(String)
     /// Existing content-addressed provenance could not be decoded safely.
     case corruptProvenance(String)
+    /// Git does not prove the local artifact store is ignored and untracked.
+    case gitPrivacyUnavailable(String)
 }

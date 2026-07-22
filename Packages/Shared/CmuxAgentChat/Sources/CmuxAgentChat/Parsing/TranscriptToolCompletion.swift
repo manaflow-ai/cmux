@@ -15,6 +15,11 @@ struct TranscriptToolCompletion: Sendable {
     /// Wall-clock duration in seconds, when one was parseable.
     let durationSeconds: Double?
 
+    /// Whether the result proves the pending invocation completed successfully.
+    var succeeded: Bool {
+        !isError && (exitCode ?? 0) == 0
+    }
+
     /// Creates a completion.
     ///
     /// - Parameters:

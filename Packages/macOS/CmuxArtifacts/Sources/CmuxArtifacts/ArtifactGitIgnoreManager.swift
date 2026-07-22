@@ -31,6 +31,37 @@ struct ArtifactGitIgnoreManager {
         try updated.write(to: excludeURL, atomically: true, encoding: .utf8)
     }
 
+    /// Verifies the effective Git view before automatic capture writes any file.
+    func permitsAutomaticCapture(
+        projectRoot: URL,
+        commandRunner: any ArtifactGitCommandRunning
+    ) -> Bool {
+        guard let repository = locateGitRepository(startingAt: projectRoot) else {
+            return !containsGitMarker(startingAt: projectRoot)
+        }
+        let artifactsRoot = ArtifactStorePaths(projectRoot: projectRoot).artifactsRoot
+        guard let relativeArtifactsPath = ArtifactPathResolver().relativePath(
+            artifactsRoot,
+            root: repository.worktreeRoot
+        ) else {
+            return false
+        }
+        let probePath = relativeArtifactsPath + "/.__cmux_probe__"
+        guard let ignoreStatus = try? commandRunner.terminationStatus(arguments: [
+            "-C", repository.worktreeRoot.path,
+            "check-ignore", "--quiet", "--", probePath,
+        ]), ignoreStatus == 0 else {
+            return false
+        }
+        guard let trackedStatus = try? commandRunner.terminationStatus(arguments: [
+            "-C", repository.worktreeRoot.path,
+            "ls-files", "--error-unmatch", "--", relativeArtifactsPath,
+        ]) else {
+            return false
+        }
+        return trackedStatus == 1
+    }
+
     private func locateGitRepository(startingAt projectRoot: URL) -> (worktreeRoot: URL, gitDirectory: URL)? {
         for current in ArtifactAncestorDirectories(startingAt: projectRoot) {
             let dotGit = current.appendingPathComponent(".git", isDirectory: false)
@@ -39,6 +70,12 @@ struct ArtifactGitIgnoreManager {
             return (current, gitDirectory)
         }
         return nil
+    }
+
+    private func containsGitMarker(startingAt projectRoot: URL) -> Bool {
+        ArtifactAncestorDirectories(startingAt: projectRoot).contains { current in
+            fileManager.fileExists(atPath: current.appendingPathComponent(".git").path)
+        }
     }
 
     private func resolveGitDirectory(worktreeRoot: URL) -> URL? {

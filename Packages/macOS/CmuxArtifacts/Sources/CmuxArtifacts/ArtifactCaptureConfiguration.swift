@@ -6,7 +6,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     public var automaticCaptureEnabled: Bool
     /// Whether structured created and attached paths are copied from outside the store.
     public var captureCreatedAndAttached: Bool
-    /// Whether unstructured references are copied when their source path is ephemeral.
+    /// Whether unstructured project-local references are copied automatically.
+    /// External references always require an explicit manual add.
     public var captureReferencedEphemeral: Bool
     /// Maximum bytes for image, video, markdown, HTML, and patch imports.
     public var maximumFileBytes: Int64
@@ -28,7 +29,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     public var maximumSearchResults: Int
     /// Filename extensions eligible for automatic and manual import.
     public var allowedExtensions: Set<String>
-    /// Absolute path prefixes treated as ephemeral for unstructured references.
+    /// Trusted ephemeral prefixes retained for compatible path classification.
+    /// Project configuration may narrow these roots but cannot expand them.
     public var ephemeralPathPrefixes: [String]
 
     /// Default conservative capture policy.
@@ -59,7 +61,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     /// - Parameters:
     ///   - automaticCaptureEnabled: Whether automatic transcript capture is enabled.
     ///   - captureCreatedAndAttached: Whether structured created and attached paths are eligible.
-    ///   - captureReferencedEphemeral: Whether ephemeral unstructured references are eligible.
+    ///   - captureReferencedEphemeral: Whether project-local unstructured references are eligible.
     ///   - maximumFileBytes: Maximum bytes for rich-media and document imports.
     ///   - maximumTextFileBytes: Maximum bytes for plain and structured text imports.
     ///   - maximumTranscriptScanBytes: Maximum transcript bytes parsed per automatic scan.
@@ -70,7 +72,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     ///   - contentSearchTotalMaximumBytes: Maximum aggregate bytes decoded by one search.
     ///   - maximumSearchResults: Maximum matches returned by one search.
     ///   - allowedExtensions: Filename extensions eligible for import.
-    ///   - ephemeralPathPrefixes: Absolute path prefixes treated as ephemeral.
+    ///   - ephemeralPathPrefixes: Trusted ephemeral roots, which normalization may only narrow.
     public init(
         automaticCaptureEnabled: Bool,
         captureCreatedAndAttached: Bool,
@@ -125,7 +127,19 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         )
         value.maximumSearchResults = min(max(1, maximumSearchResults), 5_000)
         value.allowedExtensions = Set(allowedExtensions.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) }.filter { !$0.isEmpty })
-        value.ephemeralPathPrefixes = ephemeralPathPrefixes.filter { $0.hasPrefix("/") }
+        let trustedRoots = Self.defaultValue.ephemeralPathPrefixes.map {
+            URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL.path
+        }
+        value.ephemeralPathPrefixes = ephemeralPathPrefixes.compactMap { rawPrefix in
+            guard rawPrefix.hasPrefix("/") else { return nil }
+            let prefix = URL(fileURLWithPath: rawPrefix, isDirectory: true).standardizedFileURL.path
+            guard trustedRoots.contains(where: { trustedRoot in
+                prefix == trustedRoot || prefix.hasPrefix(trustedRoot + "/")
+            }) else {
+                return nil
+            }
+            return prefix
+        }
         return value
     }
 }

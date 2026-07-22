@@ -272,7 +272,7 @@ struct CodexTranscriptParserTests {
         #expect(tool.status == .succeeded)
     }
 
-    @Test("function_call apply_patch extracts path arguments for Created provenance")
+    @Test("function_call apply_patch remains referenced until its result")
     func applyPatchFunctionCall() throws {
         let call = functionCallLine(
             name: "apply_patch",
@@ -289,7 +289,7 @@ struct CodexTranscriptParserTests {
             workingDirectory: "/repo"
         ).first)
         #expect(artifact.path == "/repo/Sources/App.swift")
-        #expect(artifact.provenance == .created)
+        #expect(artifact.provenance == .referenced)
     }
 
     @Test("patch_apply_end emits a succeeded apply_patch tool use with Created paths")

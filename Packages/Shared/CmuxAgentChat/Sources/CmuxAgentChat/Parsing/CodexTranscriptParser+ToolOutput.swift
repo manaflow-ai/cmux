@@ -58,7 +58,7 @@ extension CodexTranscriptParser {
         if let output = completion.output {
             assembler.appendArtifactReferences(paths: artifactText.paths(in: output), seq: seq)
         }
-        assembler.resolve(key: callID, completion: completion)
+        assembler.resolve(key: callID, completion: completion, resultSeq: seq)
     }
 
     /// Builds a completion from an output payload, which is a plain string,

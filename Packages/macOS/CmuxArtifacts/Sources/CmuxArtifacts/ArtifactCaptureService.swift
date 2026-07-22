@@ -3,19 +3,12 @@ public import Foundation
 /// Applies project capture policy before importing detected agent artifacts.
 public actor ArtifactCaptureService: ArtifactCapturing {
     private let store: any ArtifactStoring
-    private let temporaryDirectory: URL
 
     /// Creates a capture service backed by a shared artifact store.
     ///
-    /// - Parameters:
-    ///   - store: Filesystem store used by automatic and manual capture.
-    ///   - temporaryDirectory: Process temporary root used for ephemeral-path detection.
-    public init(
-        store: any ArtifactStoring,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) {
+    /// - Parameter store: Filesystem store used by automatic and manual capture.
+    public init(store: any ArtifactStoring) {
         self.store = store
-        self.temporaryDirectory = temporaryDirectory.standardizedFileURL
     }
 
     /// Returns the transcript budget when automatic capture is enabled.
@@ -57,7 +50,7 @@ public actor ArtifactCaptureService: ArtifactCapturing {
                 outcomes[index] = .skipped(.candidateLimitReached)
                 continue
             }
-            guard isEligible(candidate, configuration: configuration) else {
+            guard isEligible(candidate, context: context, configuration: configuration) else {
                 outcomes[index] = .skipped(.provenanceNotEligible)
                 continue
             }
@@ -105,6 +98,7 @@ public actor ArtifactCaptureService: ArtifactCapturing {
 
     private func isEligible(
         _ candidate: ArtifactCandidate,
+        context: ArtifactCaptureContext,
         configuration: ArtifactCaptureConfiguration
     ) -> Bool {
         switch candidate.provenance {
@@ -112,11 +106,10 @@ public actor ArtifactCaptureService: ArtifactCapturing {
             return configuration.captureCreatedAndAttached
         case .referenced:
             return configuration.captureReferencedEphemeral
-                && ArtifactPathResolver().isEphemeral(
+                && ArtifactPathResolver().relativePath(
                     candidate.sourceURL,
-                    prefixes: configuration.ephemeralPathPrefixes,
-                    temporaryDirectory: temporaryDirectory
-                )
+                    root: context.projectRoot
+                ) != nil
         case .manual:
             return true
         }
@@ -145,6 +138,8 @@ private extension ArtifactStoreError {
             return .pathOutsideStore
         case .corruptProvenance:
             return .corruptProvenance
+        case .gitPrivacyUnavailable:
+            return .gitPrivacyUnavailable
         }
     }
 }

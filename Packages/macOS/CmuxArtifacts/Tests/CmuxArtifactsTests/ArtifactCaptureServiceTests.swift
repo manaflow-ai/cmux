@@ -15,7 +15,7 @@ struct ArtifactCaptureServiceTests {
         var configuration = ArtifactCaptureConfiguration.defaultValue
         configuration.ephemeralPathPrefixes = [temporary.path]
         let store = ConfiguredArtifactStore(configuration: configuration)
-        let service = ArtifactCaptureService(store: store, temporaryDirectory: temporary)
+        let service = ArtifactCaptureService(store: store)
         let context = ArtifactCaptureContext(projectRoot: root)
 
         let outcomes = await service.capture(
@@ -42,11 +42,11 @@ struct ArtifactCaptureServiceTests {
             "/Users/shared",
         ]
 
-        #expect(configuration.normalized.ephemeralPathPrefixes == [
-            "/tmp/cmux-session",
-            "/private/tmp/cmux-session",
-            "/var/folders/zz",
-        ])
+        let prefixes = configuration.normalized.ephemeralPathPrefixes
+        #expect(!prefixes.contains("/"))
+        #expect(!prefixes.contains("/Users/shared"))
+        #expect(prefixes.contains { $0.hasSuffix("/tmp/cmux-session") })
+        #expect(prefixes.contains("/var/folders/zz"))
     }
 
     @Test("Candidate limits are enforced before imports")

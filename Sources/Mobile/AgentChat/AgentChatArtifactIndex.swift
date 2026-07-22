@@ -8,6 +8,24 @@ actor AgentChatArtifactIndex {
         let artifacts: [ChatArtifactIndexedReference]
         let generation: String
         let revision: UInt64
+        let transcriptLineage: String
+        let lineCount: Int
+
+        init(
+            referencedPaths: Set<String>,
+            artifacts: [ChatArtifactIndexedReference],
+            generation: String,
+            revision: UInt64,
+            transcriptLineage: String = "",
+            lineCount: Int? = nil
+        ) {
+            self.referencedPaths = referencedPaths
+            self.artifacts = artifacts
+            self.generation = generation
+            self.revision = revision
+            self.transcriptLineage = transcriptLineage
+            self.lineCount = lineCount ?? (artifacts.map(\.lastReferencedSeq).max().map { $0 + 1 } ?? 0)
+        }
     }
 
     enum Operation: Sendable {
@@ -26,6 +44,7 @@ actor AgentChatArtifactIndex {
         let workingDirectory: String?
         let fileSize: UInt64
         let modifiedAt: Date
+        let transcriptLineage: String
 
         var generation: String {
             "\(fileSize)-\(Int64(modifiedAt.timeIntervalSince1970 * 1_000_000))"
@@ -65,7 +84,8 @@ actor AgentChatArtifactIndex {
             transcriptPath: transcriptPath,
             workingDirectory: workingDirectory,
             generation: key.generation,
-            revision: nextSnapshotRevision
+            revision: nextSnapshotRevision,
+            transcriptLineage: key.transcriptLineage
         )
         cacheBySessionID.insert(CacheEntry(key: key, snapshot: snapshot), forKey: sessionID)
         return snapshot
@@ -109,11 +129,14 @@ actor AgentChatArtifactIndex {
         let attributes = try FileManager.default.attributesOfItem(atPath: transcriptPath)
         let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
         let modifiedAt = attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
+        let systemNumber = (attributes[.systemNumber] as? NSNumber)?.uint64Value ?? 0
+        let fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         return CacheKey(
             transcriptPath: transcriptPath,
             workingDirectory: workingDirectory,
             fileSize: size,
-            modifiedAt: modifiedAt
+            modifiedAt: modifiedAt,
+            transcriptLineage: "\(transcriptPath):\(systemNumber):\(fileNumber)"
         )
     }
 
@@ -122,7 +145,8 @@ actor AgentChatArtifactIndex {
         transcriptPath: String,
         workingDirectory: String?,
         generation: String,
-        revision: UInt64
+        revision: UInt64,
+        transcriptLineage: String
     ) throws -> Snapshot {
         let data = try Data(contentsOf: URL(fileURLWithPath: transcriptPath), options: .mappedIfSafe)
         let text = String(decoding: data, as: UTF8.self)
@@ -144,7 +168,9 @@ actor AgentChatArtifactIndex {
             referencedPaths: referencedPaths,
             artifacts: artifacts,
             generation: generation,
-            revision: revision
+            revision: revision,
+            transcriptLineage: transcriptLineage,
+            lineCount: lines.count
         )
     }
 }

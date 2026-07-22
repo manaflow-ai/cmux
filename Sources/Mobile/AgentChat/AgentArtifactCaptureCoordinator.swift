@@ -8,7 +8,7 @@ actor AgentArtifactCaptureCoordinator {
     private let fileManager: FileManager
     private var completedRevisionBySession: [String: UInt64] = [:]
     private var inFlightRevisionBySession: [String: UInt64] = [:]
-    private var completedReferenceCursorBySession: [String: AgentArtifactReferenceCursor] = [:]
+    private var completedCheckpointBySession: [String: AgentArtifactCaptureCheckpoint] = [:]
 
     init(
         captureService: ArtifactCaptureService,
@@ -40,7 +40,12 @@ actor AgentArtifactCaptureCoordinator {
             }
         }
 
-        let completedCursor = completedReferenceCursorBySession[record.sessionID]
+        let checkpoint = completedCheckpointBySession[record.sessionID]
+        let transcriptReset = checkpoint.map {
+            $0.transcriptLineage != snapshot.transcriptLineage
+                || snapshot.lineCount < $0.lineCount
+        } ?? false
+        let completedCursor = transcriptReset ? nil : checkpoint?.referenceCursor
         var seenPaths: Set<String> = []
         let pending = snapshot.artifacts
             .filter { artifact in
@@ -62,6 +67,11 @@ actor AgentArtifactCaptureCoordinator {
             agentName: record.agentKind.sourceName
         )
         guard !pending.isEmpty else {
+            completedCheckpointBySession[record.sessionID] = AgentArtifactCaptureCheckpoint(
+                transcriptLineage: snapshot.transcriptLineage,
+                lineCount: snapshot.lineCount,
+                referenceCursor: completedCursor
+            )
             completedRevisionBySession[record.sessionID] = snapshot.revision
             return
         }
@@ -78,14 +88,16 @@ actor AgentArtifactCaptureCoordinator {
               inFlightRevisionBySession[record.sessionID] == snapshot.revision else {
             return
         }
-        let processedCount = outcomes.prefix {
-            $0 != .skipped(.candidateLimitReached)
-        }.count
+        let processedCount = outcomes.prefix { !isRetryableBlocker($0) }.count
         if processedCount > 0 {
             let last = pending[processedCount - 1]
-            completedReferenceCursorBySession[record.sessionID] = AgentArtifactReferenceCursor(
-                sequence: last.lastReferencedSeq,
-                path: last.path
+            completedCheckpointBySession[record.sessionID] = AgentArtifactCaptureCheckpoint(
+                transcriptLineage: snapshot.transcriptLineage,
+                lineCount: snapshot.lineCount,
+                referenceCursor: AgentArtifactReferenceCursor(
+                    sequence: last.lastReferencedSeq,
+                    path: last.path
+                )
             )
         }
         if processedCount == pending.count {
@@ -139,6 +151,15 @@ actor AgentArtifactCaptureCoordinator {
         case .created: return .created
         case .attached: return .attached
         case .referenced: return .referenced
+        }
+    }
+
+    private func isRetryableBlocker(_ outcome: ArtifactImportOutcome) -> Bool {
+        switch outcome {
+        case .skipped(.candidateLimitReached), .skipped(.gitPrivacyUnavailable):
+            return true
+        case .copied, .deduplicated, .alreadyStored, .skipped:
+            return false
         }
     }
 }

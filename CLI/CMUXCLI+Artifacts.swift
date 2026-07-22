@@ -274,6 +274,11 @@ extension CMUXCLI {
                 localized: "cli.artifact.error.rejectedCorruptProvenance",
                 defaultValue: "The artifact store's provenance metadata is corrupt."
             )
+        case .gitPrivacyUnavailable:
+            return String(
+                localized: "cli.artifact.error.gitPrivacyUnavailable",
+                defaultValue: "Automatic capture paused because Git does not prove the artifact store is ignored and untracked."
+            )
         case .unsupportedExtension:
             return String(
                 localized: "cli.artifact.error.rejectedExtension",
@@ -325,6 +330,8 @@ extension CMUXCLI {
             return String(format: String(localized: "cli.artifact.error.outsideStore", defaultValue: "Artifact path escaped the store: %@"), path)
         case .corruptProvenance(let path):
             return String(format: String(localized: "cli.artifact.error.corruptProvenance", defaultValue: "Artifact provenance metadata is corrupt: %@"), path)
+        case .gitPrivacyUnavailable(let path):
+            return String(format: String(localized: "cli.artifact.error.gitPrivacyPath", defaultValue: "Git privacy could not be verified for artifact store: %@"), path)
         }
     }
 }
