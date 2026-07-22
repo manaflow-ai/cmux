@@ -13,11 +13,12 @@ import Testing
 @MainActor
 private final class ReorderCanvasViewportSpy: CanvasViewportControlling {
     var modelDidChangeCount = 0
+    var isOverviewEnabled = false
     var currentMagnification: CGFloat = 1
     var currentCenterInCanvas: CGPoint = .zero
 
     func revealPane(_ panelId: UUID, animated: Bool) {}
-    func toggleOverview() {}
+    func toggleOverview() { isOverviewEnabled.toggle() }
     func zoom(by factor: CGFloat) {}
     func resetZoom() {}
     func setViewport(center: CGPoint, magnification: CGFloat?) {}

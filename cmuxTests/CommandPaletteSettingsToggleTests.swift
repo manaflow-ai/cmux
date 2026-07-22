@@ -1,4 +1,5 @@
 import XCTest
+import CmuxCommandPalette
 import CmuxSettings
 
 #if canImport(cmux_DEV)
@@ -302,6 +303,159 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         let contributionIds = Set(ContentView.commandPaletteSettingsToggleCommandContributions().map(\.commandId))
 
         XCTAssertEqual(contributionIds, descriptorIds)
+    }
+
+    func testEverySettingsToggleContributionDeclaresOptionalBooleanEnabledArgument() {
+        let expectedArgument = CmuxActionArgumentDefinition(
+            name: "enabled",
+            valueType: .boolean,
+            required: false
+        )
+
+        for contribution in ContentView.commandPaletteSettingsToggleCommandContributions() {
+            XCTAssertEqual(contribution.arguments, [expectedArgument], contribution.commandId)
+        }
+    }
+
+    func testInteractiveInvocationWithoutEnabledArgumentPreservesToggleBehavior() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.iMessageMode"
+                )
+            )
+            XCTAssertFalse(descriptor.isOn(defaults))
+
+            let result = CommandPaletteSettingsToggleCommands.execute(
+                descriptor,
+                invocation: CmuxActionInvocation(source: .commandPalette),
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
+
+            XCTAssertEqual(result, .completed)
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
+    func testAutomationEnabledArgumentSetsStateDeterministically() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.iMessageMode"
+                )
+            )
+            let enable = CmuxActionInvocation(
+                source: .automation,
+                arguments: ["enabled": "true"]
+            )
+            let disable = CmuxActionInvocation(
+                source: .automation,
+                arguments: ["enabled": "false"]
+            )
+
+            XCTAssertEqual(
+                CommandPaletteSettingsToggleCommands.execute(
+                    descriptor,
+                    invocation: enable,
+                    defaults: defaults,
+                    notificationCenter: NotificationCenter()
+                ),
+                .completed
+            )
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertEqual(
+                CommandPaletteSettingsToggleCommands.execute(
+                    descriptor,
+                    invocation: enable,
+                    defaults: defaults,
+                    notificationCenter: NotificationCenter()
+                ),
+                .completed
+            )
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertEqual(
+                CommandPaletteSettingsToggleCommands.execute(
+                    descriptor,
+                    invocation: disable,
+                    defaults: defaults,
+                    notificationCenter: NotificationCenter()
+                ),
+                .completed
+            )
+            XCTAssertFalse(descriptor.isOn(defaults))
+        }
+    }
+
+    func testUnavailableSettingsToggleReturnsTypedFailureWithoutMutation() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.showInMenuBar"
+                )
+            )
+            defaults.set(false, forKey: MenuBarExtraSettings.showInMenuBarKey)
+            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+
+            let result = CommandPaletteSettingsToggleCommands.execute(
+                descriptor,
+                invocation: CmuxActionInvocation(
+                    source: .automation,
+                    arguments: ["enabled": "true"]
+                ),
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
+
+            XCTAssertEqual(
+                result,
+                .failed(
+                    code: "action_unavailable",
+                    message: String(
+                        localized: "action.error.notApplicable",
+                        defaultValue: "The action does not apply to the target's current state."
+                    )
+                )
+            )
+            XCTAssertFalse(descriptor.isOn(defaults))
+        }
+    }
+
+    func testSettingsToggleReportsFailureWhenMutationCannotBeConfirmed() throws {
+        try withTemporaryDefaults { defaults in
+            let key = "test.setting"
+            let descriptor = CommandPaletteSettingToggleDescriptor(
+                commandId: "palette.toggleSetting.test",
+                settingsKey: key,
+                title: { "Test" },
+                sectionTitle: { "Test" },
+                keywords: [],
+                isOn: { $0.bool(forKey: key) },
+                setOn: { _, _, _ in }
+            )
+
+            let result = CommandPaletteSettingsToggleCommands.execute(
+                descriptor,
+                invocation: CmuxActionInvocation(
+                    source: .automation,
+                    arguments: ["enabled": "true"]
+                ),
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
+
+            XCTAssertEqual(
+                result,
+                .failed(
+                    code: "action_failed",
+                    message: String(
+                        localized: "action.error.configuredActionFailed",
+                        defaultValue: "The configured action could not be started."
+                    )
+                )
+            )
+            XCTAssertFalse(descriptor.isOn(defaults))
+        }
     }
 
     func testSettingsToggleCommandIdsAreUnique() {

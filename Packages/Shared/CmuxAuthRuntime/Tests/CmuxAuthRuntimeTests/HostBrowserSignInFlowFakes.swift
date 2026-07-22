@@ -146,8 +146,23 @@ final class FakeBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
         callbackScheme: String,
         completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
     ) -> any HostBrowserAuthSession {
+        makeSession(
+            signInURL: signInURL,
+            callbackScheme: callbackScheme,
+            presentationAnchor: nil,
+            completion: completion
+        )
+    }
+
+    func makeSession(
+        signInURL: URL,
+        callbackScheme: String,
+        presentationAnchor: ASPresentationAnchor?,
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
+    ) -> any HostBrowserAuthSession {
         let session = FakeBrowserAuthSession(
             signInURL: signInURL,
+            presentationAnchor: presentationAnchor,
             startResult: nextStartResult,
             completion: completion
         )
@@ -161,6 +176,7 @@ final class FakeBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
 @MainActor
 final class FakeBrowserAuthSession: HostBrowserAuthSession {
     let signInURL: URL
+    let presentationAnchor: ASPresentationAnchor?
     var deliverCancelCompletion = true
     private let startResult: Bool
     private let completion: @MainActor (HostBrowserAuthSessionResult) -> Void
@@ -169,10 +185,12 @@ final class FakeBrowserAuthSession: HostBrowserAuthSession {
 
     init(
         signInURL: URL,
+        presentationAnchor: ASPresentationAnchor?,
         startResult: Bool,
         completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
     ) {
         self.signInURL = signInURL
+        self.presentationAnchor = presentationAnchor
         self.startResult = startResult
         self.completion = completion
     }

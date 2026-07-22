@@ -5,7 +5,9 @@ import Foundation
 final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
     var paletteStrings = ControlCommandPaletteStrings(
         windowNotFound: "palette window unavailable",
+        targetUnavailable: "palette target unavailable",
         missingCommandID: "missing palette command id",
+        invalidTarget: "invalid palette target",
         argumentsMustBeStringObject: "palette arguments must be strings",
         commandNotFound: "palette command unavailable",
         missingArgumentsFormat: "missing: %@",
@@ -23,6 +25,7 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
         arguments: [String: String],
         workingDirectory: String?
     )?
+    private(set) var runTarget: ControlCommandPaletteTarget?
     private(set) var inlineVSCodeCall: (routing: ControlRoutingSelectors, directoryPath: String)?
 
     func controlCommandPaletteStrings() -> ControlCommandPaletteStrings {
@@ -43,6 +46,16 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
         workingDirectory: String?
     ) -> ControlCommandPaletteRunResolution {
         runCall = (routing, commandID, arguments, workingDirectory)
+        return runResolution
+    }
+
+    func controlCommandPaletteRun(
+        target: ControlCommandPaletteTarget,
+        commandID: String,
+        arguments: [String: String],
+        workingDirectory: String?
+    ) -> ControlCommandPaletteRunResolution {
+        runTarget = target
         return runResolution
     }
 

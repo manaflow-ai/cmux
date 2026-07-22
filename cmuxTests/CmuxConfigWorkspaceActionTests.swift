@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -372,5 +373,310 @@ struct CmuxConfigWorkspaceActionTests {
 
         #expect(manager.tabs.map(\.id) == [existingWorkspace.id])
         #expect(manager.selectedWorkspace?.id == existingWorkspace.id)
+    }
+
+    @MainActor
+    @Test func configuredActionOutcomeDistinguishesAcceptedLifecycleStates() {
+        #expect(CmuxConfiguredActionExecutionOutcome.completed.isAccepted)
+        #expect(CmuxConfiguredActionExecutionOutcome.queued.isAccepted)
+        #expect(CmuxConfiguredActionExecutionOutcome.presented.isAccepted)
+        #expect(!CmuxConfiguredActionExecutionOutcome.failed.isAccepted)
+    }
+
+    @MainActor
+    @Test func globalAuthorizationCompletesSynchronously() {
+        let configPath = "/tmp/cmux-global-\(UUID().uuidString).json"
+        var authorizationCount = 0
+
+        let outcome = CmuxConfigExecutor.authorizeProjectAutomationOutcomeIfNeeded(
+            descriptor: trustDescriptor(configPath: configPath),
+            confirm: true,
+            configSourcePath: configPath,
+            globalConfigPath: configPath,
+            displayCommand: "echo ready",
+            fallbackPresentingWindowProvider: { nil },
+            alertFactory: { CmuxConfigConfirmationAlertSpy() }
+        ) {
+            authorizationCount += 1
+        }
+
+        #expect(outcome == .completed)
+        #expect(authorizationCount == 1)
+    }
+
+    @MainActor
+    @Test func projectAuthorizationWithWindowReportsPresentedBeforeApproval() {
+        let configPath = "/tmp/cmux-project-\(UUID().uuidString)/.cmux/cmux.json"
+        let alert = CmuxConfigConfirmationAlertSpy()
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { hostWindow.close() }
+        var authorizationCount = 0
+
+        let outcome = CmuxConfigExecutor.authorizeProjectAutomationOutcomeIfNeeded(
+            descriptor: trustDescriptor(configPath: configPath),
+            confirm: true,
+            configSourcePath: configPath,
+            globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
+            displayCommand: "echo ready",
+            presentingWindow: hostWindow,
+            fallbackPresentingWindowProvider: { nil },
+            alertFactory: { alert }
+        ) {
+            authorizationCount += 1
+        }
+
+        #expect(outcome == .presented)
+        #expect(alert.didBeginSheet)
+        #expect(authorizationCount == 0)
+
+        alert.sheetCompletion?(.alertFirstButtonReturn)
+        #expect(authorizationCount == 1)
+    }
+
+    @MainActor
+    @Test func rejectedModalAuthorizationReportsFailure() {
+        let configPath = "/tmp/cmux-project-\(UUID().uuidString)/.cmux/cmux.json"
+        let alert = CmuxConfigConfirmationAlertSpy(modalResponse: .alertThirdButtonReturn)
+        var authorizationCount = 0
+        var denialCount = 0
+
+        let outcome = CmuxConfigExecutor.authorizeProjectAutomationOutcomeIfNeeded(
+            descriptor: trustDescriptor(configPath: configPath),
+            confirm: true,
+            configSourcePath: configPath,
+            globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
+            displayCommand: "echo ready",
+            fallbackPresentingWindowProvider: { nil },
+            alertFactory: { alert },
+            onAuthorized: {
+                authorizationCount += 1
+            },
+            onDenied: {
+                denialCount += 1
+            }
+        )
+
+        #expect(outcome == .failed)
+        #expect(alert.didRunModal)
+        #expect(authorizationCount == 0)
+        #expect(denialCount == 1)
+    }
+
+    @MainActor
+    @Test func explicitModelTargetDoesNotFollowLaterWorkspaceSelection() throws {
+        let manager = TabManager()
+        let targetWorkspace = try #require(manager.selectedWorkspace)
+        let targetPanelID = try #require(targetWorkspace.focusedPanelId)
+        let otherWorkspace = manager.addWorkspace()
+        let targetPanelCount = targetWorkspace.panels.count
+        let otherPanelCount = otherWorkspace.panels.count
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "targeted-command",
+            definition: CmuxConfigActionDefinition(
+                action: .command("printf targeted"),
+                terminalCommandTarget: .newTabInCurrentPane
+            ),
+            sourcePath: nil
+        ))
+
+        let outcome = CmuxConfigExecutor.executeOutcome(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
+            modelTarget: CmuxActionModelTarget(
+                workspaceID: targetWorkspace.id,
+                panelID: targetPanelID
+            )
+        )
+
+        #expect(outcome == .completed)
+        #expect(targetWorkspace.panels.count == targetPanelCount + 1)
+        #expect(otherWorkspace.panels.count == otherPanelCount)
+        #expect(manager.selectedWorkspace?.id == otherWorkspace.id)
+    }
+
+    @MainActor
+    @Test func staleExplicitModelTargetFailsClosed() throws {
+        let manager = TabManager()
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "stale-target-command",
+            definition: CmuxConfigActionDefinition(
+                action: .command("printf stale"),
+                terminalCommandTarget: .currentTerminal
+            ),
+            sourcePath: nil
+        ))
+
+        let outcome = CmuxConfigExecutor.executeOutcome(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
+            modelTarget: CmuxActionModelTarget(workspaceID: UUID(), panelID: UUID())
+        )
+
+        #expect(outcome == .failed)
+    }
+
+    @MainActor
+    @Test func confirmedWorkspaceActionFailsClosedWhenExplicitTargetDisappears() throws {
+        let manager = TabManager()
+        let targetWorkspace = try #require(manager.selectedWorkspace)
+        let targetPanelID = try #require(targetWorkspace.focusedPanelId)
+        let survivingWorkspace = manager.addWorkspace()
+        let configPath = "/tmp/cmux-project-\(UUID().uuidString)/.cmux/cmux.json"
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "confirmed-targeted-workspace",
+            definition: CmuxConfigActionDefinition(
+                action: .workspace(CmuxWorkspaceDefinition(name: "Must Not Open"), restart: nil),
+                confirm: true
+            ),
+            sourcePath: configPath
+        ))
+        let alert = CmuxConfigConfirmationAlertSpy()
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { hostWindow.close() }
+        var executionCount = 0
+
+        let outcome = CmuxConfigExecutor.executeOutcome(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
+            presentingWindow: hostWindow,
+            modelTarget: CmuxActionModelTarget(
+                workspaceID: targetWorkspace.id,
+                panelID: targetPanelID
+            ),
+            alertFactory: { alert },
+            onExecuted: {
+                executionCount += 1
+            }
+        )
+
+        #expect(outcome == .presented)
+        #expect(alert.didBeginSheet)
+
+        manager.closeWorkspace(targetWorkspace)
+        #expect(manager.tabs.map(\.id) == [survivingWorkspace.id])
+
+        alert.sheetCompletion?(.alertFirstButtonReturn)
+
+        #expect(manager.tabs.map(\.id) == [survivingWorkspace.id])
+        #expect(manager.tabs.allSatisfy { $0.customTitle != "Must Not Open" })
+        #expect(executionCount == 0)
+    }
+
+    @MainActor
+    @Test func confirmedWorkspaceActionFailsClosedWhenExplicitPanelDisappears() throws {
+        let manager = TabManager()
+        let targetWorkspace = try #require(manager.selectedWorkspace)
+        let targetPanelID = try #require(targetWorkspace.focusedPanelId)
+        let survivingPanel = try #require(
+            targetWorkspace.newTerminalSurfaceInFocusedPane(focus: false)
+        )
+        let configPath = "/tmp/cmux-project-\(UUID().uuidString)/.cmux/cmux.json"
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "confirmed-targeted-panel",
+            definition: CmuxConfigActionDefinition(
+                action: .workspace(CmuxWorkspaceDefinition(name: "Must Not Open"), restart: nil),
+                confirm: true
+            ),
+            sourcePath: configPath
+        ))
+        let alert = CmuxConfigConfirmationAlertSpy()
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { hostWindow.close() }
+        var executionCount = 0
+
+        let outcome = CmuxConfigExecutor.executeOutcome(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
+            presentingWindow: hostWindow,
+            modelTarget: CmuxActionModelTarget(
+                workspaceID: targetWorkspace.id,
+                panelID: targetPanelID
+            ),
+            alertFactory: { alert },
+            onExecuted: {
+                executionCount += 1
+            }
+        )
+
+        #expect(outcome == .presented)
+        #expect(alert.didBeginSheet)
+        #expect(targetWorkspace.closePanel(targetPanelID, force: true))
+        #expect(targetWorkspace.panels[survivingPanel.id] != nil)
+
+        alert.sheetCompletion?(.alertFirstButtonReturn)
+
+        #expect(manager.tabs.map(\.id) == [targetWorkspace.id])
+        #expect(targetWorkspace.customTitle != "Must Not Open")
+        #expect(executionCount == 0)
+    }
+
+    private func trustDescriptor(configPath: String) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: "test.\(UUID().uuidString)",
+            kind: "terminalCommand",
+            command: "echo ready",
+            target: CmuxConfigTerminalCommandTarget.currentTerminal.rawValue,
+            workspaceCommand: nil,
+            configPath: configPath,
+            projectRoot: (configPath as NSString).deletingLastPathComponent,
+            iconFingerprint: nil
+        )
+    }
+}
+
+@MainActor
+private final class CmuxConfigConfirmationAlertSpy: NSAlert {
+    private let modalResponse: NSApplication.ModalResponse
+    private(set) var didBeginSheet = false
+    private(set) var didRunModal = false
+    private(set) var sheetCompletion: ((NSApplication.ModalResponse) -> Void)?
+
+    init(modalResponse: NSApplication.ModalResponse = .alertFirstButtonReturn) {
+        self.modalResponse = modalResponse
+        super.init()
+    }
+
+    override func beginSheetModal(
+        for sheetWindow: NSWindow,
+        completionHandler handler: ((NSApplication.ModalResponse) -> Void)?
+    ) {
+        didBeginSheet = true
+        sheetCompletion = handler
+    }
+
+    override func runModal() -> NSApplication.ModalResponse {
+        didRunModal = true
+        return modalResponse
     }
 }

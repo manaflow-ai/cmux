@@ -11,6 +11,38 @@ import Testing
 @Suite("Workspace remote directory provenance")
 struct WorkspaceRemoteDirectoryProvenanceTests {
     @MainActor
+    @Test("browser config lookup inherits the local workspace directory")
+    func browserConfigLookupInheritsLocalWorkspaceDirectory() throws {
+        let localDirectory = "/Users/alice/development"
+        let workspace = Workspace(workingDirectory: localDirectory)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let browser = try #require(workspace.newBrowserSurface(
+            inPane: paneID,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        workspace.panelDirectories.removeValue(forKey: browser.id)
+
+        #expect(workspace.configurationTrackingDirectory(panelID: browser.id) == localDirectory)
+        #expect(workspace.configurationTrackingDirectory(panelID: UUID()) == nil)
+    }
+
+    @MainActor
+    @Test("remote config lookup never treats a remote cwd as a local path")
+    func remoteConfigLookupSuppressesRemoteDirectory() throws {
+        let workspace = Workspace(workingDirectory: "/Users/alice/development")
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.isRemoteTmuxMirror = true
+        workspace.updateRemotePanelDirectory(
+            panelId: panelID,
+            directory: "/home/alice/project"
+        )
+
+        #expect(workspace.configurationTrackingDirectory(panelID: panelID) == nil)
+        #expect(workspace.configurationTrackingDirectory(panelID: nil) == nil)
+    }
+
+    @MainActor
     @Test("local terminal in remote workspace presents requested cwd before live report")
     func localTerminalInRemoteWorkspacePresentsRequestedDirectoryBeforeLiveReport() throws {
         let localDirectory = "/Users/alice/development"

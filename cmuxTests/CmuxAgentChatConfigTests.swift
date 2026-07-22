@@ -494,4 +494,89 @@ struct CmuxAgentChatConfigTests {
             }
         }
     }
+
+    @MainActor
+    @Test func queuedAgentChatDoesNotCreateWorkspaceAfterOwningWindowCloses() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let flags = CmuxFeatureFlags.shared
+            let definition = try #require(
+                CmuxFeatureFlags.allFlags.first { $0.key == "agent-chat-ui-enabled-release" }
+            )
+            let previousFlagOverride = flags.overrideValue(for: definition)
+            flags.setOverride(true, for: definition)
+
+            let defaults = UserDefaults.standard
+            let hadBrowserDisabledValue = defaults.object(
+                forKey: BrowserAvailabilitySettings.disabledKey
+            ) != nil
+            let previousBrowserDisabled = defaults.bool(
+                forKey: BrowserAvailabilitySettings.disabledKey
+            )
+            BrowserAvailabilitySettings.setDisabled(false)
+
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let tabManager = TabManager(autoWelcomeIfNeeded: false)
+            let windowID = UUID()
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            appDelegate.registerMainWindow(
+                window,
+                windowId: windowID,
+                tabManager: tabManager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState()
+            )
+            defer {
+                AgentChatActionInFlightGate.end()
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                window.close()
+                AppDelegate.shared = previousAppDelegate
+                flags.setOverride(previousFlagOverride, for: definition)
+                if hadBrowserDisabledValue {
+                    BrowserAvailabilitySettings.setDisabled(previousBrowserDisabled)
+                } else {
+                    defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                    NotificationCenter.default.post(
+                        name: BrowserAvailabilitySettings.didChangeNotification,
+                        object: nil
+                    )
+                }
+            }
+
+            let initialWorkspaceCount = tabManager.tabs.count
+            let configuration = CmuxAgentChatConfiguration(
+                url: try #require(URL(string: "http://127.0.0.1:1")),
+                startCommand: nil,
+                source: .defaults,
+                hasExplicitURL: true
+            )
+            #expect(appDelegate.performNewAgentChatAction(
+                tabManager: tabManager,
+                agentChat: configuration,
+                globalConfigPath: nil,
+                preferredWindow: window
+            ))
+
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            window.close()
+
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(3))
+            while !AgentChatActionInFlightGate.begin(), clock.now < deadline {
+                try await clock.sleep(for: .milliseconds(10))
+            }
+            guard clock.now < deadline else {
+                Issue.record("Timed out waiting for the Agent Chat action to finish")
+                return
+            }
+            AgentChatActionInFlightGate.end()
+
+            #expect(tabManager.tabs.count == initialWorkspaceCount)
+        }
+    }
 }

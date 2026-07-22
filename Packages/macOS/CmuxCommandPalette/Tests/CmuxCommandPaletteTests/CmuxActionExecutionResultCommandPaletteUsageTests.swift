@@ -7,7 +7,6 @@ struct CmuxActionExecutionResultCommandPaletteUsageTests {
         let acceptedResults: [CmuxActionExecutionResult] = [
             .completed,
             .queued,
-            .dispatched,
             .presented,
         ]
 
@@ -33,7 +32,6 @@ struct CmuxActionExecutionResultCommandPaletteUsageTests {
         let allResults: [CmuxActionExecutionResult] = [
             .completed,
             .queued,
-            .dispatched,
             .presented,
             .requiresArguments([]),
             .invalidArguments(["unknown"]),

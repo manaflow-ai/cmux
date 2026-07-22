@@ -16,7 +16,12 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
-            let context = CommandPaletteContextSnapshot()
+            let unavailableContext = CommandPaletteContextSnapshot()
+            var panelWithoutPaneContext = CommandPaletteContextSnapshot()
+            panelWithoutPaneContext.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
+            var availableContext = CommandPaletteContextSnapshot()
+            availableContext.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
+            availableContext.setBool(CommandPaletteContextKeys.panelHasPane, true)
 
             for mode in RightSidebarMode.availableModes() {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
@@ -25,22 +30,63 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                     "Expected command palette contribution for \(mode.rawValue)"
                 )
 
-                XCTAssertEqual(contribution.title(context), mode.shortcutAction?.label ?? mode.label)
+                XCTAssertEqual(contribution.title(availableContext), mode.shortcutAction?.label ?? mode.label)
                 XCTAssertEqual(
-                    contribution.subtitle(context),
+                    contribution.subtitle(availableContext),
                     String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
                 )
                 XCTAssertTrue(contribution.keywords.contains("right"))
                 XCTAssertTrue(contribution.keywords.contains("sidebar"))
                 XCTAssertTrue(contribution.keywords.contains(mode.rawValue))
-                XCTAssertTrue(contribution.when(context))
-                XCTAssertTrue(contribution.enablement(context))
+                XCTAssertFalse(contribution.when(unavailableContext))
+                XCTAssertFalse(contribution.when(panelWithoutPaneContext))
+                XCTAssertTrue(contribution.when(availableContext))
+                XCTAssertTrue(contribution.enablement(availableContext))
             }
 
             XCTAssertEqual(contributions.count, 3)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
         }
+    }
+
+    func testRightSidebarToolPaneActionsRequireCapturedPanel() {
+        let contributions = ContentView.commandPaletteRightSidebarToolPaneCommandContributions()
+        let unavailableContext = CommandPaletteContextSnapshot()
+        var panelWithoutPaneContext = CommandPaletteContextSnapshot()
+        panelWithoutPaneContext.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
+        var availableContext = CommandPaletteContextSnapshot()
+        availableContext.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
+        availableContext.setBool(CommandPaletteContextKeys.panelHasPane, true)
+
+        XCTAssertFalse(contributions.isEmpty)
+        for contribution in contributions {
+            XCTAssertFalse(contribution.when(unavailableContext))
+            XCTAssertFalse(contribution.when(panelWithoutPaneContext))
+            XCTAssertTrue(contribution.when(availableContext))
+        }
+    }
+
+    @MainActor
+    func testRightSidebarRejectionsBeepOnlyForCommandPaletteInvocations() {
+        var beeps = 0
+        let automationResult = ContentView.commandPaletteRightSidebarRejected(
+            .targetUnavailable,
+            invocation: CmuxActionInvocation(source: .automation),
+            beep: { beeps += 1 }
+        )
+
+        XCTAssertEqual(automationResult, .targetUnavailable)
+        XCTAssertEqual(beeps, 0)
+
+        let paletteResult = ContentView.commandPaletteRightSidebarRejected(
+            .targetUnavailable,
+            invocation: CmuxActionInvocation(source: .commandPalette),
+            beep: { beeps += 1 }
+        )
+
+        XCTAssertEqual(paletteResult, .targetUnavailable)
+        XCTAssertEqual(beeps, 1)
     }
 
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {

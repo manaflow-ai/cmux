@@ -20,7 +20,7 @@ struct AppDelegatePresentPreferencesWindowTests {
         var activateApplicationCallCount = 0
         var receivedNavigationTargets: [SettingsNavigationTarget?] = []
 
-        AppDelegate.presentPreferencesWindow(
+        let result = AppDelegate.presentPreferencesWindow(
             presentSettingsWindow: { navigationTarget in
                 receivedNavigationTargets.append(navigationTarget)
                 presentSettingsWindowCallCount += 1
@@ -34,6 +34,7 @@ struct AppDelegatePresentPreferencesWindowTests {
         #expect(presentSettingsWindowCallCount == 1)
         #expect(activateApplicationCallCount == 1)
         #expect(receivedNavigationTargets == [nil])
+        #expect(result == .presented)
     }
 
     @Test func supportsRepeatedCalls() {
@@ -109,7 +110,7 @@ struct AppDelegatePresentPreferencesWindowTests {
     @Test func doesNotActivateWhenPresentationFails() {
         var activateApplicationCallCount = 0
 
-        AppDelegate.presentPreferencesWindow(
+        let result = AppDelegate.presentPreferencesWindow(
             presentSettingsWindow: { _ in
                 .failed(reason: "test-injected presentation failure")
             },
@@ -121,5 +122,6 @@ struct AppDelegatePresentPreferencesWindowTests {
         // A failed presentation must not silently activate the app as if it
         // succeeded.
         #expect(activateApplicationCallCount == 0)
+        #expect(result == .failed(reason: "test-injected presentation failure"))
     }
 }

@@ -9,6 +9,12 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let workspaceID = UUID()
+        let panelID = UUID()
+        let target = ControlCommandPaletteTarget(
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: panelID
+        )
         let command = ControlCommandPaletteItem(
             id: "palette.demo",
             title: "Demo",
@@ -23,7 +29,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
                 allowsEmpty: false
             )]
         )
-        context.listResolution = .listed(windowID: windowID, commands: [command])
+        context.listResolution = .listed(target: target, commands: [command])
         let coordinator = ControlCommandCoordinator(context: context)
 
         let result = try #require(coordinator.handle(request(
@@ -38,6 +44,16 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             return
         }
         #expect(payload["window_id"] == .string(windowID.uuidString))
+        #expect(payload["window_ref"] == .string("window:1"))
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(payload["workspace_ref"] == .string("workspace:1"))
+        #expect(payload["surface_id"] == .string(panelID.uuidString))
+        #expect(payload["surface_ref"] == .string("surface:1"))
+        #expect(payload["target"] == .object([
+            "window_id": .string(windowID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "panel_id": .string(panelID.uuidString),
+        ]))
         #expect(payload["count"] == .int(1))
         #expect(payload["commands"] == .array([.object([
             "id": .string("palette.demo"),
@@ -57,7 +73,14 @@ struct ControlCommandCoordinatorCommandPaletteTests {
 
     @Test func listPreservesUnresolvedSelectorPresenceForAppRouting() throws {
         let context = FakeCommandPaletteControlCommandContext()
-        context.listResolution = .listed(windowID: UUID(), commands: [])
+        context.listResolution = .listed(
+            target: ControlCommandPaletteTarget(
+                windowID: UUID(),
+                workspaceID: nil,
+                panelID: nil
+            ),
+            commands: []
+        )
         let coordinator = ControlCommandCoordinator(context: context)
 
         _ = try #require(coordinator.handle(request(
@@ -144,6 +167,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             return
         }
         #expect(payload["window_id"] == .string(windowID.uuidString))
+        #expect(payload["window_ref"] == .string("window:1"))
         guard case .object(let encodedCommand)? = payload["command"] else {
             Issue.record("expected encoded command")
             return
@@ -153,14 +177,109 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(payload["status"] == .string("completed"))
     }
 
-    @Test func runDistinguishesQueuedDispatchedAndPresentedActions() throws {
+    @Test func runEchoesTheListedTargetInsteadOfUsingCurrentRoutingSelectors() throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let command = testCommand()
+        context.runResolution = .completed(windowID: windowID, command: command)
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = try #require(coordinator.handle(request(
+            method: "palette.run",
+            params: [
+                "command_id": .string(command.id),
+                // These legacy selectors deliberately point elsewhere. An
+                // echoed target is one immutable list-time identity and wins.
+                "window_id": .string(UUID().uuidString),
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string(UUID().uuidString),
+                "target": .object([
+                    "window_id": .string(windowID.uuidString),
+                    "workspace_id": .string(workspaceID.uuidString),
+                    "panel_id": .string(panelID.uuidString),
+                ]),
+            ]
+        )))
+
+        #expect(context.runTarget == ControlCommandPaletteTarget(
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: panelID
+        ))
+        #expect(context.runCall == nil)
+    }
+
+    @Test func runRejectsMalformedImmutableTargetWithoutFallingBack() throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = try #require(coordinator.handle(request(
+            method: "palette.run",
+            params: [
+                "command_id": .string("palette.demo"),
+                "window_id": .string(UUID().uuidString),
+                "target": .object([
+                    "window_id": .string(UUID().uuidString),
+                    "workspace_id": .null,
+                    // A panel without a workspace cannot be an exact target.
+                    "panel_id": .string(UUID().uuidString),
+                ]),
+            ]
+        )))
+
+        guard case .err(let code, let message, _) = result else {
+            Issue.record("expected invalid-target error")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(message == context.paletteStrings.invalidTarget)
+        #expect(context.runCall == nil)
+    }
+
+    @Test func runReportsAStaleImmutableTargetSeparatelyFromAMissingWindow() throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        context.runResolution = .targetUnavailable
+        let coordinator = ControlCommandCoordinator(context: context)
+        let target = ControlCommandPaletteTarget(
+            windowID: UUID(),
+            workspaceID: UUID(),
+            panelID: UUID()
+        )
+
+        let result = try #require(coordinator.handle(request(
+            method: "palette.run",
+            params: [
+                "command_id": .string("palette.demo"),
+                "target": .object([
+                    "window_id": .string(target.windowID.uuidString),
+                    "workspace_id": .string(target.workspaceID!.uuidString),
+                    "panel_id": .string(target.panelID!.uuidString),
+                ]),
+            ]
+        )))
+
+        guard case .err(let code, let message, let data) = result else {
+            Issue.record("expected stale-target error")
+            return
+        }
+        #expect(code == "target_unavailable")
+        #expect(message == context.paletteStrings.targetUnavailable)
+        #expect(data == .object([
+            "window_id": .string(target.windowID.uuidString),
+            "workspace_id": .string(target.workspaceID!.uuidString),
+            "panel_id": .string(target.panelID!.uuidString),
+        ]))
+    }
+
+    @Test func runDistinguishesQueuedAndPresentedActions() throws {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let command = testCommand()
         let coordinator = ControlCommandCoordinator(context: context)
         let cases: [(ControlCommandPaletteRunResolution, String)] = [
             (.queued(windowID: windowID, command: command), "queued"),
-            (.dispatched(windowID: windowID, command: command), "dispatched"),
             (.presented(windowID: windowID, command: command), "presented"),
         ]
 

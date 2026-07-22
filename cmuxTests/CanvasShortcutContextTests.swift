@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CmuxCanvasUI
+import CmuxCommandPalette
 import CmuxSettings
 import Testing
 
@@ -13,13 +14,18 @@ import Testing
 @MainActor
 private final class CanvasRoutingViewportSpy: CanvasViewportControlling {
     var revealedPanelIds: [UUID] = []
+    var overviewToggleCount = 0
+    var isOverviewEnabled = false
     var resetZoomCount = 0
     var currentMagnification: CGFloat = 1
     var currentCenterInCanvas: CGPoint = .zero
 
     func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
     func resetZoom() { resetZoomCount += 1 }
-    func toggleOverview() {}
+    func toggleOverview() {
+        overviewToggleCount += 1
+        isOverviewEnabled.toggle()
+    }
     func zoom(by factor: CGFloat) {}
     func setViewport(center: CGPoint, magnification: CGFloat?) {}
     func modelDidChangeExternally(animated: Bool) {}
@@ -27,6 +33,70 @@ private final class CanvasRoutingViewportSpy: CanvasViewportControlling {
 
 @Suite("Canvas shortcut context")
 struct CanvasShortcutContextTests {
+    @Test
+    @MainActor
+    func viewportActionsReportAnUnmountedCanvasTarget() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.tabs.first)
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.setLayoutMode(.canvas)
+        workspace.canvasModel.viewport = nil
+        let executor = CanvasActionExecutor(workspace: workspace)
+
+        for action in [
+            CanvasAction.revealFocusedPane,
+            .toggleOverview,
+            .zoomIn,
+            .zoomOut,
+            .zoomReset,
+        ] {
+            #expect(
+                executor.performWithOutcome(action, targetPanelID: panelID) == .targetUnavailable,
+                "\(action) must not report success without a mounted viewport"
+            )
+            #expect(!executor.perform(action, targetPanelID: panelID))
+        }
+    }
+
+    @Test
+    @MainActor
+    func paletteReportsEveryCanvasExecutorOutcomePrecisely() {
+        let result = ContentView.commandPaletteCanvasResult(.notApplicable)
+
+        guard case .failed(let code, _) = result else {
+            Issue.record("Expected a typed not-applicable failure")
+            return
+        }
+        #expect(code == "not_applicable")
+        #expect(
+            ContentView.commandPaletteCanvasResult(.completed) == .completed
+        )
+        #expect(
+            ContentView.commandPaletteCanvasResult(.targetUnavailable) == .targetUnavailable
+        )
+    }
+
+    @Test
+    func canvasTogglesDeclareAnOptionalBooleanState() throws {
+        let contributions = ContentView.commandPaletteCanvasCommandContributions()
+        let enabledArgument = CmuxActionArgumentDefinition(
+            name: "enabled",
+            valueType: .boolean,
+            required: false
+        )
+        let toggleIDs = ["palette.canvas.toggleLayout", "palette.canvas.overview"]
+
+        for commandID in toggleIDs {
+            let contribution = try #require(
+                contributions.first(where: { $0.commandId == commandID })
+            )
+            #expect(contribution.arguments == [enabledArgument])
+        }
+        for contribution in contributions where !toggleIDs.contains(contribution.commandId) {
+            #expect(contribution.arguments.isEmpty)
+        }
+    }
+
     @Test
     func canvasOnlyShortcutDefaultWhenClausesRequireCanvasLayout() {
         var splitContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
@@ -127,6 +197,197 @@ struct CanvasShortcutContextTests {
 @MainActor
 @Suite(.serialized)
 struct CanvasShortcutRoutingFeedbackTests {
+    @Test func paletteFailsPreciselyWhenItsExactBackgroundCanvasIsUnmounted() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let selectedWorkspace = try #require(manager.tabs.first)
+        let targetWorkspace = manager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        let targetPanelID = try #require(targetWorkspace.focusedPanelId)
+        targetWorkspace.setLayoutMode(.canvas)
+        targetWorkspace.canvasModel.viewport = nil
+
+        let windowID = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        AppDelegate.shared = appDelegate
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            window.close()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let context = CommandPaletteActionContext(
+            target: CommandPaletteActionTarget(
+                windowID: windowID,
+                workspaceID: targetWorkspace.id,
+                panelID: targetPanelID
+            ),
+            tabManager: manager,
+            owningWindowID: windowID
+        )
+        let contentView = ContentView(
+            updateViewModel: UpdateStateModel(),
+            windowId: windowID
+        )
+        var registry = CommandPaletteHandlerRegistry()
+        contentView.registerCanvasCommandHandlers(&registry, context: context)
+        let handler = try #require(registry.handler(for: "palette.canvas.zoomIn"))
+
+        for source in [CmuxActionInvocationSource.automation, .commandPalette] {
+            let result = handler(CmuxActionInvocation(source: source))
+            guard case .failed(let code, _) = result else {
+                Issue.record("Expected an unmounted exact canvas target to fail for \(source)")
+                continue
+            }
+            #expect(code == "target_unavailable")
+        }
+        #expect(manager.selectedWorkspace?.id == selectedWorkspace.id)
+    }
+
+    @Test func everyCanvasPaletteHandlerReportsAConcreteOutcome() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.tabs.first)
+        let panelID = try #require(workspace.focusedPanelId)
+        let viewport = CanvasRoutingViewportSpy()
+        workspace.canvasModel.viewport = viewport
+
+        let windowID = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        AppDelegate.shared = appDelegate
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            window.close()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let context = CommandPaletteActionContext(
+            target: CommandPaletteActionTarget(
+                windowID: windowID,
+                workspaceID: workspace.id,
+                panelID: panelID
+            ),
+            tabManager: manager,
+            owningWindowID: windowID
+        )
+        let contentView = ContentView(
+            updateViewModel: UpdateStateModel(),
+            windowId: windowID
+        )
+        var registry = CommandPaletteHandlerRegistry()
+        contentView.registerCanvasCommandHandlers(&registry, context: context)
+
+        for contribution in ContentView.commandPaletteCanvasCommandContributions() {
+            let handler = try #require(registry.handler(for: contribution.commandId))
+            for source in [CmuxActionInvocationSource.automation, .commandPalette] {
+                workspace.setLayoutMode(.canvas)
+                let result = handler(CmuxActionInvocation(source: source))
+                switch result {
+                case .completed, .failed:
+                    break
+                case .queued, .presented,
+                     .requiresArguments, .invalidArguments, .invalidArgumentValues:
+                    Issue.record(
+                        "\(contribution.commandId) returned non-final canvas outcome \(result) for \(source)"
+                    )
+                }
+            }
+        }
+
+        let layoutHandler = try #require(
+            registry.handler(for: "palette.canvas.toggleLayout")
+        )
+        workspace.setLayoutMode(.splits)
+        #expect(
+            layoutHandler(CmuxActionInvocation(
+                source: .automation,
+                arguments: ["enabled": "true"]
+            )) == .completed
+        )
+        #expect(workspace.layoutMode == .canvas)
+        #expect(
+            layoutHandler(CmuxActionInvocation(
+                source: .automation,
+                arguments: ["enabled": "true"]
+            )) == .completed
+        )
+        #expect(workspace.layoutMode == .canvas)
+        #expect(
+            layoutHandler(CmuxActionInvocation(
+                source: .automation,
+                arguments: ["enabled": "false"]
+            )) == .completed
+        )
+        #expect(workspace.layoutMode == .splits)
+        #expect(
+            layoutHandler(CmuxActionInvocation(source: .commandPalette)) == .completed
+        )
+        #expect(workspace.layoutMode == .canvas)
+
+        let overviewHandler = try #require(
+            registry.handler(for: "palette.canvas.overview")
+        )
+        viewport.isOverviewEnabled = false
+        viewport.overviewToggleCount = 0
+        #expect(
+            overviewHandler(CmuxActionInvocation(
+                source: .automation,
+                arguments: ["enabled": "true"]
+            )) == .completed
+        )
+        #expect(viewport.isOverviewEnabled)
+        #expect(viewport.overviewToggleCount == 1)
+        #expect(
+            overviewHandler(CmuxActionInvocation(
+                source: .automation,
+                arguments: ["enabled": "true"]
+            )) == .completed
+        )
+        #expect(viewport.isOverviewEnabled)
+        #expect(viewport.overviewToggleCount == 1)
+        #expect(
+            overviewHandler(CmuxActionInvocation(
+                source: .automation,
+                arguments: ["enabled": "false"]
+            )) == .completed
+        )
+        #expect(!viewport.isOverviewEnabled)
+        #expect(viewport.overviewToggleCount == 2)
+        #expect(
+            overviewHandler(CmuxActionInvocation(source: .commandPalette)) == .completed
+        )
+        #expect(viewport.isOverviewEnabled)
+        #expect(viewport.overviewToggleCount == 3)
+    }
+
     @Test func canvasSurfaceDigitsWinOverRightSidebarModeDigitsInCanvasMode() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)

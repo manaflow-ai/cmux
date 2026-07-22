@@ -90,7 +90,9 @@ struct ControlCommandCoordinatorInlineVSCodeTests {
         #expect(payload["accepted"] == .bool(true))
         #expect(payload["status"] == .string("queued"))
         #expect(payload["window_id"] == .string(windowID.uuidString))
+        #expect(payload["window_ref"] == .string("window:1"))
         #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(payload["workspace_ref"] == .string("workspace:1"))
         #expect(payload["path"] == .string(directoryURL.path))
     }
 
@@ -100,6 +102,7 @@ struct ControlCommandCoordinatorInlineVSCodeTests {
         let directoryURL = FileManager.default.temporaryDirectory
 
         let selectors = [
+            (key: "window_id", value: "window:999999"),
             (key: "group_id", value: "workspace_group:999999"),
             (key: "workspace_id", value: "workspace:999999"),
             (key: "surface_id", value: "surface:999999"),

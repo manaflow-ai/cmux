@@ -6,7 +6,9 @@ extension ControlCommandPaletteContext {
     func controlCommandPaletteStrings() -> ControlCommandPaletteStrings {
         ControlCommandPaletteStrings(
             windowNotFound: "Command palette window not found",
+            targetUnavailable: "Command palette target unavailable",
             missingCommandID: "Missing 'command_id' parameter",
+            invalidTarget: "Invalid command palette target",
             argumentsMustBeStringObject: "'arguments' must be an object of string values",
             commandNotFound: "Command palette action not found in the current context",
             missingArgumentsFormat: "Missing required action arguments: %@",
@@ -21,6 +23,13 @@ extension ControlCommandPaletteContext {
 
     func controlCommandPaletteRun(
         routing: ControlRoutingSelectors,
+        commandID: String,
+        arguments: [String: String],
+        workingDirectory: String?
+    ) -> ControlCommandPaletteRunResolution { .windowNotFound }
+
+    func controlCommandPaletteRun(
+        target: ControlCommandPaletteTarget,
         commandID: String,
         arguments: [String: String],
         workingDirectory: String?

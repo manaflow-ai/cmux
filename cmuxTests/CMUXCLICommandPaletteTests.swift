@@ -2,13 +2,29 @@ import Foundation
 import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func paletteHelpDocumentsImmutableTargetHandoff() throws {
+        let result = runProcess(
+            executablePath: try bundledCLIPath(),
+            arguments: ["palette", "--help"],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        #expect(result.stdout.contains("--target '<target-json>'"))
+        #expect(result.stdout.contains("window_id"))
+        #expect(result.stdout.contains("workspace_id"))
+        #expect(result.stdout.contains("panel_id"))
+    }
+
     @Test func paletteListTargetsAWindowWithoutPrefocusingIt() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-palette-\(UUID().uuidString.prefix(8)).sock"
         let windowID = UUID()
         let responder = try UnixSocketResponder(
             path: socketPath,
-            response: #"{"ok":true,"result":{"count":1,"commands":[{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":"⌘D","keywords":[],"dismiss_on_run":true,"arguments":[{"name":"path","type":"path","required":true,"allows_empty":false}]}]}}"#
+            response: #"{"ok":true,"result":{"count":1,"commands":[{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":"⌘D","keywords":[],"dismiss_on_run":true,"arguments":[{"name":"path","type":"path","required":true,"allows_empty":false},{"name":"focus","type":"boolean","required":false,"allows_empty":false}]}]}}"#
         )
         defer { responder.stop() }
         var environment = commandPaletteCLIEnvironment()
@@ -24,7 +40,10 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         #expect(!result.timedOut)
         #expect(result.status == 0)
-        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "palette.demo <path>\tDemo\t⌘D")
+        #expect(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "palette.demo --arg path=<path> [--arg focus=<boolean>]\tDemo\t⌘D"
+        )
         let requests = responder.receivedRequests
         #expect(requests.count == 1)
         let request = try commandPaletteCLIRequest(try #require(requests.first))
@@ -101,7 +120,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let surfaceID = UUID()
         let responder = try UnixSocketResponder(
             path: socketPath,
-            response: #"{"ok":true,"result":{"command":{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":null,"keywords":[],"dismiss_on_run":true}}}"#
+            response: #"{"ok":true,"result":{"status":"completed","command":{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":null,"keywords":[],"dismiss_on_run":true}}}"#
         )
         defer { responder.stop() }
         var environment = commandPaletteCLIEnvironment()
@@ -126,6 +145,78 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["surface_id"] as? String == surfaceID.uuidString)
         #expect(params["workspace_id"] == nil)
         #expect(params["window_id"] == nil)
+    }
+
+    @Test func paletteRunEchoesAnImmutableListTargetWithoutCallerRetargeting() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-paltarget-\(UUID().uuidString.prefix(8)).sock"
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let target: [String: Any] = [
+            "window_id": windowID.uuidString,
+            "workspace_id": workspaceID.uuidString,
+            "panel_id": panelID.uuidString,
+        ]
+        let targetData = try JSONSerialization.data(withJSONObject: target, options: [.sortedKeys])
+        let targetJSON = try #require(String(data: targetData, encoding: .utf8))
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"status":"completed","command":{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":null,"keywords":[],"dismiss_on_run":true}}}"#
+        )
+        defer { responder.stop() }
+        var environment = commandPaletteCLIEnvironment()
+        environment["CMUX_WORKSPACE_ID"] = UUID().uuidString
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["CMUX_WINDOW_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "palette", "run", "palette.demo",
+                "--target", targetJSON,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        let params = try #require(request["params"] as? [String: Any])
+        let forwardedTarget = try #require(params["target"] as? [String: Any])
+        #expect(forwardedTarget["window_id"] as? String == windowID.uuidString)
+        #expect(forwardedTarget["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(forwardedTarget["panel_id"] as? String == panelID.uuidString)
+        #expect(params["surface_id"] == nil)
+        #expect(params["workspace_id"] == nil)
+        #expect(params["window_id"] == nil)
+    }
+
+    @Test func paletteRunRejectsMalformedImmutableTargetsBeforeConnecting() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-palbadtarget-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{}}"#
+        )
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "palette", "run", "palette.demo",
+                "--target", #"{"window_id":"not-a-uuid","workspace_id":null,"panel_id":null}"#,
+            ],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status != 0)
+        #expect(responder.receivedRequests.isEmpty)
     }
 
     @Test func paletteShorthandRejectsAnEmptyActionID() throws {
@@ -327,6 +418,65 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["cwd"] as? String == directoryURL.standardizedFileURL.path)
     }
 
+    @Test func paletteRunDoubleDashAllowsAnOptionShapedActionID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-pal-dash-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"status":"completed","command":{"id":"--json","title":"Option-shaped action","subtitle":"Test","shortcut_hint":null,"keywords":[],"dismiss_on_run":true}}}"#
+        )
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "palette", "run", "--", "--json"],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["command_id"] as? String == "--json")
+    }
+
+    @Test func paletteAndVSCodeRejectBlankExplicitSelectors() throws {
+        let cliPath = try bundledCLIPath()
+        let paletteSocketPath = "/tmp/cmux-pal-blank-\(UUID().uuidString.prefix(8)).sock"
+        let paletteResponder = try UnixSocketResponder(
+            path: paletteSocketPath,
+            response: #"{"ok":true,"result":{"count":0,"commands":[]}}"#
+        )
+        defer { paletteResponder.stop() }
+
+        let palette = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", paletteSocketPath, "palette", "list", "--window="],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+        #expect(!palette.timedOut)
+        #expect(palette.status != 0)
+        #expect(paletteResponder.receivedRequests.isEmpty)
+
+        let vscodeSocketPath = "/tmp/cmux-vscode-blank-\(UUID().uuidString.prefix(8)).sock"
+        let vscodeResponder = try UnixSocketResponder(
+            path: vscodeSocketPath,
+            response: #"{"ok":true,"result":{"accepted":true,"status":"queued","path":"/tmp"}}"#
+        )
+        defer { vscodeResponder.stop() }
+        let vscode = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", vscodeSocketPath, "vscode", "--workspace="],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+        #expect(!vscode.timedOut)
+        #expect(vscode.status != 0)
+        #expect(vscodeResponder.receivedRequests.isEmpty)
+    }
+
     @Test func vscodeShorthandDefaultsToTheCurrentDirectory() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-vscode-\(UUID().uuidString.prefix(8)).sock"
@@ -334,7 +484,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             .appendingPathComponent("cmux-vscode-cli-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"path\":\"\(directoryURL.path)\"}}"
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"status\":\"queued\",\"path\":\"\(directoryURL.path)\"}}"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
 
@@ -364,7 +514,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let workspaceID = UUID()
         let surfaceID = UUID()
-        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"path\":\"\(directoryURL.path)\"}}"
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"status\":\"queued\",\"path\":\"\(directoryURL.path)\"}}"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
         var environment = commandPaletteCLIEnvironment()
@@ -392,11 +542,12 @@ extension CMUXCLIErrorOutputRegressionTests {
     @Test func vscodeDoubleDashAllowsPathThatLooksLikeWorkspaceOption() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-vscode-dash-\(UUID().uuidString.prefix(8)).sock"
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("--workspace", isDirectory: true)
+        let parentURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vscode-dash-\(UUID().uuidString)", isDirectory: true)
+        let directoryURL = parentURL.appendingPathComponent("--workspace", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"path\":\"\(directoryURL.path)\"}}"
+        defer { try? FileManager.default.removeItem(at: parentURL) }
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"status\":\"queued\",\"path\":\"\(directoryURL.path)\"}}"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
 
@@ -404,7 +555,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["--socket", socketPath, "vscode", "--", "--workspace"],
             environment: commandPaletteCLIEnvironment(),
-            currentDirectoryURL: FileManager.default.temporaryDirectory,
+            currentDirectoryURL: parentURL,
             timeout: 5
         )
 
@@ -412,6 +563,34 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.status == 0)
         let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
         #expect(request["method"] as? String == "vscode.open")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["path"] as? String == directoryURL.standardizedFileURL.path)
+        #expect(params["workspace_id"] == nil)
+    }
+
+    @Test func vscodeOpenDoubleDashAllowsPathThatLooksLikeWorkspaceOption() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-vscode-open-dash-\(UUID().uuidString.prefix(8)).sock"
+        let parentURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vscode-open-dash-\(UUID().uuidString)", isDirectory: true)
+        let directoryURL = parentURL.appendingPathComponent("--workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parentURL) }
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"status\":\"queued\",\"path\":\"\(directoryURL.path)\"}}"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "vscode", "open", "--", "--workspace"],
+            environment: commandPaletteCLIEnvironment(),
+            currentDirectoryURL: parentURL,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
         let params = try #require(request["params"] as? [String: Any])
         #expect(params["path"] as? String == directoryURL.standardizedFileURL.path)
         #expect(params["workspace_id"] == nil)
@@ -425,7 +604,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let directoryURL = parentURL.appendingPathComponent("open", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: parentURL) }
-        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"path\":\"\(directoryURL.path)\"}}"
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"status\":\"queued\",\"path\":\"\(directoryURL.path)\"}}"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
 
@@ -452,6 +631,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             "ok": true,
             "result": [
                 "accepted": true,
+                "status": "queued",
                 "path": path,
             ],
         ])
@@ -492,6 +672,41 @@ extension CMUXCLIErrorOutputRegressionTests {
         let jsonData = try #require(jsonResult.stdout.data(using: .utf8))
         let jsonObject = try #require(JSONSerialization.jsonObject(with: jsonData) as? [String: Any])
         #expect(jsonObject["path"] as? String == path)
+    }
+
+    @Test func paletteAndVSCodeRejectMalformedSuccessPayloads() throws {
+        let cliPath = try bundledCLIPath()
+        let cases: [(name: String, arguments: [String], response: String)] = [
+            (
+                "palette-list",
+                ["palette", "list"],
+                #"{"ok":true,"result":{"count":1}}"#
+            ),
+            (
+                "palette-run",
+                ["palette", "run", "palette.demo"],
+                #"{"ok":true,"result":{"command":{"id":"palette.demo"}}}"#
+            ),
+            (
+                "vscode",
+                ["vscode", "/tmp"],
+                #"{"ok":true,"result":{"accepted":true,"path":"/tmp"}}"#
+            ),
+        ]
+
+        for testCase in cases {
+            let socketPath = "/tmp/cmux-malformed-\(testCase.name)-\(UUID().uuidString.prefix(8)).sock"
+            let responder = try UnixSocketResponder(path: socketPath, response: testCase.response)
+            defer { responder.stop() }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["--socket", socketPath] + testCase.arguments,
+                environment: commandPaletteCLIEnvironment(),
+                timeout: 5
+            )
+            #expect(!result.timedOut)
+            #expect(result.status != 0)
+        }
     }
 
     private func commandPaletteCLIEnvironment() -> [String: String] {

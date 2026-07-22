@@ -29,6 +29,65 @@ func drainMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
+@MainActor
+final class CommandPaletteExplicitNavigationOutcomeTests: XCTestCase {
+    func testWorkspaceNavigationRequiresALivePeerAndStartsFromExplicitWorkspace() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+
+        XCTAssertFalse(manager.selectNextTab(from: first.id))
+        XCTAssertFalse(manager.selectPreviousTab(from: UUID()))
+
+        let second = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        XCTAssertEqual(manager.selectedTabId, first.id)
+
+        XCTAssertTrue(manager.selectNextTab(from: first.id))
+        XCTAssertEqual(manager.selectedTabId, second.id)
+        XCTAssertTrue(manager.selectPreviousTab(from: second.id))
+        XCTAssertEqual(manager.selectedTabId, first.id)
+    }
+
+    func testRelativeWorkspaceReorderReportsOnlyAuthoritativeOrderChanges() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+
+        XCTAssertFalse(manager.reorderWorkspace(tabId: first.id, by: -1))
+        XCTAssertTrue(manager.reorderWorkspace(tabId: first.id, by: 1))
+        XCTAssertEqual(manager.tabs.map(\.id), [second.id, first.id])
+
+        XCTAssertTrue(manager.moveWorkspaceToTop(tabId: first.id))
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id])
+        XCTAssertFalse(manager.moveWorkspaceToTop(tabId: first.id))
+    }
+
+    func testPaneNavigationReportsUnavailableWithoutAPeerTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstPanelID = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertFalse(workspace.canSelectAdjacentSurface(fromPanelId: firstPanelID))
+        XCTAssertFalse(
+            manager.selectNextSurface(
+                tabId: workspace.id,
+                fromPanelId: firstPanelID
+            )
+        )
+
+        let secondPanel = try XCTUnwrap(
+            workspace.newTerminalSurfaceInFocusedPane(focus: false)
+        )
+        XCTAssertTrue(workspace.canSelectAdjacentSurface(fromPanelId: firstPanelID))
+        XCTAssertTrue(
+            manager.selectNextSurface(
+                tabId: workspace.id,
+                fromPanelId: firstPanelID
+            )
+        )
+        XCTAssertEqual(workspace.focusedPanelId, secondPanel.id)
+    }
+}
+
 @discardableResult
 private func waitForCondition(
     timeout: TimeInterval = 3.0,

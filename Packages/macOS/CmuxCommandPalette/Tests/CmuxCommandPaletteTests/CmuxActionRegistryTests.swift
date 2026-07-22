@@ -131,61 +131,7 @@ struct CmuxActionRegistryTests {
             CmuxActionInvocation(source: .automation)
         )
         #expect(result == .completed)
-    }
-
-    @Test func legacyVoidHandlerReportsDispatchWithoutClaimingCompletion() {
-        var didRun = false
-        var registry = CommandPaletteHandlerRegistry()
-        registry.register(commandId: "palette.test") {
-            didRun = true
-        }
-
-        let result = registry.handler(for: "palette.test")?(
-            CmuxActionInvocation(source: .automation)
-        )
-
-        #expect(didRun)
-        #expect(result == .dispatched)
-    }
-
-    @Test func legacyCommandInitializerReportsDispatchWithoutClaimingCompletion() {
-        var didRun = false
-        let command = CommandPaletteCommand(
-            id: "palette.test",
-            rank: 0,
-            title: "Test",
-            subtitle: "Tests",
-            shortcutHint: nil,
-            kindLabel: nil,
-            keywords: [],
-            dismissOnRun: true,
-            action: { didRun = true }
-        )
-
-        let result = command.execute(CmuxActionInvocation(source: .automation))
-
-        #expect(didRun)
-        #expect(result == .dispatched)
-    }
-
-    @Test func legacyActionAccessorRetainsMainActorFunctionType() {
-        var didRun = false
-        let command = CommandPaletteCommand(
-            id: "palette.test",
-            rank: 0,
-            title: "Test",
-            subtitle: "Tests",
-            shortcutHint: nil,
-            kindLabel: nil,
-            keywords: [],
-            dismissOnRun: true,
-            action: { didRun = true }
-        )
-
-        let action: @MainActor () -> Void = command.action
-        action()
-
-        #expect(didRun)
+        #expect(registry.commandIDs == ["palette.test"])
     }
 
     @Test func typedHandlersPreserveReportedOutcomes() {

@@ -11,6 +11,40 @@ import Testing
 /// (`dispatch_assert_queue`) on exactly this delivery.
 @MainActor
 @Suite struct ASWebBrowserAuthSessionFactoryTests {
+    @Test func sessionRetainsDefaultPresentationContextProvider() throws {
+        let anchor = FakeAnchor()
+        let factory = ASWebBrowserAuthSessionFactory(anchor: anchor)
+
+        let session = factory.makeSession(
+            signInURL: URL(string: "https://example.test/sign-in")!,
+            callbackScheme: "cmux-dev"
+        ) { _ in }
+
+        let webSession = try #require(session as? ASWebBrowserAuthSession)
+        let retainedAnchor = try #require(
+            webSession.presentationContextProvider as? FakeAnchor
+        )
+        #expect(retainedAnchor === anchor)
+    }
+
+    @Test func sessionRetainsProviderForExactPresentationAnchor() throws {
+        let factory = ASWebBrowserAuthSessionFactory(anchor: FakeAnchor())
+        let exactAnchor = ASPresentationAnchor()
+
+        let session = factory.makeSession(
+            signInURL: URL(string: "https://example.test/sign-in")!,
+            callbackScheme: "cmux-dev",
+            presentationAnchor: exactAnchor
+        ) { _ in }
+
+        let webSession = try #require(session as? ASWebBrowserAuthSession)
+        let provider = try #require(
+            webSession.presentationContextProvider
+                as? ExactASWebAuthenticationPresentationContextProvider
+        )
+        #expect(provider.anchor === exactAnchor)
+    }
+
     @Test func bridgeDeliveredOffMainCompletesOnMainActor() async {
         let factory = ASWebBrowserAuthSessionFactory(anchor: FakeAnchor())
         let url = URL(string: "cmux-dev://auth-callback?stack_refresh=r&stack_access=a")!
