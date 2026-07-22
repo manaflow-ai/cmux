@@ -178,8 +178,8 @@ jobs:
             echo "WebExtension tests reported storage corruption or a WebKit process crash"
             exit 1
           fi
-          if ! echo "$OUTPUT" | grep -q "Test run with 128 tests in 1 suite passed"; then
-            echo "WebExtension test run did not report all 128 tests passing"
+          if ! echo "$OUTPUT" | grep -q "Test run with 129 tests in 1 suite passed"; then
+            echo "WebExtension test run did not report all 129 tests passing"
             exit 1
           fi
           if echo "$OUTPUT" | grep -q "unpkg.com/react-grab"; then
