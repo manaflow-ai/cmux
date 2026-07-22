@@ -582,6 +582,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fileExplorerState: fileExplorerState
             )
         }
+
+        func reusableProPricingWorkspaceID(exists: (UUID) -> Bool) -> UUID? {
+            reusableProWorkspaceID(at: \.proPricingWorkspaceId, exists: exists)
+        }
+
+        func reusableProWelcomeWorkspaceID(exists: (UUID) -> Bool) -> UUID? {
+            reusableProWorkspaceID(at: \.proWelcomeWorkspaceId, exists: exists)
+        }
+
+        private func reusableProWorkspaceID(
+            at keyPath: ReferenceWritableKeyPath<MainWindowContext, UUID?>,
+            exists: (UUID) -> Bool
+        ) -> UUID? {
+            guard let candidate = self[keyPath: keyPath] else { return nil }
+            guard exists(candidate) else {
+                self[keyPath: keyPath] = nil
+                return nil
+            }
+            return candidate
+        }
     }
 
     private final class MainWindowController: ReleasingWindowController {

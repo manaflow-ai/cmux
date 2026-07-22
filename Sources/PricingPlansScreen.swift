@@ -3,18 +3,6 @@ import Bonsplit
 import Foundation
 import SwiftUI
 
-func reusableProWorkspaceID(
-    _ workspaceId: inout UUID?,
-    exists: (UUID) -> Bool
-) -> UUID? {
-    guard let candidate = workspaceId else { return nil }
-    guard exists(candidate) else {
-        workspaceId = nil
-        return nil
-    }
-    return candidate
-}
-
 /// Shared entrypoint for every "Upgrade to cmux Pro" surface (sidebar badge,
 /// titlebar badge, Settings Account card, command palette, Help menu). Opens
 /// the app-specific pricing page in a dedicated browser workspace in the
@@ -39,8 +27,7 @@ enum ProUpgradePresenter {
                tabManager: nil,
                debugSource: "proUpgradePresenter.prefetch"
            ),
-           reusableProWorkspaceID(
-               &context.proPricingWorkspaceId,
+           context.reusableProPricingWorkspaceID(
                exists: {
                    appDelegate.proUpgradeWorkspaceExists(
                        workspaceId: $0,
@@ -100,8 +87,7 @@ enum ProUpgradePresenter {
         )
         let targetManager = reuseContext?.tabManager ?? tabManager
         if let reuseContext,
-           let workspaceId = reusableProWorkspaceID(
-               &reuseContext.proPricingWorkspaceId,
+           let workspaceId = reuseContext.reusableProPricingWorkspaceID(
                exists: {
                    appDelegate.proUpgradeWorkspaceExists(
                        workspaceId: $0,

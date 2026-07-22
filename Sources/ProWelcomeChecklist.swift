@@ -88,8 +88,7 @@ extension ProUpgradePresenter {
         )
         let targetManager = reuseContext?.tabManager ?? tabManager
         if let reuseContext,
-           let workspaceId = reusableProWorkspaceID(
-               &reuseContext.proWelcomeWorkspaceId,
+           let workspaceId = reuseContext.reusableProWelcomeWorkspaceID(
                exists: {
                    appDelegate.proUpgradeWorkspaceExists(
                        workspaceId: $0,
