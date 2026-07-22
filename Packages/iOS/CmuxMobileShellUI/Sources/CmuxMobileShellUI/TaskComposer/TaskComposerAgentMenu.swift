@@ -5,38 +5,35 @@ import SwiftUI
 
 /// Keeps the selected agent attached to the prompt while leaving every
 /// template and the editor one tap away.
-struct TaskComposerAgentMenu: View {
-    let templates: [MobileTaskTemplate]
-    let selectedTemplateID: MobileTaskTemplate.ID?
-    let isDisabled: Bool
-    let selectTemplate: (MobileTaskTemplate) -> Void
-    let editTemplates: () -> Void
+struct TaskComposerAgentMenu: View, Equatable {
+    let value: TaskComposerAgentMenuValue
+    let actions: TaskComposerAgentMenuActions
 
-    private var selectedTemplate: MobileTaskTemplate? {
-        selectedTemplateID.flatMap { id in
-            templates.first { $0.id == id }
-        }
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.value == rhs.value
     }
 
-    private var templateSelection: Binding<MobileTaskTemplate.ID?> {
-        Binding(
-            get: { selectedTemplateID },
-            set: { id in
-                guard let id,
-                      let template = templates.first(where: { $0.id == id }) else { return }
-                selectTemplate(template)
-            }
-        )
+    private var selectedTemplate: MobileTaskTemplate? {
+        value.selectedTemplateID.flatMap { id in
+            value.templates.first { $0.id == id }
+        }
     }
 
     var body: some View {
         Menu {
-            if !templates.isEmpty {
+            if !value.templates.isEmpty {
                 Picker(
                     L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"),
-                    selection: templateSelection
+                    selection: Binding(
+                        get: { value.selectedTemplateID },
+                        set: { id in
+                            guard let id,
+                                  value.templates.contains(where: { $0.id == id }) else { return }
+                            actions.selectTemplate(id)
+                        }
+                    )
                 ) {
-                    ForEach(templates) { template in
+                    ForEach(value.templates) { template in
                         Text(template.name)
                             .tag(Optional(template.id))
                     }
@@ -47,7 +44,7 @@ struct TaskComposerAgentMenu: View {
 
             Divider()
 
-            Button(action: editTemplates) {
+            Button(action: actions.editTemplates) {
                 Label(
                     L10n.string(
                         "mobile.taskComposer.agent.edit",
@@ -103,7 +100,7 @@ struct TaskComposerAgentMenu: View {
         .buttonStyle(.plain)
         // Keep the menu reachable when every template has been deleted so the
         // editor remains the recovery path for adding an agent.
-        .disabled(isDisabled)
+        .disabled(value.isDisabled)
         .accessibilityLabel(L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"))
         .accessibilityValue(selectedTemplate?.name ?? "")
         .accessibilityHint(TaskComposerSheet.templateAccessibilityHint)
