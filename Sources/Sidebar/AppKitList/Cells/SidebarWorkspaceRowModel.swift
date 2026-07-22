@@ -51,11 +51,19 @@ struct SidebarWorkspaceRowModel: Equatable {
     }
 }
 
+enum SidebarWorkspaceDescriptionLinkPolicy {
+    static func canOpen(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+}
+
 /// Behavior bundle for the row view; excluded from model equality.
 @MainActor
 struct SidebarAppKitRowActions {
     let commands: SidebarWorkspaceRowCommands
     let onOpenStatusURL: (URL) -> Void
+    let onOpenWorkspaceDescriptionURL: (URL) -> Void
     let onOpenPullRequest: (URL) -> Void
     let onOpenPort: (Int) -> Void
     let onToggleChecklistExpansion: () -> Void
