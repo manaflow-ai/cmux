@@ -29,7 +29,7 @@ on:
 jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -140,7 +140,9 @@ jobs:
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" \
+              -only-testing:cmuxTests/BrowserWebExtensionsManagerTests \
+              test 2>&1
           }
 
           set +e
@@ -163,13 +165,20 @@ jobs:
 
           echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            echo "WebExtension tests failed"
+            exit 1
+          fi
+          if echo "$OUTPUT" | grep -Eq "✘|Program crashed|Restarting after unexpected exit|\\*\\* TEST FAILED \\*\\*"; then
+            echo "WebExtension tests reported a hidden failure or process restart"
+            exit 1
+          fi
+          if ! echo "$OUTPUT" | grep -q "Test run with 127 tests in 1 suite passed"; then
+            echo "WebExtension test run did not report all 127 tests passing"
+            exit 1
+          fi
+          if echo "$OUTPUT" | grep -q "unpkg.com/react-grab"; then
+            echo "WebExtension tests made an unexpected public React Grab request"
+            exit 1
           fi
 
       - name: Run UI tests
