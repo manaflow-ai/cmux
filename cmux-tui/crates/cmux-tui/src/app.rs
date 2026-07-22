@@ -4229,13 +4229,14 @@ impl App {
                 debug_assert!(replacement.is_none());
                 let mut action = RenderAction::None;
                 drop(replacement);
-                if let Some(mutation) = session_mutation {
-                    self.apply_managed_workspace_session_mutation(mutation);
-                }
                 if let Some(label) = session_label {
                     self.session_label = label;
                 }
                 action = action.merge(self.apply_machine_ui_update(ui));
+                // Provider notices apply before local mirror errors so they cannot mask them.
+                if let Some(mutation) = session_mutation {
+                    self.apply_managed_workspace_session_mutation(mutation);
+                }
                 if let Some(updates) = updates
                     && let Err(error) = updates
                         .map_err(anyhow::Error::msg)

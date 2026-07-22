@@ -123,6 +123,8 @@ impl ProviderMachineController {
                     && (switching_provider || self.active_local.is_none())
                 {
                     self.pending_active_local = Some(None);
+                    // Update streams capture the connected machine at subscription time.
+                    result.restart_updates = true;
                     result.ui = self.merge_local_ui_for(result.ui, None);
                 } else if self.active_local.is_some() && result.replacement.is_some() {
                     // A provider lifecycle response must never replace an
