@@ -9,7 +9,9 @@ extension ControlCommandPaletteContext {
 
     func controlCommandPaletteRun(
         routing: ControlRoutingSelectors,
-        commandID: String
+        commandID: String,
+        arguments: [String: String],
+        workingDirectory: String?
     ) -> ControlCommandPaletteRunResolution { .windowNotFound }
 }
 

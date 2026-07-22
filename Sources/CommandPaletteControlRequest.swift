@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import Foundation
 
 /// A synchronous, window-targeted bridge from the control socket to the live
@@ -7,7 +8,7 @@ final class CommandPaletteControlRequest {
     /// The operation requested by the control socket.
     enum Operation {
         case list
-        case run(commandID: String)
+        case run(commandID: String, arguments: [String: String], workingDirectory: String?)
     }
 
     /// A closure-free snapshot of one live palette action.
@@ -18,12 +19,13 @@ final class CommandPaletteControlRequest {
         let shortcutHint: String?
         let keywords: [String]
         let dismissOnRun: Bool
+        let arguments: [CmuxActionArgumentDefinition]
     }
 
     /// The result completed synchronously by the targeted `ContentView`.
     enum Result {
         case listed([Item])
-        case ran(Item)
+        case ran(Item, result: CmuxActionExecutionResult)
         case commandNotFound
     }
 

@@ -103,7 +103,8 @@ extension ContentView {
                 commandId: commandPaletteCloudRestoreCommandId,
                 title: constant(String(localized: "command.cloudVM.restore.title", defaultValue: "Restore Cloud VM From Checkpoint")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "restore", "snapshot", "checkpoint"]
+                keywords: ["cloud", "vm", "restore", "snapshot", "checkpoint"],
+                arguments: [CmuxActionArgumentDefinition(name: "snapshot_id")]
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudPromoteTemplateCommandId,
@@ -148,8 +149,35 @@ extension ContentView {
         registry.register(commandId: Self.commandPaletteCloudSnapshotCommandId) {
             _ = AppDelegate.shared?.performCurrentCloudVMCommand(.snapshot, debugSource: "palette.cloud.snapshot")
         }
-        registry.register(commandId: Self.commandPaletteCloudRestoreCommandId) {
-            _ = AppDelegate.shared?.performCloudVMRestoreCommand(debugSource: "palette.cloud.restore")
+        registry.register(commandId: Self.commandPaletteCloudRestoreCommandId) { invocation in
+            guard let appDelegate = AppDelegate.shared else {
+                return .failed(
+                    code: "target_unavailable",
+                    message: String(
+                        localized: "action.error.targetUnavailable",
+                        defaultValue: "The action target is no longer available."
+                    )
+                )
+            }
+            let snapshotId = invocation.string("snapshot_id")
+            let didStart = appDelegate.performCloudVMRestoreCommand(
+                snapshotId: snapshotId,
+                preferredWindow: appDelegate.mainWindow(for: windowId),
+                debugSource: "palette.cloud.restore"
+            )
+            if snapshotId == nil {
+                return .presented
+            }
+            guard didStart else {
+                return .failed(
+                    code: "action_failed",
+                    message: String(
+                        localized: "action.error.cloudVMRestoreFailed",
+                        defaultValue: "Cloud VM restore could not be started."
+                    )
+                )
+            }
+            return .completed
         }
         registry.register(commandId: Self.commandPaletteCloudPromoteTemplateCommandId) {
             _ = AppDelegate.shared?.performCurrentCloudVMCommand(.promoteTemplate, debugSource: "palette.cloud.promoteTemplate")

@@ -16946,15 +16946,18 @@ struct CMUXCLI {
         case "palette":
             return String(localized: "cli.palette.usage", defaultValue: """
             Usage: cmux palette [list] [--window <id|ref|index>]
-                   cmux palette run <command-id> [--window <id|ref|index>]
-                   cmux palette <command-id>       (shorthand for 'run')
+                   cmux palette run <action-id> [--arg <name=value> ...] [--window <id|ref|index>]
+                   cmux palette <action-id> [--arg <name=value> ...]   (shorthand for 'run')
 
             List or invoke the exact actions available through Cmd+Shift+P in
-            the target window's current context.
+            the target window's current context. Action IDs and argument names
+            are strings declared by the live action registry, including custom
+            actions loaded from cmux.json.
 
             Examples:
               cmux palette list
               cmux palette run palette.newTerminalTab
+              cmux palette run palette.renameWorkspace --arg name=api
               cmux palette palette.terminalOpenDirectory.vscodeInline
             """)
         case "vscode":
@@ -17044,6 +17047,10 @@ struct CMUXCLI {
             if !pastTerminator, arg == name, idx + 1 < args.count {
                 values.append(args[idx + 1])
                 skipNext = true
+                continue
+            }
+            if !pastTerminator, arg.hasPrefix("\(name)=") {
+                values.append(String(arg.dropFirst(name.count + 1)))
                 continue
             }
             remaining.append(arg)
@@ -35176,7 +35183,7 @@ export default CMUXSessionRestore;
           agent-hibernation <on|off>
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
-          palette [list|run <command-id>] [--window <id|ref|index>]
+          palette [list|run <action-id>] [--arg <name=value> ...] [--window <id|ref|index>]
           vscode open [path] [--workspace <id|ref|index>] [--window <id|ref|index>]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]

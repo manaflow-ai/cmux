@@ -69,8 +69,8 @@ Environment:
 | `agent-hibernation` | Enable or disable Agent Hibernation. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `open` | Open files, directories, or URLs in cmux. |
-| `palette list` | List the exact Cmd+Shift+P actions available in the target window's current context, including their stable command IDs. Supports `--json`. |
-| `palette run <command-id>`, `palette <command-id>` | Invoke the same live action handler used by Cmd+Shift+P. Actions hidden or disabled in the current context are rejected. |
+| `palette list` | List the exact Cmd+Shift+P actions available in the target window's current context, including stable string IDs and static argument schemas. Supports `--json`. |
+| `palette run <action-id>`, `palette <action-id>` | Invoke the same live action handler used by Cmd+Shift+P. Pass declared arguments with repeated `--arg name=value`. Actions hidden or disabled in the current context are rejected. Custom actions loaded from cmux.json use the same string-ID path. |
 | `vscode open [path]`, `vscode [path]` | Open a directory in a cmux VS Code (Inline) browser pane. The path defaults to the current directory and supports workspace and window targeting. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
 | `feed` | Open the keyboard-first Feed TUI or manage persisted Feed workstream history. |

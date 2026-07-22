@@ -7572,6 +7572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performCloudVMRestoreCommand(
+        snapshotId providedSnapshotId: String? = nil,
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.restore"
     ) -> Bool {
@@ -7582,8 +7583,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         let window = resolvedWindow(for: context) ?? preferredWindow
-        guard let snapshotId = promptForCloudVMSnapshotId(preferredWindow: window) else {
-            return false
+        let snapshotId: String
+        if let providedSnapshotId {
+            let trimmedSnapshotId = providedSnapshotId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedSnapshotId.isEmpty else { return false }
+            snapshotId = trimmedSnapshotId
+        } else {
+            guard let promptedSnapshotId = promptForCloudVMSnapshotId(preferredWindow: window) else {
+                return false
+            }
+            snapshotId = promptedSnapshotId
         }
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()

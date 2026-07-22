@@ -14,6 +14,8 @@ public protocol ControlCommandPaletteContext: AnyObject {
     /// Runs one palette action through the same handler Cmd+Shift+P uses.
     func controlCommandPaletteRun(
         routing: ControlRoutingSelectors,
-        commandID: String
+        commandID: String,
+        arguments: [String: String],
+        workingDirectory: String?
     ) -> ControlCommandPaletteRunResolution
 }

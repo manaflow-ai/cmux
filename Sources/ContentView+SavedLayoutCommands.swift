@@ -28,6 +28,14 @@ extension ContentView {
                 subtitle: workspaceSubtitle,
                 shortcutHint: KeyboardShortcutSettings.shortcutIfBound(for: .saveLayoutTemplate)?.displayString,
                 keywords: ["save", "layout", "template", "preset", "workspace", "split"],
+                arguments: [
+                    CmuxActionArgumentDefinition(name: "name"),
+                    CmuxActionArgumentDefinition(
+                        name: "overwrite",
+                        valueType: .boolean,
+                        required: false
+                    ),
+                ],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
@@ -46,8 +54,20 @@ extension ContentView {
     }
 
     func registerSavedLayoutCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: "palette.layout.saveCurrent") {
+        registry.register(commandId: "palette.layout.saveCurrent") { invocation in
+            if let name = invocation.string("name") {
+                do {
+                    try saveCurrentLayout(named: name, overwrite: invocation.bool("overwrite") ?? false)
+                    return .completed
+                } catch {
+                    return .failed(
+                        code: savedLayoutActionErrorCode(error),
+                        message: savedLayoutErrorMessage(error)
+                    )
+                }
+            }
             presentSavedLayoutSavePrompt()
+            return .presented
         }
         for layout in savedLayoutsForCommandPalette() {
             let layoutName = layout.name
@@ -66,7 +86,7 @@ extension ContentView {
     }
 
     func presentSavedLayoutSavePrompt() {
-        guard let workspace = tabManager.selectedWorkspace else {
+        guard tabManager.selectedWorkspace != nil else {
             NSSound.beep()
             return
         }
@@ -102,14 +122,42 @@ extension ContentView {
         guard overwrite || (try? store.layout(named: name)) == nil else { return }
 
         do {
-            let capture = try workspace.captureLayoutDefinition()
-            try store.save(
-                CmuxSavedLayout(name: name, description: nil, workspace: capture.workspace),
-                overwrite: overwrite
-            )
+            try saveCurrentLayout(named: name, overwrite: overwrite)
         } catch {
             presentSavedLayoutError(title: savedLayoutErrorTitle(), message: savedLayoutErrorMessage(error))
         }
+    }
+
+    private func saveCurrentLayout(named rawName: String, overwrite: Bool) throws {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw SavedLayoutStoreError.blankName }
+        guard let workspace = tabManager.selectedWorkspace else {
+            throw SavedLayoutActionError.targetUnavailable
+        }
+        let capture = try workspace.captureLayoutDefinition()
+        try SavedLayoutStore().save(
+            CmuxSavedLayout(name: name, description: nil, workspace: capture.workspace),
+            overwrite: overwrite
+        )
+    }
+
+    private func savedLayoutActionErrorCode(_ error: Error) -> String {
+        if let storeError = error as? SavedLayoutStoreError {
+            switch storeError {
+            case .blankName:
+                return "invalid_argument"
+            case .duplicateName:
+                return "already_exists"
+            case .notFound:
+                return "not_found"
+            case .corruptFile:
+                return "invalid_state"
+            }
+        }
+        if error is SavedLayoutActionError {
+            return "target_unavailable"
+        }
+        return "internal_error"
     }
 
     private func confirmSavedLayoutOverwrite(name: String) -> Bool {
@@ -137,6 +185,12 @@ extension ContentView {
     }
 
     private func savedLayoutErrorMessage(_ error: Error) -> String {
+        if error is SavedLayoutActionError {
+            return String(
+                localized: "action.error.targetUnavailable",
+                defaultValue: "The action target is no longer available."
+            )
+        }
         if let storeError = error as? SavedLayoutStoreError {
             switch storeError {
             case .blankName:
@@ -164,6 +218,10 @@ extension ContentView {
             .replacingOccurrences(of: "=", with: "")
         return "palette.layout.open.\(encodedName)"
     }
+}
+
+private enum SavedLayoutActionError: Error {
+    case targetUnavailable
 }
 
 extension Notification.Name {

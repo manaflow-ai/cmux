@@ -162,6 +162,7 @@ enum WorkspaceTodoPaletteCommands {
                     },
                     subtitle: workspaceSubtitle,
                     keywords: ["workspace", "checklist", "todo", "task", "add", "item"],
+                    arguments: [CmuxActionArgumentDefinition(name: "text")],
                     when: hasWorkspace
                 )
             )
@@ -228,16 +229,25 @@ enum WorkspaceTodoPaletteCommands {
                 WorkspaceTodoActions.applyStatusOverride(.done, to: [workspace])
             }
         )
-        registry.register(
-            commandId: addChecklistItemCommandId,
-            handler: withSelectedWorkspace { workspace in
-                guard WorkspaceTodoFeature.isEnabled else {
-                    NSSound.beep()
-                    return
-                }
-                WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
+        registry.register(commandId: addChecklistItemCommandId) { invocation in
+            guard WorkspaceTodoFeature.isEnabled,
+                  let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return .failed(
+                    code: "target_unavailable",
+                    message: String(
+                        localized: "action.error.targetUnavailable",
+                        defaultValue: "The action target is no longer available."
+                    )
+                )
             }
-        )
+            if let text = invocation.string("text") {
+                WorkspaceTodoActions.addChecklistItem(text: text, to: workspace)
+                return .completed
+            }
+            WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
+            return .presented
+        }
         registry.register(
             commandId: openTodoPaneCommandId,
             handler: withSelectedWorkspace { workspace in

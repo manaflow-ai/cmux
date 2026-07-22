@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCommandPalette
 import CmuxControlSocket
 import Foundation
 
@@ -21,16 +22,47 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
 
     func controlCommandPaletteRun(
         routing: ControlRoutingSelectors,
-        commandID: String
+        commandID: String,
+        arguments: [String: String],
+        workingDirectory: String?
     ) -> ControlCommandPaletteRunResolution {
         guard let (windowID, window) = controlCommandPaletteWindow(routing: routing) else {
             return .windowNotFound
         }
-        let request = CommandPaletteControlRequest(operation: .run(commandID: commandID))
+        let request = CommandPaletteControlRequest(
+            operation: .run(
+                commandID: commandID,
+                arguments: arguments,
+                workingDirectory: workingDirectory
+            )
+        )
         postCommandPaletteControlRequest(request, to: window)
         switch request.result {
-        case .ran(let command):
-            return .ran(windowID: windowID, command: controlCommandPaletteItem(command))
+        case .ran(let command, let result):
+            let item = controlCommandPaletteItem(command)
+            switch result {
+            case .completed:
+                return .completed(windowID: windowID, command: item)
+            case .presented:
+                return .presented(windowID: windowID, command: item)
+            case .requiresArguments(let arguments):
+                return .requiresArguments(
+                    windowID: windowID,
+                    command: item,
+                    arguments: arguments.map(controlCommandPaletteArgument)
+                )
+            case .invalidArguments(let names):
+                return .invalidArguments(windowID: windowID, command: item, names: names)
+            case .invalidArgumentValues(let names):
+                return .invalidArgumentValues(windowID: windowID, command: item, names: names)
+            case .failed(let code, let message):
+                return .failed(
+                    windowID: windowID,
+                    command: item,
+                    code: code,
+                    message: message
+                )
+            }
         case .commandNotFound:
             return .commandNotFound
         case .listed, .none:
@@ -96,7 +128,19 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             subtitle: item.subtitle,
             shortcutHint: item.shortcutHint,
             keywords: item.keywords,
-            dismissOnRun: item.dismissOnRun
+            dismissOnRun: item.dismissOnRun,
+            arguments: item.arguments.map(controlCommandPaletteArgument)
+        )
+    }
+
+    private func controlCommandPaletteArgument(
+        _ argument: CmuxActionArgumentDefinition
+    ) -> ControlCommandPaletteArgument {
+        ControlCommandPaletteArgument(
+            name: argument.name,
+            type: argument.valueType.rawValue,
+            required: argument.required,
+            allowsEmpty: argument.allowsEmpty
         )
     }
 

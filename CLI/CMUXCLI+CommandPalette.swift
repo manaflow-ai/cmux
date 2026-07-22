@@ -8,7 +8,9 @@ extension CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        let (windowOption, positional) = parseOption(commandArgs, name: "--window")
+        let (windowOption, afterWindow) = parseOption(commandArgs, name: "--window")
+        let (argumentOptions, positional) = parseRepeatedOption(afterWindow, name: "--arg")
+        let arguments = try parsePaletteActionArguments(argumentOptions)
         let windowRaw = windowOption ?? windowOverride
         var params: [String: Any] = [:]
         if let windowID = try normalizeWindowHandle(windowRaw, client: client) {
@@ -18,10 +20,10 @@ extension CMUXCLI {
         let subcommand = positional.first?.lowercased() ?? "list"
         switch subcommand {
         case "list":
-            guard positional.count <= 1 else {
+            guard positional.count <= 1, arguments.isEmpty else {
                 throw CLIError(message: String(
                     localized: "cli.palette.error.listArguments",
-                    defaultValue: "palette list does not accept positional arguments"
+                    defaultValue: "palette list does not accept extra arguments"
                 ))
             }
             let payload = try client.sendV2(method: "palette.list", params: params)
@@ -34,18 +36,19 @@ extension CMUXCLI {
                 guard let id = command["id"] as? String,
                       let title = command["title"] as? String else { continue }
                 let shortcut = (command["shortcut_hint"] as? String).map { "\t\($0)" } ?? ""
-                print("\(id)\t\(title)\(shortcut)")
+                print("\(id)\(paletteActionSignature(command))\t\(title)\(shortcut)")
             }
 
         case "run":
             guard positional.count == 2, !positional[1].isEmpty else {
                 throw CLIError(message: String(
                     localized: "cli.palette.error.runCommandID",
-                    defaultValue: "palette run requires a command id"
+                    defaultValue: "palette run requires an action id"
                 ))
             }
             try runPaletteAction(
                 commandID: positional[1],
+                arguments: arguments,
                 params: params,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -61,6 +64,7 @@ extension CMUXCLI {
             }
             try runPaletteAction(
                 commandID: positional[0],
+                arguments: arguments,
                 params: params,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -122,6 +126,7 @@ extension CMUXCLI {
 
     private func runPaletteAction(
         commandID: String,
+        arguments: [String: String],
         params baseParams: [String: Any],
         client: SocketClient,
         jsonOutput: Bool,
@@ -129,6 +134,11 @@ extension CMUXCLI {
     ) throws {
         var params = baseParams
         params["command_id"] = commandID
+        params["cwd"] = ProcessInfo.processInfo.environment["PWD"]
+            ?? FileManager.default.currentDirectoryPath
+        if !arguments.isEmpty {
+            params["arguments"] = arguments
+        }
         let payload = try client.sendV2(method: "palette.run", params: params)
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -139,5 +149,41 @@ extension CMUXCLI {
             defaultValue: "Ran command palette action:"
         )
         print("\(prefix) \(commandID)")
+    }
+
+    private func parsePaletteActionArguments(_ values: [String]) throws -> [String: String] {
+        var arguments: [String: String] = [:]
+        for value in values {
+            guard let separator = value.firstIndex(of: "=") else {
+                throw CLIError(message: String(
+                    localized: "cli.palette.error.argumentFormat",
+                    defaultValue: "Action arguments must use --arg name=value"
+                ))
+            }
+            let name = value[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.palette.error.argumentFormat",
+                    defaultValue: "Action arguments must use --arg name=value"
+                ))
+            }
+            guard arguments[name] == nil else {
+                throw CLIError(message: String(
+                    localized: "cli.palette.error.duplicateArgument",
+                    defaultValue: "Each action argument may be supplied once"
+                ))
+            }
+            arguments[name] = String(value[value.index(after: separator)...])
+        }
+        return arguments
+    }
+
+    private func paletteActionSignature(_ command: [String: Any]) -> String {
+        let arguments = command["arguments"] as? [[String: Any]] ?? []
+        return arguments.compactMap { argument in
+            guard let name = argument["name"] as? String else { return nil }
+            let required = argument["required"] as? Bool ?? false
+            return required ? " <\(name)>" : " [\(name)]"
+        }.joined()
     }
 }
