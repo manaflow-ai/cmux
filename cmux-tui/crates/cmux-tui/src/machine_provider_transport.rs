@@ -504,11 +504,11 @@ fn spawn_command(
         .take()
         .ok_or_else(|| io::Error::other("provider command did not expose stderr"))?;
 
-    let diagnostics = Arc::new(BoundedDiagnosticBuffer::new(COMMAND_DIAGNOSTIC_BYTES));
+    let diagnostics =
+        Arc::new(BoundedDiagnosticBuffer::with_redactions(COMMAND_DIAGNOSTIC_BYTES, &redactions));
     let cleanup = Arc::new(ProcessCleanup {
         child: Mutex::new(Some(child)),
         diagnostics: Arc::clone(&diagnostics),
-        redactions,
         stderr_worker: Mutex::new(None),
         closed: AtomicBool::new(false),
     });
@@ -535,7 +535,6 @@ fn spawn_command(
 struct ProcessCleanup {
     child: Mutex<Option<Child>>,
     diagnostics: Arc<BoundedDiagnosticBuffer>,
-    redactions: Arc<Vec<String>>,
     stderr_worker: Mutex<Option<JoinHandle<()>>>,
     closed: AtomicBool,
 }
@@ -568,7 +567,7 @@ impl ProviderIoCleanup for ProcessCleanup {
     }
 
     fn diagnostic(&self) -> Option<String> {
-        self.diagnostics.sanitized(&self.redactions)
+        self.diagnostics.sanitized()
     }
 }
 

@@ -1,5 +1,6 @@
 //! Config-backed machine catalog and transport connectors.
 
+use std::collections::HashSet;
 #[cfg(test)]
 use std::io::Read;
 use std::io::{self, BufRead, BufReader, Write};
@@ -48,8 +49,9 @@ impl MachineRuntime {
             }],
             next_key: 2,
         };
+        let mut seen_ids = HashSet::from(["current".to_string()]);
         for machine in configured {
-            if runtime.entries.iter().any(|entry| entry.descriptor.id == machine.id) {
+            if !seen_ids.insert(machine.id.clone()) {
                 continue;
             }
             runtime.push(machine);
@@ -241,7 +243,7 @@ impl Process {
     }
 
     fn diagnostic(&self) -> Option<String> {
-        self.diagnostics.sanitized(&[])
+        self.diagnostics.sanitized()
     }
 
     fn join_stderr(&self) {
@@ -352,6 +354,20 @@ mod tests {
         let first = runtime.connect_machine("lawrence@mini.local").unwrap();
         let second = runtime.connect_machine("lawrence@mini.local").unwrap();
         assert_eq!(first, second);
+        assert_eq!(runtime.snapshot(runtime.initial_key()).machines.len(), 2);
+    }
+
+    #[test]
+    fn configured_targets_are_deduplicated_in_one_pass() {
+        let machine = MachineConfig {
+            id: "mini".into(),
+            name: "Mini".into(),
+            subtitle: "local".into(),
+            target: MachineTargetConfig::Unix { socket: PathBuf::from("/tmp/mini.sock") },
+        };
+        let runtime =
+            MachineRuntime::new(PathBuf::from("/tmp/current.sock"), vec![machine.clone(), machine]);
+
         assert_eq!(runtime.snapshot(runtime.initial_key()).machines.len(), 2);
     }
 }

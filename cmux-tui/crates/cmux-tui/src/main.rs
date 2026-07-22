@@ -410,8 +410,8 @@ fn provider_connector_with_unix_token(
 fn parse_provider_token(value: OsString) -> anyhow::Result<BearerToken> {
     let value = value
         .into_string()
-        .map_err(|_| anyhow::anyhow!("{MACHINE_PROVIDER_TOKEN_ENV} is not valid UTF-8"))?;
-    BearerToken::new(value).map_err(|_| anyhow::anyhow!("{MACHINE_PROVIDER_TOKEN_ENV} is invalid"))
+        .map_err(|_| anyhow::anyhow!("machine-provider credential is not valid UTF-8"))?;
+    BearerToken::new(value).map_err(|_| anyhow::anyhow!("machine-provider credential is invalid"))
 }
 
 fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
@@ -786,7 +786,7 @@ mod tests {
     fn provider_token_errors_never_echo_the_secret() {
         let secret = "do-not-print\nthis-secret";
         let error = parse_provider_token(OsString::from(secret)).unwrap_err().to_string();
-        assert!(error.contains(MACHINE_PROVIDER_TOKEN_ENV));
+        assert_eq!(error, "machine-provider credential is invalid");
         assert!(!error.contains(secret));
         assert!(!error.contains("do-not-print"));
     }
