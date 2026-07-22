@@ -30,7 +30,6 @@ struct TaskComposerSheet: View {
     @State var submissionIdentity: MobileTaskSubmissionIdentity
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
     @State var completedOperationRecovery: TaskComposerCompletedOperationRecovery?
-    @State var recoveryRequestReconciliationTask: Task<Void, Never>? = nil
     @State var isStartAgainConfirmationPresented = false
 
     let sessionGeneration: Int
@@ -200,6 +199,7 @@ struct TaskComposerSheet: View {
                             prompt: promptBinding,
                             placeholder: promptPlaceholder,
                             isDisabled: submissionPhase.disablesRequestEditing,
+                            endEditing: resolveCompletedOperationRecoveryAfterEditing,
                             templates: templates,
                             selectedTemplateID: selectedTemplateID,
                             selectTemplate: selectTemplateFromPicker,
@@ -212,6 +212,7 @@ struct TaskComposerSheet: View {
                             selectedMacDeviceID: selectedMacDeviceID,
                             directory: directory,
                             isDisabled: submissionPhase.disablesRequestEditing,
+                            endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
                             selectMachine: selectMachine,
                             selectDirectory: { isDirectoryPickerPresented = true }
                         )
@@ -300,7 +301,6 @@ struct TaskComposerSheet: View {
             .onDisappear {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
-                recoveryRequestReconciliationTask?.cancel()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
                 }
@@ -481,20 +481,19 @@ struct TaskComposerSheet: View {
     private func selectMachine(_ macDeviceID: String) {
         guard !submissionPhase.disablesRequestEditing,
               machines.contains(where: { $0.macDeviceID == macDeviceID }) else { return }
-        updateSubmissionRequest {
+        updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = macDeviceID
             syncSuggestedDirectory()
         }
     }
 
     func startSubmission() {
+        resolveCompletedOperationRecoveryAfterEditing()
         guard submitTask == nil,
               blockingCompletedOperationRecovery == nil,
               submissionPhase.allowsSubmission else { return }
         // Once the user sends a genuinely different request, the prior
         // recovery anchor can no longer become relevant through further edits.
-        recoveryRequestReconciliationTask?.cancel()
-        recoveryRequestReconciliationTask = nil
         completedOperationRecovery = nil
         if submissionPhase.offersRetry {
             failureText = nil
@@ -563,7 +562,7 @@ struct TaskComposerSheet: View {
 
     private func addTemplate(_ template: MobileTaskTemplate) {
         guard !submissionPhase.disablesRequestEditing else { return }
-        updateSubmissionRequest {
+        updateSubmissionRequest(reconcileRecovery: true) {
             store.taskTemplateStore?.addTemplate(template)
             selectedTemplateID = template.id
             syncSuggestedDirectory()
@@ -583,7 +582,7 @@ struct TaskComposerSheet: View {
 
     private func refreshTemplates() {
         guard !submissionPhase.disablesRequestEditing else { return }
-        updateSubmissionRequest {
+        updateSubmissionRequest(reconcileRecovery: true) {
             templates = store.taskTemplateStore?.listTemplates() ?? []
             if let selectedTemplateID, !templates.contains(where: { $0.id == selectedTemplateID }) {
                 self.selectedTemplateID = templates.first?.id
@@ -596,7 +595,7 @@ struct TaskComposerSheet: View {
     private func validateMacSelection() {
         guard !submissionPhase.disablesRequestEditing else { return }
         guard selectedMachine == nil else { return }
-        updateSubmissionRequest {
+        updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""
             syncSuggestedDirectory()
         }

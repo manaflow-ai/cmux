@@ -38,7 +38,6 @@ struct TaskComposerCompletedOperationRecovery: Equatable {
 
     enum RequestRelation: Equatable {
         case equivalent
-        case unresolved
         case different
     }
 
@@ -51,11 +50,7 @@ struct TaskComposerCompletedOperationRecovery: Equatable {
     }
 
     var blocksSubmission: Bool {
-        requestRelation != .different
-    }
-
-    var isRequestResolutionPending: Bool {
-        requestRelation == .unresolved
+        appliesToCurrentRequest
     }
 
     var allowsStartAgain: Bool {
@@ -66,14 +61,19 @@ struct TaskComposerCompletedOperationRecovery: Equatable {
         phase = .startAgainAvailable
     }
 
-    mutating func markCurrentRequestUnresolved() {
-        requestRelation = .unresolved
+    mutating func markCurrentRequestDifferent() {
+        requestRelation = .different
     }
 
-    mutating func reconcileCurrentRequest(_ currentSnapshot: MobileTaskSubmissionSnapshot?) {
+    /// Returns whether an edit detached this recovery and the effective request
+    /// has now returned to it, so the standard recovery banner should return.
+    @discardableResult
+    mutating func reconcileCurrentRequest(_ currentSnapshot: MobileTaskSubmissionSnapshot?) -> Bool {
+        let wasDetachedByEdit = requestRelation == .different
         requestRelation = currentSnapshot?.isRequestEquivalent(to: submittedSnapshot) == true
             ? .equivalent
             : .different
+        return wasDetachedByEdit && requestRelation == .equivalent
     }
 }
 

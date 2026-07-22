@@ -11,14 +11,16 @@ struct TaskComposerContextSection: View {
     let selectedMacDeviceID: String
     let directory: String
     let isDisabled: Bool
-    let selectMachine: (MobilePairedMac) -> Void
+    let endWorkspaceNameEditing: () -> Void
+    let selectMachine: (String) -> Void
     let selectDirectory: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             TaskComposerWorkspaceNameField(
                 workspaceName: $workspaceName,
-                isDisabled: isDisabled
+                isDisabled: isDisabled,
+                endEditing: endWorkspaceNameEditing
             )
 
             Divider()
@@ -46,6 +48,9 @@ struct TaskComposerContextSection: View {
 private struct TaskComposerWorkspaceNameField: View {
     @Binding var workspaceName: String
     let isDisabled: Bool
+    let endEditing: () -> Void
+
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -73,6 +78,7 @@ private struct TaskComposerWorkspaceNameField: View {
                 .lineLimit(1)
                 .textInputAutocapitalization(.words)
                 .submitLabel(.done)
+                .focused($isFocused)
                 .disabled(isDisabled)
                 .accessibilityLabel(
                     L10n.string(
@@ -81,11 +87,17 @@ private struct TaskComposerWorkspaceNameField: View {
                     )
                 )
                 .accessibilityIdentifier("MobileTaskComposerWorkspaceName")
+                .onSubmit(endEditing)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .onChange(of: isFocused) { wasFocused, isFocused in
+            if wasFocused && !isFocused {
+                endEditing()
+            }
+        }
     }
 }
 

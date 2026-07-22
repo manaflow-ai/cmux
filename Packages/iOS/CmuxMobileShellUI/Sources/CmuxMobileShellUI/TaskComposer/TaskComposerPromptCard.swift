@@ -11,6 +11,7 @@ struct TaskComposerPromptCard: View {
     @Binding var prompt: String
     let placeholder: String
     let isDisabled: Bool
+    let endEditing: () -> Void
     let templates: [MobileTaskTemplate]
     let selectedTemplateID: MobileTaskTemplate.ID?
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
@@ -47,6 +48,7 @@ struct TaskComposerPromptCard: View {
                 .accessibilityLabel(L10n.string("mobile.taskComposer.prompt", defaultValue: "Prompt"))
                 .accessibilityHint(placeholder)
                 .accessibilityIdentifier("MobileTaskComposerPrompt")
+                .onSubmit(endEditing)
 
         }
         .padding(14)
@@ -68,6 +70,11 @@ struct TaskComposerPromptCard: View {
             accessibilityReduceMotion ? nil : .easeOut(duration: 0.18),
             value: isFocused
         )
+        .onChange(of: isFocused) { wasFocused, isFocused in
+            if wasFocused && !isFocused {
+                endEditing()
+            }
+        }
     }
 
     private var promptLineLimit: ClosedRange<Int> {
