@@ -158,7 +158,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-guard-v1` advertises the one-way provider ownership handoff and the dedicated post-provider rename and close commands.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -180,7 +180,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-guard-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
@@ -1537,7 +1537,7 @@ Example:
 
 ### mark-workspaces-provider-managed
 
-Requires the `provider-managed-workspace-guard-v1` capability. Clients must not send this command to a server that omits the capability.
+Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
 
 | Field | Value |
 | --- | --- |
@@ -1545,24 +1545,31 @@ Requires the `provider-managed-workspace-guard-v1` capability. Clients must not 
 | status | implemented |
 | since | protocol 9 additive capability |
 
-Permanently assigns ordinary workspace rename and close ownership to an external provider for this mux generation. Repeated requests are idempotent. After success, `rename-workspace` and `close-workspace` fail for every current and future workspace in the generation. This remains true while provider descriptors are temporarily unavailable.
+Verifies that the provider frontend holds the authority provisioned when this mux generation started. The mux is already provider-owned before this handshake and before its first control client. Repeated authorized requests are idempotent. `rename-workspace` and `close-workspace` fail for every current and future workspace in the generation even when the handshake is missing or invalid.
 
-Params: none.
+Params: `object{authority:string}`. The authority is required and must match the mux's pre-provisioned value.
 
 Result: `object{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
+| `bad request: ...` | Authority is missing or has the wrong JSON type |
 
 This control-only command has no public CLI mapping. The provider-aware TUI sends it before exposing provider-owned workspace lifecycle controls.
 
 Example:
 
 ```json
-{"id":17,"cmd":"mark-workspaces-provider-managed"}
+{"id":17,"cmd":"mark-workspaces-provider-managed","authority":"<provider-authority>"}
 {"id":17,"ok":true,"data":{}}
 ```
 
 ### close-provider-managed-workspace
 
-Requires the `provider-managed-workspace-guard-v1` capability. Clients must not send this command to a server that omits the capability.
+Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
 
 | Field | Value |
 | --- | --- |
@@ -1578,6 +1585,7 @@ Params:
 | --- | --- | --- | --- |
 | `workspace` | `Id` | required | Must identify a live workspace |
 | `key` | `string` | required | Must identify the same workspace as `workspace` |
+| `authority` | `string` | required | Must match the mux's pre-provisioned provider authority |
 
 Result: `object{workspace:Id,key:string,workspace_revision:uint64}`.
 
@@ -1585,7 +1593,7 @@ Errors:
 
 | Error | Condition |
 | --- | --- |
-| `cannot apply provider workspace close; this session is not provider-managed` | Provider ownership was not enabled first |
+| `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -1594,7 +1602,7 @@ This control-only command has no public CLI mapping.
 Example:
 
 ```json
-{"id":18,"cmd":"close-provider-managed-workspace","workspace":4,"key":"ops-stable"}
+{"id":18,"cmd":"close-provider-managed-workspace","workspace":4,"key":"ops-stable","authority":"<provider-authority>"}
 {"id":18,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
 ```
 
@@ -1794,7 +1802,7 @@ Example:
 
 ### rename-provider-managed-workspace
 
-Requires the `provider-managed-workspace-guard-v1` capability. Clients must not send this command to a server that omits the capability.
+Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
 
 | Field | Value |
 | --- | --- |
@@ -1811,6 +1819,7 @@ Params:
 | `workspace` | `Id` | required | Must identify a live workspace |
 | `key` | `string` | required | Must identify the same workspace as `workspace` |
 | `name` | `string` | required | Empty string is stored |
+| `authority` | `string` | required | Must match the mux's pre-provisioned provider authority |
 
 Result: `object{workspace:Id,key:string,workspace_revision:uint64}`.
 
@@ -1818,7 +1827,7 @@ Errors:
 
 | Error | Condition |
 | --- | --- |
-| `cannot apply provider workspace rename; this session is not provider-managed` | Provider ownership was not enabled first |
+| `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -1827,7 +1836,7 @@ This control-only command has no public CLI mapping.
 Example:
 
 ```json
-{"id":21,"cmd":"rename-provider-managed-workspace","workspace":4,"key":"ops-stable","name":"prod"}
+{"id":21,"cmd":"rename-provider-managed-workspace","workspace":4,"key":"ops-stable","name":"prod","authority":"<provider-authority>"}
 {"id":21,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
 ```
 

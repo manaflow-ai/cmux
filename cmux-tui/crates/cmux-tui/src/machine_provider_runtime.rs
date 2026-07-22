@@ -535,9 +535,32 @@ impl ProviderMachineRuntime {
         if !machine.connectable {
             anyhow::bail!("{} is not ready to connect", machine.display_name);
         }
+        let provider_managed =
+            matches!(machine.workspace_create, protocol::WorkspaceCreatePolicy::Provider { .. });
+        if provider_managed
+            && !self.client.supports_capability(protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY)?
+        {
+            anyhow::bail!(
+                "{} cannot authorize managed workspace mirrors; upgrade the machine provider",
+                machine.display_name
+            );
+        }
 
-        let opened = self.client.open_machine(machine.id.clone())?;
+        let opened = self.client.open_machine(machine.id.clone(), provider_managed)?;
         let connection_id = opened.connection_id.clone();
+        let workspace_mirror_authority = opened.workspace_mirror_authority;
+        let authority_is_valid = workspace_mirror_authority.as_ref().is_some_and(|authority| {
+            authority.expose().len() >= protocol::MIN_WORKSPACE_MIRROR_AUTHORITY_BYTES
+        });
+        if provider_managed != workspace_mirror_authority.is_some()
+            || (provider_managed && !authority_is_valid)
+        {
+            let _ = self.client.close_machine(connection_id);
+            anyhow::bail!(
+                "{} returned an invalid managed workspace authority binding",
+                machine.display_name
+            );
+        }
         let transport = match self.client.consume_transport(opened.transport) {
             Ok(transport) => transport,
             Err(error) => {
@@ -545,7 +568,11 @@ impl ProviderMachineRuntime {
                 return Err(error.into());
             }
         };
-        let remote = match RemoteSession::connect_transport(transport) {
+        let remote = match workspace_mirror_authority {
+            Some(authority) => RemoteSession::connect_provider_transport(transport, authority),
+            None => RemoteSession::connect_transport(transport),
+        };
+        let remote = match remote {
             Ok(remote) => remote,
             Err(error) => {
                 let _ = self.client.close_machine(connection_id);
@@ -1033,6 +1060,7 @@ mod tests {
             .with_capabilities([
                 protocol::MACHINE_LIFECYCLE_CAPABILITY,
                 protocol::WORKSPACE_LIFECYCLE_CAPABILITY,
+                protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY,
             ]),
         );
 

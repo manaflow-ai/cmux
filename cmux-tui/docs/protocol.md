@@ -16,7 +16,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-guard-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -82,7 +82,7 @@ attach-surface
 scroll-surface
 ```
 
-`provider-managed-workspace-guard-v1` is a one-way ownership handoff for one mux generation. After `mark-workspaces-provider-managed`, ordinary `close-workspace` and `rename-workspace` requests fail without changing state. The provider-aware TUI sends `close-provider-managed-workspace` or `rename-provider-managed-workspace` only after the external provider accepts the corresponding lifecycle request. Provider-aware clients must refuse provider-owned mode when the server does not advertise this capability.
+`provider-managed-workspace-authority-v2` means the mux was provider-locked before its first control client and accepts private mirror commits only with its pre-provisioned authority. `mark-workspaces-provider-managed` validates that authority without changing ownership. Ordinary `close-workspace` and `rename-workspace` requests always fail on that mux. The provider-aware TUI sends an authorized `close-provider-managed-workspace` or `rename-provider-managed-workspace` only after the external provider accepts the corresponding lifecycle request. Provider-aware clients must refuse provider-owned mode when the server does not advertise this capability.
 
 `move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
 
@@ -172,7 +172,7 @@ Existing `set-ratio` clients remain source-compatible and the server keeps the p
 
 Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-initial-size`, a client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state. Older servers that omit the capability must receive neither field.
 
-Provider-aware clients require `provider-managed-workspace-guard-v1` before exposing provider-owned workspace lifecycle controls. The mark is permanent for that mux generation, including during temporary provider descriptor gaps, so an older or stale client cannot reopen ordinary rename or close paths.
+Provider-aware clients require `provider-managed-workspace-authority-v2` before exposing provider-owned workspace lifecycle controls. The server starts with provider ownership fixed for that mux generation, including during temporary provider descriptor gaps, so an older or stale client cannot reopen ordinary rename or close paths.
 
 When several attach clients render the same surface at different sizes, sizing follows latest local interaction. A client reasserts its visible sizes after key input, mouse input, paste, focus gained, or terminal resize. Mux-driven redraws update local mirrors from `surface-resized` without reasserting an idle client's viewport.
 

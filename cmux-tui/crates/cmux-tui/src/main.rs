@@ -25,14 +25,18 @@ mod session;
 mod sidebar_files;
 mod ui;
 
+#[cfg(target_os = "linux")]
+use std::ffi::CStr;
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
 use std::net::Shutdown;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cmux_tui_core::{Mux, SurfaceOptions};
+use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
 use machine::{MachineActionResult, MachineController, MachineRequest, MachineUiState};
@@ -48,6 +52,12 @@ use session::{RemoteSession, Session};
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
+const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
+
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+    static mut environ: *mut *mut libc::c_char;
+}
 
 #[cfg(unix)]
 extern "C" fn handle_signal(_: libc::c_int) {
@@ -73,13 +83,72 @@ fn install_signal_handlers() {
 fn install_signal_handlers() {}
 
 #[cfg(target_os = "linux")]
+fn linux_environment_variable_present(name: &[u8]) -> bool {
+    unsafe {
+        let mut cursor = environ;
+        while !cursor.is_null() && !(*cursor).is_null() {
+            let entry = CStr::from_ptr(*cursor).to_bytes();
+            if entry.get(..name.len()) == Some(name) && entry.get(name.len()) == Some(&b'=') {
+                return true;
+            }
+            cursor = cursor.add(1);
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "linux")]
 fn harden_provider_secret_process() -> io::Result<()> {
-    if std::env::var_os(MACHINE_PROVIDER_TOKEN_ENV).is_none() {
+    if !linux_environment_variable_present(MACHINE_PROVIDER_TOKEN_ENV.as_bytes())
+        && !linux_environment_variable_present(PROVIDER_WORKSPACE_AUTHORITY_ENV.as_bytes())
+    {
         return Ok(());
     }
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
+
+#[cfg(target_os = "linux")]
+fn require_non_dumpable_provider_process() -> anyhow::Result<()> {
+    let dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
+    if dumpable == 0 {
+        Ok(())
+    } else if dumpable < 0 {
+        Err(io::Error::last_os_error().into())
+    } else {
+        anyhow::bail!("provider workspace authority requires a non-dumpable mux process")
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn require_non_dumpable_provider_process() -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn scrub_provider_authority_environment() {
+    let prefix = format!("{PROVIDER_WORKSPACE_AUTHORITY_ENV}=");
+    // Linux exposes the initial environment block through /proc even after
+    // unsetenv. Clear the value in that original block before removing the
+    // entry from the process environment.
+    unsafe {
+        let mut cursor = environ;
+        while !cursor.is_null() && !(*cursor).is_null() {
+            let entry = *cursor;
+            let value_length = {
+                let bytes = CStr::from_ptr(entry).to_bytes();
+                bytes.strip_prefix(prefix.as_bytes()).map(<[u8]>::len)
+            };
+            if let Some(value_length) = value_length {
+                std::ptr::write_bytes(entry.add(prefix.len()).cast::<u8>(), 0, value_length);
+            }
+            cursor = cursor.add(1);
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn scrub_provider_authority_environment() {}
 
 #[cfg(not(target_os = "linux"))]
 fn harden_provider_secret_process() -> io::Result<()> {
@@ -424,6 +493,39 @@ fn parse_provider_token(value: OsString) -> anyhow::Result<BearerToken> {
     BearerToken::new(value).map_err(|_| anyhow::anyhow!("machine-provider credential is invalid"))
 }
 
+fn take_provider_workspace_authority() -> anyhow::Result<Option<ProviderWorkspaceAuthority>> {
+    #[cfg(target_os = "linux")]
+    {
+        if !linux_environment_variable_present(PROVIDER_WORKSPACE_AUTHORITY_ENV.as_bytes()) {
+            return Ok(None);
+        }
+        require_non_dumpable_provider_process()?;
+    }
+    let Some(value) = std::env::var_os(PROVIDER_WORKSPACE_AUTHORITY_ENV) else {
+        return Ok(None);
+    };
+    #[cfg(not(target_os = "linux"))]
+    require_non_dumpable_provider_process()?;
+    // The mux owns the parsed credential now. Scrub the inherited copy before
+    // a terminal surface or helper process can inherit it.
+    scrub_provider_authority_environment();
+    unsafe { std::env::remove_var(PROVIDER_WORKSPACE_AUTHORITY_ENV) };
+    #[cfg(unix)]
+    let value = {
+        let mut bytes = value.into_vec();
+        let decoded = std::str::from_utf8(&bytes)
+            .map(str::to_owned)
+            .map_err(|_| anyhow::anyhow!("provider workspace authority is not valid UTF-8"));
+        bytes.fill(0);
+        decoded?
+    };
+    #[cfg(not(unix))]
+    let value = value
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("provider workspace authority is not valid UTF-8"))?;
+    ProviderWorkspaceAuthority::new(value).map(Some)
+}
+
 fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     let mut conflicts = Vec::new();
     if args.attach {
@@ -571,6 +673,7 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
+    let provider_workspace_authority = take_provider_workspace_authority()?;
     let config = config::load();
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
@@ -595,7 +698,12 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
-    let mux = Mux::new(args.session.clone(), surface_options);
+    let mux = match provider_workspace_authority {
+        Some(authority) => {
+            Mux::new_provider_managed(args.session.clone(), surface_options, authority)
+        }
+        None => Mux::new(args.session.clone(), surface_options),
+    };
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.set_default_colors(config.terminal_defaults);
@@ -820,20 +928,57 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
+    fn initial_environment_contains(needle: &[u8]) -> bool {
+        unsafe {
+            let mut cursor = environ;
+            while !cursor.is_null() && !(*cursor).is_null() {
+                if CStr::from_ptr(*cursor)
+                    .to_bytes()
+                    .windows(needle.len())
+                    .any(|window| window == needle)
+                {
+                    return true;
+                }
+                cursor = cursor.add(1);
+            }
+        }
+        false
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
-    fn linux_provider_token_process_is_non_dumpable() {
+    fn linux_provider_authority_process_is_non_dumpable_and_scrubs_env() {
         const CHILD_MARKER: &str = "CMUX_TEST_PROVIDER_DUMPABLE_CHILD";
+        const AUTHORITY: &str = "provider-workspace-authority-linux-test-00000001";
         if std::env::var_os(CHILD_MARKER).is_some() {
+            assert!(initial_environment_contains(AUTHORITY.as_bytes()));
             harden_provider_secret_process().unwrap();
             let dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
             assert_eq!(dumpable, 0);
+            let authority = take_provider_workspace_authority().unwrap().unwrap();
+            assert_eq!(format!("{authority:?}"), "ProviderWorkspaceAuthority([redacted])");
+            assert!(std::env::var_os(PROVIDER_WORKSPACE_AUTHORITY_ENV).is_none());
+            assert!(!initial_environment_contains(AUTHORITY.as_bytes()));
+            match std::fs::read("/proc/self/environ") {
+                Ok(process_environment) => assert!(
+                    !process_environment
+                        .windows(AUTHORITY.len())
+                        .any(|window| window == AUTHORITY.as_bytes())
+                ),
+                Err(error) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
+            }
             return;
         }
 
         let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "tests::linux_provider_token_process_is_non_dumpable", "--nocapture"])
+            .args([
+                "--exact",
+                "tests::linux_provider_authority_process_is_non_dumpable_and_scrubs_env",
+                "--nocapture",
+            ])
             .env(CHILD_MARKER, "1")
             .env(MACHINE_PROVIDER_TOKEN_ENV, "test-provider-token")
+            .env(PROVIDER_WORKSPACE_AUTHORITY_ENV, AUTHORITY)
             .status()
             .unwrap();
         assert!(status.success());

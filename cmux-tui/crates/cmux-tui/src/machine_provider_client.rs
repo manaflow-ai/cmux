@@ -418,8 +418,15 @@ impl ProviderClient {
         self.request(ProviderRequest::PurgeMachine(params))
     }
 
-    pub(crate) fn open_machine(&self, machine_id: OpaqueId) -> ProviderResult<OpenMachineResult> {
-        self.request(ProviderRequest::OpenMachine(OpenMachineParams { machine_id }))
+    pub(crate) fn open_machine(
+        &self,
+        machine_id: OpaqueId,
+        workspace_mirror_authority: bool,
+    ) -> ProviderResult<OpenMachineResult> {
+        self.request(ProviderRequest::OpenMachine(OpenMachineParams {
+            machine_id,
+            workspace_mirror_authority,
+        }))
     }
 
     pub(crate) fn create_workspace(
@@ -652,7 +659,7 @@ impl ProviderClient {
             return Err(error);
         }
 
-        let frame = match receiver.recv_timeout(timeout) {
+        let mut frame = match receiver.recv_timeout(timeout) {
             Ok(Ok(frame)) => frame,
             Ok(Err(failure)) => return Err(failure.into()),
             Err(RecvTimeoutError::Timeout) => {
@@ -661,7 +668,9 @@ impl ProviderClient {
             }
             Err(RecvTimeoutError::Disconnected) => return Err(ProviderClientError::Disconnected),
         };
-        let response: ResponseEnvelope<T> = serde_json::from_slice(&frame)?;
+        let decoded = serde_json::from_slice(&frame);
+        frame.fill(0);
+        let response: ResponseEnvelope<T> = decoded?;
         if response.id != id {
             return Err(ProviderClientError::Protocol(
                 "response identifier did not match its request".to_string(),
@@ -743,10 +752,16 @@ fn control_reader_loop(
 #[cfg(unix)]
 fn dispatch_control_frame(
     inner: &ProviderClientInner,
-    frame: Vec<u8>,
+    mut frame: Vec<u8>,
 ) -> Result<(), ReaderFailure> {
-    let value: Value = serde_json::from_slice(&frame)
-        .map_err(|error| ReaderFailure::InvalidFrame(error.to_string()))?;
+    let decoded = serde_json::from_slice(&frame);
+    let mut value: Value = match decoded {
+        Ok(value) => value,
+        Err(error) => {
+            frame.fill(0);
+            return Err(ReaderFailure::InvalidFrame(error.to_string()));
+        }
+    };
     let object = value
         .as_object()
         .ok_or_else(|| ReaderFailure::InvalidFrame("top-level frame is not an object".into()))?;
@@ -759,6 +774,7 @@ fn dispatch_control_frame(
         (true, false) => {
             let event: EventEnvelope = serde_json::from_value(value)
                 .map_err(|error| ReaderFailure::InvalidFrame(error.to_string()))?;
+            frame.fill(0);
             if let ProviderEvent::SnapshotChanged(change) = &event.event {
                 inner.publish_snapshot_revision(change.revision);
             }
@@ -769,22 +785,40 @@ fn dispatch_control_frame(
             let id = object
                 .get("id")
                 .and_then(Value::as_str)
-                .ok_or_else(|| ReaderFailure::InvalidFrame("response id is not a string".into()))?;
-            OpaqueId::new(id.to_string())
+                .ok_or_else(|| ReaderFailure::InvalidFrame("response id is not a string".into()))?
+                .to_string();
+            OpaqueId::new(id.clone())
                 .map_err(|error| ReaderFailure::InvalidFrame(error.to_string()))?;
             let response = inner
                 .pending
                 .lock()
                 .map_err(|_| ReaderFailure::InvalidFrame("pending state is poisoned".into()))?
-                .remove(id);
+                .remove(&id);
+            zeroize_json_strings(&mut value);
             if let Some(response) = response {
-                let _ = response.send(Ok(frame));
+                if let Err(error) = response.send(Ok(frame))
+                    && let Ok(mut frame) = error.0
+                {
+                    frame.fill(0);
+                }
+            } else {
+                frame.fill(0);
             }
             Ok(())
         }
         (false, false) => {
             Err(ReaderFailure::InvalidFrame("frame is neither an event nor a response".to_string()))
         }
+    }
+}
+
+#[cfg(unix)]
+fn zeroize_json_strings(value: &mut Value) {
+    match value {
+        Value::String(value) => unsafe { value.as_bytes_mut() }.fill(0),
+        Value::Array(values) => values.iter_mut().for_each(zeroize_json_strings),
+        Value::Object(values) => values.values_mut().for_each(zeroize_json_strings),
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
 }
 
@@ -1317,6 +1351,7 @@ mod tests {
                             ticket: token("one-use-ticket"),
                             expires_at: "2026-07-21T12:00:00Z".to_string(),
                         },
+                        workspace_mirror_authority: None,
                     },
                 ),
             );
@@ -1351,7 +1386,7 @@ mod tests {
             client_descriptor(),
         )
         .expect("authenticate provider");
-        let opened = provider.open_machine(id("machine-1")).expect("open machine");
+        let opened = provider.open_machine(id("machine-1"), false).expect("open machine");
         let transport =
             provider.consume_transport(opened.transport).expect("consume one-use transport ticket");
         drop(transport);

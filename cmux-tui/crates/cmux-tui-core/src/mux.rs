@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 #[cfg(test)]
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -28,6 +29,58 @@ const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
+const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
+const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
+
+/// An opaque per-mux credential provisioned by the external machine
+/// provider. Debug output is deliberately redacted.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ProviderWorkspaceAuthority(Box<str>);
+
+impl ProviderWorkspaceAuthority {
+    pub fn new(value: impl Into<String>) -> anyhow::Result<Self> {
+        let mut value = value.into();
+        if !(PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES..=PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES)
+            .contains(&value.len())
+            || value.bytes().any(|byte| byte.is_ascii_control())
+        {
+            unsafe { value.as_bytes_mut() }.fill(0);
+            anyhow::bail!(
+                "provider workspace authority must be 32 to 512 bytes without control characters"
+            );
+        }
+        Ok(Self(value.into_boxed_str()))
+    }
+
+    fn expose(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl fmt::Debug for ProviderWorkspaceAuthority {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ProviderWorkspaceAuthority([redacted])")
+    }
+}
+
+impl Drop for ProviderWorkspaceAuthority {
+    fn drop(&mut self) {
+        // NUL bytes remain valid UTF-8, so the boxed string can be cleared in
+        // place before its allocation is released.
+        unsafe { self.0.as_bytes_mut() }.fill(0);
+    }
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    let mut difference = left.len() ^ right.len();
+    let length = left.len().max(right.len());
+    for index in 0..length {
+        difference |= usize::from(
+            left.get(index).copied().unwrap_or(0) ^ right.get(index).copied().unwrap_or(0),
+        );
+    }
+    difference == 0
+}
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
@@ -525,6 +578,7 @@ pub struct Mux {
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<LatestClientSize>,
     provider_managed_workspaces: Mutex<bool>,
+    provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
@@ -564,12 +618,24 @@ impl Mux {
     }
 
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
-        Self::new_with_test_surface_runtime(session, surface_options, false)
+        Self::new_with_test_surface_runtime(session, surface_options, None, false)
+    }
+
+    /// Builds a mux whose workspace lifecycle is provider-owned from its
+    /// first control connection. The authority must be provisioned by the
+    /// provider that owns this mux generation.
+    pub fn new_provider_managed(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        authority: ProviderWorkspaceAuthority,
+    ) -> Arc<Self> {
+        Self::new_with_test_surface_runtime(session, surface_options, Some(authority), false)
     }
 
     fn new_with_test_surface_runtime(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
+        provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> Arc<Self> {
         let session = session.into();
@@ -594,7 +660,8 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(LatestClientSize::default()),
-            provider_managed_workspaces: Mutex::new(false),
+            provider_managed_workspaces: Mutex::new(provider_workspace_authority.is_some()),
+            provider_workspace_authority,
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
@@ -634,7 +701,16 @@ impl Mux {
         session: impl Into<String>,
         surface_options: SurfaceOptions,
     ) -> Arc<Self> {
-        Self::new_with_test_surface_runtime(session, surface_options, true)
+        Self::new_with_test_surface_runtime(session, surface_options, None, true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_provider_managed_for_test(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        authority: ProviderWorkspaceAuthority,
+    ) -> Arc<Self> {
+        Self::new_with_test_surface_runtime(session, surface_options, Some(authority), true)
     }
 
     fn next_id(&self) -> u64 {
@@ -713,12 +789,26 @@ impl Mux {
     /// Permanently assigns workspace rename/delete ownership to the external
     /// provider for this mux generation. The transition is intentionally
     /// one-way so a stale frontend cannot reopen ordinary mutation paths.
-    pub fn mark_workspaces_provider_managed(&self) {
+    pub fn mark_workspaces_provider_managed_internal(&self) {
         *self.provider_managed_workspaces.lock().unwrap() = true;
     }
 
     pub fn workspaces_are_provider_managed(&self) -> bool {
         *self.provider_managed_workspaces.lock().unwrap()
+    }
+
+    /// Validates the secret provisioned for this provider-owned mux
+    /// generation. The same rejection covers missing and incorrect secrets so
+    /// the control socket cannot be used to probe whether a value was set.
+    pub fn authorize_provider_workspace_authority(&self, provided: &str) -> anyhow::Result<()> {
+        let authorized = self
+            .provider_workspace_authority
+            .as_ref()
+            .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.expose()));
+        if !authorized {
+            anyhow::bail!("invalid provider workspace authority");
+        }
+        Ok(())
     }
 
     fn authorize_workspace_lifecycle_mutation(
@@ -7115,7 +7205,7 @@ mod tests {
         let mark = std::thread::spawn({
             let mux = mux.clone();
             move || {
-                mux.mark_workspaces_provider_managed();
+                mux.mark_workspaces_provider_managed_internal();
                 marked_tx.send(()).unwrap();
             }
         });

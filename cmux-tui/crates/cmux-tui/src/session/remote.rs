@@ -17,6 +17,7 @@ use cmux_tui_core::{
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
     SurfaceKind, platform::transport,
 };
+use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
 
@@ -30,6 +31,12 @@ const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+
+fn zeroize_string(value: &mut str) {
+    // NUL is valid UTF-8, so the serialized request can be cleared in place
+    // immediately after the synchronous transport write finishes.
+    unsafe { value.as_bytes_mut() }.fill(0);
+}
 
 fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
     if ident.get("app").and_then(Value::as_str) != Some("cmux-tui") {
@@ -398,6 +405,7 @@ pub struct RemoteSession {
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
     capabilities: Mutex<HashSet<String>>,
+    provider_workspace_authority: Option<BearerToken>,
 }
 
 /// Receive complete JSON protocol messages from one transport.
@@ -503,6 +511,20 @@ impl RemoteSession {
     }
 
     pub fn connect_transport(transport: RemoteTransport) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_provider_authority(transport, None)
+    }
+
+    pub fn connect_provider_transport(
+        transport: RemoteTransport,
+        authority: BearerToken,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_provider_authority(transport, Some(authority))
+    }
+
+    fn connect_transport_with_provider_authority(
+        transport: RemoteTransport,
+        provider_workspace_authority: Option<BearerToken>,
+    ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer } = transport;
         let session = Arc::new(RemoteSession {
             writer: Mutex::new(writer),
@@ -519,6 +541,7 @@ impl RemoteSession {
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             capabilities: Mutex::new(HashSet::new()),
+            provider_workspace_authority,
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -557,6 +580,10 @@ impl RemoteSession {
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {
         self.capabilities.lock().unwrap().contains(capability)
+    }
+
+    pub(super) fn provider_workspace_authority(&self) -> Option<&BearerToken> {
+        self.provider_workspace_authority.as_ref()
     }
 
     fn emit(&self, event: MuxEvent) {
@@ -940,14 +967,19 @@ impl RemoteSession {
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
-        let message = serde_json::to_string(&cmd)
+        let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
+        if let Some(Value::String(authority)) = cmd.get_mut("authority") {
+            zeroize_string(authority);
+        }
 
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(id, tx);
         let mut writer = self.writer.lock().unwrap();
-        if let Err(err) = writer.send(&message) {
+        let send_result = writer.send(&message);
+        zeroize_string(&mut message);
+        if let Err(err) = send_result {
             let _ = writer.close();
             drop(writer);
             self.pending.lock().unwrap().remove(&id);
@@ -1453,6 +1485,7 @@ mod tests {
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             capabilities: Mutex::new(HashSet::new()),
+            provider_workspace_authority: None,
         })
     }
 

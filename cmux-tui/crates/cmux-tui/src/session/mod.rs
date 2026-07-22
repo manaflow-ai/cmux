@@ -782,7 +782,7 @@ impl Session {
     pub fn mark_workspaces_provider_managed(&self) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.mark_workspaces_provider_managed();
+                mux.mark_workspaces_provider_managed_internal();
                 Ok(())
             }
             Session::Remote(remote) => {
@@ -791,8 +791,25 @@ impl Session {
                         "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
                     );
                 }
-                remote.request(json!({"cmd": "mark-workspaces-provider-managed"})).map(|_| ())
+                let authority = remote.provider_workspace_authority().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "machine provider did not supply workspace mirror authority; upgrade the provider before attaching"
+                    )
+                })?;
+                remote
+                    .request(json!({
+                        "cmd": "mark-workspaces-provider-managed",
+                        "authority": authority.expose(),
+                    }))
+                    .map(|_| ())
             }
+        }
+    }
+
+    pub fn workspaces_are_provider_managed(&self) -> bool {
+        match self {
+            Session::Local(mux) => mux.workspaces_are_provider_managed(),
+            Session::Remote(remote) => remote.provider_workspace_authority().is_some(),
         }
     }
 
@@ -806,13 +823,19 @@ impl Session {
                 .close_provider_managed_workspace(workspace, &key)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
-            Session::Remote(remote) => remote
-                .request(json!({
-                    "cmd": "close-provider-managed-workspace",
-                    "workspace": workspace,
-                    "key": key,
-                }))
-                .map(|_| ()),
+            Session::Remote(remote) => {
+                let authority = remote.provider_workspace_authority().ok_or_else(|| {
+                    anyhow::anyhow!("machine provider did not supply workspace mirror authority")
+                })?;
+                remote
+                    .request(json!({
+                        "cmd": "close-provider-managed-workspace",
+                        "workspace": workspace,
+                        "key": key,
+                        "authority": authority.expose(),
+                    }))
+                    .map(|_| ())
+            }
         }
     }
 
@@ -855,14 +878,20 @@ impl Session {
                 .rename_provider_managed_workspace(workspace, &key, name)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
-            Session::Remote(remote) => remote
-                .request(json!({
-                    "cmd": "rename-provider-managed-workspace",
-                    "workspace": workspace,
-                    "key": key,
-                    "name": name,
-                }))
-                .map(|_| ()),
+            Session::Remote(remote) => {
+                let authority = remote.provider_workspace_authority().ok_or_else(|| {
+                    anyhow::anyhow!("machine provider did not supply workspace mirror authority")
+                })?;
+                remote
+                    .request(json!({
+                        "cmd": "rename-provider-managed-workspace",
+                        "workspace": workspace,
+                        "key": key,
+                        "name": name,
+                        "authority": authority.expose(),
+                    }))
+                    .map(|_| ())
+            }
         }
     }
 

@@ -1848,6 +1848,10 @@ impl OrderedSession {
         self.inner.mark_workspaces_provider_managed()
     }
 
+    pub fn workspaces_are_provider_managed(&self) -> bool {
+        self.inner.workspaces_are_provider_managed()
+    }
+
     pub fn close_provider_managed_workspace(&self, workspace: WorkspaceId, key: String) {
         self.enqueue_routing("close managed workspace", move |session| {
             session.close_provider_managed_workspace(workspace, key)
@@ -5857,6 +5861,16 @@ impl App {
             .cloned()
     }
 
+    fn provider_manages_current_workspace_session(&self) -> bool {
+        self.session.workspaces_are_provider_managed()
+            || uses_provider_managed_workspaces(self.machine_ui.as_ref())
+    }
+
+    fn reject_inactive_managed_workspace_machine(&mut self) {
+        self.status_message =
+            Some(localization::catalog().sidebar.managed_workspace_machine_inactive.to_string());
+    }
+
     fn reject_unavailable_managed_workspace_operation(&mut self) {
         self.status_message =
             Some(localization::catalog().sidebar.managed_workspace_unavailable.to_string());
@@ -5869,11 +5883,11 @@ impl App {
     }
 
     fn request_rename_managed_workspace(&mut self, workspace_id: WorkspaceId, name: String) {
-        let Some(workspace) = self.managed_workspace_for_view(workspace_id) else {
-            self.reject_unavailable_managed_workspace_operation();
+        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+            self.reject_inactive_managed_workspace_machine();
             return;
         };
-        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+        let Some(workspace) = self.managed_workspace_for_view(workspace_id) else {
             self.reject_unavailable_managed_workspace_operation();
             return;
         };
@@ -5892,7 +5906,7 @@ impl App {
     }
 
     fn request_rename_workspace(&mut self, workspace_id: WorkspaceId, name: String) {
-        if uses_provider_managed_workspaces(self.machine_ui.as_ref()) {
+        if self.provider_manages_current_workspace_session() {
             self.request_rename_managed_workspace(workspace_id, name);
         } else {
             self.session.rename_workspace(workspace_id, name);
@@ -5900,8 +5914,12 @@ impl App {
     }
 
     fn request_delete_workspace(&mut self, workspace_id: WorkspaceId) {
-        if let Some(workspace) = self.managed_workspace_for_view(workspace_id) {
+        if self.provider_manages_current_workspace_session() {
             let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+                self.reject_inactive_managed_workspace_machine();
+                return;
+            };
+            let Some(workspace) = self.managed_workspace_for_view(workspace_id) else {
                 self.reject_unavailable_managed_workspace_operation();
                 return;
             };
@@ -5916,10 +5934,6 @@ impl App {
             } else {
                 self.reject_disallowed_managed_workspace_operation();
             }
-            return;
-        }
-        if uses_provider_managed_workspaces(self.machine_ui.as_ref()) {
-            self.reject_unavailable_managed_workspace_operation();
             return;
         }
         self.session.close_workspace(workspace_id);
@@ -6918,8 +6932,12 @@ impl App {
         else {
             return;
         };
-        let provider_managed = uses_provider_managed_workspaces(self.machine_ui.as_ref());
+        let provider_managed = self.provider_manages_current_workspace_session();
         let target = if provider_managed {
+            if self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active).is_none() {
+                self.reject_inactive_managed_workspace_machine();
+                return;
+            }
             let Some(managed) = self.managed_workspace_for_view(workspace_id) else {
                 self.reject_unavailable_managed_workspace_operation();
                 return;
@@ -9237,7 +9255,11 @@ impl App {
                 return;
             }
             Some(Hit::Workspace { id, .. }) => {
-                if uses_provider_managed_workspaces(self.machine_ui.as_ref()) {
+                if self.provider_manages_current_workspace_session() {
+                    if self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active).is_none() {
+                        self.reject_inactive_managed_workspace_machine();
+                        return;
+                    }
                     let Some(workspace) = self.managed_workspace_for_view(id) else {
                         self.reject_unavailable_managed_workspace_operation();
                         return;
@@ -13744,10 +13766,9 @@ mod tests {
 
         app.open_rename_workspace_prompt_for(workspace.workspace);
         assert!(app.prompt.is_none());
-        assert!(
-            app.status_message
-                .as_deref()
-                .is_some_and(|message| message.contains("select or reconnect"))
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_machine_inactive)
         );
 
         app.status_message = None;
@@ -13758,10 +13779,9 @@ mod tests {
         assert!(mux.with_state(|state| {
             state.workspaces.iter().any(|candidate| candidate.id == workspace.workspace)
         }));
-        assert!(
-            app.status_message
-                .as_deref()
-                .is_some_and(|message| message.contains("select or reconnect"))
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_machine_inactive)
         );
     }
 
@@ -13814,10 +13834,9 @@ mod tests {
             state.workspaces.iter().any(|workspace| workspace.id == placement.workspace)
         }));
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
-        assert!(
-            app.status_message
-                .as_deref()
-                .is_some_and(|message| message.to_ascii_lowercase().contains("managed workspace"))
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_unavailable)
         );
     }
 

@@ -31,9 +31,9 @@ pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
-    NotificationEvent, NotificationLevel, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
-    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, WorkspacePlacement,
-    ZoomMode, ZoomState,
+    NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority, RunPlacement,
+    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
+    TreeDelta, TreeDeltaKind, WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;

@@ -17,6 +17,8 @@ pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const MACHINE_LIFECYCLE_CAPABILITY: &str = "machine-lifecycle-v1";
 pub const WORKSPACE_LIFECYCLE_CAPABILITY: &str = "workspace-lifecycle-v1";
+pub const WORKSPACE_MIRROR_AUTHORITY_CAPABILITY: &str = "workspace-mirror-authority-v1";
+pub const MIN_WORKSPACE_MIRROR_AUTHORITY_BYTES: usize = 32;
 
 const MAX_OPAQUE_ID_BYTES: usize = 512;
 const MAX_ERROR_CODE_BYTES: usize = 64;
@@ -88,8 +90,13 @@ pub struct BearerToken(String);
 
 impl BearerToken {
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidOpaqueId> {
-        let value = value.into();
-        validate_opaque(&value).then_some(Self(value)).ok_or(InvalidOpaqueId)
+        let mut value = value.into();
+        if validate_opaque(&value) {
+            Ok(Self(value))
+        } else {
+            unsafe { value.as_bytes_mut() }.fill(0);
+            Err(InvalidOpaqueId)
+        }
     }
 
     pub fn expose(&self) -> &str {
@@ -100,6 +107,14 @@ impl BearerToken {
 impl fmt::Debug for BearerToken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("BearerToken([redacted])")
+    }
+}
+
+impl Drop for BearerToken {
+    fn drop(&mut self) {
+        // Replacing every byte with NUL preserves UTF-8 validity while
+        // clearing the credential's owned allocation before it is released.
+        unsafe { self.0.as_bytes_mut() }.fill(0);
     }
 }
 
@@ -124,6 +139,10 @@ impl<'de> Deserialize<'de> for BearerToken {
 
 fn validate_opaque(value: &str) -> bool {
     !value.is_empty() && value.len() <= MAX_OPAQUE_ID_BYTES && !value.chars().any(char::is_control)
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Serializes as the fixed protocol name and rejects every other name.
@@ -507,6 +526,11 @@ pub enum ActionFieldKind {
 #[serde(deny_unknown_fields)]
 pub struct OpenMachineParams {
     pub machine_id: OpaqueId,
+    /// Set only after the provider advertises
+    /// `workspace-mirror-authority-v1`. Omitting this field keeps v1
+    /// requests compatible with providers built before that capability.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub workspace_mirror_authority: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -514,6 +538,11 @@ pub struct OpenMachineParams {
 pub struct OpenMachineResult {
     pub connection_id: OpaqueId,
     pub transport: TransportDescriptor,
+    /// Per-mux secret used only for post-provider workspace mirror commits.
+    /// Providers return it only when `workspace-mirror-authority-v1` was
+    /// advertised and must provision the same value into the remote mux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_mirror_authority: Option<BearerToken>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1120,8 +1149,14 @@ mod tests {
                     ticket: token("single-use-ticket"),
                     expires_at: "2026-07-21T22:00:30Z".into(),
                 },
+                workspace_mirror_authority: Some(token(
+                    "provider-workspace-authority-0000000000000001",
+                )),
             },
         );
+        let debug = format!("{response:?}");
+        assert!(debug.contains("BearerToken([redacted])"));
+        assert!(!debug.contains("provider-workspace-authority-0000000000000001"));
         assert_eq!(
             serde_json::to_value(response).unwrap(),
             json!({
@@ -1134,7 +1169,8 @@ mod tests {
                         "kind": "provider_stream",
                         "ticket": "single-use-ticket",
                         "expires_at": "2026-07-21T22:00:30Z"
-                    }
+                    },
+                    "workspace_mirror_authority": "provider-workspace-authority-0000000000000001"
                 }
             })
         );
@@ -1154,6 +1190,48 @@ mod tests {
     }
 
     #[test]
+    fn open_machine_authority_opt_in_preserves_legacy_v1_shape() {
+        let legacy = RequestEnvelope::new(
+            id("legacy-open"),
+            ProviderRequest::OpenMachine(OpenMachineParams {
+                machine_id: id("machine"),
+                workspace_mirror_authority: false,
+            }),
+        );
+        assert_eq!(
+            serde_json::to_value(legacy).unwrap(),
+            json!({
+                "protocol": "cmux.machine-provider",
+                "version": 1,
+                "id": "legacy-open",
+                "method": "open_machine",
+                "params": { "machine_id": "machine" }
+            })
+        );
+
+        let opted_in = RequestEnvelope::new(
+            id("authority-open"),
+            ProviderRequest::OpenMachine(OpenMachineParams {
+                machine_id: id("machine"),
+                workspace_mirror_authority: true,
+            }),
+        );
+        assert_eq!(
+            serde_json::to_value(opted_in).unwrap(),
+            json!({
+                "protocol": "cmux.machine-provider",
+                "version": 1,
+                "id": "authority-open",
+                "method": "open_machine",
+                "params": {
+                    "machine_id": "machine",
+                    "workspace_mirror_authority": true
+                }
+            })
+        );
+    }
+
+    #[test]
     fn every_v1_control_method_and_result_round_trips() {
         let mut action_values = BTreeMap::new();
         action_values.insert("email".into(), ActionValue::Text("member@example.com".into()));
@@ -1167,7 +1245,10 @@ mod tests {
                     supported_versions: vec![1],
                 },
             }),
-            ProviderRequest::OpenMachine(OpenMachineParams { machine_id: id("machine") }),
+            ProviderRequest::OpenMachine(OpenMachineParams {
+                machine_id: id("machine"),
+                workspace_mirror_authority: false,
+            }),
             ProviderRequest::SelectScope(SelectScopeParams { scope_id: id("team") }),
             ProviderRequest::CreateMachine(CreateMachineParams {
                 scope_id: id("team"),
