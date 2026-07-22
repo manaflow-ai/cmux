@@ -253,6 +253,7 @@ final class MobileWorkspaceListObserver {
                 // sub-model, so a pure todo mutation would otherwise never
                 // re-emit to external listeners.
                 workspace.todoState.$statusOverride.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.$statusHidden.map { _ in () }.eraseToAnyPublisher(),
                 workspace.todoState.$checklist.map { _ in () }.eraseToAnyPublisher(),
                 workspace.currentDirectoryChangeRevisionPublisher()
                     .map { _ in () }
