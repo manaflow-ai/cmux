@@ -152,6 +152,9 @@ public final class MobileIrohRuntimeComposition:
     private var observedAuthState: MobileIrohAuthState?
     private var observedAccountID: String? { observedAuthState?.accountID }
     private var activeAccountID: String?
+    private var brokerCooldown = CmxIrohBrokerCooldown()
+    private let diagnosticArchive = DiagnosticReportArchive.defaultArchive()
+    private var previousLaunchDiagnosticReport: DiagnosticReport??
     private var lastKnownBindingAccountID: String?
     private var lastKnownBindingTag: String?
     private var lastKnownBindingID: String?
@@ -487,7 +490,7 @@ public final class MobileIrohRuntimeComposition:
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
         await prepareForConnection()
-        guard let runtime else { throw CmxIrohClientRuntimeError.inactive }
+        let runtime = try runtimeForDial()
         return try runtime.transportFactory.makeTransport(for: request)
     }
 
@@ -504,7 +507,7 @@ public final class MobileIrohRuntimeComposition:
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
         await prepareForConnection()
-        guard let runtime else { throw CmxIrohClientRuntimeError.inactive }
+        let runtime = try runtimeForDial()
         return try await runtime.openBidirectionalLane(
             for: request,
             lane: lane,
@@ -560,14 +563,80 @@ public final class MobileIrohRuntimeComposition:
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
         await prepareForConnection()
-        guard let runtime else { throw CmxIrohClientRuntimeError.inactive }
+        let runtime = try runtimeForDial()
         return try await runtime.serverEventByteStream(for: request)
     }
 
+    private func runtimeForDial() throws -> CmxIrohClientRuntime {
+        if let runtime { return runtime }
+        if let accountID = observedAccountID ?? activeAccountID,
+           let remaining = brokerCooldown.remainingSeconds(
+               accountID: accountID,
+               now: now()
+           ) {
+            throw CmxIrohBrokerCooldownError(retryAfterSeconds: remaining)
+        }
+        throw CmxIrohClientRuntimeError.inactive
+    }
+
+    private func recordBrokerCooldown(for error: any Error, accountID: String) {
+        // The gate's own synthesized error echoes the remaining floor; treating
+        // it as a fresh directive would slide the deadline forward on every
+        // sub-second attempt.
+        guard !(error is CmxIrohBrokerCooldownError),
+              let retryAfterSeconds = CmxIrohBrokerCooldown.directiveSeconds(
+                  for: error
+              ) else { return }
+        brokerCooldown.record(
+            accountID: accountID,
+            retryAfterSeconds: retryAfterSeconds,
+            now: now()
+        )
+    }
+
     /// Preserves the endpoint when iOS backgrounds the scene.
+    /// Archives the diagnostic ring without touching the runtime. Called on
+    /// scene inactivation (the app switcher opening) so a force-quit that
+    /// never delivers a background transition still leaves the previous
+    /// launch's events exportable.
+    public func archiveDiagnostics() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .appLifecycleChanged,
+            a: DiagnosticAppLifecyclePhase.inactive.rawValue
+        ))
+        persistDiagnosticsSnapshot()
+    }
+
+    /// Reads the previous launch's archive (once) and replaces it with the
+    /// current ring, off the main actor: backgrounding must not spend the
+    /// suspension window on filesystem work.
+    private func persistDiagnosticsSnapshot() {
+        guard let diagnosticLog, let diagnosticArchive else { return }
+        let needsPreviousLoad = previousLaunchDiagnosticReport == nil
+        Task.detached(priority: .utility) { [weak self] in
+            let previous = needsPreviousLoad ? diagnosticArchive.load() : nil
+            if needsPreviousLoad {
+                await self?.cachePreviousLaunchReport(previous)
+            }
+            diagnosticArchive.save(await diagnosticLog.snapshot())
+        }
+    }
+
+    private func cachePreviousLaunchReport(_ report: DiagnosticReport?) {
+        guard previousLaunchDiagnosticReport == nil else { return }
+        previousLaunchDiagnosticReport = .some(report)
+    }
+
     public func didEnterBackground() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .appLifecycleChanged,
+            a: DiagnosticAppLifecyclePhase.background.rawValue
+        ))
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
+        // Archive the diagnostic ring so a later relaunch keeps the events
+        // around a drop exportable.
+        persistDiagnosticsSnapshot()
         let runtime = runtime
         sceneTransitionTask = Task {
             await runtime?.didEnterBackground()
@@ -576,6 +645,10 @@ public final class MobileIrohRuntimeComposition:
 
     /// Health-checks and refreshes the preserved endpoint on foreground return.
     public func didBecomeActive() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .appLifecycleChanged,
+            a: DiagnosticAppLifecyclePhase.active.rawValue
+        ))
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
         let auth = auth
@@ -678,6 +751,9 @@ public final class MobileIrohRuntimeComposition:
         selectedPathObservationTask?.cancel()
         selectedPathObservationTask = nil
         activeAccountID = nil
+        brokerCooldown.clear()
+        diagnosticArchive?.clear()
+        previousLaunchDiagnosticReport = .some(nil)
         let fallbackBindingID = lastKnownBindingID
         let preparation: CmxIrohClientSignOutPreparation
         if let previousRuntime {
@@ -1109,6 +1185,11 @@ public final class MobileIrohRuntimeComposition:
             selectedPathObservationTask?.cancel()
             selectedPathObservationTask = nil
             activeAccountID = nil
+            if shouldErase {
+                brokerCooldown.clear()
+                diagnosticArchive?.clear()
+                previousLaunchDiagnosticReport = .some(nil)
+            }
             await lanPeerDiscovery?.stop()
             if let previousRuntime {
                 if shouldErase {
@@ -1151,6 +1232,7 @@ public final class MobileIrohRuntimeComposition:
         } catch is CancellationError {
             return
         } catch {
+            recordBrokerCooldown(for: error, accountID: targetAccountID)
             diagnosticLog?.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
@@ -1163,6 +1245,16 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private func activate(accountID: String, revision: UInt64) async throws {
+        if let remaining = brokerCooldown.remainingSeconds(
+            accountID: accountID,
+            now: now()
+        ) {
+            diagnosticLog?.record(DiagnosticEvent(
+                .retryScheduled,
+                ms: UInt32(clamping: remaining * 1_000)
+            ))
+            throw CmxIrohBrokerCooldownError(retryAfterSeconds: remaining)
+        }
         guard let auth else { throw CmxIrohClientRuntimeError.inactive }
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
@@ -1235,6 +1327,7 @@ public final class MobileIrohRuntimeComposition:
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
+        var freshRelayCredential: CmxIrohRelayTokenResponse?
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
                 policyCache: relayPolicyCache,
@@ -1245,14 +1338,17 @@ public final class MobileIrohRuntimeComposition:
             let effective: CmxIrohEffectiveRelayPolicy
             diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
             do {
-                effective = try await service.refresh(
+                let outcome = try await service.refreshWithCredential(
                     endpointID: endpointID,
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     now: now()
                 )
+                effective = outcome.effective
+                freshRelayCredential = outcome.relayCredential
                 diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
             } catch {
+                recordBrokerCooldown(for: error, accountID: accountID)
                 diagnosticLog?.record(DiagnosticEvent(
                     .relayPolicyRefreshFailed,
                     b: Self.diagnosticFailureKind(for: error).rawValue
@@ -1290,6 +1386,13 @@ public final class MobileIrohRuntimeComposition:
         let compatibleCachedRelay = cachedRelay.flatMap { relay in
             Set(relay.relayFleet) == managedRelayURLs ? relay : nil
         }
+        let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
+            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
+        }
+        let relayCredentialMintNotBefore = brokerCooldown.remainingSeconds(
+            accountID: accountID,
+            now: now()
+        ).map { now().addingTimeInterval(TimeInterval($0)) }
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -1300,7 +1403,8 @@ public final class MobileIrohRuntimeComposition:
             capabilities: Self.capabilities,
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: compatibleCachedRelay
+            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
+            relayCredentialMintNotBefore: relayCredentialMintNotBefore
         )
         let credentialRepository = brokerCredentials
         let routeCatalog = routeCatalog
@@ -1315,6 +1419,13 @@ public final class MobileIrohRuntimeComposition:
             factory: endpointFactoryProvider(transportVerificationMode),
             broker: broker,
             configuration: configuration,
+            handleRelayRateLimit: { @MainActor [weak self] seconds in
+                self?.brokerCooldown.record(
+                    accountID: accountID,
+                    retryAfterSeconds: seconds,
+                    now: self?.now() ?? Date()
+                )
+            },
             pendingRevocations: pendingRevocations,
             protocolConfiguration: Self.protocolConfiguration(
                 for: transportVerificationMode
@@ -1455,6 +1566,14 @@ public final class MobileIrohRuntimeComposition:
         }
         self.runtime = runtime
         activeAccountID = accountID
+        // The floor survives a successful direct-only activation: live dials
+        // bypass the gate through the active runtime, while a torn-down
+        // runtime must not reach the rate-limited broker before Retry-After
+        // expires. It also seeds the policy refresh scheduler below.
+        let pendingRelayRetryAfterSeconds = brokerCooldown.remainingSeconds(
+            accountID: accountID,
+            now: now()
+        )
         diagnosticLog?.record(DiagnosticEvent(.endpointActive, a: DiagnosticTransportKind.iroh.rawValue))
         relayPolicyService = resolvedPolicyService
         relayPolicyEffective = resolvedEffectivePolicy
@@ -1475,7 +1594,8 @@ public final class MobileIrohRuntimeComposition:
             accountID: accountID,
             endpointID: endpointID,
             trustRoot: relayPolicyTrustRoot,
-            revision: revision
+            revision: revision,
+            initialRetryAfterSeconds: pendingRelayRetryAfterSeconds
         )
         publishIrohSettingsUpdate()
     }
@@ -2017,7 +2137,16 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
 
     public func clearIrohDiagnosticReport() async {
         await diagnosticLog?.clear()
+        diagnosticArchive?.clear()
+        previousLaunchDiagnosticReport = .some(nil)
         publishIrohSettingsUpdate()
+    }
+
+    public func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport? {
+        if let cached = previousLaunchDiagnosticReport { return cached }
+        let loaded = diagnosticArchive?.load()
+        previousLaunchDiagnosticReport = .some(loaded)
+        return loaded
     }
 
     private func observeRelayPolicyDiagnostics(
@@ -2075,15 +2204,24 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         accountID: String,
         endpointID: CmxIrohPeerIdentity,
         trustRoot: CmxIrohRelayPolicyTrustRoot?,
-        revision: UInt64
+        revision: UInt64,
+        initialRetryAfterSeconds: Int? = nil
     ) {
         relayPolicyRefreshTask?.cancel()
         guard let service, let trustRoot else {
             relayPolicyRefreshTask = nil
             return
         }
+        // A Retry-After from the activation-time bootstrap failure seeds the
+        // first attempt so the scheduler's default cadence cannot retry the
+        // rate-limited endpoint early. The credential coordinator owns the
+        // floor-expiry mint; this refresh follows staggered so the two
+        // consumers of the same endpoint never wake together.
+        let initialRetryAt = initialRetryAfterSeconds.map {
+            now().addingTimeInterval(TimeInterval($0) + 30)
+        }
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
-            var retryAt: Date?
+            var retryAt: Date? = initialRetryAt
             var failureCount = 0
             var relayAuthorityExpired = false
             while !Task.isCancelled {

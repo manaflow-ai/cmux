@@ -86,11 +86,17 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
     private struct BrokerError: Decodable { let error: String }
+    private struct RouteCooldown: Sendable {
+        let code: String?
+        let retryUntil: Date
+    }
 
     private let baseURL: URL
     private let tokenSource: CmxIrohBrokerTokenSource
     private let transport: any CmxIrohHTTPTransport
     private let requestTimeout: TimeInterval
+    private let now: @Sendable () -> Date
+    private var routeCooldowns: [String: RouteCooldown] = [:]
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
@@ -102,7 +108,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             baseURL: baseURL,
             tokenSource: tokenSource,
             transport: CmxIrohURLSessionTransport(),
-            requestTimeout: requestTimeout
+            requestTimeout: requestTimeout,
+            now: Date.init
         )
     }
 
@@ -111,7 +118,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
         transport: any CmxIrohHTTPTransport,
-        requestTimeout: TimeInterval = 10
+        requestTimeout: TimeInterval = 10,
+        now: @escaping @Sendable () -> Date = Date.init
     ) throws {
         guard Self.isAllowedBaseURL(baseURL), requestTimeout > 0 else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
@@ -120,6 +128,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         self.tokenSource = tokenSource
         self.transport = transport
         self.requestTimeout = requestTimeout
+        self.now = now
     }
 
     public func issueChallenge(
@@ -264,6 +273,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         method: String,
         body: Data?
     ) async throws -> Response {
+        try applyRouteCooldown(path: path, method: method)
         let accessToken = await tokenSource.accessToken()
         let refreshToken = await tokenSource.refreshToken()
         guard let accessToken, let refreshToken else {
@@ -303,6 +313,12 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                let retryAfterSeconds = Self.retryAfterSeconds(
                    http.value(forHTTPHeaderField: "Retry-After")
                ) {
+                recordRouteCooldown(
+                    path: path,
+                    method: method,
+                    code: code,
+                    retryAfterSeconds: retryAfterSeconds
+                )
                 throw CmxIrohTrustBrokerClientError.rateLimited(
                     code: code,
                     retryAfterSeconds: retryAfterSeconds
@@ -320,6 +336,36 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         } catch {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
+    }
+
+    private func applyRouteCooldown(path: String, method: String) throws {
+        let key = routeCooldownKey(path: path, method: method)
+        guard let cooldown = routeCooldowns[key] else { return }
+        let remaining = cooldown.retryUntil.timeIntervalSince(now())
+        guard remaining > 0 else {
+            routeCooldowns[key] = nil
+            return
+        }
+        throw CmxIrohTrustBrokerClientError.rateLimited(
+            code: cooldown.code,
+            retryAfterSeconds: max(1, Int(ceil(remaining)))
+        )
+    }
+
+    private func recordRouteCooldown(
+        path: String,
+        method: String,
+        code: String?,
+        retryAfterSeconds: Int
+    ) {
+        routeCooldowns[routeCooldownKey(path: path, method: method)] = RouteCooldown(
+            code: code,
+            retryUntil: now().addingTimeInterval(TimeInterval(retryAfterSeconds))
+        )
+    }
+
+    private func routeCooldownKey(path: String, method: String) -> String {
+        "\(method.uppercased()) \(path)"
     }
 
     private static func isAllowedBaseURL(_ url: URL) -> Bool {
@@ -346,7 +392,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
               !value.isEmpty,
               value.utf8.allSatisfy({ (48 ... 57).contains($0) }),
               let seconds = Int(value),
-              (1 ... 3_600).contains(seconds),
+              (1 ... 86_400).contains(seconds),
               String(seconds) == value else {
             return nil
         }

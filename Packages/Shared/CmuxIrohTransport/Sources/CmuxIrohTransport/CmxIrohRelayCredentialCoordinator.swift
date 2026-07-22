@@ -37,6 +37,11 @@ public actor CmxIrohRelayCredentialCoordinator {
     private let retryJitter: @Sendable () -> Double
     private let automaticRefreshEnabled: Bool
     private let credentialDidInstall: @Sendable (CmxIrohRelayTokenResponse) async -> Void
+    private let rateLimitedDirective: (@Sendable (Int) async -> Void)?
+    /// Coordinator-owned earliest next mint. Every schedule and on-demand
+    /// refresh honors it, and every observed Retry-After extends it, so no
+    /// path can spend a guaranteed rejection inside the server's floor.
+    private var mintFloor: Date?
     private var binding: Binding?
     private var installedCredential: InstalledCredential?
     private var lifecycleRevision: UInt64 = 0
@@ -65,7 +70,8 @@ public actor CmxIrohRelayCredentialCoordinator {
         automaticRefreshEnabled: Bool = true,
         credentialDidInstall: @escaping @Sendable (
             CmxIrohRelayTokenResponse
-        ) async -> Void = { _ in }
+        ) async -> Void = { _ in },
+        rateLimitedDirective: (@Sendable (Int) async -> Void)? = nil
     ) {
         self.supervisor = supervisor
         self.broker = broker
@@ -77,6 +83,28 @@ public actor CmxIrohRelayCredentialCoordinator {
         self.retryJitter = retryJitter
         self.automaticRefreshEnabled = automaticRefreshEnabled
         self.credentialDidInstall = credentialDidInstall
+        self.rateLimitedDirective = rateLimitedDirective
+    }
+
+    /// Latest of the supplied deadline and the coordinator-owned mint floor.
+    private func flooredDeadline(_ deadline: Date?) -> Date? {
+        guard let mintFloor, mintFloor > clock.now() else { return deadline }
+        guard let deadline else { return mintFloor }
+        return max(deadline, mintFloor)
+    }
+
+    /// Extends the mint floor from an observed Retry-After and forwards the
+    /// directive to the owner so it survives runtime teardown.
+    private func noteRateLimited(_ error: any Error) {
+        guard let seconds = (error as? CmxIrohTrustBrokerClientError)?
+            .retryAfterSeconds else { return }
+        let proposed = clock.now().addingTimeInterval(TimeInterval(seconds))
+        if mintFloor.map({ proposed > $0 }) ?? true {
+            mintFloor = proposed
+        }
+        if let rateLimitedDirective {
+            Task { await rateLimitedDirective(seconds) }
+        }
     }
 
     /// Starts refresh scheduling for one exact registered endpoint binding.
@@ -90,7 +118,8 @@ public actor CmxIrohRelayCredentialCoordinator {
         bindingID: String,
         endpointIdentity: CmxIrohPeerIdentity,
         bootstrap: CmxIrohRelayTokenResponse? = nil,
-        waitForInitialCredential: Bool = false
+        waitForInitialCredential: Bool = false,
+        mintNotBefore: Date? = nil
     ) async throws {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
@@ -100,6 +129,9 @@ public actor CmxIrohRelayCredentialCoordinator {
         let expectedBinding = Binding(id: bindingID, endpointIdentity: endpointIdentity)
         binding = expectedBinding
         installedCredential = nil
+        if let mintNotBefore {
+            mintFloor = [mintFloor, mintNotBefore].compactMap { $0 }.max()
+        }
 
         if let bootstrap {
             do {
@@ -128,6 +160,22 @@ public actor CmxIrohRelayCredentialCoordinator {
                 return
             }
         }
+        // A Retry-After floor from the caller's own bootstrap attempt covers
+        // this same endpoint; the first mint waits it out instead of spending
+        // a guaranteed rejection.
+        if let mintFloor, mintFloor > clock.now() {
+            if waitForInitialCredential {
+                try await installInitialCredentialAfterRetry(
+                    binding: expectedBinding,
+                    revision: revision,
+                    firstRetry: mintFloor,
+                    initialFailureCount: 0
+                )
+            } else {
+                startLoopIfEnabled(revision: revision, firstRefresh: mintFloor)
+            }
+            return
+        }
         do {
             let response = try await broker.issueRelayToken(
                 bindingID: bindingID,
@@ -143,6 +191,7 @@ public actor CmxIrohRelayCredentialCoordinator {
             guard isCurrent(revision), !Task.isCancelled else {
                 throw CancellationError()
             }
+            noteRateLimited(error)
             let delay = retryDelay(failureCount: 0, error: error)
             let firstRetry = retryDeadline(
                 now: clock.now(),
@@ -173,7 +222,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         firstRetry: Date?,
         initialFailureCount: Int
     ) async throws {
-        var deadline = firstRetry
+        var deadline = flooredDeadline(firstRetry)
         var failureCount = initialFailureCount
         while isCurrent(revision), !Task.isCancelled {
             if let deadline {
@@ -198,6 +247,7 @@ public actor CmxIrohRelayCredentialCoordinator {
                 guard isCurrent(revision), !Task.isCancelled else {
                     throw CancellationError()
                 }
+                noteRateLimited(error)
                 let delay = retryDelay(failureCount: failureCount, error: error)
                 deadline = retryDeadline(
                     now: clock.now(),
@@ -243,6 +293,13 @@ public actor CmxIrohRelayCredentialCoordinator {
         }
         guard automaticRefreshEnabled else { return }
         let now = clock.now()
+        if let mintFloor, now < mintFloor {
+            // Inside the server's floor an on-demand mint is a guaranteed
+            // rejection; keep the scheduled loop aimed at the floor instead.
+            refreshTask?.cancel()
+            startLoopIfEnabled(revision: lifecycleRevision, firstRefresh: mintFloor)
+            return
+        }
         if let installedCredential,
            now < installedCredential.refreshAfter,
            installedCredential.expiresAt.timeIntervalSince(now)
@@ -262,6 +319,7 @@ public actor CmxIrohRelayCredentialCoordinator {
                 throw CancellationError()
             }
             refreshTask?.cancel()
+            noteRateLimited(error)
             let delay = retryDelay(failureCount: 0, error: error)
             startLoopIfEnabled(
                 revision: revision,
@@ -283,6 +341,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         initialFailureCount: Int = 0
     ) {
         guard automaticRefreshEnabled else { return }
+        let firstRefresh = flooredDeadline(firstRefresh)
         refreshTask = Task { [weak self] in
             await self?.run(
                 revision: revision,
@@ -320,6 +379,7 @@ public actor CmxIrohRelayCredentialCoordinator {
             } catch {
                 guard isCurrent(revision), !Task.isCancelled else { return }
                 let now = clock.now()
+                noteRateLimited(error)
                 let delay = retryDelay(failureCount: failureCount, error: error)
                 deadline = retryDeadline(
                     now: now,

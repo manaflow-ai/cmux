@@ -233,6 +233,7 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
 
     private var discoveryResponse: CmxIrohDiscoveryResponse
     private var responses: [CmxIrohPairGrantResponse]
+    private var discoveryRequests = 0
     private var pairGrantRequests: [PairGrantRequest] = []
     private let discoveryError: (any Error)?
     private let pairGrantError: (any Error)?
@@ -250,6 +251,7 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
+        discoveryRequests += 1
         if let discoveryError { throw discoveryError }
         return discoveryResponse
     }
@@ -273,6 +275,10 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
 
     func observedPairGrantRequests() -> [PairGrantRequest] {
         pairGrantRequests
+    }
+
+    func discoveryRequestCount() -> Int {
+        discoveryRequests
     }
 
     func pairGrantRequestCount() -> Int {
