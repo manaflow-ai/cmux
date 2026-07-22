@@ -90,7 +90,7 @@ public struct BrowserURLResolver: Sendable {
         if isWebURL(compacted) {
             return hasCompleteWebAuthorityBeforeFirstCompactedCharacter(in: original)
         }
-        guard hasSchemeLessURLEvidenceBeforeFirstLineBreak(in: original) else { return false }
+        guard hasCompleteSchemeLessAuthorityBeforeFirstCompactedCharacter(in: original) else { return false }
         return isSchemeLessHostWithStructure(compacted)
     }
 
@@ -109,13 +109,15 @@ public struct BrowserURLResolver: Sendable {
         return authorityEnd < compactedCharacter
     }
 
-    /// Rejects free text whose first URL-like token starts only after a line break.
-    private func hasSchemeLessURLEvidenceBeforeFirstLineBreak(in input: String) -> Bool {
-        guard let lineBreak = input.firstIndex(where: \.isNewline) else { return false }
-        return input[..<lineBreak].contains { character in
-            character == "." || character == ":" || character == "/" ||
-                character == "?" || character == "#"
+    /// Allows scheme-less wrap removal only after the authority is complete.
+    private func hasCompleteSchemeLessAuthorityBeforeFirstCompactedCharacter(in input: String) -> Bool {
+        guard let compactedCharacter = input.firstIndex(where: { $0.isNewline || $0 == "\t" }),
+              let authorityEnd = input.firstIndex(where: { character in
+                  character == "/" || character == "?" || character == "#"
+              }) else {
+            return false
         }
+        return authorityEnd < compactedCharacter
     }
 
     private func isWebURL(_ input: String) -> Bool {
