@@ -108,11 +108,12 @@ extension CMUXCLI {
         let (workspaceOption, afterWorkspace) = parseOption(commandArgs, name: "--workspace")
         let (windowOption, afterWindow) = parseOption(afterWorkspace, name: "--window")
         var positional = afterWindow
-        if positional.first == "--" {
+        let hasLeadingTerminator = positional.first == "--"
+        if hasLeadingTerminator {
             positional.removeFirst()
         }
         let pathTokens: [String]
-        if positional.first?.lowercased() == "open" {
+        if !hasLeadingTerminator, positional.first?.lowercased() == "open" {
             pathTokens = Array(positional.dropFirst())
         } else {
             pathTokens = positional
