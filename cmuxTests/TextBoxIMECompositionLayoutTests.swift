@@ -50,6 +50,12 @@ struct TextBoxIMECompositionLayoutTests {
         )
         let coordinator = TextBoxInputView.Coordinator(parent: inputView)
         let textView = makeTextView()
+        let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = textView
+        defer {
+            window.contentView = nil
+            window.close()
+        }
         var completedLayoutCount = 0
         textView.onLayoutCompleted = { textView in
             completedLayoutCount += 1
