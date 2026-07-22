@@ -1254,6 +1254,25 @@ mod tests {
     }
 
     #[test]
+    fn provider_connect_footer_requires_negotiated_support() {
+        let mut snapshot = snapshot(1, "Machine", protocol::MachineStatus::Running);
+        snapshot.capabilities.connect_external_machine = true;
+        let lifecycle = machine_lifecycle_snapshot(&snapshot);
+        let keys = Arc::new(Mutex::new(KeyRegistry {
+            by_id: HashMap::new(),
+            by_key: HashMap::new(),
+            next: 1,
+        }));
+
+        let ui = machine_ui_state(&snapshot, &lifecycle, None, &keys, true);
+
+        assert!(
+            !ui.snapshot.capabilities.connect,
+            "a snapshot bit cannot expose an operation absent from hello negotiation"
+        );
+    }
+
+    #[test]
     fn workspace_policy_translation_preserves_provider_order_and_default() {
         let mut snapshot = snapshot(1, "Machine", protocol::MachineStatus::Running);
         snapshot.machines[0].workspace_create = protocol::WorkspaceCreatePolicy::Provider {
