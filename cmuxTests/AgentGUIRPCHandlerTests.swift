@@ -115,6 +115,15 @@ struct AgentGUIRPCHandlerTests {
                 openTranscriptPath: transcriptPath
             ),
         ])
+        service.handleHookEventSerial(WorkstreamEvent(
+            sessionId: "session-artifact",
+            hookEventName: .sessionStart,
+            source: "claude",
+            surfaceId: "surface-artifact",
+            transcriptPath: transcriptPath,
+            cwd: "/tmp/agent-gui-artifact",
+            ppid: 41_001
+        ))
 
         let context = try #require(service.artifactSessionContext(sessionID: "session-artifact"))
         #expect(context.sessionID == "session-artifact")
