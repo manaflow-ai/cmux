@@ -1099,6 +1099,58 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertFalse(panel.isReactGrabActive)
     }
 
+    func testCompletedScopedRequestCannotOverwriteLaterUnscopedState() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+
+        let confirmed = await panel.requestReactGrabActiveAndWait(
+            true,
+            reason: "test.alreadyActive"
+        )
+        let completedGeneration = panel.reactGrabStateReconciliationGeneration
+
+        XCTAssertTrue(confirmed)
+        XCTAssertNil(panel.requestedReactGrabActive)
+        XCTAssertNil(panel.latestReactGrabRequestedState)
+
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: false))
+        panel.handleReactGrabBridgeMessage(.stateChange(
+            isActive: true,
+            requestGeneration: completedGeneration
+        ))
+
+        XCTAssertFalse(panel.isReactGrabActive)
+    }
+
+    func testNavigationCommitInvalidatesReactGrabStateAndRoundTrip() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        panel.armReactGrabRoundTrip(returnTo: UUID())
+        XCTAssertTrue(panel.requestReactGrabActive(true, reason: "test.pending"))
+        let pendingConfirmation = ReactGrabStateConfirmation(target: true)
+        panel.reactGrabStateConfirmation = pendingConfirmation
+        let reconciliationGeneration = panel.reactGrabStateReconciliationGeneration
+        let navigationDelegate = try XCTUnwrap(panel.webView.navigationDelegate)
+
+        navigationDelegate.webView?(panel.webView, didCommit: nil)
+
+        XCTAssertFalse(panel.isReactGrabActive)
+        XCTAssertNil(panel.requestedReactGrabActive)
+        XCTAssertNil(panel.latestReactGrabRequestedState)
+        XCTAssertNil(panel.reactGrabStateReconciliationTask)
+        XCTAssertNil(panel.reactGrabStateConfirmation)
+        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+        XCTAssertGreaterThan(
+            panel.reactGrabStateReconciliationGeneration,
+            reconciliationGeneration
+        )
+        let pendingConfirmationResult = await pendingConfirmation.wait(timeout: .seconds(1))
+        XCTAssertFalse(pendingConfirmationResult)
+    }
+
     func testWebViewReplacementInvalidatesReactGrabStateAndRoundTrip() async {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }

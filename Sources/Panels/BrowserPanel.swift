@@ -3840,6 +3840,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 // navigation then fails or is canceled, letting a playing pane be
                 // discarded. didCommit does not fire for same-document (pushState)
                 // navigations, so a persisting SPA video keeps its frame id.
+                self.resetReactGrabState(reason: "navigationCommit")
                 self.resetMediaPlaybackTracking()
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")

@@ -344,6 +344,7 @@ extension BrowserPanel {
         case .stateChange(let isActive, let requestGeneration):
             if let requestGeneration {
                 guard requestGeneration == reactGrabStateReconciliationGeneration,
+                      requestedReactGrabActive == isActive,
                       latestReactGrabRequestedState == isActive else {
 #if DEBUG
                     cmuxDebugLog(
@@ -644,6 +645,7 @@ extension BrowserPanel {
             return
         }
         requestedReactGrabActive = nil
+        latestReactGrabRequestedState = nil
         if requested, !confirmed {
             clearReactGrabRoundTrip(reason: "\(reason).confirmationFailed")
         }
