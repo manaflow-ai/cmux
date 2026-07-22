@@ -2,6 +2,26 @@ import Foundation
 
 /// A stable argument contract shared by every presentation of a cmux action.
 public struct CmuxActionArgumentDefinition: Sendable, Equatable {
+    /// One finite value offered by an interactive action adapter.
+    public struct Choice: Sendable, Equatable, Identifiable {
+        /// Stable value supplied to the action handler and automation callers.
+        public let value: String
+        /// Localized label shown by interactive adapters.
+        public let title: String
+
+        /// Uses the stable wire value as this choice's identity.
+        public var id: String { value }
+
+        /// Creates one finite action-argument choice.
+        /// - Parameters:
+        ///   - value: Stable value supplied to the action handler.
+        ///   - title: Localized label shown to the user.
+        public init(value: String, title: String) {
+            self.value = value
+            self.title = title
+        }
+    }
+
     /// The value representation accepted on the wire and in configuration.
     public enum ValueType: String, Sendable {
         case string
@@ -11,24 +31,32 @@ public struct CmuxActionArgumentDefinition: Sendable, Equatable {
 
     /// Stable argument name.
     public let name: String
+    /// Localized argument label shown by interactive adapters.
+    public let title: String
     /// Expected value representation.
     public let valueType: ValueType
     /// Whether automation callers must supply this argument.
     public let required: Bool
     /// Whether an explicitly supplied empty string is valid.
     public let allowsEmpty: Bool
+    /// Finite accepted values, or an empty array when the value is free-form.
+    public let choices: [Choice]
 
     /// Creates a static action argument contract.
     public init(
         name: String,
+        title: String? = nil,
         valueType: ValueType = .string,
         required: Bool = true,
-        allowsEmpty: Bool = false
+        allowsEmpty: Bool = false,
+        choices: [Choice] = []
     ) {
         self.name = name
+        self.title = title ?? name
         self.valueType = valueType
         self.required = required
         self.allowsEmpty = allowsEmpty
+        self.choices = choices
     }
 }
 

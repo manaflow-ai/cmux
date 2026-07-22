@@ -138,9 +138,13 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
     ) -> ControlCommandPaletteArgument {
         ControlCommandPaletteArgument(
             name: argument.name,
+            title: argument.title,
             type: argument.valueType.rawValue,
             required: argument.required,
-            allowsEmpty: argument.allowsEmpty
+            allowsEmpty: argument.allowsEmpty,
+            choices: argument.choices.map {
+                ControlCommandPaletteArgument.Choice(value: $0.value, title: $0.title)
+            }
         )
     }
 

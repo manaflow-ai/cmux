@@ -10828,6 +10828,7 @@ final class Workspace: Identifiable, ObservableObject {
     func forkAgentWorkspaceLaunch(
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
+        startupInputOverride: String? = nil,
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> AgentConversationForkWorkspaceLaunch? {
@@ -10837,12 +10838,13 @@ final class Workspace: Identifiable, ObservableObject {
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
         let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace(fromPanelId: panelId)
         let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        guard panels[panelId] is TerminalPanel,
-              let startupInput = launchSnapshot.forkStartupInput(
+        let startupInput = startupInputOverride ?? launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: !isRemoteFork
-              ) else {
+              )
+        guard panels[panelId] is TerminalPanel,
+              let startupInput else {
             return nil
         }
 
@@ -10862,6 +10864,7 @@ final class Workspace: Identifiable, ObservableObject {
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
         direction: SplitDirection,
+        startupInputOverride: String? = nil,
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
@@ -10869,13 +10872,14 @@ final class Workspace: Identifiable, ObservableObject {
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
         launchSnapshot.workingDirectory = workingDirectory
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
-        guard panels[panelId] is TerminalPanel,
-              let paneId = paneId(forPanelId: panelId),
-              let startupInput = launchSnapshot.forkStartupInput(
+        let startupInput = startupInputOverride ?? launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil
-              ) else {
+              )
+        guard panels[panelId] is TerminalPanel,
+              let paneId = paneId(forPanelId: panelId),
+              let startupInput else {
             return nil
         }
 
@@ -10930,6 +10934,7 @@ final class Workspace: Identifiable, ObservableObject {
         snapshot: SessionRestorableAgentSnapshot,
         anchorTabId: TabID,
         paneId: PaneID,
+        startupInputOverride: String? = nil,
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
@@ -10937,12 +10942,13 @@ final class Workspace: Identifiable, ObservableObject {
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
         launchSnapshot.workingDirectory = workingDirectory
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
-        guard panels[panelId] is TerminalPanel,
-              let startupInput = launchSnapshot.forkStartupInput(
+        let startupInput = startupInputOverride ?? launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil
-              ) else {
+              )
+        guard panels[panelId] is TerminalPanel,
+              let startupInput else {
             return nil
         }
 
