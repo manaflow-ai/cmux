@@ -1302,6 +1302,38 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/ExplicitOptionalRealClockTests.swift",
+            "func verify(clock: ContinuousClock?) async {\n"
+            "    if let clock = clock {\n"
+            "        try await clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ShorthandGuardRealClockTests.swift",
+            "func verify(clock: ContinuousClock?) async {\n"
+            "    guard let clock else { return }\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/SelfOptionalRealClockTests.swift",
+            "struct Fixture {\n"
+            "    let clock: ContinuousClock?\n"
+            "    func verify() async {\n"
+            "        if let clock = self.clock {\n"
+            "            try await clock.sleep(for: .milliseconds(300))\n"
+            "            #expect(widget.isRendered)\n"
+            "        }\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/ConditionalCompilationRealClockFirstTests.swift",
             "#if os(macOS)\n"
             "let clock = ContinuousClock()\n"
@@ -1683,6 +1715,23 @@ def _self_test() -> int:
             "Packages/CmuxClock/Tests/ShorthandOptionalVirtualClockTests.swift",
             "let clock: TestRelayClock? = TestRelayClock()\n"
             "if let clock {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/ExplicitOptionalVirtualClockTests.swift",
+            "func verify(clock: TestRelayClock?) async {\n"
+            "    if let clock = clock {\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await clockEvents.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/ShorthandGuardVirtualClockTests.swift",
+            "func verify(clock: TestRelayClock?) async {\n"
+            "    guard let clock else { return }\n"
             "    try await clock.sleep(until: deadline)\n"
             "    #expect(await clockEvents.next() == expected)\n"
             "}\n",
