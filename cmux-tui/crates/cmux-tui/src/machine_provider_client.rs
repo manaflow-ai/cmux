@@ -1442,6 +1442,51 @@ mod tests {
     }
 
     #[test]
+    fn repeated_connection_closed_events_coalesce_the_latest_reason() {
+        let queue = Arc::new(ProviderEventQueue::new());
+        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
+        for index in 0..(PROVIDER_EVENT_QUEUE_CAPACITY * 2) {
+            queue.publish(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+                connection_id: id("connection-1"),
+                machine_id: id("machine-1"),
+                reason: format!("revision {index}"),
+            }));
+        }
+
+        let event = events
+            .recv_timeout(Duration::from_millis(20))
+            .expect("receive coalesced connection closure");
+        assert!(matches!(
+            event,
+            ProviderEvent::ConnectionClosed(ConnectionClosedEvent { ref reason, .. })
+                if reason == &format!("revision {}", PROVIDER_EVENT_QUEUE_CAPACITY * 2 - 1)
+        ));
+        assert_eq!(events.recv_timeout(Duration::from_millis(1)), Err(RecvTimeoutError::Timeout));
+    }
+
+    #[test]
+    fn distinct_connection_closed_burst_fails_closed_at_priority_capacity() {
+        let queue = Arc::new(ProviderEventQueue::new());
+        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
+        for index in 0..=PROVIDER_EVENT_QUEUE_CAPACITY {
+            queue.publish(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+                connection_id: id(&format!("connection-{index}")),
+                machine_id: id(&format!("machine-{index}")),
+                reason: "connection revoked".into(),
+            }));
+        }
+
+        let state = queue.state.lock().unwrap();
+        assert!(state.events.len() <= PROVIDER_EVENT_QUEUE_CAPACITY);
+        assert!(state.disconnected, "priority overflow must force a provider resync");
+        drop(state);
+        assert_eq!(
+            events.recv_timeout(Duration::from_millis(1)),
+            Err(RecvTimeoutError::Disconnected)
+        );
+    }
+
+    #[test]
     fn preserves_typed_provider_errors() {
         let socket = TestSocket::bind();
         let listener = socket.listener();

@@ -1106,6 +1106,9 @@ mod tests {
         let arguments = fs::read_to_string(records).expect("read cloud SSH argv");
         let arguments = arguments.lines().collect::<Vec<_>>();
 
+        for option in ["BatchMode=yes", "ForwardAgent=no", "ClearAllForwardings=yes"] {
+            assert!(arguments.windows(2).any(|pair| pair == ["-o", option]), "{arguments:?}");
+        }
         assert!(arguments.windows(2).any(|pair| pair == ["-p", "2200"]));
         assert!(
             arguments
