@@ -71,6 +71,20 @@ fn install_signal_handlers() {
 #[cfg(not(unix))]
 fn install_signal_handlers() {}
 
+#[cfg(target_os = "linux")]
+fn harden_provider_secret_process() -> io::Result<()> {
+    if std::env::var_os(MACHINE_PROVIDER_TOKEN_ENV).is_none() {
+        return Ok(());
+    }
+    let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
+    if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn harden_provider_secret_process() -> io::Result<()> {
+    Ok(())
+}
+
 const USAGE: &str = "\
 cmux-tui - terminal multiplexer backed by libghostty-vt
 
@@ -432,6 +446,10 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 }
 
 fn main() {
+    if let Err(error) = harden_provider_secret_process() {
+        eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
+        std::process::exit(1);
+    }
     install_signal_handlers();
     let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
@@ -452,6 +470,12 @@ fn main() {
     let args = parse_args(raw_args);
     let provider = resolve_provider_launch(&args, &config::load())
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
+    #[cfg(unix)]
+    if provider.is_some() {
+        // The connector owns its parsed token now. Remove the inherited copy
+        // before any worker or provider subprocess can inherit it.
+        unsafe { std::env::remove_var(MACHINE_PROVIDER_TOKEN_ENV) };
+    }
     if provider.is_some() {
         validate_provider_process_args(&args)
             .unwrap_or_else(|error| usage_exit(&error.to_string()));
@@ -756,6 +780,26 @@ mod tests {
         assert!(error.contains(MACHINE_PROVIDER_TOKEN_ENV));
         assert!(!error.contains(secret));
         assert!(!error.contains("do-not-print"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_provider_token_process_is_non_dumpable() {
+        const CHILD_MARKER: &str = "CMUX_TEST_PROVIDER_DUMPABLE_CHILD";
+        if std::env::var_os(CHILD_MARKER).is_some() {
+            harden_provider_secret_process().unwrap();
+            let dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
+            assert_eq!(dumpable, 0);
+            return;
+        }
+
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tests::linux_provider_token_process_is_non_dumpable", "--nocapture"])
+            .env(CHILD_MARKER, "1")
+            .env(MACHINE_PROVIDER_TOKEN_ENV, "test-provider-token")
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 
     #[test]
