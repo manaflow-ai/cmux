@@ -1,10 +1,5 @@
 public import Foundation
 
-struct WorkspacePinnedStateProjection {
-    let workspaceId: UUID
-    let isPinned: Bool
-}
-
 // Sidebar ordering reads and reorder-index clamps over the model's own
 // tabs/groups storage, lifted one-for-one from the legacy private TabManager
 // helpers. All are pure reads; mutating flows live on the coordinators.

@@ -3,10 +3,7 @@ import Foundation
 
 /// Resolves sidebar workspace drag/drop hit testing into one visual and commit plan.
 public struct SidebarWorkspaceReorderDropResolver: Sendable {
-    private struct PinStateOverride {
-        let workspaceId: UUID
-        let isPinned: Bool
-    }
+    private typealias PinStateOverride = (workspaceId: UUID, isPinned: Bool)
 
     /// Creates a sidebar workspace reorder resolver.
     public init() {}
@@ -302,10 +299,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         )
         let changesPinState = destinationIsPinned != draggedIsEffectivelyPinned
         let pinStateOverride = changesPinState
-            ? PinStateOverride(
-                workspaceId: request.draggedWorkspaceId,
-                isPinned: destinationIsPinned
-            )
+            ? (workspaceId: request.draggedWorkspaceId, isPinned: destinationIsPinned)
             : nil
         let tabIds: [UUID]
         let pinnedTabIds: Set<UUID>

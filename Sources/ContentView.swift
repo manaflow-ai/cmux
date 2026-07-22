@@ -16459,12 +16459,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         return pointerY
     }
 
-    private struct LocalReorderProjection {
-        let tabIds: [UUID]
-        let pinnedTabIds: Set<UUID>
-        let targetPinnedState: Bool?
-    }
-
     /// Compute destination pinning first, then rebuild the planner's row space
     /// with that state projected. This keeps the SwiftUI fallback on the same
     /// transition plan as the AppKit resolver and avoids deriving an insertion
@@ -16473,7 +16467,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         draggedTabId: UUID,
         plannerTargetTabId: UUID?,
         usesTopLevelRows: Bool
-    ) -> LocalReorderProjection {
+    ) -> (tabIds: [UUID], pinnedTabIds: Set<UUID>, targetPinnedState: Bool?) {
         let initialTabIds = tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: draggedTabId,
             targetWorkspaceId: plannerTargetTabId,
@@ -16494,13 +16488,13 @@ struct SidebarTabDropDelegate: DropDelegate {
             ? destinationIsPinned
             : nil
         guard let targetPinnedState else {
-            return LocalReorderProjection(
+            return (
                 tabIds: initialTabIds,
                 pinnedTabIds: initialPinnedTabIds,
                 targetPinnedState: nil
             )
         }
-        return LocalReorderProjection(
+        return (
             tabIds: tabManager.sidebarReorderWorkspaceIds(
                 forDraggedWorkspaceId: draggedTabId,
                 targetWorkspaceId: plannerTargetTabId,

@@ -27,6 +27,7 @@ public struct SidebarDropPlanner {
         return hasOtherUnpinnedTab ? false : draggedIsPinned
     }
 
+    /// Returns the visual insertion edge for a workspace drag.
     public func indicator(
         draggedTabId: UUID?,
         targetTabId: UUID?,

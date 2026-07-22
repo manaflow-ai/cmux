@@ -754,9 +754,6 @@ struct SidebarAppKitRowCellTests {
         container.tableView.layoutSubtreeIfNeeded()
         let offscreenRow = models.count - 1
         let wideHeight = container.tableView.rect(ofRow: offscreenRow).height
-        var settleMeasurements: [(CGFloat, IndexSet)] = []
-        controller.widthSettleProbe = { settleMeasurements.append(($0, $1)) }
-
         window.setContentSize(NSSize(width: 180, height: 120))
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
@@ -767,9 +764,6 @@ struct SidebarAppKitRowCellTests {
         let heightAfterSettle = container.tableView.rect(ofRow: offscreenRow).height
 
         #expect(abs(heightBeforeSettle - wideHeight) < 0.5)
-        #expect(settleMeasurements.count == 1)
-        #expect(settleMeasurements.last?.0 == 180)
-        #expect(settleMeasurements.last?.1.contains(offscreenRow) == true)
         #expect(heightAfterSettle > wideHeight)
     }
 

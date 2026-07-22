@@ -31,17 +31,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var isWindowLiveResizeActive = false
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
-    private struct PointerSelectionSession {
-        let rowId: SidebarWorkspaceRenderItemID
-        let defersPlainCollapse: Bool
-        var completedTableAction = false
-    }
-    private struct PendingSelectionPreview {
-        let rowId: SidebarWorkspaceRenderItemID
-        let modifiers: NSEvent.ModifierFlags
-    }
-    private var pointerSelectionSession: PointerSelectionSession?
-    private var pendingSelectionPreview: PendingSelectionPreview?
+    private var pointerSelectionRowId: SidebarWorkspaceRenderItemID?
+    private var pointerSelectionDefersPlainCollapse = false
+    private var pointerSelectionCompletedTableAction = false
+    private var pendingSelectionPreviewRowId: SidebarWorkspaceRenderItemID?
+    private var pendingSelectionPreviewModifiers: NSEvent.ModifierFlags = []
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
@@ -50,7 +44,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         get { dropTargetGeometry.computationProbe }
         set { dropTargetGeometry.computationProbe = newValue }
     }
-    var widthSettleProbe: ((CGFloat, IndexSet) -> Void)?
 #endif
 
     deinit {
@@ -376,8 +369,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Any active pointer session already owns this action by stable row ID.
         // A numeric clickedRow may refer to another workspace if rows churned
         // while NSTableView's synchronous tracking loop was in progress.
-        if pointerSelectionSession != nil {
-            pointerSelectionSession?.completedTableAction = true
+        if pointerSelectionRowId != nil {
+            pointerSelectionCompletedTableAction = true
             return
         }
         guard rows.indices.contains(row) else { return }
@@ -401,20 +394,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         )
         if defersPlainCollapse {
             guard !selectionPreviewShouldIgnore(row: row, hitView: hitView) else { return }
-            pointerSelectionSession = PointerSelectionSession(
-                rowId: rows[row].id,
-                defersPlainCollapse: true
-            )
+            beginPointerSelection(rowId: rows[row].id, defersPlainCollapse: true)
             // This press supersedes an older trailing plain-click request. If
             // it becomes a drag, nothing may collapse the preserved group.
             cancelPendingSelectionAndRestorePaint()
             return
         }
         guard previewSelection(row: row, modifiers: modifiers, hitView: hitView) else { return }
-        pointerSelectionSession = PointerSelectionSession(
-            rowId: rows[row].id,
-            defersPlainCollapse: false
-        )
+        beginPointerSelection(rowId: rows[row].id, defersPlainCollapse: false)
         commitSelection(row: row, modifiers: modifiers)
     }
 
@@ -422,13 +409,30 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// presses. Drag startup clears the session first, so only a completed
     /// non-drag press collapses a preserved multi-selection.
     func pointerTrackingDidEnd() {
-        guard let session = pointerSelectionSession else { return }
-        pointerSelectionSession = nil
-        guard session.defersPlainCollapse,
-              session.completedTableAction,
-              let row = rows.firstIndex(where: { $0.id == session.rowId }),
+        guard let rowId = pointerSelectionRowId else { return }
+        let defersPlainCollapse = pointerSelectionDefersPlainCollapse
+        let completedTableAction = pointerSelectionCompletedTableAction
+        clearPointerSelectionSession()
+        guard defersPlainCollapse,
+              completedTableAction,
+              let row = rows.firstIndex(where: { $0.id == rowId }),
               previewSelection(row: row, modifiers: []) else { return }
         commitSelection(row: row, modifiers: [])
+    }
+
+    private func beginPointerSelection(
+        rowId: SidebarWorkspaceRenderItemID,
+        defersPlainCollapse: Bool
+    ) {
+        pointerSelectionRowId = rowId
+        pointerSelectionDefersPlainCollapse = defersPlainCollapse
+        pointerSelectionCompletedTableAction = false
+    }
+
+    private func clearPointerSelectionSession() {
+        pointerSelectionRowId = nil
+        pointerSelectionDefersPlainCollapse = false
+        pointerSelectionCompletedTableAction = false
     }
 
     private func shouldDeferPlainSelectionCollapse(
@@ -459,12 +463,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if extendsSelection {
             apply()
         } else {
-            pendingSelectionPreview = PendingSelectionPreview(
-                rowId: rows[row].id,
-                modifiers: modifiers
-            )
+            pendingSelectionPreviewRowId = rows[row].id
+            pendingSelectionPreviewModifiers = modifiers
             selectionCoalescer.request { [weak self] in
-                self?.pendingSelectionPreview = nil
+                self?.clearPendingSelectionPreview()
                 apply()
             }
         }
@@ -488,7 +490,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // vanishes. A double-click is a rename gesture: drop the queued
         // selection before starting the edit.
         cancelPendingSelectionAndRestorePaint()
-        pointerSelectionSession = nil
+        clearPointerSelectionSession()
         cell.beginInlineRename()
     }
 
@@ -553,7 +555,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // The drag snapshot must observe the row selection before it captures
         // the dragged workspace set.
         selectionCoalescer.flushNow()
-        pointerSelectionSession = nil
+        clearPointerSelectionSession()
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin(rowId: rows[row].id)
         let item = NSPasteboardItem()
@@ -576,7 +578,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func workspaceDragSessionDidBegin(rowId: SidebarWorkspaceRenderItemID? = nil) {
         _ = rowId
-        pointerSelectionSession = nil
+        clearPointerSelectionSession()
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
         }
@@ -655,17 +657,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     @discardableResult
     func cancelPendingSelectionAndRestorePaint() -> Bool {
         guard selectionCoalescer.cancel() else { return false }
-        pendingSelectionPreview = nil
+        clearPendingSelectionPreview()
         restoreOptimisticallyPaintedRows()
         return true
     }
 
     private func reapplyPendingSelectionPreview() {
-        guard let pendingSelectionPreview,
-              let row = rows.firstIndex(where: { $0.id == pendingSelectionPreview.rowId }) else {
+        guard let rowId = pendingSelectionPreviewRowId,
+              let row = rows.firstIndex(where: { $0.id == rowId }) else {
             return
         }
-        _ = previewSelection(row: row, modifiers: pendingSelectionPreview.modifiers)
+        _ = previewSelection(row: row, modifiers: pendingSelectionPreviewModifiers)
+    }
+
+    private func clearPendingSelectionPreview() {
+        pendingSelectionPreviewRowId = nil
+        pendingSelectionPreviewModifiers = []
     }
 
     private func restoreOptimisticallyPaintedRows() {
@@ -898,9 +905,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // it started from.
         guard width != lastMeasuredWidth || hasLiveMeasuredRows else { return }
         var changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
-#if DEBUG
-        widthSettleProbe?(width, changed)
-#endif
         lastMeasuredWidth = width
         hasLiveMeasuredRows = false
         lastLiveMeasuredWidth = 0

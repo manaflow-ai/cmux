@@ -5,16 +5,6 @@ import Testing
 
 @Suite struct SidebarDragAutoScrollControllerTests {
     @MainActor
-    private final class FlippedClipView: NSClipView {
-        override var isFlipped: Bool { true }
-    }
-
-    @MainActor
-    private final class FlippedDocumentView: NSView {
-        override var isFlipped: Bool { true }
-    }
-
-    @MainActor
     @Test func plansAgainstScrolledViewportBounds() throws {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         scrollView.documentView = NSTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 1_000))
@@ -43,9 +33,9 @@ import Testing
     @MainActor
     @Test func repeatedTicksReachBothConstrainedBoundsWithoutOvershoot() {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        let clipView = FlippedClipView(frame: scrollView.bounds)
+        let clipView = SidebarDragAutoScrollFlippedClipView(frame: scrollView.bounds)
         scrollView.contentView = clipView
-        scrollView.documentView = FlippedDocumentView(
+        scrollView.documentView = SidebarDragAutoScrollFlippedDocumentView(
             frame: NSRect(x: 0, y: 0, width: 200, height: 1_000)
         )
 
