@@ -5,8 +5,12 @@
 public struct ControlCommandPaletteStrings: Sendable, Equatable {
     /// No routed app window exposes a live command palette.
     public let windowNotFound: String
+    /// The immutable target no longer exists inside its live window.
+    public let targetUnavailable: String
     /// The request omitted its action identifier.
     public let missingCommandID: String
+    /// The optional immutable target payload was malformed.
+    public let invalidTarget: String
     /// The arguments payload was not a string-valued object.
     public let argumentsMustBeStringObject: String
     /// The action identifier is unavailable in the current context.
@@ -21,7 +25,9 @@ public struct ControlCommandPaletteStrings: Sendable, Equatable {
     /// Creates the app-resolved palette message set.
     public init(
         windowNotFound: String,
+        targetUnavailable: String,
         missingCommandID: String,
+        invalidTarget: String,
         argumentsMustBeStringObject: String,
         commandNotFound: String,
         missingArgumentsFormat: String,
@@ -29,7 +35,9 @@ public struct ControlCommandPaletteStrings: Sendable, Equatable {
         invalidArgumentValuesFormat: String
     ) {
         self.windowNotFound = windowNotFound
+        self.targetUnavailable = targetUnavailable
         self.missingCommandID = missingCommandID
+        self.invalidTarget = invalidTarget
         self.argumentsMustBeStringObject = argumentsMustBeStringObject
         self.commandNotFound = commandNotFound
         self.missingArgumentsFormat = missingArgumentsFormat

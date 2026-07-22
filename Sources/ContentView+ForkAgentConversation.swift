@@ -1,71 +1,142 @@
 import AppKit
 import Bonsplit
+import CmuxCommandPalette
 import CmuxPanes
 import Foundation
 
 extension ContentView {
-    func forkFocusedAgentConversationRight() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.right)
+    func registerForkAgentConversationCommandPaletteHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext
+    ) {
+        for destination in AgentConversationForkDestination.allCases {
+            registry.register(commandId: destination.commandPaletteCommandId) { invocation in
+                queueForkFocusedAgentConversation(
+                    destination,
+                    context: context,
+                    focus: Self.commandPaletteForkShouldFocus(invocation),
+                    shouldBeepOnFailure: invocation.source == .commandPalette
+                )
+            }
         }
     }
 
-    func forkFocusedAgentConversationLeft() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.left)
-        }
+    static func commandPaletteForkShouldFocus(_ invocation: CmuxActionInvocation) -> Bool {
+        commandPaletteResolvedFocus(
+            explicit: invocation.bool("focus"),
+            source: invocation.source
+        ) ?? true
     }
 
-    func forkFocusedAgentConversationTop() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.top)
-        }
-    }
-
-    func forkFocusedAgentConversationBottom() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.bottom)
-        }
-    }
-
-    func forkFocusedAgentConversationToNewTab() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.newTab)
-        }
-    }
-
-    func forkFocusedAgentConversationToNewWorkspace() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.newWorkspace)
-        }
-    }
-
-    @MainActor
-    private func forkFocusedAgentConversation(_ destination: AgentConversationForkDestination) async {
-        guard var currentContext = focusedPanelContext,
+    private func queueForkFocusedAgentConversation(
+        _ destination: AgentConversationForkDestination,
+        context: CommandPaletteActionContext,
+        focus: Bool,
+        shouldBeepOnFailure: Bool
+    ) -> CmuxActionExecutionResult {
+        guard let currentContext = context.panel(),
               currentContext.panel.panelType == .terminal else {
-            NSSound.beep()
-            return
+            if shouldBeepOnFailure { NSSound.beep() }
+            return .targetUnavailable
         }
 
-        let workspaceId = currentContext.workspace.id
+        let workspace = currentContext.workspace
+        let workspaceId = workspace.id
         let panelId = currentContext.panelId
         let panelKey = Self.commandPaletteForkableAgentPanelKey(
             workspaceId: workspaceId,
             panelId: panelId
         )
-        guard currentContext.workspace.beginForkAgentConversationAction(
-            panelId: panelId
-        ) else {
-            NSSound.beep()
-            return
+        let isRemoteContext = workspace.isRemoteTerminalSurface(panelId)
+        let fallbackSnapshot = workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
+        let liveIndexSnapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteContext: isRemoteContext
+        )
+        guard Self.commandPaletteImmediateForkExecutionSnapshotSelection(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: isRemoteContext,
+            supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
+            supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+            snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
+            executableFingerprintsByPanelKey: commandPaletteForkableAgentExecutableFingerprintsByPanelKey,
+            resultHadFallbackByPanelKey: commandPaletteForkableAgentResultHadFallbackByPanelKey,
+            validatedAtByPanelKey: commandPaletteForkableAgentValidatedAtByPanelKey,
+            liveIndexSnapshot: liveIndexSnapshot,
+            fallbackSnapshot: fallbackSnapshot,
+            cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey],
+            allowsAgentContinuation: workspace.allowsAgentContinuation(forPanelId: panelId)
+        ) != nil else {
+            clearCommandPaletteForkableAgentCache(panelKey: panelKey)
+            if shouldBeepOnFailure { NSSound.beep() }
+            return commandPaletteForkActionFailure(code: "action_unavailable")
         }
-        defer {
-            currentContext.workspace.endForkAgentConversationAction(
-                panelId: panelId
-            )
+        guard workspace.beginForkAgentConversationAction(panelId: panelId) else {
+            if shouldBeepOnFailure { NSSound.beep() }
+            return commandPaletteForkActionFailure(code: "action_in_progress")
         }
 
+        let reservation = CommandPaletteForkActionReservation(
+            workspace: workspace,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            focus: focus,
+            shouldBeepOnFailure: shouldBeepOnFailure
+        )
+        Task { @MainActor in
+            await forkFocusedAgentConversation(
+                destination,
+                context: context,
+                reservation: reservation
+            )
+        }
+        return .queued
+    }
+
+    private func commandPaletteForkActionFailure(code: String) -> CmuxActionExecutionResult {
+        .failed(
+            code: code,
+            message: String(
+                localized: "action.error.configuredActionFailed",
+                defaultValue: "The configured action could not be started."
+            )
+        )
+    }
+
+    @MainActor
+    private func forkFocusedAgentConversation(
+        _ destination: AgentConversationForkDestination,
+        context: CommandPaletteActionContext,
+        reservation: CommandPaletteForkActionReservation
+    ) async {
+        defer {
+            reservation.workspace.endForkAgentConversationAction(
+                panelId: reservation.panelId
+            )
+        }
+        guard var currentContext = context.panel(),
+              currentContext.workspace === reservation.workspace,
+              currentContext.workspace.id == reservation.workspaceId,
+              currentContext.panelId == reservation.panelId,
+              currentContext.panel.panelType == .terminal else {
+            clearCommandPaletteForkableAgentCache(
+                panelKey: Self.commandPaletteForkableAgentPanelKey(
+                    workspaceId: reservation.workspaceId,
+                    panelId: reservation.panelId
+                )
+            )
+            if reservation.shouldBeepOnFailure { NSSound.beep() }
+            return
+        }
+
+        let workspaceId = reservation.workspaceId
+        let panelId = reservation.panelId
+        let panelKey = Self.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
         let allowsAgentContinuation = currentContext.workspace.allowsAgentContinuation(forPanelId: panelId)
         var fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
         let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
@@ -92,7 +163,7 @@ extension ContentView {
         )
         guard var selection = selection else {
             clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-            NSSound.beep()
+            if reservation.shouldBeepOnFailure { NSSound.beep() }
             return
         }
         var snapshot = selection.snapshot
@@ -109,7 +180,12 @@ extension ContentView {
                 isRemoteContext: isRemoteContext
             )
             func currentFallbackSnapshotForSelectedProbe() -> SessionRestorableAgentSnapshot? {
-                guard let currentFallbackSnapshot = focusedPanelContext?.workspace.restoredAgentSnapshotForContinuation(panelId: panelId),
+                guard let liveContext = context.panel(),
+                      liveContext.workspace === reservation.workspace,
+                      liveContext.workspace.id == workspaceId,
+                      liveContext.panelId == panelId,
+                      liveContext.panel.panelType == .terminal,
+                      let currentFallbackSnapshot = liveContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId),
                       Self.commandPaletteForkSnapshotFingerprint(
                         currentFallbackSnapshot,
                         isRemoteTerminal: isRemoteContext
@@ -126,7 +202,7 @@ extension ContentView {
             if selection.usedFallbackSnapshot {
                 guard let currentFallbackSnapshot = currentFallbackSnapshotForSelectedProbe() else {
                     clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
+                    if reservation.shouldBeepOnFailure { NSSound.beep() }
                     return
                 }
                 fallbackForValidation = currentFallbackSnapshot
@@ -141,7 +217,7 @@ extension ContentView {
                         isRemoteTerminal: isRemoteContext
                       ) == selectedSnapshotFingerprint else {
                     clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
+                    if reservation.shouldBeepOnFailure { NSSound.beep() }
                     return
                 }
                 fallbackForValidation = nil
@@ -152,17 +228,21 @@ extension ContentView {
             ) {
                 guard let cachedExecutableFingerprint = commandPaletteForkableAgentExecutableFingerprintsByPanelKey[panelKey] else {
                     clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
+                    if reservation.shouldBeepOnFailure { NSSound.beep() }
                     return
                 }
                 let currentExecutableFingerprint = await sharedIndex.forkValidationExecutableFingerprint(
                     snapshot: snapshot,
                     isRemoteContext: isRemoteContext
                 )
-                guard let refreshedContext = focusedPanelContext,
+                guard let refreshedContext = context.panel(),
+                      refreshedContext.workspace === reservation.workspace,
                       refreshedContext.workspace.id == workspaceId,
                       refreshedContext.panelId == panelId,
+                      refreshedContext.panel.panelType == .terminal,
                       refreshedContext.workspace.isRemoteTerminalSurface(panelId) == isRemoteContext else {
+                    clearCommandPaletteForkableAgentCache(panelKey: panelKey)
+                    if reservation.shouldBeepOnFailure { NSSound.beep() }
                     return
                 }
                 let refreshedFallbackSnapshot = refreshedContext.workspace.restoredAgentSnapshotForContinuation(
@@ -197,7 +277,7 @@ extension ContentView {
                         isRemoteContext: isRemoteContext
                       ) == selectedValidationIdentity else {
                     clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
+                    if reservation.shouldBeepOnFailure { NSSound.beep() }
                     return
                 }
                 currentContext = refreshedContext
@@ -209,7 +289,7 @@ extension ContentView {
                     : nil
                 guard currentExecutableFingerprint == cachedExecutableFingerprint else {
                     clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
+                    if reservation.shouldBeepOnFailure { NSSound.beep() }
                     return
                 }
             }
@@ -220,7 +300,7 @@ extension ContentView {
                 fallbackSnapshot: fallbackForValidation
             ) else {
                 clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                NSSound.beep()
+                if reservation.shouldBeepOnFailure { NSSound.beep() }
                 return
             }
         }
@@ -252,7 +332,8 @@ extension ContentView {
             didFork = currentContext.workspace.forkAgentConversation(
                 fromPanelId: panelId,
                 snapshot: snapshot,
-                direction: direction
+                direction: direction,
+                focus: reservation.focus
             ) != nil
         } else {
             switch destination {
@@ -260,14 +341,15 @@ extension ContentView {
                 guard let anchorTabId = currentContext.workspace.surfaceIdFromPanelId(panelId),
                       let paneId = currentContext.workspace.paneId(forPanelId: panelId) else {
                     clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
+                    if reservation.shouldBeepOnFailure { NSSound.beep() }
                     return
                 }
                 didFork = currentContext.workspace.forkAgentConversationToNewTab(
                     fromPanelId: panelId,
                     snapshot: snapshot,
                     anchorTabId: anchorTabId,
-                    paneId: paneId
+                    paneId: paneId,
+                    focus: reservation.focus
                 ) != nil
             case .newWorkspace:
                 guard let launch = currentContext.workspace.forkAgentWorkspaceLaunch(
@@ -275,16 +357,18 @@ extension ContentView {
                     snapshot: snapshot
                 ) else {
                     clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
+                    if reservation.shouldBeepOnFailure { NSSound.beep() }
                     return
                 }
-                let forkWorkspace = tabManager.addWorkspace(
+                let forkWorkspace = context.tabManager.addWorkspace(
                     workingDirectory: launch.terminalWorkingDirectory,
                     initialTerminalCommand: launch.initialTerminalCommand,
                     initialTerminalInput: launch.initialTerminalInput,
                     initialTerminalEnvironment: launch.initialTerminalEnvironment,
                     inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-                    autoWelcomeIfNeeded: false
+                    select: reservation.focus,
+                    autoWelcomeIfNeeded: false,
+                    sourceWorkspaceID: workspaceId
                 )
                 if let remoteConfiguration = launch.remoteConfiguration {
                     forkWorkspace.configureRemoteConnection(
@@ -305,7 +389,7 @@ extension ContentView {
 
         guard didFork else {
             clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-            NSSound.beep()
+            if reservation.shouldBeepOnFailure { NSSound.beep() }
             return
         }
     }
@@ -320,6 +404,14 @@ extension ContentView {
         commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
         commandPaletteForkableAgentValidatedAtByPanelKey.removeValue(forKey: panelKey)
     }
+}
+
+private struct CommandPaletteForkActionReservation {
+    let workspace: Workspace
+    let workspaceId: UUID
+    let panelId: UUID
+    let focus: Bool
+    let shouldBeepOnFailure: Bool
 }
 
 extension ContentView {

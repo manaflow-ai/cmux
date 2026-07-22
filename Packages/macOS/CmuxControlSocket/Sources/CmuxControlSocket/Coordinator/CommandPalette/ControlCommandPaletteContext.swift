@@ -21,4 +21,20 @@ public protocol ControlCommandPaletteContext: AnyObject {
         arguments: [String: String],
         workingDirectory: String?
     ) -> ControlCommandPaletteRunResolution
+
+    /// Runs an action against the immutable identity returned by
+    /// `palette.list`, without consulting current focus or selection.
+    ///
+    /// - Parameters:
+    ///   - target: The exact identity returned by `palette.list`.
+    ///   - commandID: The stable action identifier to invoke.
+    ///   - arguments: Statically declared action argument values.
+    ///   - workingDirectory: The caller's working directory, if available.
+    /// - Returns: The typed outcome of dispatching the action.
+    func controlCommandPaletteRun(
+        target: ControlCommandPaletteTarget,
+        commandID: String,
+        arguments: [String: String],
+        workingDirectory: String?
+    ) -> ControlCommandPaletteRunResolution
 }

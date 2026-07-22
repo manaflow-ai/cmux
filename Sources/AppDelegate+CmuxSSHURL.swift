@@ -110,6 +110,16 @@ enum DefaultTerminalRegistration {
 
 @MainActor
 enum DefaultTerminalUserAction {
+    enum FailurePresentation {
+        case alert(presentingWindow: NSWindow?)
+        case silent
+    }
+
+    enum RequestOutcome: Equatable {
+        case alreadyDefault
+        case queued
+    }
+
     private struct RegistrationOperation {
         let id: UUID
         let task: Task<Void, Error>
@@ -150,10 +160,17 @@ enum DefaultTerminalUserAction {
         }
     }
 
-    static func setAsDefault(debugSource: String) {
+    @discardableResult
+    static func setAsDefault(
+        debugSource: String,
+        failurePresentation: FailurePresentation = .alert(presentingWindow: nil)
+    ) -> RequestOutcome {
 #if DEBUG
         cmuxDebugLog("defaultTerminal.setAsDefault source=\(debugSource)")
 #endif
+        guard !DefaultTerminalRegistration.currentStatus().isDefault else {
+            return .alreadyDefault
+        }
         Task {
             do {
                 try await registerAsDefault()
@@ -161,12 +178,18 @@ enum DefaultTerminalUserAction {
 #if DEBUG
                 cmuxDebugLog("defaultTerminal.setAsDefault.failed source=\(debugSource) error=\(error)")
 #endif
-                presentSetAsDefaultError(error)
+                if case .alert(let presentingWindow) = failurePresentation {
+                    presentSetAsDefaultError(error, presentingWindow: presentingWindow)
+                }
             }
         }
+        return .queued
     }
 
-    private static func presentSetAsDefaultError(_ error: Error) {
+    private static func presentSetAsDefaultError(
+        _ error: Error,
+        presentingWindow: NSWindow?
+    ) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
@@ -179,7 +202,12 @@ enum DefaultTerminalUserAction {
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.window.identifier = NSUserInterfaceItemIdentifier("cmux.defaultTerminalRegistrationError")
-        alert.runModal()
+        if let presentingWindow {
+            guard presentingWindow.isVisible, presentingWindow.attachedSheet == nil else { return }
+            alert.beginSheetModal(for: presentingWindow, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
     }
 }
 

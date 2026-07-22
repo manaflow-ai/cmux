@@ -317,7 +317,8 @@ extension BrowserPanel {
         }
     }
 
-    private func injectReactGrab() async {
+    @discardableResult
+    private func injectReactGrab() async -> Bool {
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.start")
         #endif
@@ -325,8 +326,9 @@ extension BrowserPanel {
             #if DEBUG
             cmuxDebugLog("reactGrab.inject.fetchFailed")
             #endif
-            return
+            return false
         }
+        guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.fetched len=\(scriptSource.count)")
         #endif
@@ -397,49 +399,117 @@ extension BrowserPanel {
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.evalJS len=\(combined.count)")
         #endif
-        webView.evaluateJavaScript(combined) { [weak self] _, error in
+        do {
+            _ = try await evaluateJavaScript(combined)
+            guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
             #if DEBUG
-            cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error?.localizedDescription ?? "none")")
+            cmuxDebugLog("reactGrab.inject.evalJS.done error=none")
             #endif
-            if let error {
-                NSLog("ReactGrab: injection failed: %@", error.localizedDescription)
-                Task { @MainActor in self?.isReactGrabActive = false }
+            isReactGrabActive = true
+            #if DEBUG
+            cmuxDebugLog("reactGrab.inject.end")
+            #endif
+            return true
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error.localizedDescription)")
+            #endif
+            NSLog("ReactGrab: injection failed: %@", error.localizedDescription)
+            if !Task.isCancelled, !isClosingWebViewLifecycle {
+                isReactGrabActive = false
             }
+            return false
         }
-        #if DEBUG
-        cmuxDebugLog("reactGrab.inject.end")
-        #endif
     }
 
-    private func toggleReactGrab() {
-        #if DEBUG
-        cmuxDebugLog("reactGrab.toggle.start")
-        #endif
-        let script = "window.__REACT_GRAB__?.toggle()"
-        webView.evaluateJavaScript(script, completionHandler: nil)
-        #if DEBUG
-        cmuxDebugLog("reactGrab.toggle.end")
-        #endif
+    var reactGrabActivationIntent: Bool {
+        requestedReactGrabActive ?? isReactGrabActive
+    }
+
+    /// Queues an idempotent requested state. A single reconciliation task
+    /// serializes requests so a later explicit state cannot be overtaken by an
+    /// earlier script fetch or WebKit evaluation.
+    @discardableResult
+    func requestReactGrabActive(_ active: Bool, reason: String) -> Bool {
+        guard !isClosingWebViewLifecycle else { return false }
+        requestedReactGrabActive = active
+        guard reactGrabStateReconciliationTask == nil else { return true }
+        reactGrabStateReconciliationGeneration &+= 1
+        let requestGeneration = reactGrabStateReconciliationGeneration
+        reactGrabStateReconciliationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reconcileReactGrabState(
+                reason: reason,
+                requestGeneration: requestGeneration
+            )
+        }
+        return true
+    }
+
+    private func reconcileReactGrabState(
+        reason: String,
+        requestGeneration: UInt64
+    ) async {
+        while !Task.isCancelled,
+              !isClosingWebViewLifecycle,
+              reactGrabStateReconciliationGeneration == requestGeneration,
+              let requested = requestedReactGrabActive {
+            _ = await setReactGrabActive(requested, reason: reason)
+            guard !Task.isCancelled,
+                  !isClosingWebViewLifecycle,
+                  reactGrabStateReconciliationGeneration == requestGeneration else {
+                break
+            }
+            if requestedReactGrabActive == requested {
+                requestedReactGrabActive = nil
+            }
+        }
+        if reactGrabStateReconciliationGeneration == requestGeneration {
+            reactGrabStateReconciliationTask = nil
+        }
+    }
+
+    @discardableResult
+    func setReactGrabActive(_ active: Bool, reason: String) async -> Bool {
+        guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
+        if active {
+            guard await prepareForReactGrabActivation(reason: reason) else { return false }
+            guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
+            if isReactGrabActive {
+                guard pendingReactGrabRoundTripToken != nil else { return true }
+                if await refreshReactGrabBridgeSessionToken() {
+                    return !Task.isCancelled && !isClosingWebViewLifecycle
+                }
+                guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
+            }
+            return await injectReactGrab()
+        }
+
+        guard isReactGrabActive else {
+            clearReactGrabRoundTrip(reason: "\(reason).alreadyInactive")
+            return true
+        }
+        do {
+            _ = try await evaluateJavaScript("window.__REACT_GRAB__?.deactivate(); true")
+            guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
+            isReactGrabActive = false
+            clearReactGrabRoundTrip(reason: "\(reason).deactivate")
+            return true
+        } catch {
+#if DEBUG
+            cmuxDebugLog("reactGrab.deactivate.error reason=\(reason) error=\(error.localizedDescription)")
+#endif
+            return false
+        }
     }
 
     func toggleOrInjectReactGrab() async {
-        if isReactGrabActive {
-            toggleReactGrab()
-        } else {
-            guard await prepareForReactGrabActivation(reason: "reactGrab.toggle") else { return }
-            await injectReactGrab()
-        }
+        let desired = !reactGrabActivationIntent
+        _ = await setReactGrabActive(desired, reason: "reactGrab.toggle")
     }
 
     func ensureReactGrabActive() async {
-        guard await prepareForReactGrabActivation(reason: "reactGrab.ensureActive") else { return }
-        if isReactGrabActive {
-            guard pendingReactGrabRoundTripToken != nil else { return }
-            if await refreshReactGrabBridgeSessionToken() {
-                return
-            }
-        }
-        await injectReactGrab()
+        _ = await setReactGrabActive(true, reason: "reactGrab.ensureActive")
     }
 
     @discardableResult
@@ -471,6 +541,10 @@ extension BrowserPanel {
             "pending=\(pendingTarget) active=\(isReactGrabActive ? 1 : 0)"
         )
 #endif
+        reactGrabStateReconciliationGeneration &+= 1
+        reactGrabStateReconciliationTask?.cancel()
+        reactGrabStateReconciliationTask = nil
+        requestedReactGrabActive = nil
         isReactGrabActive = false
         if !preserveRoundTrip {
             clearReactGrabRoundTrip(reason: reason)

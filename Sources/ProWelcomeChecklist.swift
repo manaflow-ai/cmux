@@ -39,8 +39,18 @@ enum ProWelcomeChecklistPresenter {
     }
 
     @MainActor
-    static func present(tabManager: TabManager? = nil) {
-        ProUpgradePresenter.presentProWelcomeWeb(tabManager: tabManager)
+    static func present(
+        tabManager: TabManager? = nil,
+        sourceWindowID: UUID? = nil,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil
+    ) {
+        ProUpgradePresenter.presentProWelcomeWeb(
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        )
     }
 
     @MainActor
@@ -60,28 +70,59 @@ extension ProUpgradePresenter {
     /// Opens the in-app "Welcome to cmux Pro" checklist as a chromeless web page in the
     /// same dedicated workspace surface used for pricing, matching upgrade/pricing.
     @MainActor
-    static func presentProWelcomeWeb(tabManager: TabManager? = nil) {
-        if let tabManager,
-           AppDelegate.shared?.liveMainWindowContextForAction(tabManager: tabManager) == nil {
-            return
-        }
+    static func presentProWelcomeWeb(
+        tabManager: TabManager? = nil,
+        sourceWindowID: UUID? = nil,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil
+    ) {
+        guard capturedSourceIsAvailable(
+            appDelegate: AppDelegate.shared,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        ) else { return }
         let url = decoratedAppWebURL(AuthEnvironment.appProWelcomeURL)
         guard BrowserAvailabilitySettings.isEnabled() else {
             NSWorkspace.shared.open(url)
             return
         }
-        if presentDedicatedProWelcomeWorkspace(url: url, tabManager: tabManager) {
+        if presentDedicatedProWelcomeWorkspace(
+            url: url,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        ) {
             return
         }
-        presentBrowserSplit(url: url, transparentBackground: true, tabManager: tabManager)
+        presentBrowserSplit(
+            url: url,
+            transparentBackground: true,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        )
     }
 
     @MainActor
     private static func presentDedicatedProWelcomeWorkspace(
         url: URL,
-        tabManager: TabManager?
+        tabManager: TabManager?,
+        sourceWindowID: UUID?,
+        sourceWorkspaceID: UUID?,
+        sourcePanelID: UUID?
     ) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
+        guard capturedSourceIsAvailable(
+            appDelegate: appDelegate,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        ) else { return false }
         let reuseContext = appDelegate.proUpgradeWorkspaceReuseContext(
             tabManager: tabManager,
             debugSource: "proWelcomeChecklist.reuse"
@@ -111,6 +152,7 @@ extension ProUpgradePresenter {
             title: title,
             url: url,
             tabManager: targetManager,
+            sourceWorkspaceID: sourceWorkspaceID,
             debugSource: "proWelcomeChecklist"
         ) else {
             return false

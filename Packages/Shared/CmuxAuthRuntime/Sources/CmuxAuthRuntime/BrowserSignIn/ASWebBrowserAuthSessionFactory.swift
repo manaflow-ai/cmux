@@ -20,15 +20,37 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
         callbackScheme: String,
         completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
     ) -> any HostBrowserAuthSession {
+        makeSession(
+            signInURL: signInURL,
+            callbackScheme: callbackScheme,
+            presentationAnchor: nil,
+            completion: completion
+        )
+    }
+
+    public func makeSession(
+        signInURL: URL,
+        callbackScheme: String,
+        presentationAnchor: ASPresentationAnchor?,
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
+    ) -> any HostBrowserAuthSession {
         log.log("auth.webauth.makeSession signInURL=\(signInURL.absoluteString) callbackScheme=\(callbackScheme)")
         let session = ASWebAuthenticationSession(
             url: signInURL,
             callbackURLScheme: callbackScheme,
             completionHandler: sessionCompletionBridge(completion: completion)
         )
-        session.presentationContextProvider = anchor
+        let presentationContextProvider: any ASWebAuthenticationPresentationContextProviding =
+            if let presentationAnchor {
+                ExactASWebAuthenticationPresentationContextProvider(anchor: presentationAnchor)
+            } else {
+                anchor
+            }
         session.prefersEphemeralWebBrowserSession = false
-        return ASWebBrowserAuthSession(session: session)
+        return ASWebBrowserAuthSession(
+            session: session,
+            presentationContextProvider: presentationContextProvider
+        )
     }
 
     /// The completion handed to `ASWebAuthenticationSession`.
@@ -89,13 +111,35 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
     }
 }
 
+/// A per-attempt provider that always returns the caller's exact window.
+final class ExactASWebAuthenticationPresentationContextProvider: NSObject,
+    ASWebAuthenticationPresentationContextProviding {
+    let anchor: ASPresentationAnchor
+
+    init(anchor: ASPresentationAnchor) {
+        self.anchor = anchor
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        anchor
+    }
+}
+
 /// Wraps one `ASWebAuthenticationSession` as a ``HostBrowserAuthSession``.
 @MainActor
-private final class ASWebBrowserAuthSession: HostBrowserAuthSession {
+final class ASWebBrowserAuthSession: HostBrowserAuthSession {
     private let session: ASWebAuthenticationSession
+    /// `ASWebAuthenticationSession` retains this provider weakly, so the
+    /// attempt owns it for the full session lifetime.
+    let presentationContextProvider: any ASWebAuthenticationPresentationContextProviding
 
-    init(session: ASWebAuthenticationSession) {
+    init(
+        session: ASWebAuthenticationSession,
+        presentationContextProvider: any ASWebAuthenticationPresentationContextProviding
+    ) {
         self.session = session
+        self.presentationContextProvider = presentationContextProvider
+        session.presentationContextProvider = presentationContextProvider
     }
 
     func start() -> Bool {

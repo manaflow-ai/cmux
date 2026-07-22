@@ -10,4 +10,5 @@ struct OpenDiffViewerAgentContextRequest: Sendable {
     let surfaceId: UUID
     let sessionId: String
     let originWindowId: UUID?
+    let focus: Bool
 }

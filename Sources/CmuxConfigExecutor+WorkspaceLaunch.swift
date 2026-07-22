@@ -105,7 +105,9 @@ extension CmuxConfigExecutor {
         command: CmuxCommandDefinition,
         workspace wsDef: CmuxWorkspaceDefinition,
         tabManager: TabManager,
-        baseCwd: String
+        baseCwd: String,
+        sourceWorkspaceID: UUID? = nil,
+        select: Bool = true
     ) -> Bool {
         let workspaceName = wsDef.name ?? command.name
         let restart = command.restart ?? .new
@@ -116,7 +118,9 @@ extension CmuxConfigExecutor {
             case .new:
                 break
             case .ignore:
-                tabManager.selectWorkspace(existing)
+                if select {
+                    tabManager.selectWorkspace(existing)
+                }
                 return true
             case .recreate:
                 existingWorkspaceToClose = existing
@@ -140,7 +144,9 @@ extension CmuxConfigExecutor {
                     defaultValue: "Cancel"
                 ))
                 guard alert.runModal() == .alertFirstButtonReturn else {
-                    tabManager.selectWorkspace(existing)
+                    if select {
+                        tabManager.selectWorkspace(existing)
+                    }
                     return false
                 }
                 existingWorkspaceToClose = existing
@@ -150,7 +156,9 @@ extension CmuxConfigExecutor {
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
         let newWorkspace = tabManager.addWorkspace(
             workingDirectory: resolvedCwd,
-            workspaceEnvironment: wsDef.env ?? [:]
+            workspaceEnvironment: wsDef.env ?? [:],
+            select: select,
+            sourceWorkspaceID: sourceWorkspaceID
         )
         newWorkspace.setCustomTitle(workspaceName)
         if let color = wsDef.color {

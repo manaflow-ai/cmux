@@ -3,7 +3,17 @@ import CmuxCommandPalette
 
 extension ContentView {
     func commandPaletteConfigActionID(for commandId: String) -> String? {
+        Self.commandPaletteBuiltInConfigActionID(for: commandId)
+    }
+
+    static func commandPaletteBuiltInConfigActionID(for commandId: String) -> String? {
         switch commandId {
+        case "palette.newWorkspace":
+            return CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID
+        case commandPaletteCloudOpenCommandId:
+            return CmuxSurfaceTabBarBuiltInAction.cloudVM.configID
+        case "palette.mobileConnect":
+            return CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID
         case "palette.newTerminalTab":
             return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
         case "palette.newBrowserTab":
@@ -30,23 +40,33 @@ extension ContentView {
         )]
     }
 
-    func registerAgentChatCommandPaletteHandler(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: "palette.newAgentChat") {
+    func registerAgentChatCommandPaletteHandler(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext,
+        configCatalog: CmuxConfigActionCatalog,
+        beep: @escaping @MainActor () -> Void = { NSSound.beep() }
+    ) {
+        registry.register(commandId: "palette.newAgentChat") { invocation in
             guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else {
-                NSSound.beep()
-                return
+                if invocation.source == .commandPalette { beep() }
+                return .failed(
+                    code: "action_unavailable",
+                    message: String(
+                        localized: "action.error.configuredActionFailed",
+                        defaultValue: "The configured action could not be started."
+                    )
+                )
             }
-            guard let appDelegate = AppDelegate.shared else {
-                NSSound.beep()
-                return
+            guard context.target.windowID == windowId else {
+                if invocation.source == .commandPalette { beep() }
+                return .targetUnavailable
             }
-            if !appDelegate.executeConfiguredCmuxAction(
+            return executeConfiguredPaletteAction(
                 id: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID,
-                tabManager: tabManager,
-                preferredWindow: appDelegate.mainWindow(for: windowId)
-            ) {
-                NSSound.beep()
-            }
+                context: context,
+                configCatalog: configCatalog,
+                invocationSource: invocation.source
+            )
         }
     }
 }

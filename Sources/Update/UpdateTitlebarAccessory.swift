@@ -2482,6 +2482,15 @@ private struct NotificationsPopoverView: View {
     }
 }
 
+nonisolated enum NotificationsPopoverPresentationResult: Equatable, Sendable {
+    /// The popover was newly presented in the requested window.
+    case presented
+    /// The popover was already presented in the requested window.
+    case completed
+    /// The requested window has no usable notifications controller.
+    case failed
+}
+
 @MainActor
 final class UpdateTitlebarAccessoryController {
     private let updateLog: UpdateLogStore
@@ -2497,6 +2506,7 @@ final class UpdateTitlebarAccessoryController {
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
+    private weak var detachedNotificationsPopoverSourceWindow: NSWindow?
 
     init(updateLog: UpdateLogStore, settingsRuntime: SettingsRuntime?) {
         self.updateLog = updateLog
@@ -2826,6 +2836,7 @@ final class UpdateTitlebarAccessoryController {
             guard let self, self.detachedNotificationsPopover === popover else { return }
             self.detachedNotificationsPopover = nil
             self.detachedNotificationsPopoverDelegate = nil
+            self.detachedNotificationsPopoverSourceWindow = nil
             if let popover {
                 postNotificationsPopoverVisibilityDidChange(isShown: false, source: popover)
             } else {
@@ -2851,6 +2862,7 @@ final class UpdateTitlebarAccessoryController {
 
         detachedNotificationsPopover = popover
         detachedNotificationsPopoverDelegate = delegate
+        detachedNotificationsPopoverSourceWindow = window
         popover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
         postNotificationsPopoverVisibilityDidChange(
             isShown: true,
@@ -2879,20 +2891,70 @@ final class UpdateTitlebarAccessoryController {
         return dismissed
     }
 
-    func showNotificationsPopover(animated: Bool = true) {
+    @discardableResult
+    func showNotificationsPopover(
+        animated: Bool = true,
+        preferredWindow: NSWindow?
+    ) -> NotificationsPopoverPresentationResult {
+        let detachedIsShown = detachedNotificationsPopover?.isShown == true
+        let detachedMatchesPreferredWindow = preferredWindow.map {
+            detachedNotificationsPopoverSourceWindow === $0
+        } ?? true
+        if Self.detachedNotificationsPopoverSatisfiesShow(
+            isShown: detachedIsShown,
+            hasPreferredWindow: preferredWindow != nil,
+            isInPreferredWindow: detachedMatchesPreferredWindow
+        ) {
+            return .completed
+        }
+        if detachedIsShown {
+            detachedNotificationsPopover?.performClose(nil)
+        }
         let controllers = controlsControllers.allObjects
-        guard !controllers.isEmpty else { return }
-
-        let target = preferredNotificationsController(from: controllers, preferShownPopover: false)
+        guard !controllers.isEmpty,
+              let target = preferredNotificationsController(
+                  from: controllers,
+                  preferShownPopover: false,
+                  preferredWindow: preferredWindow
+              ) else {
+            return .failed
+        }
         for controller in controllers {
             if controller !== target {
                 controller.dismissNotificationsPopover()
             }
         }
-        guard let target else { return }
-        if target.popoverIsShownForTesting {
-            return
+        let wasShown = target.popoverIsShownForTesting
+        guard !wasShown else {
+            return Self.notificationsPopoverPresentationResult(
+                wasShown: true,
+                isShown: true
+            )
         }
         target.toggleNotificationsPopover(animated: animated)
+        return Self.notificationsPopoverPresentationResult(
+            wasShown: false,
+            isShown: target.popoverIsShownForTesting
+        )
+    }
+
+    func showNotificationsPopover(animated: Bool = true) {
+        _ = showNotificationsPopover(animated: animated, preferredWindow: nil)
+    }
+
+    nonisolated static func notificationsPopoverPresentationResult(
+        wasShown: Bool,
+        isShown: Bool
+    ) -> NotificationsPopoverPresentationResult {
+        if wasShown { return isShown ? .completed : .failed }
+        return isShown ? .presented : .failed
+    }
+
+    nonisolated static func detachedNotificationsPopoverSatisfiesShow(
+        isShown: Bool,
+        hasPreferredWindow: Bool,
+        isInPreferredWindow: Bool
+    ) -> Bool {
+        isShown && (!hasPreferredWindow || isInPreferredWindow)
     }
 }

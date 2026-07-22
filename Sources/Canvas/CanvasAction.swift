@@ -71,6 +71,15 @@ extension KeyboardShortcutSettings.Action {
 /// execution path for every canvas entrypoint.
 @MainActor
 struct CanvasActionExecutor {
+    enum Outcome: Equatable {
+        /// The requested operation reached its model or mounted viewport.
+        case completed
+        /// The workspace is live, but the action does not apply to its current state.
+        case notApplicable
+        /// The immutable panel or mounted viewport needed by the action disappeared.
+        case targetUnavailable
+    }
+
     let workspace: Workspace
 
     /// One keyboard/palette zoom step (matches typical app zoom increments).
@@ -80,42 +89,95 @@ struct CanvasActionExecutor {
     /// (for example a canvas-only action while the workspace is in splits).
     @discardableResult
     func perform(_ action: CanvasAction) -> Bool {
+        perform(action, targetPanelID: workspace.focusedPanelId)
+    }
+
+    /// Runs an action against an immutable panel identity. Explicitly routed
+    /// entrypoints use this overload so a background target never falls back
+    /// to the workspace's live focus.
+    @discardableResult
+    func perform(_ action: CanvasAction, targetPanelID: UUID?) -> Bool {
+        performWithOutcome(action, targetPanelID: targetPanelID) == .completed
+    }
+
+    /// Runs an action and distinguishes a stale/unmounted target from a valid
+    /// no-op. Automation uses this result instead of claiming that an optional
+    /// viewport call succeeded.
+    @discardableResult
+    func performWithOutcome(
+        _ action: CanvasAction,
+        targetPanelID: UUID?
+    ) -> Outcome {
         switch action {
         case .toggleLayout:
             workspace.toggleCanvasLayout()
-            return true
+            return .completed
         case .revealFocusedPane:
-            guard workspace.layoutMode == .canvas,
-                  let panelId = workspace.focusedPanelId else { return false }
-            workspace.canvasModel.viewport?.revealPane(panelId, animated: true)
-            return true
+            guard workspace.layoutMode == .canvas else { return .notApplicable }
+            guard let panelId = targetPanelID,
+                  workspace.panels[panelId] != nil,
+                  let viewport = workspace.canvasModel.viewport
+            else { return .targetUnavailable }
+            viewport.revealPane(panelId, animated: true)
+            return .completed
         case .toggleOverview:
-            guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.toggleOverview()
-            return true
+            return performOverview(enabled: nil, targetPanelID: targetPanelID)
         case .zoomIn:
-            guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.zoom(by: Self.zoomStepFactor)
-            return true
+            guard workspace.layoutMode == .canvas else { return .notApplicable }
+            guard let viewport = workspace.canvasModel.viewport else {
+                return .targetUnavailable
+            }
+            viewport.zoom(by: Self.zoomStepFactor)
+            return .completed
         case .zoomOut:
-            guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.zoom(by: 1 / Self.zoomStepFactor)
-            return true
+            guard workspace.layoutMode == .canvas else { return .notApplicable }
+            guard let viewport = workspace.canvasModel.viewport else {
+                return .targetUnavailable
+            }
+            viewport.zoom(by: 1 / Self.zoomStepFactor)
+            return .completed
         case .zoomReset:
-            guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.resetZoom()
-            return true
+            guard workspace.layoutMode == .canvas else { return .notApplicable }
+            guard let viewport = workspace.canvasModel.viewport else {
+                return .targetUnavailable
+            }
+            viewport.resetZoom()
+            return .completed
         case .alignment(let command):
-            guard workspace.layoutMode == .canvas else { return false }
+            guard workspace.layoutMode == .canvas else { return .notApplicable }
+            if let targetPanelID, workspace.panels[targetPanelID] == nil {
+                return .targetUnavailable
+            }
             let changed = workspace.canvasModel.applyAlignment(
                 command,
                 to: [],
-                reference: workspace.focusedPanelId
+                reference: targetPanelID
             )
             if changed {
                 workspace.canvasModel.viewport?.modelDidChangeExternally(animated: true)
             }
-            return changed
+            return changed ? .completed : .notApplicable
         }
+    }
+
+    /// Enters, exits, or toggles overview through the same viewport seam used
+    /// by every canvas entrypoint. A supplied value makes automation
+    /// idempotent; `nil` preserves the interactive toggle behavior.
+    @discardableResult
+    func performOverview(
+        enabled: Bool?,
+        targetPanelID: UUID?
+    ) -> Outcome {
+        guard workspace.layoutMode == .canvas else { return .notApplicable }
+        if let targetPanelID, workspace.panels[targetPanelID] == nil {
+            return .targetUnavailable
+        }
+        guard let viewport = workspace.canvasModel.viewport else {
+            return .targetUnavailable
+        }
+        let requestedState = enabled ?? !viewport.isOverviewEnabled
+        return viewport.setOverviewEnabled(requestedState)
+            ? .completed
+            : .notApplicable
     }
 }

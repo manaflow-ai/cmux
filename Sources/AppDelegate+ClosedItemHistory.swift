@@ -1,6 +1,15 @@
 import AppKit
 
 extension AppDelegate {
+    func canReopenMostRecentlyClosedItem(
+        preferredTabManager: TabManager? = nil
+    ) -> Bool {
+        ClosedItemHistoryStore.shared.canReopen
+            || !recentlyClosedLegacyBrowserManagers(
+                preferredTabManager: preferredTabManager
+            ).isEmpty
+    }
+
     func clearRecentlyClosedHistory(preferredTabManager: TabManager? = nil) {
         ClosedItemHistoryStore.shared.removeAll()
 

@@ -232,11 +232,13 @@ extension Workspace {
     func openNewCanvasPane(
         type: CanvasNewPaneType,
         focus: Bool = true,
-        direction: CanvasDirection? = nil
+        direction: CanvasDirection? = nil,
+        sourcePanelID: UUID? = nil
     ) -> UUID? {
         guard layoutMode == .canvas else { return nil }
-        guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
-        let anchorPanelId = focusedPanelId
+        let anchorPanelId = sourcePanelID ?? focusedPanelId
+        guard let focusedPaneId = anchorPanelId.flatMap({ paneId(forPanelId: $0) })
+                ?? bonsplitController.focusedPaneId else { return nil }
         let preferredSize: CanvasSize? = anchorPanelId
             .flatMap { canvasModel.frame(of: $0) }
             .map { CanvasSize(width: Double($0.width), height: Double($0.height)) }
@@ -261,9 +263,13 @@ extension Workspace {
             preferredDirection: direction,
             preferredNewPaneSize: preferredSize
         )
-        focusPanel(newPanelId)
+        if focus {
+            focusPanel(newPanelId)
+        }
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
-        canvasModel.viewport?.revealPane(newPanelId, animated: true)
+        if focus {
+            canvasModel.viewport?.revealPane(newPanelId, animated: true)
+        }
         return newPanelId
     }
 

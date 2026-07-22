@@ -3009,6 +3009,9 @@ final class BrowserPanel: Panel, ObservableObject {
             reevaluateHiddenWebViewDiscardScheduling(reason: "react_grab_changed")
         }
     }
+    var requestedReactGrabActive: Bool?
+    var reactGrabStateReconciliationTask: Task<Void, Never>?
+    var reactGrabStateReconciliationGeneration: UInt64 = 0
     lazy var designModeController = BrowserDesignModeController(
         surfaceID: id,
         script: BrowserDesignModeScript(),
@@ -5425,6 +5428,10 @@ final class BrowserPanel: Panel, ObservableObject {
         automationNavigationCoordinator.invalidate()
         automationDocumentReadiness.invalidate()
         automationWatchdog.invalidate()
+        reactGrabStateReconciliationGeneration &+= 1
+        reactGrabStateReconciliationTask?.cancel()
+        reactGrabStateReconciliationTask = nil
+        requestedReactGrabActive = nil
         refreshWebViewLifecycleState()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
@@ -6427,6 +6434,15 @@ extension BrowserPanel {
         webView.goBack()
     }
 
+    /// Starts a backward history traversal only when one is currently
+    /// available, and reports whether the request was accepted.
+    @discardableResult
+    func goBackIfPossible() -> Bool {
+        guard canGoBack else { return false }
+        goBack()
+        return true
+    }
+
     /// Go forward in history
     func goForward() {
         guard canGoForward else { return }
@@ -6456,6 +6472,15 @@ extension BrowserPanel {
         }
 
         webView.goForward()
+    }
+
+    /// Starts a forward history traversal only when one is currently
+    /// available, and reports whether the request was accepted.
+    @discardableResult
+    func goForwardIfPossible() -> Bool {
+        guard canGoForward else { return false }
+        goForward()
+        return true
     }
 
     /// Open a link in a new browser surface in the same pane
@@ -6575,13 +6600,25 @@ extension BrowserPanel {
         return false
     }
 
+    private func startSoftReload(reason: String) -> (navigation: WKNavigation?, accepted: Bool) {
+        if prepareForReload(reason: reason, mode: .soft) {
+            return (nil, true)
+        }
+        let navigation = webView.reload()
+        return (navigation, navigation != nil)
+    }
+
     /// Reload the current page
     @discardableResult
     func reload() -> WKNavigation? {
-        if prepareForReload(reason: "reload", mode: .soft) {
-            return nil
-        }
-        return webView.reload()
+        startSoftReload(reason: "reload").navigation
+    }
+
+    /// Starts a reload and reports acceptance even when the reload is handled
+    /// by web-content recovery instead of returning a `WKNavigation` token.
+    @discardableResult
+    func reloadIfPossible() -> Bool {
+        startSoftReload(reason: "commandPalette.reload").accepted
     }
 
     /// Reload the current page, bypassing WebKit's cache.
@@ -6725,6 +6762,12 @@ extension BrowserPanel {
         return isDeveloperToolsVisible()
     }
 
+    /// The latest requested DevTools state, including a transition that has
+    /// been accepted but has not settled in WebKit yet.
+    var developerToolsVisibilityIntent: Bool {
+        effectiveDeveloperToolsVisibilityIntent()
+    }
+
     private func scheduleDeveloperToolsTransitionSettle(source: String) {
         developerToolsTransitionSettleWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
@@ -6837,8 +6880,8 @@ extension BrowserPanel {
             "\(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
         )
 #endif
-        let targetVisible = !effectiveDeveloperToolsVisibilityIntent()
-        let handled = enqueueDeveloperToolsVisibilityTransition(to: targetVisible, source: "toggle")
+        let targetVisible = !developerToolsVisibilityIntent
+        let handled = setDeveloperToolsVisible(targetVisible, source: "toggle")
 #if DEBUG
         cmuxDebugLog(
             "browser.devtools toggle.end panel=\(id.uuidString.prefix(5)) targetVisible=\(targetVisible ? 1 : 0) " +
@@ -6856,8 +6899,17 @@ extension BrowserPanel {
     }
 
     @discardableResult
+    func setDeveloperToolsVisible(
+        _ visible: Bool,
+        source: String = "set"
+    ) -> Bool {
+        guard developerToolsVisibilityIntent != visible else { return true }
+        return enqueueDeveloperToolsVisibilityTransition(to: visible, source: source)
+    }
+
+    @discardableResult
     func showDeveloperTools() -> Bool {
-        return enqueueDeveloperToolsVisibilityTransition(to: true, source: "show")
+        return setDeveloperToolsVisible(true, source: "show")
     }
 
     @discardableResult
@@ -7115,7 +7167,7 @@ extension BrowserPanel {
 
     @discardableResult
     func hideDeveloperTools() -> Bool {
-        return enqueueDeveloperToolsVisibilityTransition(to: false, source: "hide")
+        return setDeveloperToolsVisible(false, source: "hide")
     }
 
     func requestDeveloperToolsRefreshAfterNextAttach(reason: String) {

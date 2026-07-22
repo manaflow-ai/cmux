@@ -7,7 +7,7 @@ extension CmuxActionExecutionResult {
         switch source {
         case .commandPalette:
             switch self {
-            case .completed, .queued, .dispatched, .presented:
+            case .completed, .queued, .presented:
                 true
             case .requiresArguments, .invalidArguments, .invalidArgumentValues, .failed:
                 false

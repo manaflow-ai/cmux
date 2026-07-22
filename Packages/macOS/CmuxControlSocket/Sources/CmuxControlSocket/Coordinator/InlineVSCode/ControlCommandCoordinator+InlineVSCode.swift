@@ -45,20 +45,32 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: strings.tabManagerUnavailable, data: nil)
         }
 
-        let resolution: ControlInlineVSCodeOpenResolution = context.controlResolveOnMain { seam in
+        let mainResult: ControlInlineVSCodeMainResult = context.controlResolveOnMain { seam in
             let routing = self.routingSelectors(params)
             // Every explicit selector must resolve. Otherwise the app cannot
             // distinguish a bad target from an intentionally omitted one and
             // could fall through to the selected workspace.
-            if (routing.hasGroupIDParam && routing.groupID == nil)
+            if (routing.hasWindowIDParam && routing.windowID == nil)
+                || (routing.hasGroupIDParam && routing.groupID == nil)
                 || (routing.hasWorkspaceIDParam && routing.workspaceID == nil)
                 || (routing.hasSurfaceIDParam && routing.surfaceID == nil)
                 || (routing.hasPaneIDParam && routing.paneID == nil) {
-                return .workspaceNotFound
+                return ControlInlineVSCodeMainResult(resolution: .workspaceNotFound)
             }
-            return seam.controlInlineVSCodeOpen(routing: routing, directoryPath: resolved)
+            let resolution = seam.controlInlineVSCodeOpen(
+                routing: routing,
+                directoryPath: resolved
+            )
+            guard case .accepted(let windowID, let workspaceID) = resolution else {
+                return ControlInlineVSCodeMainResult(resolution: resolution)
+            }
+            return ControlInlineVSCodeMainResult(
+                resolution: resolution,
+                windowRef: self.ref(.window, windowID),
+                workspaceRef: self.ref(.workspace, workspaceID)
+            )
         }
-        switch resolution {
+        switch mainResult.resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: strings.tabManagerUnavailable, data: nil)
         case .workspaceNotFound:
@@ -71,7 +83,9 @@ extension ControlCommandCoordinator {
             let windowValue = windowID.map { JSONValue.string($0.uuidString) } ?? .null
             let payload: [String: JSONValue] = [
                 "window_id": windowValue,
+                "window_ref": mainResult.windowRef ?? .null,
                 "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": mainResult.workspaceRef ?? .null,
                 "path": .string(resolved),
                 "accepted": .bool(true),
                 "status": .string("queued"),
@@ -91,4 +105,20 @@ extension ControlCommandCoordinator {
         vscodeUnavailable: "VS Code Inline is unavailable",
         openFailed: "Failed to open VS Code Inline"
     )
+}
+
+private struct ControlInlineVSCodeMainResult: Sendable {
+    let resolution: ControlInlineVSCodeOpenResolution
+    let windowRef: JSONValue?
+    let workspaceRef: JSONValue?
+
+    init(
+        resolution: ControlInlineVSCodeOpenResolution,
+        windowRef: JSONValue? = nil,
+        workspaceRef: JSONValue? = nil
+    ) {
+        self.resolution = resolution
+        self.windowRef = windowRef
+        self.workspaceRef = workspaceRef
+    }
 }

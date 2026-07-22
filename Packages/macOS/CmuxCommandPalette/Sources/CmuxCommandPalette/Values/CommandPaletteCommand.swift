@@ -49,36 +49,6 @@ public struct CommandPaletteCommand: Identifiable {
         self.handler = handler
     }
 
-    /// Compatibility initializer for zero-argument palette commands. Execution
-    /// reports ``CmuxActionExecutionResult/dispatched`` because `action` cannot
-    /// prove a more specific outcome.
-    public init(
-        id: String,
-        rank: Int,
-        title: String,
-        subtitle: String,
-        shortcutHint: String?,
-        kindLabel: String?,
-        keywords: [String],
-        dismissOnRun: Bool,
-        action: @escaping @MainActor () -> Void
-    ) {
-        self.init(
-            id: id,
-            rank: rank,
-            title: title,
-            subtitle: subtitle,
-            shortcutHint: shortcutHint,
-            kindLabel: kindLabel,
-            keywords: keywords,
-            dismissOnRun: dismissOnRun,
-            handler: { _ in
-                action()
-                return .dispatched
-            }
-        )
-    }
-
     /// Validates statically declared arguments and executes the action.
     @MainActor
     public func execute(_ invocation: CmuxActionInvocation) -> CmuxActionExecutionResult {

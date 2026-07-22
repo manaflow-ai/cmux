@@ -31,6 +31,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let workspaceHasSplits = CommandPaletteContextKeys(rawValue: "workspace.hasSplits")
     /// Whether the workspace uses the canvas layout mode.
     public static let workspaceCanvasLayout = CommandPaletteContextKeys(rawValue: "workspace.canvasLayout")
+    /// Whether the exact workspace target is backed by a managed Cloud VM.
+    public static let workspaceHasCloudVM = CommandPaletteContextKeys(rawValue: "workspace.hasCloudVM")
     /// Whether the workspace has sibling workspaces.
     public static let workspaceHasPeers = CommandPaletteContextKeys(rawValue: "workspace.hasPeers")
     /// Whether a workspace exists above the selection.
@@ -51,6 +53,10 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelIsBrowser = CommandPaletteContextKeys(rawValue: "panel.isBrowser")
     /// Whether browser focus mode is active.
     public static let panelBrowserFocusModeActive = CommandPaletteContextKeys(rawValue: "panel.browserFocusModeActive")
+    /// Whether the browser can traverse backward in its navigation history.
+    public static let panelBrowserCanGoBack = CommandPaletteContextKeys(rawValue: "panel.browser.canGoBack")
+    /// Whether the browser can traverse forward in its navigation history.
+    public static let panelBrowserCanGoForward = CommandPaletteContextKeys(rawValue: "panel.browser.canGoForward")
     /// Whether the browser omnibar is visible.
     public static let panelBrowserOmnibarVisible = CommandPaletteContextKeys(rawValue: "panel.browser.omnibarVisible")
     /// Whether the focused panel is markdown.
@@ -59,8 +65,16 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelIsFilePreviewTextEditor = CommandPaletteContextKeys(rawValue: "panel.isFilePreviewTextEditor")
     /// Whether the focused panel is a terminal.
     public static let panelIsTerminal = CommandPaletteContextKeys(rawValue: "panel.isTerminal")
+    /// Whether the targeted terminal currently has an active find session.
+    public static let terminalFindActive = CommandPaletteContextKeys(rawValue: "terminal.find.active")
+    /// Whether the targeted terminal has a selection that can seed find.
+    public static let terminalHasSelection = CommandPaletteContextKeys(rawValue: "terminal.selection.available")
+    /// Whether the targeted terminal reports an existing local directory.
+    public static let terminalHasLocalDirectory = CommandPaletteContextKeys(rawValue: "terminal.localDirectory.available")
     /// Whether the focused panel sits in a pane.
     public static let panelHasPane = CommandPaletteContextKeys(rawValue: "panel.hasPane")
+    /// Whether the focused panel has another selectable tab in its pane.
+    public static let panelHasPeerTab = CommandPaletteContextKeys(rawValue: "panel.hasPeerTab")
     /// Whether the focused panel hosts a forkable agent.
     public static let panelHasForkableAgent = CommandPaletteContextKeys(rawValue: "panel.hasForkableAgent")
     /// Whether the focused panel has a custom name.
@@ -69,10 +83,16 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelShouldPin = CommandPaletteContextKeys(rawValue: "panel.shouldPin")
     /// Whether the focused panel has unread state.
     public static let panelHasUnread = CommandPaletteContextKeys(rawValue: "panel.hasUnread")
+    /// Whether the captured notification state contains a target jump can open.
+    public static let notificationsCanJumpUnread = CommandPaletteContextKeys(rawValue: "notifications.canJumpUnread")
     /// Whether the focused panel can move to a new workspace.
     public static let panelCanMoveToNewWorkspace = CommandPaletteContextKeys(rawValue: "panel.canMoveToNewWorkspace")
     /// Whether an app update is available.
     public static let updateHasAvailable = CommandPaletteContextKeys(rawValue: "update.hasAvailable")
+    /// Whether any recently closed item can currently be reopened.
+    public static let historyCanReopenClosedItem = CommandPaletteContextKeys(rawValue: "history.canReopenClosedItem")
+    /// Whether the local CLI socket listener is enabled in configuration.
+    public static let socketListenerEnabled = CommandPaletteContextKeys(rawValue: "socket.listenerEnabled")
     /// Whether the cmux CLI is installed in PATH.
     public static let cliInstalledInPATH = CommandPaletteContextKeys(rawValue: "cli.installedInPATH")
     /// Whether cmux is the default terminal.

@@ -3,14 +3,20 @@ import Foundation
 
 enum WorkspaceSurfaceIdentifierClipboardText {
     @MainActor
-    static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
+    @discardableResult
+    static func copy(_ text: String, to pasteboard: NSPasteboard = .general) -> Bool {
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        return pasteboard.setString(text, forType: .string)
     }
 
     @MainActor
-    static func copyWorkspaceIds(_ ids: [UUID], includeRefs: Bool) {
-        copy(makeWorkspaceIds(ids, includeRefs: includeRefs))
+    @discardableResult
+    static func copyWorkspaceIds(
+        _ ids: [UUID],
+        includeRefs: Bool,
+        to pasteboard: NSPasteboard = .general
+    ) -> Bool {
+        copy(makeWorkspaceIds(ids, includeRefs: includeRefs), to: pasteboard)
     }
 
     @MainActor

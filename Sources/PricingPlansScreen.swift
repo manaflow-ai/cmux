@@ -10,8 +10,50 @@ import SwiftUI
 /// workspace creation is unavailable.
 enum ProUpgradePresenter {
     @MainActor
-    static func present(tabManager: TabManager? = nil) {
-        presentAppPricingWeb(tabManager: tabManager)
+    static func capturedSourceIsAvailable(
+        appDelegate: AppDelegate?,
+        tabManager: TabManager?,
+        sourceWindowID: UUID?,
+        sourceWorkspaceID: UUID?,
+        sourcePanelID: UUID?
+    ) -> Bool {
+        let hasCapturedSource = sourceWindowID != nil
+            || sourceWorkspaceID != nil
+            || sourcePanelID != nil
+        guard hasCapturedSource else {
+            guard let tabManager else { return true }
+            return appDelegate?.liveMainWindowContextForAction(tabManager: tabManager) != nil
+        }
+        guard let appDelegate,
+              let tabManager,
+              let sourceWindowID,
+              let windowContext = appDelegate.liveMainWindowContextForAction(tabManager: tabManager),
+              windowContext.windowId == sourceWindowID else {
+            return false
+        }
+        guard let sourceWorkspaceID else {
+            return sourcePanelID == nil
+        }
+        guard let sourceWorkspace = tabManager.tabs.first(where: { $0.id == sourceWorkspaceID }) else {
+            return false
+        }
+        guard let sourcePanelID else { return true }
+        return sourceWorkspace.panels[sourcePanelID] != nil
+    }
+
+    @MainActor
+    static func present(
+        tabManager: TabManager? = nil,
+        sourceWindowID: UUID? = nil,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil
+    ) {
+        presentAppPricingWeb(
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        )
     }
 
     /// Hover hook for upgrade entrypoints: loads the pricing page into a
@@ -44,20 +86,41 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    static func presentAppPricingWeb(tabManager: TabManager? = nil) {
-        if let tabManager,
-           AppDelegate.shared?.liveMainWindowContextForAction(tabManager: tabManager) == nil {
-            return
-        }
+    static func presentAppPricingWeb(
+        tabManager: TabManager? = nil,
+        sourceWindowID: UUID? = nil,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil
+    ) {
+        guard capturedSourceIsAvailable(
+            appDelegate: AppDelegate.shared,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        ) else { return }
         let url = appPricingURLForCurrentAppearance()
         guard BrowserAvailabilitySettings.isEnabled() else {
             NSWorkspace.shared.open(url)
             return
         }
-        if presentDedicatedPricingWorkspace(url: url, tabManager: tabManager) {
+        if presentDedicatedPricingWorkspace(
+            url: url,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        ) {
             return
         }
-        presentBrowserSplit(url: url, transparentBackground: true, tabManager: tabManager)
+        presentBrowserSplit(
+            url: url,
+            transparentBackground: true,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        )
     }
 
     @MainActor
@@ -78,9 +141,19 @@ enum ProUpgradePresenter {
     @MainActor
     private static func presentDedicatedPricingWorkspace(
         url: URL,
-        tabManager: TabManager?
+        tabManager: TabManager?,
+        sourceWindowID: UUID?,
+        sourceWorkspaceID: UUID?,
+        sourcePanelID: UUID?
     ) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
+        guard capturedSourceIsAvailable(
+            appDelegate: appDelegate,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        ) else { return false }
         let reuseContext = appDelegate.proUpgradeWorkspaceReuseContext(
             tabManager: tabManager,
             debugSource: "proUpgradePresenter.reuse"
@@ -110,6 +183,7 @@ enum ProUpgradePresenter {
             title: title,
             url: url,
             tabManager: targetManager,
+            sourceWorkspaceID: sourceWorkspaceID,
             debugSource: "proUpgradePresenter"
         ) else {
             return false
@@ -125,20 +199,36 @@ enum ProUpgradePresenter {
     static func presentBrowserSplit(
         url: URL,
         transparentBackground: Bool,
-        tabManager: TabManager? = nil
+        tabManager: TabManager? = nil,
+        sourceWindowID: UUID? = nil,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil
     ) {
-        if let tabManager,
-           AppDelegate.shared?.liveMainWindowContextForAction(tabManager: tabManager) == nil {
-            return
+        guard capturedSourceIsAvailable(
+            appDelegate: AppDelegate.shared,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        ) else { return }
+        let targetManager = tabManager ?? AppDelegate.shared?.tabManager
+        let workspace: Workspace?
+        if let sourceWorkspaceID {
+            workspace = targetManager?.tabs.first(where: { $0.id == sourceWorkspaceID })
+        } else {
+            workspace = targetManager?.selectedWorkspace
         }
-        // First fallback: use the previous browser split behavior.
-        if let workspace = (tabManager ?? AppDelegate.shared?.tabManager)?.selectedWorkspace,
-           let sourcePanelId = workspace.focusedPanelId,
+        let resolvedPanelID = sourcePanelID ?? (sourceWorkspaceID == nil ? workspace?.focusedPanelId : nil)
+        if sourceWorkspaceID != nil, workspace == nil { return }
+        if let sourcePanelID, workspace?.panels[sourcePanelID] == nil { return }
+        if let workspace,
+           let sourcePanelId = resolvedPanelID,
+           workspace.panels[sourcePanelId] != nil,
            workspace.newBrowserSplit(
                from: sourcePanelId,
                orientation: .horizontal,
                url: url,
-               focus: true,
+               focus: targetManager?.selectedTabId == workspace.id,
                omnibarVisible: false,
                transparentBackground: transparentBackground,
                initialDividerPosition: 0.58
@@ -150,6 +240,9 @@ enum ProUpgradePresenter {
         // the current window, then the system browser.
         if AppDelegate.shared?.openBrowserAndFocusAddressBar(
             tabManager: tabManager,
+            workspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID,
+            selectWorkspace: sourceWorkspaceID == nil,
             url: url
         ) != nil {
             return

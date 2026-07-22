@@ -18,10 +18,14 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
+    private var sourcePanelID: UUID?
+    private var requiresSourcePanel: Bool
 
-    init(workspace: Workspace, mode: RightSidebarMode) {
+    init(workspace: Workspace, mode: RightSidebarMode, sourcePanelID: UUID? = nil) {
         self.id = UUID()
         self.mode = mode
+        self.sourcePanelID = sourcePanelID
+        self.requiresSourcePanel = sourcePanelID != nil
         reattach(to: workspace)
     }
 
@@ -61,8 +65,20 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     var displayIcon: String? { mode.symbolName }
 
     func reattach(to workspace: Workspace) {
+        let movedBetweenWorkspaces = self.workspace.map { $0 !== workspace } ?? false
         self.workspace = workspace
+        if movedBetweenWorkspaces {
+            sourcePanelID = nil
+            requiresSourcePanel = false
+        }
         observeWorkspaceRootChanges(workspace)
+        syncWorkspaceRoot(from: workspace)
+    }
+
+    func bindWorkspaceRoot(toSourcePanelID sourcePanelID: UUID?) {
+        self.sourcePanelID = sourcePanelID
+        requiresSourcePanel = sourcePanelID != nil
+        guard let workspace else { return }
         syncWorkspaceRoot(from: workspace)
     }
 
@@ -89,15 +105,25 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     func openFilePreview(_ filePath: String) {
         guard let workspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+              let livePanel = workspace.panels[id] as? RightSidebarToolPanel,
+              livePanel === self,
+              !requiresSourcePanel || sourcePanelID.map({ workspace.panels[$0] != nil }) == true,
+              let paneId = workspace.paneId(forPanelId: id) else {
             return
         }
         if workspace.isRemoteWorkspace {
             let store = fileExplorerStore
-            Task { [weak workspace, weak store] in
-                guard let workspace, let store else { return }
+            Task { [weak self, weak workspace, weak store] in
+                guard let self, let workspace, let store else { return }
                 do {
                     let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
+                    guard let livePanel = workspace.panels[self.id] as? RightSidebarToolPanel,
+                          livePanel === self,
+                          workspace.paneId(forPanelId: self.id) == paneId,
+                          !self.requiresSourcePanel
+                            || self.sourcePanelID.map({ workspace.panels[$0] != nil }) == true else {
+                        return
+                    }
                     _ = workspace.openFileSurfaces(
                         inPane: paneId,
                         filePaths: [localURL.path],
@@ -178,7 +204,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher(),
+            workspace.panelsPublisher.map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self, weak workspace] _ in
             Task { @MainActor in
@@ -197,6 +224,18 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 store.applyWorkspaceRoot(.none)
                 return
             }
+            let rootPath: String?
+            if requiresSourcePanel {
+                guard let sourcePanelID,
+                      workspace.panels[sourcePanelID] != nil,
+                      let sourceDirectory = workspace.reportedPanelDirectory(panelId: sourcePanelID) else {
+                    store.applyWorkspaceRoot(.none)
+                    return
+                }
+                rootPath = sourceDirectory
+            } else {
+                rootPath = workspace.trustedRemoteCurrentDirectory
+            }
             let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
             store.applyWorkspaceRoot(
                 .remoteSSH(
@@ -208,7 +247,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         sshOptions: configuration.sshOptions
                     ),
                     displayTarget: configuration.displayTarget,
-                    rootPath: workspace.trustedRemoteCurrentDirectory,
+                    rootPath: rootPath,
                     isAvailable: workspace.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
@@ -216,7 +255,18 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             return
         }
 
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directory: String
+        if requiresSourcePanel {
+            guard let sourcePanelID,
+                  workspace.panels[sourcePanelID] != nil,
+                  let sourceDirectory = workspace.effectivePanelDirectory(panelId: sourcePanelID) else {
+                store.applyWorkspaceRoot(.none)
+                return
+            }
+            directory = sourceDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         guard !directory.isEmpty else {
             store.applyWorkspaceRoot(.none)
             return
@@ -231,7 +281,18 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             return
         }
 
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directory: String
+        if requiresSourcePanel {
+            guard let sourcePanelID,
+                  workspace.panels[sourcePanelID] != nil,
+                  let sourceDirectory = workspace.effectivePanelDirectory(panelId: sourcePanelID) else {
+                store.setCurrentDirectoryIfChanged(nil)
+                return
+            }
+            directory = sourceDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         store.setCurrentDirectoryIfChanged(directory.isEmpty ? nil : directory)
     }
 }

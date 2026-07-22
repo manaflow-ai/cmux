@@ -110,6 +110,12 @@ enum WorkspaceTodoPaletteCommands {
         let hasWorkspace: (CommandPaletteContextSnapshot) -> Bool = {
             $0.bool(CommandPaletteContextKeys.hasWorkspace)
         }
+        let hasFocusedPanel: (CommandPaletteContextSnapshot) -> Bool = {
+            $0.bool(CommandPaletteContextKeys.hasFocusedPanel)
+        }
+        let panelHasPane: (CommandPaletteContextSnapshot) -> Bool = {
+            $0.bool(CommandPaletteContextKeys.panelHasPane)
+        }
         var contributions: [CommandPaletteCommandContribution] = []
         if WorkspaceTodoFeature.isEnabled {
             contributions.append(
@@ -178,7 +184,16 @@ enum WorkspaceTodoPaletteCommands {
                 },
                 subtitle: workspaceSubtitle,
                 keywords: ["workspace", "todo", "todos", "checklist", "pane", "open"],
-                when: hasWorkspace
+                arguments: [
+                    CmuxActionArgumentDefinition(
+                        name: "focus",
+                        valueType: .boolean,
+                        required: false
+                    )
+                ],
+                when: {
+                    hasWorkspace($0) && hasFocusedPanel($0) && panelHasPane($0)
+                }
             )
         )
         return contributions
@@ -186,54 +201,57 @@ enum WorkspaceTodoPaletteCommands {
 
     static func registerHandlers(
         in registry: inout CommandPaletteHandlerRegistry,
-        tabManager: TabManager
+        context: CommandPaletteActionContext,
+        presentChecklistAddField: @escaping @MainActor (UUID) -> Bool
     ) {
-        func withSelectedWorkspace(_ body: @escaping (Workspace) -> Void) -> () -> Void {
-            {
-                guard let workspace = tabManager.selectedWorkspace else {
-                    NSSound.beep()
-                    return
+        func applyStatus(_ status: WorkspaceTaskStatus?) -> CmuxActionHandler {
+            { invocation in
+                guard let workspace = context.workspace() else {
+                    if invocation.source == .commandPalette { NSSound.beep() }
+                    return .targetUnavailable
                 }
-                body(workspace)
+                guard WorkspaceTodoFeature.isEnabled else {
+                    if invocation.source == .commandPalette { NSSound.beep() }
+                    return .failed(
+                        code: "action_unavailable",
+                        message: String(
+                            localized: "action.error.notApplicable",
+                            defaultValue: "The action does not apply to this target."
+                        )
+                    )
+                }
+                WorkspaceTodoActions.applyStatusOverride(status, to: [workspace])
+                return .completed
             }
         }
         registry.register(
             commandId: statusAutoCommandId,
-            handler: withSelectedWorkspace { workspace in
-                guard WorkspaceTodoFeature.isEnabled else {
-                    NSSound.beep()
-                    return
-                }
-                WorkspaceTodoActions.applyStatusOverride(nil, to: [workspace])
-            }
+            handler: applyStatus(nil)
         )
         for status in WorkspaceTaskStatus.allCases {
             registry.register(
                 commandId: statusCommandId(status),
-                handler: withSelectedWorkspace { workspace in
-                    guard WorkspaceTodoFeature.isEnabled else {
-                        NSSound.beep()
-                        return
-                    }
-                    WorkspaceTodoActions.applyStatusOverride(status, to: [workspace])
-                }
+                handler: applyStatus(status)
             )
         }
         registry.register(
             commandId: markWorkspaceDoneCommandId,
-            handler: withSelectedWorkspace { workspace in
-                guard WorkspaceTodoFeature.isEnabled else {
-                    NSSound.beep()
-                    return
-                }
-                WorkspaceTodoActions.applyStatusOverride(.done, to: [workspace])
-            }
+            handler: applyStatus(.done)
         )
         registry.register(commandId: addChecklistItemCommandId) { invocation in
-            guard WorkspaceTodoFeature.isEnabled,
-                  let workspace = tabManager.selectedWorkspace else {
-                NSSound.beep()
+            guard let workspace = context.workspace() else {
+                if invocation.source == .commandPalette { NSSound.beep() }
                 return .targetUnavailable
+            }
+            guard WorkspaceTodoFeature.isEnabled else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return .failed(
+                    code: "action_unavailable",
+                    message: String(
+                        localized: "action.error.notApplicable",
+                        defaultValue: "The action does not apply to this target."
+                    )
+                )
             }
             if let text = invocation.string("text") {
                 guard WorkspaceTodoActions.addChecklistItem(text: text, to: workspace) else {
@@ -247,16 +265,37 @@ enum WorkspaceTodoPaletteCommands {
                 }
                 return .completed
             }
-            WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
+            guard presentChecklistAddField(workspace.id) else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return .failed(
+                    code: "presentation_failed",
+                    message: String(
+                        localized: "action.error.notApplicable",
+                        defaultValue: "The action does not apply to this target."
+                    )
+                )
+            }
             return .presented
         }
-        registry.register(
-            commandId: openTodoPaneCommandId,
-            handler: withSelectedWorkspace { workspace in
-                if WorkspaceTodoActions.openTodoPane(for: workspace) == nil {
-                    NSSound.beep()
-                }
+        registry.register(commandId: openTodoPaneCommandId) { invocation in
+            guard let workspace = context.workspace(),
+                  let panelID = context.target.panelID else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return .targetUnavailable
             }
-        )
+            let focus = invocation.bool("focus")
+                ?? (invocation.source == .automation
+                    ? true
+                    : context.tabManager.selectedTabId == workspace.id)
+            guard WorkspaceTodoActions.openTodoPane(
+                for: workspace,
+                sourcePanelID: panelID,
+                focus: focus
+            ) != nil else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return .targetUnavailable
+            }
+            return .completed
+        }
     }
 }

@@ -31,6 +31,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     private let clickRouting: any NotificationClickRouting
     private let focusedResolving: any FocusedNotificationResolving
     private let explicitFocusedJump: ((UUID?, UUID?) -> UUID?)?
+    private let explicitFocusedJumpWithOutcome:
+        ((UUID?, UUID?) -> (openedNotificationId: UUID?, didOpen: Bool))?
     /// The focused-mark state machine. Lazy so its default jump closure can
     /// capture `self` (allowed only after all stored properties are initialized);
     /// the closure is invoked later, on the main actor. `@ObservationIgnored`
@@ -42,6 +44,12 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         resolver: focusedResolving,
         jumpToLatestUnread: explicitFocusedJump ?? { [unowned self] excludedNotificationId, excludedWorkspaceId in
             self.jumpToLatestUnread(
+                excludingNotificationId: excludedNotificationId,
+                excludingWorkspaceId: excludedWorkspaceId
+            )
+        },
+        jumpToLatestUnreadWithOutcome: explicitFocusedJumpWithOutcome ?? { [unowned self] excludedNotificationId, excludedWorkspaceId in
+            self.performJumpToLatestUnread(
                 excludingNotificationId: excludedNotificationId,
                 excludingWorkspaceId: excludedWorkspaceId
             )
@@ -68,7 +76,11 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         openRouting: any NotificationOpenRouting,
         clickRouting: any NotificationClickRouting,
         focusedResolving: any FocusedNotificationResolving,
-        focusedJump: ((_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?)? = nil
+        focusedJump: ((_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?)? = nil,
+        focusedJumpWithOutcome: (
+            (_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) ->
+            (openedNotificationId: UUID?, didOpen: Bool)
+        )? = nil
     ) {
         self.store = store
         self.windows = windows
@@ -77,6 +89,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         self.clickRouting = clickRouting
         self.focusedResolving = focusedResolving
         self.explicitFocusedJump = focusedJump
+        self.explicitFocusedJumpWithOutcome = focusedJumpWithOutcome
     }
 
     // MARK: Focused-mark
@@ -87,6 +100,40 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     @discardableResult
     public func toggleFocusedNotificationUnread(preferredWindowToken: AnyObject? = nil) -> Bool {
         focusedMarker.toggleFocusedNotificationUnread(preferredWindowToken: preferredWindowToken)
+    }
+
+    /// Toggles unread state for an exact workspace/panel target.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace captured when the action was resolved.
+    ///   - panelId: The captured panel, or `nil` for workspace-level unread.
+    /// - Returns: The exact outcome of acting on the captured target.
+    @discardableResult
+    public func toggleNotificationUnread(
+        workspaceId: UUID,
+        panelId: UUID?
+    ) -> ExplicitNotificationActionOutcome {
+        focusedMarker.toggleNotificationUnread(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    /// Sets unread state for an exact workspace/panel target.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace captured when the action was resolved.
+    ///   - panelId: The captured panel, or `nil` for workspace-level unread.
+    ///   - unread: The desired unread state.
+    /// - Returns: The exact outcome of acting on the captured target.
+    @discardableResult
+    public func setNotificationUnread(
+        workspaceId: UUID,
+        panelId: UUID?,
+        unread: Bool
+    ) -> ExplicitNotificationActionOutcome {
+        focusedMarker.setNotificationUnread(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            unread: unread
+        )
     }
 
     /// Marks the focused notification oldest-unread, then jumps to the next
@@ -102,7 +149,44 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         )
     }
 
+    /// Marks an exact workspace/panel target oldest-unread, then jumps to the
+    /// next latest unread target.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace captured when the action was resolved.
+    ///   - panelId: The captured panel, or `nil` for workspace-level unread.
+    /// - Returns: The exact outcome of marking or jumping from the target.
+    @discardableResult
+    public func markNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+        workspaceId: UUID,
+        panelId: UUID?
+    ) -> ExplicitNotificationActionOutcome {
+        focusedMarker.markNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+    }
+
     // MARK: Jump
+
+    /// Whether the current snapshot contains an unread target the jump flow can
+    /// attempt to open without relying on a stale workspace indicator.
+    public var canJumpToLatestUnread: Bool {
+        guard focusedResolving.hasNotificationStore else { return false }
+        if store.orderedNotifications.contains(where: {
+            $0.isOpenableForJump(
+                excludingNotificationId: nil,
+                excludingWorkspaceId: nil
+            )
+        }) {
+            return true
+        }
+        let unreadWorkspaceIds = store.workspaceUnreadIndicatorIds
+        guard !unreadWorkspaceIds.isEmpty else { return false }
+        return windows.orderedTargetsForUnreadJump.contains { target in
+            target.workspaceIds.contains(where: unreadWorkspaceIds.contains)
+        } || windows.activeWorkspaceIdsForUnreadJump.contains(where: unreadWorkspaceIds.contains)
+    }
 
     /// Opens the latest openable unread notification, returning its id, or `nil`
     /// when nothing could be opened. Mirrors `AppDelegate.jumpToLatestUnread`.
@@ -111,17 +195,41 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         excludingNotificationId excludedNotificationId: UUID? = nil,
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> UUID? {
+        performJumpToLatestUnread(
+            excludingNotificationId: excludedNotificationId,
+            excludingWorkspaceId: excludedWorkspaceId
+        ).openedNotificationId
+    }
+
+    /// Opens the latest unread target and reports whether navigation occurred,
+    /// including workspace fallbacks that have no notification id to return.
+    @discardableResult
+    public func jumpToLatestUnreadWithOutcome(
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
+    ) -> NotificationJumpOutcome {
+        guard focusedResolving.hasNotificationStore else { return .targetUnavailable }
+        return performJumpToLatestUnread(
+            excludingNotificationId: excludedNotificationId,
+            excludingWorkspaceId: excludedWorkspaceId
+        ).didOpen ? .completed : .notApplicable
+    }
+
+    private func performJumpToLatestUnread(
+        excludingNotificationId excludedNotificationId: UUID?,
+        excludingWorkspaceId excludedWorkspaceId: UUID?
+    ) -> (openedNotificationId: UUID?, didOpen: Bool) {
         for notification in store.orderedNotifications
         where notification.isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId
         ) {
             if openNotification(notification) {
-                return notification.id
+                return (notification.id, true)
             }
         }
-        _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
-        return nil
+        let didOpen = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
+        return (nil, didOpen)
     }
 
     private func openLatestWorkspaceUnread(excludingWorkspaceId excludedWorkspaceId: UUID? = nil) -> Bool {

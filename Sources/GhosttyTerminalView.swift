@@ -1951,7 +1951,8 @@ class GhosttyApp {
         return true
     }
 
-    func openConfigurationInTextEdit() {
+    @discardableResult
+    func openConfigurationInTextEdit() -> Bool {
         #if os(macOS)
         let environment = ConfigSourceEnvironment.live()
         let fileURLs: [URL]
@@ -1959,15 +1960,18 @@ class GhosttyApp {
             fileURLs = try environment.materializedGhosttySettingsEditorURLs()
         } catch {
             NSSound.beep()
-            return
+            return false
         }
         guard !fileURLs.isEmpty else {
             NSSound.beep()
-            return
+            return false
         }
         let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
         let configuration = NSWorkspace.OpenConfiguration()
         NSWorkspace.shared.open(fileURLs, withApplicationAt: editorURL, configuration: configuration)
+        return true
+        #else
+        return false
         #endif
     }
 

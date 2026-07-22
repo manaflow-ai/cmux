@@ -4,6 +4,9 @@ public import Foundation
 public enum ControlCommandPaletteRunResolution: Sendable, Equatable {
     /// No live main window matched the routing selectors.
     case windowNotFound
+    /// The immutable list-time window still exists, but its workspace, panel,
+    /// or command-palette handler no longer does.
+    case targetUnavailable
     /// The requested identifier is not available in the window's current
     /// command-palette context.
     case commandNotFound
@@ -11,9 +14,6 @@ public enum ControlCommandPaletteRunResolution: Sendable, Equatable {
     case completed(windowID: UUID, command: ControlCommandPaletteItem)
     /// The action accepted asynchronous work that has not completed yet.
     case queued(windowID: UUID, command: ControlCommandPaletteItem)
-    /// A compatibility handler was invoked, but it does not expose a verified
-    /// completion, presentation, or failure outcome.
-    case dispatched(windowID: UUID, command: ControlCommandPaletteItem)
     /// The action presented UI that owns the remaining interaction.
     case presented(windowID: UUID, command: ControlCommandPaletteItem)
     /// Required statically declared arguments were omitted.

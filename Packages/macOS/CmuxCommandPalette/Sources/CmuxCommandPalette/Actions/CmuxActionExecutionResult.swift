@@ -4,9 +4,6 @@ public enum CmuxActionExecutionResult: Sendable, Equatable {
     case completed
     /// The action accepted asynchronous work that has not completed yet.
     case queued
-    /// A compatibility handler was invoked, but it does not report whether the
-    /// requested work completed, presented UI, or failed.
-    case dispatched
     /// The action presented UI that owns the remaining interaction.
     case presented
     /// The caller omitted required statically declared arguments.

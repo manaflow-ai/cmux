@@ -12,9 +12,17 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
                 localized: "socket.palette.error.windowNotFound",
                 defaultValue: "Command palette window not found"
             ),
+            targetUnavailable: String(
+                localized: "socket.palette.error.targetUnavailable",
+                defaultValue: "The command palette target is no longer available"
+            ),
             missingCommandID: String(
                 localized: "socket.palette.error.missingCommandID",
                 defaultValue: "Missing 'command_id' parameter"
+            ),
+            invalidTarget: String(
+                localized: "socket.palette.error.invalidTarget",
+                defaultValue: "Invalid command palette target"
             ),
             argumentsMustBeStringObject: String(
                 localized: "socket.palette.error.argumentsObject",
@@ -42,7 +50,7 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
     func controlCommandPaletteList(
         routing: ControlRoutingSelectors
     ) -> ControlCommandPaletteListResolution {
-        guard let (windowID, target, handler) = controlCommandPaletteTarget(routing: routing) else {
+        guard let (_, target, handler) = controlCommandPaletteTarget(routing: routing) else {
             return .windowNotFound
         }
         let request = CommandPaletteControlRequest(target: target, operation: .list)
@@ -50,7 +58,14 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         guard case .listed(let commands)? = request.result else {
             return .windowNotFound
         }
-        return .listed(windowID: windowID, commands: commands.map(controlCommandPaletteItem))
+        return .listed(
+            target: ControlCommandPaletteTarget(
+                windowID: target.windowID,
+                workspaceID: target.workspaceID,
+                panelID: target.panelID
+            ),
+            commands: commands.map(controlCommandPaletteItem)
+        )
     }
 
     func controlCommandPaletteRun(
@@ -62,49 +77,36 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         guard let (windowID, target, handler) = controlCommandPaletteTarget(routing: routing) else {
             return .windowNotFound
         }
-        let request = CommandPaletteControlRequest(
+        return controlCommandPaletteRun(
+            windowID: windowID,
             target: target,
-            operation: .run(
+            handler: handler,
+            commandID: commandID,
+            arguments: arguments,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    func controlCommandPaletteRun(
+        target: ControlCommandPaletteTarget,
+        commandID: String,
+        arguments: [String: String],
+        workingDirectory: String?
+    ) -> ControlCommandPaletteRunResolution {
+        switch controlCommandPaletteTarget(target) {
+        case .windowNotFound:
+            return .windowNotFound
+        case .targetUnavailable:
+            return .targetUnavailable
+        case .resolved(let windowID, let actionTarget, let handler):
+            return controlCommandPaletteRun(
+                windowID: windowID,
+                target: actionTarget,
+                handler: handler,
                 commandID: commandID,
                 arguments: arguments,
                 workingDirectory: workingDirectory
             )
-        )
-        handler(request)
-        switch request.result {
-        case .ran(let command, let result):
-            let item = controlCommandPaletteItem(command)
-            switch result {
-            case .completed:
-                return .completed(windowID: windowID, command: item)
-            case .queued:
-                return .queued(windowID: windowID, command: item)
-            case .dispatched:
-                return .dispatched(windowID: windowID, command: item)
-            case .presented:
-                return .presented(windowID: windowID, command: item)
-            case .requiresArguments(let arguments):
-                return .requiresArguments(
-                    windowID: windowID,
-                    command: item,
-                    arguments: arguments.map(controlCommandPaletteArgument)
-                )
-            case .invalidArguments(let names):
-                return .invalidArguments(windowID: windowID, command: item, names: names)
-            case .invalidArgumentValues(let names):
-                return .invalidArgumentValues(windowID: windowID, command: item, names: names)
-            case .failed(let code, let message):
-                return .failed(
-                    windowID: windowID,
-                    command: item,
-                    code: code,
-                    message: message
-                )
-            }
-        case .commandNotFound:
-            return .commandNotFound
-        case .listed, .none:
-            return .windowNotFound
         }
     }
 
@@ -146,7 +148,12 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         directoryPath: String
     ) -> ControlInlineVSCodeOpenResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
+            let hasExplicitTarget = routing.hasWindowIDParam
+                || routing.hasGroupIDParam
+                || routing.hasWorkspaceIDParam
+                || routing.hasSurfaceIDParam
+                || routing.hasPaneIDParam
+            return hasExplicitTarget ? .workspaceNotFound : .tabManagerUnavailable
         }
         guard controlPaletteSelectorsBelongToTarget(routing, tabManager: tabManager) else {
             return .workspaceNotFound
@@ -171,6 +178,7 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         guard AppDelegate.shared?.openDirectoryInInlineVSCode(
             URL(fileURLWithPath: directoryPath, isDirectory: true),
             tabManager: tabManager,
+            windowID: windowID,
             workspaceID: workspace.id,
             panelID: actionTarget.panelID
         ) == true else {
@@ -202,6 +210,114 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             return nil
         }
         return (context.windowId, target, handler)
+    }
+
+    /// Resolves a list-time identity without consulting current focus. Every
+    /// component is revalidated so deleted windows, workspaces, or panels fail
+    /// closed instead of retargeting the action.
+    private func controlCommandPaletteTarget(
+        _ target: ControlCommandPaletteTarget
+    ) -> ExactCommandPaletteTargetResolution {
+        let windowRouting = ControlRoutingSelectors(
+            hasWindowIDParam: true,
+            windowID: target.windowID,
+            groupID: nil,
+            workspaceID: nil,
+            surfaceID: nil,
+            paneID: nil
+        )
+        guard let tabManager = resolveTabManager(routing: windowRouting),
+              let app = AppDelegate.shared,
+              let context = app.mainWindowContext(for: tabManager),
+              context.windowId == target.windowID else {
+            return .windowNotFound
+        }
+        guard let handler = context.commandPaletteControlHandler else {
+            return .targetUnavailable
+        }
+
+        if let workspaceID = target.workspaceID {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                return .targetUnavailable
+            }
+            if let panelID = target.panelID,
+               workspace.panels[panelID] == nil {
+                return .targetUnavailable
+            }
+        } else {
+            guard target.panelID == nil, tabManager.tabs.isEmpty else {
+                return .targetUnavailable
+            }
+        }
+
+        return .resolved(
+            windowID: context.windowId,
+            target: CommandPaletteActionTarget(
+                windowID: target.windowID,
+                workspaceID: target.workspaceID,
+                panelID: target.panelID
+            ),
+            handler: handler
+        )
+    }
+
+    private func controlCommandPaletteRun(
+        windowID: UUID,
+        target: CommandPaletteActionTarget,
+        handler: (CommandPaletteControlRequest) -> Void,
+        commandID: String,
+        arguments: [String: String],
+        workingDirectory: String?
+    ) -> ControlCommandPaletteRunResolution {
+        let request = CommandPaletteControlRequest(
+            target: target,
+            operation: .run(
+                commandID: commandID,
+                arguments: arguments,
+                workingDirectory: workingDirectory
+            )
+        )
+        handler(request)
+        return controlCommandPaletteRunResolution(request.result, windowID: windowID)
+    }
+
+    private func controlCommandPaletteRunResolution(
+        _ result: CommandPaletteControlRequest.Result?,
+        windowID: UUID
+    ) -> ControlCommandPaletteRunResolution {
+        switch result {
+        case .ran(let command, let result):
+            let item = controlCommandPaletteItem(command)
+            switch result {
+            case .completed:
+                return .completed(windowID: windowID, command: item)
+            case .queued:
+                return .queued(windowID: windowID, command: item)
+            case .presented:
+                return .presented(windowID: windowID, command: item)
+            case .requiresArguments(let arguments):
+                return .requiresArguments(
+                    windowID: windowID,
+                    command: item,
+                    arguments: arguments.map(controlCommandPaletteArgument)
+                )
+            case .invalidArguments(let names):
+                return .invalidArguments(windowID: windowID, command: item, names: names)
+            case .invalidArgumentValues(let names):
+                return .invalidArgumentValues(windowID: windowID, command: item, names: names)
+            case .failed(let code, let message):
+                return .failed(
+                    windowID: windowID,
+                    command: item,
+                    code: code,
+                    message: message
+                )
+            }
+        case .commandNotFound:
+            return .commandNotFound
+        case .listed, .none:
+            return .windowNotFound
+        }
     }
 
     /// Collapses every selector into one immutable workspace/panel identity.
@@ -438,4 +554,15 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         }
         return tabManager.selectedWorkspace ?? tabManager.tabs.first
     }
+}
+
+@MainActor
+private enum ExactCommandPaletteTargetResolution {
+    case windowNotFound
+    case targetUnavailable
+    case resolved(
+        windowID: UUID,
+        target: CommandPaletteActionTarget,
+        handler: (CommandPaletteControlRequest) -> Void
+    )
 }

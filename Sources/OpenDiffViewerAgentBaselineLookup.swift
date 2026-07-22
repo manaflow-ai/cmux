@@ -35,7 +35,7 @@ extension AppDelegate {
             startOpenDiffViewerAgentContextTask(pendingRequest, taskKey: taskKey)
             return
         }
-        guard let shouldFocus = openDiffViewerAgentContextShouldFocus(
+        guard openDiffViewerAgentContextIsValid(
             workspaceId: request.workspaceId,
             surfaceId: request.surfaceId,
             sessionId: request.sessionId,
@@ -53,38 +53,34 @@ extension AppDelegate {
             surfaceId: request.surfaceId,
             useLastTurnSource: useLastTurnSource,
             sessionId: request.sessionId,
-            focus: shouldFocus
+            focus: request.focus
         ) == true else {
             NSSound.beep()
             return
         }
     }
 
-    /// Returns nil when no matching context exists, false when focus moved, and true when it remains focused.
-    func openDiffViewerAgentContextShouldFocus(
+    /// Revalidates the exact source context without deriving presentation focus from ambient state.
+    func openDiffViewerAgentContextIsValid(
         workspaceId: UUID,
         surfaceId: UUID,
         sessionId: String,
         originWindowId: UUID?
-    ) -> Bool? {
+    ) -> Bool {
+        guard let originWindowId else { return false }
         for context in mainWindowContexts.values {
-            guard let workspace = context.tabManager.tabs.first(where: {
+            guard context.windowId == originWindowId,
+                  resolvedWindow(for: context) != nil,
+                  let workspace = context.tabManager.tabs.first(where: {
                 $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
             }),
                   let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: surfaceId),
                   Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) == sessionId else {
                 continue
             }
-            guard let originWindowId,
-                  context.windowId == originWindowId,
-                  NSApp.isActive,
-                  (context.window?.isKeyWindow == true || context.window?.isMainWindow == true) else {
-                return false
-            }
-            return context.tabManager.selectedWorkspace?.id == workspaceId &&
-                workspace.focusedPanelId == surfaceId
+            return true
         }
-        return nil
+        return false
     }
 
     nonisolated static func latestAgentTurnDiffRepoRoot(

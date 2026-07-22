@@ -187,6 +187,10 @@ final class NotificationNavSeamAdapter:
         owner?.focusedTarget(preferredWindowToken: preferredWindowToken) ?? nil
     }
 
+    func workspaceExists(forTabId tabId: UUID) -> Bool {
+        owner?.workspaceExists(forTabId: tabId) ?? false
+    }
+
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
         owner?.focusedPanel(forTabId: tabId, surfaceId: surfaceId) ?? nil
     }

@@ -43,12 +43,6 @@ extension Workspace {
             _ = selectAdjacentCanvasTab(offset: 1)
             return
         }
-        if let target = CommandPaletteActionTargetScope.current,
-           target.workspaceID == id,
-           let panelID = target.panelID,
-           selectCommandPaletteAdjacentSurface(from: panelID, offset: 1) {
-            return
-        }
         bonsplitController.selectNextTab()
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -64,12 +58,6 @@ extension Workspace {
             _ = selectAdjacentCanvasTab(offset: -1)
             return
         }
-        if let target = CommandPaletteActionTargetScope.current,
-           target.workspaceID == id,
-           let panelID = target.panelID,
-           selectCommandPaletteAdjacentSurface(from: panelID, offset: -1) {
-            return
-        }
         bonsplitController.selectPreviousTab()
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -78,14 +66,60 @@ extension Workspace {
         }
     }
 
-    /// Selects relative to the immutable action panel without moving focus to
-    /// that pane first. The target pane's tab selection changes because that is
-    /// the action's result; the visible workspace selection does not.
-    private func selectCommandPaletteAdjacentSurface(from panelID: UUID, offset: Int) -> Bool {
+    /// Selects the next surface relative to an explicit panel identity.
+    @discardableResult
+    func selectNextSurface(fromPanelId panelID: UUID) -> Bool {
+        selectAdjacentSurface(fromPanelId: panelID, offset: 1)
+    }
+
+    /// Selects the previous surface relative to an explicit panel identity.
+    @discardableResult
+    func selectPreviousSurface(fromPanelId panelID: UUID) -> Bool {
+        selectAdjacentSurface(fromPanelId: panelID, offset: -1)
+    }
+
+    /// Whether the explicit panel has another selectable tab in its Canvas or
+    /// split-pane peer set.
+    func canSelectAdjacentSurface(fromPanelId panelID: UUID) -> Bool {
+        if layoutMode == .canvas {
+            let canvasPanelIds = Set(canvasModel.layout.allPanelIds.map(\.rawValue))
+            let surfaceIds = orderedPanelIds.filter {
+                canvasPanelIds.contains($0) && panels[$0] != nil
+            }
+            return surfaceIds.count > 1 && surfaceIds.contains(panelID)
+        }
+        guard let paneID = paneId(forPanelId: panelID),
+              let surfaceID = surfaceIdFromPanelId(panelID) else {
+            return false
+        }
+        let tabs = bonsplitController.tabs(inPane: paneID)
+        return tabs.count > 1 && tabs.contains(where: { $0.id == surfaceID })
+    }
+
+    /// Selects relative to an explicit panel without moving workspace focus to
+    /// that panel first. The target pane's tab selection changes because that
+    /// is the action's result; the visible workspace selection is untouched.
+    private func selectAdjacentSurface(fromPanelId panelID: UUID, offset: Int) -> Bool {
+        if layoutMode == .canvas {
+            let canvasPanelIds = Set(canvasModel.layout.allPanelIds.map(\.rawValue))
+            let surfaceIds = orderedPanelIds.filter {
+                canvasPanelIds.contains($0) && panels[$0] != nil
+            }
+            guard surfaceIds.count > 1,
+                  let index = surfaceIds.firstIndex(of: panelID) else {
+                return false
+            }
+            let next = surfaceIds[(index + offset + surfaceIds.count) % surfaceIds.count]
+            focusPanel(next)
+            canvasModel.viewport?.modelDidChangeExternally(animated: false)
+            canvasModel.viewport?.revealPane(next, animated: true)
+            return true
+        }
         guard let paneID = paneId(forPanelId: panelID),
               let surfaceID = surfaceIdFromPanelId(panelID) else { return false }
         let tabs = bonsplitController.tabs(inPane: paneID)
-        guard let index = tabs.firstIndex(where: { $0.id == surfaceID }), !tabs.isEmpty else {
+        guard tabs.count > 1,
+              let index = tabs.firstIndex(where: { $0.id == surfaceID }) else {
             return false
         }
         let targetIndex = (index + offset + tabs.count) % tabs.count

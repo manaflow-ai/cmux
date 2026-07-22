@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxSettings
 import CmuxWorkspaces
 import Foundation
@@ -167,6 +168,29 @@ enum WorkspaceTodoActions {
         guard let paneId = workspace.bonsplitController.focusedPaneId else {
             return nil
         }
+        return openTodoPane(in: workspace, paneId: paneId, focus: focus)
+    }
+
+    /// Opens the todo surface in the pane that owns an immutable source
+    /// panel. Automation uses this entrypoint so another pane's live focus
+    /// cannot redirect the action between list and run.
+    @discardableResult
+    static func openTodoPane(
+        for workspace: Workspace,
+        sourcePanelID: UUID,
+        focus: Bool = true
+    ) -> WorkspaceTodoPanel? {
+        guard let paneId = workspace.paneId(forPanelId: sourcePanelID) else {
+            return nil
+        }
+        return openTodoPane(in: workspace, paneId: paneId, focus: focus)
+    }
+
+    private static func openTodoPane(
+        in workspace: Workspace,
+        paneId: PaneID,
+        focus: Bool
+    ) -> WorkspaceTodoPanel? {
         guard let panel = workspace.openOrFocusWorkspaceTodoSurface(inPane: paneId, focus: focus) else {
             return nil
         }

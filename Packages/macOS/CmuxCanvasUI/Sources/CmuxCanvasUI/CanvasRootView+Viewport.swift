@@ -248,6 +248,10 @@ extension CanvasRootView: CanvasViewportControlling {
         callbacks.onViewportSettled(window)
     }
 
+    public var isOverviewEnabled: Bool {
+        overviewRestore != nil
+    }
+
     public func toggleOverview() {
         cancelDiscreteZoomAnimation()
         if let restore = overviewRestore {

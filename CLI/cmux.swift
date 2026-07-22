@@ -16947,17 +16947,20 @@ struct CMUXCLI {
             return String(localized: "cli.palette.usage", defaultValue: """
             Usage: cmux palette [list] [--window <id|ref|index>]
                    cmux palette run <action-id> [--arg <name=value> ...] [--window <id|ref|index>]
+                   cmux palette run <action-id> --target '<target-json>'
                    cmux palette <action-id> [--arg <name=value> ...]   (shorthand for 'run')
 
             List or invoke the exact actions available through Cmd+Shift+P in
             the target window's current context. Action IDs and argument names
             are strings declared by the live action registry, including custom
-            actions loaded from cmux.json.
+            actions loaded from cmux.json. Echo the target object from JSON list
+            output into --target to preserve its exact window, workspace, and pane.
 
             Examples:
               cmux palette list
               cmux palette run palette.newTerminalTab
               cmux palette run palette.renameWorkspace --arg name=api
+              cmux palette run palette.renameWorkspace --arg name=api --target '{"window_id":"...","workspace_id":"...","panel_id":"..."}'
               cmux palette palette.terminalOpenDirectory.vscodeInline
             """)
         case "vscode":
@@ -35187,7 +35190,7 @@ export default CMUXSessionRestore;
           agent-hibernation <on|off>
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
-          palette [list|run <action-id>] [--arg <name=value> ...] [--window <id|ref|index>]
+          palette [list|run <action-id>] [--arg <name=value> ...] [--window <id|ref|index> | --target <json>]
           vscode open [path] [--workspace <id|ref|index>] [--window <id|ref|index>]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]

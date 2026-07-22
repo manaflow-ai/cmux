@@ -3,6 +3,20 @@ import AppKit
 import Foundation
 
 extension ContentView {
+    static func identifierCopyExecutionResult(
+        didWrite: Bool
+    ) -> CmuxActionExecutionResult {
+        didWrite
+            ? .completed
+            : .failed(
+                code: "clipboard_write_failed",
+                message: String(
+                    localized: "action.error.identifierCopyFailed",
+                    defaultValue: "The identifiers could not be copied."
+                )
+            )
+    }
+
     func appendIdentifierCopyCommandContributions(
         to contributions: inout [CommandPaletteCommandContribution],
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String,
@@ -86,103 +100,262 @@ extension ContentView {
         }
     }
 
-    func registerIdentifierCopyCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: "palette.copyWorkspaceID") { copySelectedWorkspaceIdentifiers(includeRefs: false) }
-        registry.register(commandId: "palette.copyWorkspaceIDAndRef") { copySelectedWorkspaceIdentifiers(includeRefs: true) }
-        registry.register(commandId: "palette.copyWorkspaceLink") { copySelectedWorkspaceLink() }
-        registry.register(commandId: "palette.copyPaneID") { copyFocusedPaneIdentifier() }
-        registry.register(commandId: "palette.copyPaneLink") { copyFocusedPaneLink() }
-        registry.register(commandId: "palette.copySurfaceID") { copyFocusedSurfaceIdentifier() }
-        registry.register(commandId: "palette.copySurfaceLink") { copyFocusedSurfaceLink() }
-        registry.register(commandId: "palette.copyIdentifiers") { copyFocusedWorkspacePaneSurfaceIdentifiers() }
-    }
-
-    private func copySelectedWorkspaceIdentifiers(includeRefs: Bool) {
-        guard let workspaceId = tabManager.selectedWorkspace?.id else {
-            NSSound.beep()
-            return
+    func registerIdentifierCopyCommandHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext,
+        pasteboard: NSPasteboard = .general
+    ) {
+        registry.register(commandId: "palette.copyWorkspaceID") { invocation in
+            copySelectedWorkspaceIdentifiers(
+                context: context,
+                includeRefs: false,
+                pasteboard: pasteboard,
+                invocation: invocation
+            )
         }
-        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds([workspaceId], includeRefs: includeRefs)
+        registry.register(commandId: "palette.copyWorkspaceIDAndRef") { invocation in
+            copySelectedWorkspaceIdentifiers(
+                context: context,
+                includeRefs: true,
+                pasteboard: pasteboard,
+                invocation: invocation
+            )
+        }
+        registry.register(commandId: "palette.copyWorkspaceLink") { invocation in
+            copySelectedWorkspaceLink(
+                context: context,
+                pasteboard: pasteboard,
+                invocation: invocation
+            )
+        }
+        registry.register(commandId: "palette.copyPaneID") { invocation in
+            copyFocusedPaneIdentifier(
+                context: context,
+                pasteboard: pasteboard,
+                invocation: invocation
+            )
+        }
+        registry.register(commandId: "palette.copyPaneLink") { invocation in
+            copyFocusedPaneLink(
+                context: context,
+                pasteboard: pasteboard,
+                invocation: invocation
+            )
+        }
+        registry.register(commandId: "palette.copySurfaceID") { invocation in
+            copyFocusedSurfaceIdentifier(
+                context: context,
+                pasteboard: pasteboard,
+                invocation: invocation
+            )
+        }
+        registry.register(commandId: "palette.copySurfaceLink") { invocation in
+            copyFocusedSurfaceLink(
+                context: context,
+                pasteboard: pasteboard,
+                invocation: invocation
+            )
+        }
+        registry.register(commandId: "palette.copyIdentifiers") { invocation in
+            copyFocusedWorkspacePaneSurfaceIdentifiers(
+                context: context,
+                pasteboard: pasteboard,
+                invocation: invocation
+            )
+        }
     }
 
-    private func copySelectedWorkspaceLink() {
-        guard let workspace = tabManager.selectedWorkspace else {
-            NSSound.beep()
-            return
+    private func copySelectedWorkspaceIdentifiers(
+        context: CommandPaletteActionContext,
+        includeRefs: Bool,
+        pasteboard: NSPasteboard,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard let workspaceId = identifierCopyWorkspace(context: context)?.id else {
+            return identifierCopyTargetUnavailable(invocation: invocation)
+        }
+        return identifierCopyResult(
+            didWrite: WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds(
+                [workspaceId],
+                includeRefs: includeRefs,
+                to: pasteboard
+            ),
+            invocation: invocation
+        )
+    }
+
+    private func copySelectedWorkspaceLink(
+        context: CommandPaletteActionContext,
+        pasteboard: NSPasteboard,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard let workspace = identifierCopyWorkspace(context: context) else {
+            return identifierCopyTargetUnavailable(invocation: invocation)
         }
         // Links encode the restart-stable id so they survive an app relaunch.
-        WorkspaceSurfaceIdentifierClipboardText.copy(
-            WorkspaceSurfaceIdentifierClipboardText.makeWorkspaceLink(workspaceId: workspace.stableId)
+        return identifierCopyResult(
+            didWrite: WorkspaceSurfaceIdentifierClipboardText.copy(
+                WorkspaceSurfaceIdentifierClipboardText.makeWorkspaceLink(workspaceId: workspace.stableId),
+                to: pasteboard
+            ),
+            invocation: invocation
         )
     }
 
-    private func focusedPanelIdentifierContext() -> (workspaceId: UUID, paneId: UUID?, surfaceId: UUID)? {
-        guard let panelContext = focusedPanelContext else { return nil }
+    private func focusedPanelIdentifierContext(
+        context: CommandPaletteActionContext
+    ) -> (workspaceId: UUID, paneId: UUID?, surfaceId: UUID)? {
+        guard let (workspace, panelID, _) = context.panel() else { return nil }
         return (
-            workspaceId: panelContext.workspace.id,
-            paneId: panelContext.workspace.paneId(forPanelId: panelContext.panelId)?.id,
-            surfaceId: panelContext.panelId
+            workspaceId: workspace.id,
+            paneId: workspace.paneId(forPanelId: panelID)?.id,
+            surfaceId: panelID
         )
     }
 
-    private func copyFocusedPaneIdentifier() {
-        guard let paneId = focusedPanelIdentifierContext()?.paneId else {
-            NSSound.beep()
-            return
+    private func identifierCopyWorkspace(
+        context: CommandPaletteActionContext
+    ) -> Workspace? {
+        guard context.target.windowID == windowId,
+              context.owningWindowID == windowId,
+              let workspace = context.workspace() else {
+            return nil
         }
-        WorkspaceSurfaceIdentifierClipboardText.copy(WorkspaceSurfaceIdentifierClipboardText.makePane(paneId: paneId))
+        if context.target.panelID != nil, context.panel() == nil {
+            return nil
+        }
+        return workspace
     }
 
-    private func copyFocusedPaneLink() {
-        guard let panelContext = focusedPanelContext,
-              let paneId = panelContext.workspace.paneId(forPanelId: panelContext.panelId)?.id else {
-            NSSound.beep()
-            return
+    private func copyFocusedPaneIdentifier(
+        context: CommandPaletteActionContext,
+        pasteboard: NSPasteboard,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard context.target.windowID == windowId,
+              context.owningWindowID == windowId,
+              let paneId = focusedPanelIdentifierContext(context: context)?.paneId else {
+            return identifierCopyTargetUnavailable(invocation: invocation)
+        }
+        return identifierCopyResult(
+            didWrite: WorkspaceSurfaceIdentifierClipboardText.copy(
+                WorkspaceSurfaceIdentifierClipboardText.makePane(paneId: paneId),
+                to: pasteboard
+            ),
+            invocation: invocation
+        )
+    }
+
+    private func copyFocusedPaneLink(
+        context: CommandPaletteActionContext,
+        pasteboard: NSPasteboard,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard context.target.windowID == windowId,
+              context.owningWindowID == windowId,
+              let (workspace, panelID, _) = context.panel(),
+              let paneId = workspace.paneId(forPanelId: panelID)?.id else {
+            return identifierCopyTargetUnavailable(invocation: invocation)
         }
         // The workspace route is restart-stable; panes have no persisted
         // identity, so the pane segment stays session-scoped.
-        WorkspaceSurfaceIdentifierClipboardText.copy(
-            WorkspaceSurfaceIdentifierClipboardText.makePaneLink(
-                workspaceId: panelContext.workspace.stableId,
-                paneId: paneId
-            )
+        return identifierCopyResult(
+            didWrite: WorkspaceSurfaceIdentifierClipboardText.copy(
+                WorkspaceSurfaceIdentifierClipboardText.makePaneLink(
+                    workspaceId: workspace.stableId,
+                    paneId: paneId
+                ),
+                to: pasteboard
+            ),
+            invocation: invocation
         )
     }
 
-    private func copyFocusedSurfaceIdentifier() {
-        guard let context = focusedPanelIdentifierContext() else {
-            NSSound.beep()
-            return
+    private func copyFocusedSurfaceIdentifier(
+        context: CommandPaletteActionContext,
+        pasteboard: NSPasteboard,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard context.target.windowID == windowId,
+              context.owningWindowID == windowId,
+              let context = focusedPanelIdentifierContext(context: context) else {
+            return identifierCopyTargetUnavailable(invocation: invocation)
         }
-        WorkspaceSurfaceIdentifierClipboardText.copy(WorkspaceSurfaceIdentifierClipboardText.makeSurface(surfaceId: context.surfaceId))
+        return identifierCopyResult(
+            didWrite: WorkspaceSurfaceIdentifierClipboardText.copy(
+                WorkspaceSurfaceIdentifierClipboardText.makeSurface(surfaceId: context.surfaceId),
+                to: pasteboard
+            ),
+            invocation: invocation
+        )
     }
 
-    private func copyFocusedSurfaceLink() {
-        guard let panelContext = focusedPanelContext else {
-            NSSound.beep()
-            return
+    private func copyFocusedSurfaceLink(
+        context: CommandPaletteActionContext,
+        pasteboard: NSPasteboard,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard context.target.windowID == windowId,
+              context.owningWindowID == windowId,
+              let (workspace, _, panel) = context.panel() else {
+            return identifierCopyTargetUnavailable(invocation: invocation)
         }
         // Links encode the restart-stable ids so they survive an app relaunch.
-        WorkspaceSurfaceIdentifierClipboardText.copy(
-            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
-                workspaceId: panelContext.workspace.stableId,
-                surfaceId: panelContext.panel.stableSurfaceId
-            )
+        return identifierCopyResult(
+            didWrite: WorkspaceSurfaceIdentifierClipboardText.copy(
+                WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                    workspaceId: workspace.stableId,
+                    surfaceId: panel.stableSurfaceId
+                ),
+                to: pasteboard
+            ),
+            invocation: invocation
         )
     }
 
-    private func copyFocusedWorkspacePaneSurfaceIdentifiers() {
-        guard let context = focusedPanelIdentifierContext() else {
-            NSSound.beep()
-            return
+    private func copyFocusedWorkspacePaneSurfaceIdentifiers(
+        context: CommandPaletteActionContext,
+        pasteboard: NSPasteboard,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard context.target.windowID == windowId,
+              context.owningWindowID == windowId,
+              let context = focusedPanelIdentifierContext(context: context) else {
+            return identifierCopyTargetUnavailable(invocation: invocation)
         }
-        WorkspaceSurfaceIdentifierClipboardText.copy(
-            WorkspaceSurfaceIdentifierClipboardText.makeWorkspacePaneSurfaceIdentifiers(
-                workspaceId: context.workspaceId,
-                paneId: context.paneId,
-                surfaceId: context.surfaceId,
-                includeRefs: true
-            )
+        return identifierCopyResult(
+            didWrite: WorkspaceSurfaceIdentifierClipboardText.copy(
+                WorkspaceSurfaceIdentifierClipboardText.makeWorkspacePaneSurfaceIdentifiers(
+                    workspaceId: context.workspaceId,
+                    paneId: context.paneId,
+                    surfaceId: context.surfaceId,
+                    includeRefs: true
+                ),
+                to: pasteboard
+            ),
+            invocation: invocation
         )
+    }
+
+    private func identifierCopyTargetUnavailable(
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        if invocation.source == .commandPalette {
+            NSSound.beep()
+        }
+        return .targetUnavailable
+    }
+
+    private func identifierCopyResult(
+        didWrite: Bool,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        let result = Self.identifierCopyExecutionResult(didWrite: didWrite)
+        if !didWrite {
+            if invocation.source == .commandPalette {
+                NSSound.beep()
+            }
+        }
+        return result
     }
 }
