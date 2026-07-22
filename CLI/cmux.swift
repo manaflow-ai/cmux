@@ -1239,7 +1239,9 @@ final class ClaudeHookSessionStore {
             record.runtimeStatus = runtimeStatus
         }
         if shouldApplyRuntimeMutation, hasRuntimeMutation {
-            record.runtimeStatusEventTime = runtimeStatusEventTime ?? now
+            if let runtimeStatusEventTime {
+                record.runtimeStatusEventTime = runtimeStatusEventTime
+            }
         }
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop

@@ -42,6 +42,9 @@ extension CMUXCLI {
     }
 
     private func parseAgentHookEventTime(rawObject: [String: Any]?) -> TimeInterval? {
+        if let captured = parseAgentHookTimeValue(ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_CAPTURED_AT"]) {
+            return captured
+        }
         let keys = [
             "cmux_event_time", "cmuxEventTime",
             "event_time", "eventTime",
@@ -54,30 +57,39 @@ extension CMUXCLI {
                 }
             }
         }
-        return parseAgentHookTimeValue(ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_CAPTURED_AT"])
+        return nil
     }
 
     private func parseAgentHookTimeValue(_ rawValue: Any?) -> TimeInterval? {
         switch rawValue {
         case let number as NSNumber:
-            let value = number.doubleValue
-            return value.isFinite && value > 0 ? value : nil
+            return normalizeAgentHookEpochSeconds(number.doubleValue)
         case let value as Double:
-            return value.isFinite && value > 0 ? value : nil
+            return normalizeAgentHookEpochSeconds(value)
         case let value as Int:
-            return value > 0 ? TimeInterval(value) : nil
+            return normalizeAgentHookEpochSeconds(TimeInterval(value))
         case let string as String:
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 return nil
             }
-            if let value = Double(trimmed), value.isFinite, value > 0 {
-                return value
+            if let value = Double(trimmed) {
+                return normalizeAgentHookEpochSeconds(value)
             }
             return parseAgentHookISO8601TimeValue(trimmed)
         default:
             return nil
         }
+    }
+
+    private func normalizeAgentHookEpochSeconds(_ rawValue: TimeInterval) -> TimeInterval? {
+        guard rawValue.isFinite, rawValue > 0 else { return nil }
+        let seconds = rawValue > 10_000_000_000 ? rawValue / 1_000 : rawValue
+        // Keep numeric payload timestamps in a plausible wall-clock range after
+        // normalizing millisecond epochs, so unrelated counters cannot poison
+        // ordering permanently.
+        guard seconds >= 946_684_800, seconds <= 4_102_444_800 else { return nil }
+        return seconds
     }
 
     private func parseAgentHookISO8601TimeValue(_ value: String) -> TimeInterval? {

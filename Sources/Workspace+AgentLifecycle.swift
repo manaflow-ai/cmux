@@ -226,13 +226,9 @@ extension Workspace {
     ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return false }
-        if let currentEventTime = agentLifecycleEventTimesByPanelId[targetPanelId]?[key] {
-            guard let agentEventTime else { return false }
+        if let agentEventTime,
+           let currentEventTime = agentLifecycleEventTimesByPanelId[targetPanelId]?[key] {
             if agentEventTime < currentEventTime {
-                return false
-            }
-            if agentEventTime == currentEventTime,
-               agentLifecycleStatesByPanelId[targetPanelId]?[key] != lifecycle {
                 return false
             }
         }

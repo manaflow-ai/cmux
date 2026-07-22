@@ -535,6 +535,34 @@ struct AgentHibernationTests {
         expectEqual(workspace.statusEntries["codex"]?.agentEventTime, newerRunningEventTime)
     }
 
+    @MainActor
+    @Test
+    func testUntimestampedLifecycleCallerCanUpdateAfterTimestampedHookState() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running,
+            agentEventTime: 200
+        )
+
+        expectTrue(
+            workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
+        )
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .needsInput)
+        expectFalse(
+            workspace.setAgentLifecycle(
+                key: "codex",
+                panelId: panelId,
+                lifecycle: .idle,
+                agentEventTime: 100
+            )
+        )
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .needsInput)
+    }
+
     @Test
     func testSessionIndexAcceptsNodeBackedClaudeProcessAsLiveHookPID() throws {
         let home = FileManager.default.temporaryDirectory

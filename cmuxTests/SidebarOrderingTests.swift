@@ -1151,7 +1151,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         )
     }
 
-    func testShouldReplaceStatusEntryRejectsEqualEventTimeWhenPayloadChanges() {
+    func testShouldReplaceStatusEntryAcceptsEqualEventTimeWhenPayloadChanges() {
         let current = SidebarStatusEntry(
             key: "agent",
             value: "Idle",
@@ -1161,7 +1161,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
             agentEventTime: 20
         )
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             TerminalController.shouldReplaceStatusEntry(
                 current: current,
                 key: "agent",

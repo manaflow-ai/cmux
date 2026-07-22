@@ -605,9 +605,6 @@ class TerminalController {
             if agentEventTime < currentAgentEventTime {
                 return .stale
             }
-            if agentEventTime == currentAgentEventTime, !payloadMatches {
-                return .stale
-            }
         }
         if payloadMatches, current.agentEventTime == agentEventTime {
             return .unchanged
