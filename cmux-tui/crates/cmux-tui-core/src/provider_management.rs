@@ -403,13 +403,13 @@ mod tests {
             "{{\"protocol\":1,\"operation\":\"install_or_rotate\",\"authority\":\"{AUTHORITY_ONE}\"}}\n"
         );
         let encoded = format!("{line}trailing-secret-that-must-remain-unread");
-        let mut reader = std::io::Cursor::new(encoded.as_bytes());
+        let mut reader = io::Cursor::new(encoded.as_bytes());
 
         let message = read_message(&mut reader).unwrap();
 
         assert_eq!(reader.position(), line.len() as u64, "reader copied bytes after the frame");
         assert!(
-            message.0.capacity() >= MAX_MESSAGE_BYTES + 1,
+            message.0.capacity() > MAX_MESSAGE_BYTES,
             "sensitive message storage could reallocate without scrubbing the old allocation"
         );
         assert_eq!(message.0, line.as_bytes()[..line.len() - 1]);
