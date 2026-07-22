@@ -47,4 +47,10 @@ public struct ChatArtifactLRUCache<Key: Hashable & Sendable, Value: Sendable>: S
             entries.removeValue(forKey: leastRecent)
         }
     }
+
+    /// Removes and returns one retained value without affecting other recency.
+    @discardableResult
+    public mutating func removeValue(forKey key: Key) -> Value? {
+        entries.removeValue(forKey: key)?.value
+    }
 }

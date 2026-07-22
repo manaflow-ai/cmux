@@ -4,11 +4,18 @@ import Foundation
 
 /// Bridges transcript artifact snapshots into the project-local artifact store.
 actor AgentArtifactCaptureCoordinator {
+    private struct CompletedCaptureState: Sendable {
+        let revision: UInt64?
+        let checkpoint: AgentArtifactCaptureCheckpoint?
+    }
+
+    private static let retainedSessionLimit = 64
     private let captureService: ArtifactCaptureService
     private let fileManager: FileManager
-    private var completedRevisionBySession: [String: UInt64] = [:]
     private var inFlightRevisionBySession: [String: UInt64] = [:]
-    private var completedCheckpointBySession: [String: AgentArtifactCaptureCheckpoint] = [:]
+    private var completedStateBySession = ChatArtifactLRUCache<String, CompletedCaptureState>(
+        capacity: retainedSessionLimit
+    )
 
     init(
         captureService: ArtifactCaptureService,
@@ -27,9 +34,10 @@ actor AgentArtifactCaptureCoordinator {
         record: AgentChatSessionRecord,
         snapshot: AgentChatArtifactIndex.Snapshot
     ) async {
+        let completedState = completedStateBySession.value(forKey: record.sessionID)
         guard !Task.isCancelled,
               let projectRoot = projectRoot(for: record),
-              completedRevisionBySession[record.sessionID].map({ snapshot.revision > $0 }) ?? true,
+              completedState.flatMap(\.revision).map({ snapshot.revision > $0 }) ?? true,
               inFlightRevisionBySession[record.sessionID].map({ snapshot.revision > $0 }) ?? true else {
             return
         }
@@ -40,7 +48,7 @@ actor AgentArtifactCaptureCoordinator {
             }
         }
 
-        let checkpoint = completedCheckpointBySession[record.sessionID]
+        let checkpoint = completedState?.checkpoint
         let transcriptReset = checkpoint.map {
             $0.transcriptLineage != snapshot.transcriptLineage
                 || snapshot.lineCount < $0.lineCount
@@ -67,12 +75,17 @@ actor AgentArtifactCaptureCoordinator {
             agentName: record.agentKind.sourceName
         )
         guard !pending.isEmpty else {
-            completedCheckpointBySession[record.sessionID] = AgentArtifactCaptureCheckpoint(
-                transcriptLineage: snapshot.transcriptLineage,
-                lineCount: snapshot.lineCount,
-                referenceCursor: completedCursor
+            completedStateBySession.insert(
+                CompletedCaptureState(
+                    revision: snapshot.revision,
+                    checkpoint: AgentArtifactCaptureCheckpoint(
+                        transcriptLineage: snapshot.transcriptLineage,
+                        lineCount: snapshot.lineCount,
+                        referenceCursor: completedCursor
+                    )
+                ),
+                forKey: record.sessionID
             )
-            completedRevisionBySession[record.sessionID] = snapshot.revision
             return
         }
         let outcomes = await captureService.capture(
@@ -89,9 +102,10 @@ actor AgentArtifactCaptureCoordinator {
             return
         }
         let processedCount = outcomes.prefix { !isRetryableBlocker($0) }.count
+        var updatedCheckpoint = checkpoint
         if processedCount > 0 {
             let last = pending[processedCount - 1]
-            completedCheckpointBySession[record.sessionID] = AgentArtifactCaptureCheckpoint(
+            updatedCheckpoint = AgentArtifactCaptureCheckpoint(
                 transcriptLineage: snapshot.transcriptLineage,
                 lineCount: snapshot.lineCount,
                 referenceCursor: AgentArtifactReferenceCursor(
@@ -100,8 +114,16 @@ actor AgentArtifactCaptureCoordinator {
                 )
             )
         }
-        if processedCount == pending.count {
-            completedRevisionBySession[record.sessionID] = snapshot.revision
+        if processedCount > 0 {
+            completedStateBySession.insert(
+                CompletedCaptureState(
+                    revision: processedCount == pending.count
+                        ? snapshot.revision
+                        : completedState?.revision,
+                    checkpoint: updatedCheckpoint
+                ),
+                forKey: record.sessionID
+            )
         }
     }
 
@@ -137,9 +159,8 @@ actor AgentArtifactCaptureCoordinator {
 
     /// Releases transcript progress when the owning chat session disappears.
     func removeSession(sessionID: String) {
-        completedRevisionBySession.removeValue(forKey: sessionID)
         inFlightRevisionBySession.removeValue(forKey: sessionID)
-        completedCheckpointBySession.removeValue(forKey: sessionID)
+        _ = completedStateBySession.removeValue(forKey: sessionID)
     }
 
     private func projectRoot(for record: AgentChatSessionRecord) -> URL? {

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Identifies redirections and explicit output flags without guessing positional writes.
+/// Identifies shell redirection targets without guessing command-specific flag semantics.
 struct ShellArtifactMutationPathDetector: Sendable {
     private enum Token: Equatable {
         case word(String)
@@ -8,10 +8,6 @@ struct ShellArtifactMutationPathDetector: Sendable {
         case boundary
     }
 
-    private static let outputFlags: Set<String> = [
-        "-o", "--out", "--outfile", "--output", "--output-file",
-        "--save", "--save-to", "--dest", "--destination", "--export",
-    ]
     func paths(in command: String) -> [String] {
         let tokens = tokenize(command)
         var paths: [String] = []
@@ -28,16 +24,7 @@ struct ShellArtifactMutationPathDetector: Sendable {
             switch tokens[index] {
             case .redirect:
                 append(nextWord(after: index, in: tokens))
-            case .word(let word):
-                if Self.outputFlags.contains(word) {
-                    append(nextWord(after: index, in: tokens))
-                } else if let separator = word.firstIndex(of: "=") {
-                    let flag = String(word[..<separator])
-                    if Self.outputFlags.contains(flag) {
-                        append(String(word[word.index(after: separator)...]))
-                    }
-                }
-            case .boundary:
+            case .word, .boundary:
                 break
             }
         }
