@@ -41,7 +41,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
     private var configuredItemsByID: [String: WorkspaceListTableItem]
-    private var isDragSessionActive = false
+    private(set) var isDragSessionActive = false
     private var dropIntoTarget: (
         sessionIdentifier: ObjectIdentifier,
         headerIndexPath: IndexPath,
