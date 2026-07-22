@@ -27,8 +27,8 @@ private func rendererReleaseWasOccluded() -> Bool
     @Test func firstPresentationWaitsUntilTheSurfaceIsAttachedToARealWindow() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
+        surface.rendererPresentationAttachmentReadyOverrideForTesting = false
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
-        surface.attachToView(surface.surfaceView)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false)
@@ -48,18 +48,8 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = surface.paneHost
-        defer {
-            window.contentView = nil
-            window.close()
-        }
-        surface.attachToView(surface.surfaceView)
+        surface.rendererPresentationAttachmentReadyOverrideForTesting = true
+        surface.rendererPresentationAttachmentDidBecomeReady()
 
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false, true])
@@ -360,7 +350,7 @@ private func rendererReleaseWasOccluded() -> Bool
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
-        return TerminalSurface(
+        let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
@@ -390,6 +380,8 @@ private func rendererReleaseWasOccluded() -> Bool
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
             )
         )
+        surface.rendererPresentationAttachmentReadyOverrideForTesting = true
+        return surface
     }
 
 }

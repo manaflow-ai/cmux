@@ -68,6 +68,19 @@ extension TerminalSurface {
     /// surface even if higher-level layout bookkeeping is momentarily stale.
     public var isRendererPortalVisible: Bool { rendererPortalVisible }
 
+    /// Whether the native surface view and its pane host are both attached to
+    /// the same real presentation window. A hidden bootstrap window is useful
+    /// for starting the PTY, but it cannot safely host the first drawable.
+    @MainActor
+    private var isRendererPresentationAttachmentReady: Bool {
+#if DEBUG
+        if let rendererPresentationAttachmentReadyOverrideForTesting {
+            return rendererPresentationAttachmentReadyOverrideForTesting
+        }
+#endif
+        return attachedView?.window != nil && uiWindow != nil
+    }
+
     /// Record the portal visibility transition for reclamation. Called from
     /// `setVisibleInUI`. Stamps the LRU/idle timestamp on BOTH transitions: a
     /// hide moment is the surface's last-visible time, so the planner's
@@ -115,28 +128,45 @@ extension TerminalSurface {
         rendererPresentationPhase = .awaitingFirstPresentation
         surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
         guard surface != nil else { return }
-        if rendererPortalVisible {
+        if rendererPortalVisible, isRendererPresentationAttachmentReady {
             rendererPresentationPhase = .presented
+            setOcclusion(true)
         } else {
             // The portal may have become hidden before the native pointer
-            // existed. Replay occlusion now so Ghostty stops drawing before
-            // the ordered renderer-release message makes its swap chain defunct.
+            // existed, or become visible before AppKit attached it to a real
+            // window. Replay occlusion now so Ghostty stops drawing before the
+            // ordered renderer-release message makes its swap chain defunct.
             setOcclusion(false)
             _ = releaseRenderer()
         }
+    }
+
+    /// Completes a deferred first presentation after AppKit attaches the pane
+    /// to a real window. Both `attachToView` and the already-attached reconcile
+    /// path call this so portal reparenting cannot strand a released renderer.
+    @MainActor
+    func rendererPresentationAttachmentDidBecomeReady() {
+        guard rendererPortalVisible, isRendererPresentationAttachmentReady else { return }
+        ensureRendererPresented()
     }
 
     /// Release the runtime surface's GPU renderer (Metal swap chain / IOSurface)
     /// while keeping its PTY/io thread and terminal state alive. Driven by
     /// `RendererRealizationController` for offscreen, idle surfaces. Idempotent:
     /// no-ops if there is no runtime surface, it is already released, or the
-    /// surface is currently visible (a hard safety net so we never blank an
-    /// on-screen terminal regardless of how the caller picked it).
+    /// surface is visible in a real presentation window (a hard safety net so
+    /// we never blank an on-screen terminal regardless of how the caller picked
+    /// it). A portal flagged visible before attachment may be normalized into
+    /// the released state so its first real presentation uses the restore path.
     @discardableResult
     @MainActor
     public func releaseRenderer() -> Bool {
 #if os(macOS)
-        guard rendererPresentationPhase != .released, !rendererPortalVisible else { return false }
+        guard rendererPresentationPhase != .released else { return false }
+        // A visible portal is protected once it is actually attached. Before
+        // that point (including the hidden bootstrap window), release is the
+        // normalization step that makes first presentation safe and retryable.
+        guard !rendererPortalVisible || !isRendererPresentationAttachmentReady else { return false }
         // The reclamation controller is default-on and scans every registered
         // wrapper, so validate the native pointer (registry ownership +
         // liveness) before the C call instead of trusting `surface != nil`.
@@ -168,9 +198,18 @@ extension TerminalSurface {
     @MainActor
     public func ensureRendererPresented() {
 #if os(macOS)
+        // `setVisibleInUI(true)` can precede Dock portal reattachment. Do not
+        // realize against a windowless/headless layer and then mirror that
+        // enqueue as a completed presentation.
+        guard isRendererPresentationAttachmentReady else { return }
         guard rendererPresentationPhase != .presented else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.ensurePresented") else { return }
         let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
+
+        // A detached visibility update may already have lifted occlusion.
+        // Re-occlude synchronously before changing renderer realization, and
+        // lift it only after the realization enqueue succeeds.
+        setOcclusion(false)
 
         if rendererPresentationPhase == .awaitingFirstPresentation {
             // Ghostty starts with a live renderer even if its view was born
@@ -195,6 +234,7 @@ extension TerminalSurface {
         if ghostty_surface_set_renderer_realized(surface, true) {
             callbackContext?.cancelRendererPresentationRepair()
             rendererPresentationPhase = .presented
+            setOcclusion(true)
         }
 #endif
     }

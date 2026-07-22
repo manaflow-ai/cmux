@@ -105,11 +105,13 @@ extension TerminalSurface {
     public func reconcileAttachedWindowIfNeeded(for view: any TerminalSurfaceNativeViewing) {
         guard attachedView === view else { return }
         releaseHeadlessStartupWindowIfNeeded(for: view)
-        guard let screen = view.window?.screen ?? NSScreen.main,
-              let displayID = screen.displayID,
-              displayID != 0 else { return }
-        guard let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") else { return }
-        ghostty_surface_set_display_id(s, displayID)
+        if let screen = view.window?.screen ?? NSScreen.main,
+           let displayID = screen.displayID,
+           displayID != 0,
+           let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") {
+            ghostty_surface_set_display_id(s, displayID)
+        }
+        rendererPresentationAttachmentDidBecomeReady()
     }
 
     /// Whether the surface model is attached to `view` with a live runtime
@@ -409,6 +411,7 @@ extension TerminalSurface {
                let s = surface {
                 ghostty_surface_set_display_id(s, displayID)
             }
+            rendererPresentationAttachmentDidBecomeReady()
             return
         }
 
@@ -467,6 +470,7 @@ extension TerminalSurface {
             logDebugEvent("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
 #endif
         }
+        rendererPresentationAttachmentDidBecomeReady()
     }
 
     @MainActor
