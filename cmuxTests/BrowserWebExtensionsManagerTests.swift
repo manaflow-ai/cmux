@@ -3132,7 +3132,9 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.loadedContexts.count == 1)
         let ledger = try await BrowserWebExtensionDirectoryRepository()
             .managementLedger(in: managedRoot)
-        #expect(ledger.records.keys.sorted() == ["sample"])
+        let managementID = try #require(ledger.records.keys.first)
+        #expect(ledger.records.count == 1)
+        #expect(managementID.hasPrefix(BrowserWebExtensionManagementIdentity.diskPrefix))
         #expect(BrowserWebExtensionsManager.candidateURLs(in: managedRoot).count == 1)
     }
 
