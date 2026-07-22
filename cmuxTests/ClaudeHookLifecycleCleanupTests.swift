@@ -73,14 +73,14 @@ struct ClaudeHookLifecycleCleanupTests {
         let commands = context.state.snapshot()
         #expect(
             commands.contains {
-                $0.hasPrefix("clear_agent_pid claude_code ")
+                $0.hasPrefix("clear_agent_pid claude_code.\(sessionId) ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
             },
             "SessionEnd must clear the live pane despite the polluted record surface; saw \(commands)"
         )
         #expect(
-            !commands.contains { $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--panel=\(Self.otherSurfaceId)") },
+            !commands.contains { $0.hasPrefix("clear_agent_pid claude_code.\(sessionId) ") && $0.contains("--panel=\(Self.otherSurfaceId)") },
             "SessionEnd must not clear the foreign pane the polluted record named; saw \(commands)"
         )
         #expect(
@@ -139,7 +139,7 @@ struct ClaudeHookLifecycleCleanupTests {
         let commands = context.state.snapshot()
         #expect(
             commands.contains {
-                $0.hasPrefix("clear_agent_pid claude_code ")
+                $0.hasPrefix("clear_agent_pid claude_code.\(sessionId) ")
                     && $0.contains("--tab=\(newWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
             },

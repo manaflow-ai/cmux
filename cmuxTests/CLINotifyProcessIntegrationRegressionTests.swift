@@ -933,7 +933,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertFalse(
-            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code.") },
             "A fork SessionStart without an authoritative surface must not register its PID on a borrowed fallback pane, saw \(context.state.commands)"
         )
     }
@@ -1153,7 +1153,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--panel=\(context.surfaceId)")
+                $0.hasPrefix("clear_agent_pid claude_code.\(parentSessionId) ") && $0.contains("--panel=\(context.surfaceId)")
             },
             "A pre-prompt fork exit must still clear the agent PID/status registered for the fork pane, saw \(context.state.commands)"
         )
@@ -1607,7 +1607,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected stale SessionEnd not to clear the consumed workspace, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--tab=\(staleWorkspaceId)") },
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code.") && $0.contains("--tab=\(staleWorkspaceId)") },
             "Expected stale SessionEnd not to clear the consumed workspace PID, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -1655,7 +1655,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertFalse(
-            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--tab=\(context.workspaceId)") },
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code.\(sessionId) ") && $0.contains("--tab=\(context.workspaceId)") },
             "Expected stale same-session turn not to clear current PID, saw \(context.state.commands)"
         )
         XCTAssertFalse(
