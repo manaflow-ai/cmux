@@ -161,6 +161,27 @@ struct BrowserWebExtensionRepositoryTests {
         #expect(discovery.failures.first?.entryName == "extension")
     }
 
+    @Test func managedPackageDigestFramesPathsAndContentsUnambiguously() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstTree = root.appendingPathComponent("first", isDirectory: true)
+        let secondTree = root.appendingPathComponent("second", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstTree, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondTree, withIntermediateDirectories: true)
+
+        try Data([0x58, 0x00, 0x62, 0x00, 0x59]).write(
+            to: firstTree.appendingPathComponent("a")
+        )
+        try Data([0x58]).write(to: secondTree.appendingPathComponent("a"))
+        try Data([0x59]).write(to: secondTree.appendingPathComponent("b"))
+
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let firstDigest = try await repository.digestForManagedPackage(at: firstTree)
+        let secondDigest = try await repository.digestForManagedPackage(at: secondTree)
+
+        #expect(firstDigest != secondDigest)
+    }
+
     @Test func catalogLogicalIdentifierSurvivesVersionChanges() {
         let first = BrowserWebExtensionCatalogEntry(
             id: "sample",
