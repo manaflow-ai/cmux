@@ -65,15 +65,19 @@ extension TabManager {
                 continue
             }
             let rootStatusKeys = rootStatusKeysByPanelId[panelId] ?? [:]
-            guard let match = rootStatusKeys.first(where: { rootIdentity, _ in
-                AgentPIDProcessIdentity(pid: rootIdentity.pid) == rootIdentity
-                    && snapshot.descendantPIDs(rootPID: Int(rootIdentity.pid), includeRoot: true)
-                        .contains(foregroundPID)
-            }),
+            let matches = rootStatusKeys.compactMap { rootIdentity, statusKey -> String? in
+                guard AgentPIDProcessIdentity(pid: rootIdentity.pid) == rootIdentity,
+                      snapshot.descendantPIDs(rootPID: Int(rootIdentity.pid), includeRoot: true)
+                          .contains(foregroundPID) else {
+                    return nil
+                }
+                return statusKey
+            }
+            guard Set(matches).count == 1,
                   AgentPIDProcessIdentity(pid: foregroundIdentity.pid) == foregroundIdentity else {
                 continue
             }
-            result[panelId] = match.value
+            result[panelId] = matches[0]
         }
         return result
     }

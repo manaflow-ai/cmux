@@ -153,12 +153,12 @@ extension Workspace {
                 foregroundProcessIdentities[panelId] = identity
             }
             for pidKey in agentPIDKeysByPanelId[panelId] ?? [] {
-                guard let pid = agentPIDs[pidKey], pid > 0,
+                let statusKey = agentStatusKey(forAgentPIDKey: pidKey)
+                guard AgentHibernationLifecycleStatusKeys.isAllowed(statusKey),
+                      let pid = agentPIDs[pidKey], pid > 0,
                       let identity = agentPIDProcessIdentitiesByKey[pidKey],
                       identity.pid == pid else { continue }
-                rootStatusKeysByPanelId[panelId, default: [:]][identity] = agentStatusKey(
-                    forAgentPIDKey: pidKey
-                )
+                rootStatusKeysByPanelId[panelId, default: [:]][identity] = statusKey
             }
         }
         return (foregroundProcessIdentities, rootStatusKeysByPanelId, panelIds)
