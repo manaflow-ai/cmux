@@ -664,6 +664,26 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testOutlineChangesBroadcastToEveryObserver() {
+        let store = FileExplorerStore()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        directory.children = []
+        var firstObserverRevisions: [UInt64] = []
+        var secondObserverRevisions: [UInt64] = []
+        let firstObserverID = store.observeOutlineChanges { firstObserverRevisions.append($0) }
+        let secondObserverID = store.observeOutlineChanges { secondObserverRevisions.append($0) }
+        defer {
+            store.removeOutlineChangeObserver(firstObserverID)
+            store.removeOutlineChangeObserver(secondObserverID)
+        }
+
+        store.expand(node: directory)
+
+        #expect(firstObserverRevisions == [1])
+        #expect(secondObserverRevisions == [1])
+    }
+
+    @Test
     func testProgrammaticOutlineReloadDoesNotExpandCollapsedDirectory() {
         let store = FileExplorerStore()
         let state = FileExplorerState()

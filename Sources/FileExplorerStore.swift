@@ -716,6 +716,7 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
     private(set) var outlineRevision: UInt64 = 0
+    private var outlineChangeObservers: [UUID: (UInt64) -> Void] = [:]
 
     var provider: FileExplorerProvider?
 
@@ -771,6 +772,17 @@ final class FileExplorerStore: ObservableObject {
     }
 
     // MARK: - Public API
+
+    @discardableResult
+    func observeOutlineChanges(_ observer: @escaping (UInt64) -> Void) -> UUID {
+        let id = UUID()
+        outlineChangeObservers[id] = observer
+        return id
+    }
+
+    func removeOutlineChangeObserver(_ id: UUID) {
+        outlineChangeObservers.removeValue(forKey: id)
+    }
 
     func applyWorkspaceRoot(
         _ request: FileExplorerWorkspaceRoot,
@@ -859,6 +871,7 @@ final class FileExplorerStore: ObservableObject {
         guard gitStatusByPath != status else { return }
         outlineRevision &+= 1
         gitStatusByPath = status
+        notifyOutlineChangeObservers()
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
@@ -940,11 +953,11 @@ final class FileExplorerStore: ObservableObject {
 
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
-        expandedPaths.insert(node.path)
+        let inserted = expandedPaths.insert(node.path).inserted
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
-            outlineRevision &+= 1
+            signalOutlineChange()
             objectWillChange.send()
             let nodePath = node.path
             let task = Task { [weak self] in
@@ -952,12 +965,14 @@ final class FileExplorerStore: ObservableObject {
                 await self.loadChildren(for: node, at: nodePath)
             }
             loadTasks[node.path] = task
+        } else if inserted {
+            signalOutlineChange()
         }
     }
 
     func collapse(node: FileExplorerNode) {
         let removed = expandedPaths.remove(node.path) != nil
-        if removed { outlineRevision &+= 1 }
+        if removed { signalOutlineChange() }
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
@@ -1038,7 +1053,7 @@ final class FileExplorerStore: ObservableObject {
         if !silent {
             loadingPaths.insert(path)
             parentNode?.error = nil
-            if parentNode != nil { outlineRevision &+= 1 }
+            if parentNode != nil { signalOutlineChange() }
             objectWillChange.send()
         }
 
@@ -1075,13 +1090,13 @@ final class FileExplorerStore: ObservableObject {
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)
-            if parentNode != nil { outlineRevision &+= 1 }
+            if parentNode != nil { signalOutlineChange() }
             objectWillChange.send()
 
             // Auto-expand children that were previously expanded
             for child in children where child.isDirectory && expandedPaths.contains(child.path) {
                 child.isLoading = true
-                outlineRevision &+= 1
+                signalOutlineChange()
                 objectWillChange.send()
                 let childPath = child.path
                 let childTask = Task { [weak self] in
@@ -1101,7 +1116,7 @@ final class FileExplorerStore: ObservableObject {
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
-                if parentNode != nil { outlineRevision &+= 1 }
+                if parentNode != nil { signalOutlineChange() }
                 objectWillChange.send()
             }
         }
@@ -1110,6 +1125,18 @@ final class FileExplorerStore: ObservableObject {
     private func replaceRootNodes(with nodes: [FileExplorerNode]) {
         outlineRevision &+= 1
         rootNodes = nodes
+        notifyOutlineChangeObservers()
+    }
+
+    private func signalOutlineChange() {
+        outlineRevision &+= 1
+        notifyOutlineChangeObservers()
+    }
+
+    private func notifyOutlineChangeObservers() {
+        for observer in outlineChangeObservers.values {
+            observer(outlineRevision)
+        }
     }
 
     private func cancelAllLoads() {
