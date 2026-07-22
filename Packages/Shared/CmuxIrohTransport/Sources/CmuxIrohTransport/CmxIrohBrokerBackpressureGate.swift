@@ -24,6 +24,8 @@ public enum CmxIrohBrokerBackpressureMode: Sendable {
 ///
 /// Floors are isolated by hashed account and operation. When a state store is
 /// supplied, only the hash, operation, and bounded dates are persisted.
+/// If the bounded record set overflows, one conservative global deadline keeps
+/// every omitted server directive effective across relaunch.
 public actor CmxIrohBrokerBackpressureGate {
     private struct Key: Codable, Hashable, Sendable {
         let accountScope: String
@@ -47,9 +49,30 @@ public actor CmxIrohBrokerBackpressureGate {
         let retryAt: Date
     }
 
+    private struct StoredOverflowFloor: Codable, Sendable {
+        let recordedAt: Date
+        let retryAt: Date
+    }
+
     private struct StoredRecord: Codable, Sendable {
         let version: Int
         let floors: [StoredFloor]
+        let overflowFloor: StoredOverflowFloor?
+
+        init(
+            version: Int,
+            floors: [StoredFloor],
+            overflowFloor: StoredOverflowFloor? = nil
+        ) {
+            self.version = version
+            self.floors = floors
+            self.overflowFloor = overflowFloor
+        }
+    }
+
+    private struct LoadedState {
+        let floors: [Key: Floor]
+        let overflowFloor: Floor?
     }
 
     private struct Waiter {
@@ -67,6 +90,7 @@ public actor CmxIrohBrokerBackpressureGate {
     private let store: (any CmxIrohInstallStateStoring)?
     private let now: @Sendable () -> Date
     private var floors: [Key: Floor]
+    private var overflowFloor: Floor?
     private var owners: [Key: UUID] = [:]
     private var waiters: [Key: [Waiter]] = [:]
 
@@ -78,9 +102,12 @@ public actor CmxIrohBrokerBackpressureGate {
         self.store = store
         self.now = now
         if let store {
-            floors = Self.loadPersistedFloors(store: store, now: now())
+            let loaded = Self.loadPersistedState(store: store, now: now())
+            floors = loaded.floors
+            overflowFloor = loaded.overflowFloor
         } else {
             floors = [:]
+            overflowFloor = nil
         }
     }
 
@@ -119,13 +146,16 @@ public actor CmxIrohBrokerBackpressureGate {
         remainingSeconds(for: key(accountID: accountID, operation: operation))
     }
 
-    /// Clears persisted and in-memory floors for one account, or for all accounts.
+    /// Clears exact floors for one account, or all exact and overflow floors.
+    /// A conservative overflow floor remains after an account-only clear because
+    /// its omitted account scopes are intentionally not persisted.
     public func clear(accountID: String? = nil) {
         if let accountID {
             let scope = Self.accountScope(accountID)
             floors = floors.filter { $0.key.accountScope != scope }
         } else {
             floors.removeAll(keepingCapacity: false)
+            overflowFloor = nil
         }
         persistFloors()
     }
@@ -213,20 +243,37 @@ public actor CmxIrohBrokerBackpressureGate {
     }
 
     private func activeFloor(for key: Key) -> Floor? {
-        guard let floor = floors[key] else { return nil }
         let current = now()
-        let duration = floor.retryAt.timeIntervalSince(floor.recordedAt)
-        guard floor.recordedAt <= current,
-              floor.retryAt > current,
-              floor.retryAt.timeIntervalSince(current)
-                <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds),
-              duration >= 1,
-              duration <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds) else {
+        var changed = false
+        let keyedFloor: Floor?
+        if let floor = floors[key], Self.isActive(floor, at: current) {
+            keyedFloor = floor
+        } else {
+            changed = floors[key] != nil
             floors[key] = nil
-            persistFloors()
+            keyedFloor = nil
+        }
+
+        let activeOverflowFloor: Floor?
+        if let floor = overflowFloor, Self.isActive(floor, at: current) {
+            activeOverflowFloor = floor
+        } else {
+            changed = changed || overflowFloor != nil
+            overflowFloor = nil
+            activeOverflowFloor = nil
+        }
+        if changed { persistFloors() }
+
+        switch (keyedFloor, activeOverflowFloor) {
+        case let (keyed?, overflow?):
+            return keyed.retryAt >= overflow.retryAt ? keyed : overflow
+        case let (keyed?, nil):
+            return keyed
+        case let (nil, overflow?):
+            return overflow
+        case (nil, nil):
             return nil
         }
-        return floor
     }
 
     private func remainingSeconds(for key: Key) -> Int? {
@@ -266,27 +313,49 @@ public actor CmxIrohBrokerBackpressureGate {
     private func persistFloors() {
         guard let store else { return }
         let current = now()
-        floors = floors.filter { $0.value.retryAt > current }
-        guard !floors.isEmpty else {
+        floors = floors.filter { Self.isActive($0.value, at: current) }
+        if let floor = overflowFloor, !Self.isActive(floor, at: current) {
+            overflowFloor = nil
+        }
+        guard !floors.isEmpty || overflowFloor != nil else {
             store.set(nil, forKey: Self.persistenceKey)
             return
         }
-        let stored = floors.map { key, floor in
+        let ordered = floors.map { key, floor in
             StoredFloor(
                 key: key,
                 recordedAt: floor.recordedAt,
                 retryAt: floor.retryAt
             )
-        }.sorted {
-            if $0.key.accountScope == $1.key.accountScope {
-                return $0.key.operation.rawValue < $1.key.operation.rawValue
+        }.sorted(by: Self.precedesForPersistence)
+        let bounded = Array(ordered.prefix(Self.maximumStoredFloorCount))
+        let omitted = ordered.dropFirst(Self.maximumStoredFloorCount)
+        // Retain the longest exact floors. The longest omitted deadline becomes
+        // a global fallback because the omitted account-operation keys are not
+        // otherwise recoverable after relaunch.
+        let omittedOverflow = omitted.map {
+            Floor(
+                recordedAt: $0.recordedAt,
+                retryAt: $0.retryAt,
+                errorKind: .cooldown
+            )
+        }.max(by: { $0.retryAt < $1.retryAt })
+        if let omittedOverflow {
+            if let currentOverflow = overflowFloor {
+                if currentOverflow.retryAt < omittedOverflow.retryAt {
+                    overflowFloor = omittedOverflow
+                }
+            } else {
+                overflowFloor = omittedOverflow
             }
-            return $0.key.accountScope < $1.key.accountScope
         }
-        let bounded = Array(stored.suffix(Self.maximumStoredFloorCount))
+        let storedOverflow = overflowFloor.map {
+            StoredOverflowFloor(recordedAt: $0.recordedAt, retryAt: $0.retryAt)
+        }
         guard let data = try? JSONEncoder().encode(StoredRecord(
             version: Self.recordVersion,
-            floors: bounded
+            floors: bounded,
+            overflowFloor: storedOverflow
         )), data.count <= Self.maximumEncodedByteCount else {
             store.set(nil, forKey: Self.persistenceKey)
             return
@@ -301,63 +370,108 @@ public actor CmxIrohBrokerBackpressureGate {
         Key(accountScope: Self.accountScope(accountID), operation: operation)
     }
 
-    private static func loadPersistedFloors(
+    private static func loadPersistedState(
         store: any CmxIrohInstallStateStoring,
         now: Date
-    ) -> [Key: Floor] {
-        guard let encoded = store.string(forKey: persistenceKey) else { return [:] }
+    ) -> LoadedState {
+        let empty = LoadedState(floors: [:], overflowFloor: nil)
+        guard let encoded = store.string(forKey: persistenceKey) else { return empty }
         guard let data = Data(base64Encoded: encoded) else {
             store.set(nil, forKey: persistenceKey)
-            return [:]
+            return empty
         }
         guard data.count <= maximumEncodedByteCount,
               let record = try? JSONDecoder().decode(StoredRecord.self, from: data),
               record.version == recordVersion,
               record.floors.count <= maximumStoredFloorCount else {
             store.set(nil, forKey: persistenceKey)
-            return [:]
+            return empty
         }
 
         var loaded: [Key: Floor] = [:]
         var shouldRewrite = false
         for stored in record.floors {
-            let duration = stored.retryAt.timeIntervalSince(stored.recordedAt)
             guard isCanonicalAccountScope(stored.key.accountScope),
-                  stored.recordedAt.timeIntervalSince1970.isFinite,
-                  stored.retryAt.timeIntervalSince1970.isFinite,
-                  duration >= 1,
-                  duration <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds),
-                  stored.recordedAt <= now,
-                  stored.retryAt.timeIntervalSince(now)
-                    <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds),
-                  stored.retryAt > now else {
+                  let floor = restoredFloor(
+                      recordedAt: stored.recordedAt,
+                      retryAt: stored.retryAt,
+                      now: now
+                  ) else {
                 shouldRewrite = true
                 continue
             }
-            let floor = Floor(
-                recordedAt: stored.recordedAt,
-                retryAt: stored.retryAt,
-                errorKind: .cooldown
-            )
             if let current = loaded[stored.key], current.retryAt >= floor.retryAt {
                 shouldRewrite = true
             } else {
                 loaded[stored.key] = floor
             }
         }
-        if shouldRewrite || loaded.isEmpty {
-            if loaded.isEmpty {
+
+        let loadedOverflow: Floor?
+        if let stored = record.overflowFloor {
+            loadedOverflow = restoredFloor(
+                recordedAt: stored.recordedAt,
+                retryAt: stored.retryAt,
+                now: now
+            )
+            if loadedOverflow == nil { shouldRewrite = true }
+        } else {
+            loadedOverflow = nil
+        }
+
+        if shouldRewrite || (loaded.isEmpty && loadedOverflow == nil) {
+            if loaded.isEmpty && loadedOverflow == nil {
                 store.set(nil, forKey: persistenceKey)
             } else if let encoded = try? JSONEncoder().encode(StoredRecord(
                 version: recordVersion,
                 floors: loaded.map { key, floor in
                     StoredFloor(key: key, recordedAt: floor.recordedAt, retryAt: floor.retryAt)
+                },
+                overflowFloor: loadedOverflow.map {
+                    StoredOverflowFloor(recordedAt: $0.recordedAt, retryAt: $0.retryAt)
                 }
             )) {
                 store.set(encoded.base64EncodedString(), forKey: persistenceKey)
             }
         }
-        return loaded
+        return LoadedState(floors: loaded, overflowFloor: loadedOverflow)
+    }
+
+    private static func restoredFloor(
+        recordedAt: Date,
+        retryAt: Date,
+        now: Date
+    ) -> Floor? {
+        let floor = Floor(
+            recordedAt: recordedAt,
+            retryAt: retryAt,
+            errorKind: .cooldown
+        )
+        return isActive(floor, at: now) ? floor : nil
+    }
+
+    private static func isActive(_ floor: Floor, at current: Date) -> Bool {
+        let duration = floor.retryAt.timeIntervalSince(floor.recordedAt)
+        return floor.recordedAt.timeIntervalSince1970.isFinite
+            && floor.retryAt.timeIntervalSince1970.isFinite
+            && floor.recordedAt <= current
+            && floor.retryAt > current
+            && floor.retryAt.timeIntervalSince(current)
+                <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds)
+            && duration >= 1
+            && duration <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds)
+    }
+
+    private static func precedesForPersistence(
+        _ lhs: StoredFloor,
+        _ rhs: StoredFloor
+    ) -> Bool {
+        if lhs.retryAt != rhs.retryAt { return lhs.retryAt > rhs.retryAt }
+        if lhs.recordedAt != rhs.recordedAt { return lhs.recordedAt > rhs.recordedAt }
+        if lhs.key.accountScope != rhs.key.accountScope {
+            return lhs.key.accountScope < rhs.key.accountScope
+        }
+        return lhs.key.operation.rawValue < rhs.key.operation.rawValue
     }
 
     private static func remainingSeconds(floor: Floor, now: Date) -> Int {

@@ -242,6 +242,16 @@ struct CmxIrohBrokerBackpressureGateTests {
             accountID: "account-not-in-record",
             operation: .registration
         ) == 599)
+
+        let expired = CmxIrohBrokerBackpressureGate(
+            store: store,
+            now: { start.addingTimeInterval(601) }
+        )
+        #expect(await expired.remainingSeconds(
+            accountID: "account-not-in-record",
+            operation: .registration
+        ) == nil)
+        #expect(store.string(forKey: CmxIrohBrokerBackpressureGate.persistenceKey) == nil)
     }
 
     private func recordRateLimit(
