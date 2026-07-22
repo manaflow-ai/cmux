@@ -15,6 +15,18 @@ import Testing
 /// native free to the runtime teardown coordinator.
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceTeardownCallbackLifetimeTests {
+    @Test func cancellingEventWaitReturnsWithoutWaitingForDeadline() async {
+        let recorder = TeardownOrderRecorder()
+        let wait = Task {
+            await recorder.waitForEventCount(1, timeout: .seconds(60))
+        }
+
+        await Task.yield()
+        wait.cancel()
+
+        #expect(await wait.value == false)
+    }
+
     @Test func teardownSurfaceKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
         let surface = makeSurface()

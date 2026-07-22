@@ -19,6 +19,7 @@ final class TeardownOrderRecorder: @unchecked Sendable {
         let id: UUID
         let count: Int
         let continuation: CheckedContinuation<Bool, Never>
+        let timeoutTask: Task<Void, Never>
     }
 
     private var waiters: [Waiter] = []
@@ -35,31 +36,54 @@ final class TeardownOrderRecorder: @unchecked Sendable {
         lock.lock()
         storedEvents.append(event)
         let count = storedEvents.count
-        let resumable = waiters.filter { $0.count <= count }.map(\.continuation)
+        let resumable = waiters.filter { $0.count <= count }
         waiters.removeAll { $0.count <= count }
         lock.unlock()
-        for continuation in resumable {
-            continuation.resume(returning: true)
+        for waiter in resumable {
+            waiter.timeoutTask.cancel()
+            waiter.continuation.resume(returning: true)
         }
     }
 
     /// Suspends until at least `count` events have been recorded, or returns
     /// false after a bounded wait so a failed teardown cannot hang the suite.
-    func waitForEventCount(_ count: Int, timeout: TimeInterval = 5) async -> Bool {
+    func waitForEventCount(_ count: Int, timeout: Duration = .seconds(5)) async -> Bool {
         let waiterID = UUID()
-        return await withCheckedContinuation { continuation in
-            lock.lock()
-            if storedEvents.count >= count {
-                lock.unlock()
-                continuation.resume(returning: true)
-                return
-            }
-            waiters.append(Waiter(id: waiterID, count: count, continuation: continuation))
-            lock.unlock()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(returning: false)
+                    return
+                }
+                if storedEvents.count >= count {
+                    lock.unlock()
+                    continuation.resume(returning: true)
+                    return
+                }
 
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in
-                self?.expireWaiter(id: waiterID)
+                let timeoutTask = Task { [weak self] in
+                    do {
+                        // Genuine test deadline; event delivery or parent cancellation cancels this task.
+                        try await Task.sleep(for: timeout)
+                    } catch {
+                        return
+                    }
+                    self?.expireWaiter(id: waiterID)
+                }
+                waiters.append(
+                    Waiter(
+                        id: waiterID,
+                        count: count,
+                        continuation: continuation,
+                        timeoutTask: timeoutTask
+                    )
+                )
+                lock.unlock()
             }
+        } onCancel: {
+            cancelWaiter(id: waiterID)
         }
     }
 
@@ -72,5 +96,17 @@ final class TeardownOrderRecorder: @unchecked Sendable {
         let continuation = waiters.remove(at: index).continuation
         lock.unlock()
         continuation.resume(returning: false)
+    }
+
+    private func cancelWaiter(id: UUID) {
+        lock.lock()
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+            lock.unlock()
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        lock.unlock()
+        waiter.timeoutTask.cancel()
+        waiter.continuation.resume(returning: false)
     }
 }
