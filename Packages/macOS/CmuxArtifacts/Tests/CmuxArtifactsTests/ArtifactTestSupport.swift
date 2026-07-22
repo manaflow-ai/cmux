@@ -25,6 +25,18 @@ struct ArtifactTestSupport {
         try? FileManager.default.removeItem(at: url)
     }
 
+    @discardableResult
+    static func runGit(_ arguments: [String]) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
     static func artifactNode(
         root: URL,
         relativePath: String,
