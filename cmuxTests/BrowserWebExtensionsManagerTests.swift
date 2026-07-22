@@ -2202,6 +2202,32 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func portableNativeMessagingPackageDisclosesMissingDesktopBridge() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        var manifest = Self.minimalManifest
+        manifest["permissions"] = ["nativeMessaging"]
+        let source = try Self.writeExtension(
+            named: "native-messaging-package",
+            in: sourceRoot,
+            manifest: manifest
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent()
+        )
+
+        let preview = try await manager.prepareInstall(from: source)
+
+        #expect(preview.requiredPermissions.contains("nativeMessaging"))
+        #expect(preview.capabilityNotices == [.nativeAppIntegrationUnavailable])
+    }
+
+    @available(macOS 15.4, *)
     @Test func sourceMutationAfterReviewFailsBeforeLedgerCommit() async throws {
         let sourceRoot = try Self.makeExtensionsRoot()
         let managedRoot = try Self.makeExtensionsRoot()
