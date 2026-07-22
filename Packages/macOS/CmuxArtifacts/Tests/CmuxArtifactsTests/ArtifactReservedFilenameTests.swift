@@ -21,6 +21,14 @@ struct ArtifactReservedFilenameTests {
         )
     }
 
+    @Test("A first import named like the workspace marker remains visible")
+    func firstImportNamedLikeWorkspaceMarker() async throws {
+        try await assertFirstImport(
+            named: ArtifactPathResolver.workspaceMarkerName,
+            expectedArtifactName: "_workspace-2.json"
+        )
+    }
+
     private func assertFirstImport(
         named sourceName: String,
         expectedArtifactName: String
