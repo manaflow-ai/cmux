@@ -4447,7 +4447,10 @@ impl App {
             worker.activate();
         }
         if let Some(error) = color_error {
-            self.status_message = Some(format!("Could not apply terminal colors: {error}"));
+            self.status_message = Some(format!(
+                "{}: {error}",
+                localization::catalog().sidebar.machine_terminal_colors_failed
+            ));
         }
         if session_available {
             self.session.set_cell_pixel_size(self.cell_pixels.0, self.cell_pixels.1);
