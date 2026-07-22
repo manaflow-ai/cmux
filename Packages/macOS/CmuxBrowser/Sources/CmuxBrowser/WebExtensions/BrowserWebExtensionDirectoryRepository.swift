@@ -58,6 +58,8 @@ public actor BrowserWebExtensionDirectoryRepository {
     private static let copyChunkByteCount = 1024 * 1024
     private static let maximumLedgerByteCount = 1024 * 1024
     private static let maximumInfoPlistByteCount = 1024 * 1024
+    private static let packageDigestDomain = Data("cmux.web-extension.package-digest".utf8)
+    private static let packageDigestFormatVersion: UInt32 = 1
     private let packageLimits: PackageLimits
     private var isShutDown = false
 
@@ -216,14 +218,14 @@ public actor BrowserWebExtensionDirectoryRepository {
                 case .reject:
                     throw BrowserWebExtensionInstallError.compressedPackagesNotAllowed
                 case .verifiedCatalog(let expectedSHA256, let limits):
-                    guard try packageDigest(for: source)
-                        .caseInsensitiveCompare(expectedSHA256) == .orderedSame else {
-                        throw BrowserWebExtensionInstallError.integrityMismatch
-                    }
                     let archiveData = try readBoundedRegularFile(
                         at: source,
                         maximumByteCount: limits.maximumCompressedByteCount
                     )
+                    let archiveDigest = Self.hexDigest(SHA256.hash(data: archiveData))
+                    guard archiveDigest.caseInsensitiveCompare(expectedSHA256) == .orderedSame else {
+                        throw BrowserWebExtensionInstallError.integrityMismatch
+                    }
                     try BrowserWebExtensionArchivePreflight().validate(
                         archiveData,
                         packageName: source.lastPathComponent,
@@ -491,20 +493,32 @@ public actor BrowserWebExtensionDirectoryRepository {
         let files = entries.compactMap { entry -> PackageEntry? in
             if case .regularFile = entry.kind { return entry }
             return nil
-        }.sorted { $0.relativePath < $1.relativePath }
+        }.sorted {
+            $0.relativePath.utf8.lexicographicallyPrecedes($1.relativePath.utf8)
+        }
         let isSingleFile = entries.count == 1 && entries[0].relativePath.isEmpty
         let directoryDescriptor = isSingleFile ? nil : try openDirectoryDescriptor(at: candidate)
         defer {
             if let directoryDescriptor { Darwin.close(directoryDescriptor) }
         }
+
+        // Package digest format v1:
+        //   domain || BE32(version) || BE64(file count) ||
+        //   repeated(BE64(path byte count) || UTF-8 path ||
+        //            BE64(file byte count) || file bytes)
+        // Every variable-length field is length-framed so file bytes cannot be
+        // reinterpreted as another path. Empty directories intentionally do not
+        // affect the digest because they cannot change WebExtension behavior.
         var hasher = SHA256()
+        hasher.update(data: Self.packageDigestDomain)
+        hasher.update(data: Self.bigEndianBytes(Self.packageDigestFormatVersion))
+        hasher.update(data: Self.bigEndianBytes(UInt64(files.count)))
         var actualByteCount = 0
         for entry in files {
             try requireActive()
-            if entries.count > 1 || entries.first?.relativePath.isEmpty == false {
-                hasher.update(data: Data(entry.relativePath.utf8))
-                hasher.update(data: Data([0]))
-            }
+            let pathBytes = Data(entry.relativePath.utf8)
+            hasher.update(data: Self.bigEndianBytes(UInt64(pathBytes.count)))
+            hasher.update(data: pathBytes)
             do {
                 let handle: FileHandle
                 if let directoryDescriptor {
@@ -517,13 +531,38 @@ public actor BrowserWebExtensionDirectoryRepository {
                     handle = try openRegularFile(at: entry.sourceURL)
                 }
                 defer { try? handle.close() }
+                var status = stat()
+                guard Darwin.fstat(handle.fileDescriptor, &status) == 0,
+                      status.st_size >= 0 else {
+                    throw BrowserWebExtensionInstallError.invalidPackage(
+                        candidate.lastPathComponent
+                    )
+                }
+                let expectedFileByteCount = UInt64(status.st_size)
+                guard expectedFileByteCount <= UInt64(packageLimits.maximumByteCount) else {
+                    throw BrowserWebExtensionInstallError.packageTooLarge
+                }
+                hasher.update(data: Self.bigEndianBytes(expectedFileByteCount))
+                var fileByteCount: UInt64 = 0
                 while let chunk = try handle.read(upToCount: Self.copyChunkByteCount), !chunk.isEmpty {
                     try requireActive()
                     actualByteCount = try checkedByteCount(adding: chunk.count, to: actualByteCount)
+                    let chunkByteCount = UInt64(chunk.count)
+                    guard fileByteCount <= expectedFileByteCount,
+                          chunkByteCount <= expectedFileByteCount - fileByteCount else {
+                        throw BrowserWebExtensionInstallError.invalidPackage(
+                            candidate.lastPathComponent
+                        )
+                    }
+                    fileByteCount += chunkByteCount
                     hasher.update(data: chunk)
                 }
+                guard fileByteCount == expectedFileByteCount else {
+                    throw BrowserWebExtensionInstallError.invalidPackage(
+                        candidate.lastPathComponent
+                    )
+                }
             }
-            if !entry.relativePath.isEmpty { hasher.update(data: Data([0])) }
         }
         return Self.hexDigest(hasher.finalize())
     }
@@ -835,6 +874,11 @@ public actor BrowserWebExtensionDirectoryRepository {
 
     private static func hexDigest<D: Sequence>(_ digest: D) -> String where D.Element == UInt8 {
         digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func bigEndianBytes<T: FixedWidthInteger>(_ value: T) -> Data {
+        var encoded = value.bigEndian
+        return Swift.withUnsafeBytes(of: &encoded) { Data($0) }
     }
 }
 
