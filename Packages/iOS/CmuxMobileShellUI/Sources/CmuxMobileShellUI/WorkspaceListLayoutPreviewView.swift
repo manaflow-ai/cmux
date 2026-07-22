@@ -325,6 +325,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 if showsTabScaffold {
                     MobilePrimaryTabScaffold(
                         selection: $selectedPrimaryTab,
+                        searchText: $workspaceSearchText,
                         notificationUnreadCount: 0
                     ) {
                         workspaceListStack

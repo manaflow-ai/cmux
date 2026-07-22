@@ -368,12 +368,14 @@ final class cmuxUITests: XCTestCase {
                 .waitForExistence(timeout: 3)
         )
 
-        let minimizedSearchMatches = app.descendants(matching: .any)
+        let minimizedSearchMatches = app.tabBars.buttons
             .matching(NSPredicate(format: "label == %@", "Search"))
         XCTAssertEqual(minimizedSearchMatches.count, 1)
         let minimizedSearch = minimizedSearchMatches
             .firstMatch
         XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
         let searchField = app.searchFields["Search workspaces"]
         guard let minimizedSearchFrame = waitForUsableFrame(of: minimizedSearch, timeout: 3) else {
             XCTFail("Workspace search orb had no usable frame")
@@ -383,6 +385,17 @@ final class cmuxUITests: XCTestCase {
             minimizedSearchFrame.midY,
             app.frame.midY,
             "Workspace search should sit beside the bottom tab bar"
+        )
+        XCTAssertGreaterThanOrEqual(
+            minimizedSearchFrame.height,
+            workspacesTab.frame.height,
+            "Workspace search should not be shorter than a primary tab control"
+        )
+        XCTAssertEqual(
+            minimizedSearchFrame.midY,
+            workspacesTab.frame.midY,
+            accuracy: 1,
+            "Workspace search and primary tabs should be vertically aligned"
         )
         tap(minimizedSearch, in: app)
 
@@ -395,10 +408,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
-        if app.keyboards.firstMatch.exists {
-            dismissKeyboard(in: app)
-            XCTAssertTrue(waitForKeyboardDismissal(in: app))
-        }
+        tap(workspacesTab, in: app)
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
         let refreshStart = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
         let refreshEnd = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
@@ -411,7 +424,7 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
-        let restoredMinimizedSearchMatches = app.descendants(matching: .any)
+        let restoredMinimizedSearchMatches = app.tabBars.buttons
             .matching(NSPredicate(format: "label == %@", "Search"))
         XCTAssertEqual(restoredMinimizedSearchMatches.count, 1)
         XCTAssertTrue(restoredMinimizedSearchMatches.firstMatch.waitForExistence(timeout: 3))
@@ -432,7 +445,7 @@ final class cmuxUITests: XCTestCase {
         let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
 
-        let searchMatches = app.descendants(matching: .any)
+        let searchMatches = app.tabBars.buttons
             .matching(NSPredicate(format: "label == %@", "Search"))
         XCTAssertEqual(searchMatches.count, 1)
         let searchButton = searchMatches.firstMatch

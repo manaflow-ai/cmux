@@ -215,6 +215,7 @@ struct WorkspaceShellView: View {
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
+                searchText: $workspaceSearchText,
                 notificationUnreadCount: presentation.notificationUnreadCount
             ) {
                 workspaceTabContent(

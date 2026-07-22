@@ -35,19 +35,9 @@ struct WorkspaceListSearchHost<Content: View>: View {
     private var iOSContent: some View {
         if #available(iOS 26.0, *) {
             content(searchText)
-                .toolbar(removing: .search)
-                .searchable(
-                    text: $searchText,
-                    prompt: L10n.string(
-                        "mobile.workspaces.search.placeholder",
-                        defaultValue: "Search workspaces"
-                    )
-                )
-                .searchToolbarBehavior(.minimize)
-                .searchFocused($searchIsFocused)
                 .toolbar {
-                    ToolbarSpacer(.flexible, placement: .bottomBar)
                     if let taskComposerAction {
+                        ToolbarSpacer(.flexible, placement: .bottomBar)
                         ToolbarItem(placement: .bottomBar) {
                             Button(action: taskComposerAction) {
                                 Image(systemName: "sparkles")
@@ -66,9 +56,7 @@ struct WorkspaceListSearchHost<Content: View>: View {
                             )
                             .accessibilityIdentifier("MobileTaskComposerButton")
                         }
-                        ToolbarSpacer(.fixed, placement: .bottomBar)
                     }
-                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
                 }
         } else {
             content(searchText)
