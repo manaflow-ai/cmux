@@ -37,6 +37,21 @@ struct AgentGUIThemeTests {
     }
 
     @Test
+    func appearanceMatchesTerminalBackgroundContrast() {
+        let dark = AgentGUITheme(terminalTheme: terminalTheme(
+            background: "#101014",
+            foreground: "#e8e8ec"
+        ))
+        let light = AgentGUITheme(terminalTheme: terminalTheme(
+            background: "#f4f4f6",
+            foreground: "#18181c"
+        ))
+
+        #expect(dark.prefersDarkAppearance)
+        #expect(!light.prefersDarkAppearance)
+    }
+
+    @Test
     func invalidThemeFallsBackAsOneCompletePalette() {
         let invalid = TerminalTheme(
             background: "bad",
