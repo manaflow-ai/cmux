@@ -4516,8 +4516,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // recreate its context or give its terminal graph a respawn route.
             return
         }
+        let recoverableRoute = recoverableMainWindowRoute(windowId: windowId)
+        if let recoverableRoute,
+           recoverableRoute.tabManager !== tabManager {
+#if DEBUG
+            cmuxDebugLog(
+                "mainWindow.register.recoverableOwnerMismatch windowId=\(String(windowId.uuidString.prefix(8)))"
+            )
+#endif
+            window.orderOut(nil)
+            window.close()
+            return
+        }
         let key = ObjectIdentifier(window)
-        forgetRecoverableMainWindowRoute(windowId: windowId)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
@@ -4590,6 +4601,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             mainWindowContexts[key] = context
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+        }
+        if recoverableRoute?.tabManager === tabManager {
+            forgetRecoverableMainWindowRoute(windowId: windowId)
         }
         commandPaletteWindowStore.registerWindow(windowId)
 
@@ -5091,10 +5105,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        let workspace = state.tabManager.addWorkspace(
+        guard let workspace = state.tabManager.addWorkspaceIfActive(
             workingDirectory: workingDirectory,
             select: shouldBringToFront
-        )
+        ) else { return nil }
         return workspace.id
     }
 
@@ -7324,13 +7338,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // The fresh window boots with a terminal workspace; add the
                     // browser workspace and close that initial one so the
                     // action's result matches the no-window case for terminals.
-                    let workspace = context.tabManager.addWorkspace(
+                    guard let workspace = context.tabManager.addWorkspaceIfActive(
                         title: title,
                         initialSurface: .browser,
                         initialBrowserURL: initialBrowserURL,
                         initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                         initialBrowserTransparentBackground: initialBrowserTransparentBackground
-                    )
+                    ) else { return false }
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
                         in: context
@@ -7340,7 +7354,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         focusInitialBrowserAddressBar(in: workspace)
                     }
                 case .cloudVMLoading:
-                    let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
+                    guard let workspace = context.tabManager.addWorkspaceIfActive(initialSurface: .cloudVMLoading) else {
+                        return false
+                    }
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
                         in: context
@@ -7390,13 +7406,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let preferredTabManager,
            preferredContext == nil || livePreferredContext != nil {
-            let workspace = preferredTabManager.addWorkspace(
+            guard let workspace = preferredTabManager.addWorkspaceIfActive(
                 title: title,
                 initialSurface: initialSurface,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground
-            )
+            ) else { return false }
             createdWorkspaceHandler?(workspace)
             if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
                 focusInitialBrowserAddressBar(in: workspace)
@@ -7501,13 +7517,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
         } else {
-            workspace = context.tabManager.addWorkspace(
+            guard let createdWorkspace = context.tabManager.addWorkspaceIfActive(
                 title: workspaceTitle,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,
                 select: true,
                 autoWelcomeIfNeeded: false
-            )
+            ) else { return false }
+            workspace = createdWorkspace
             context.tabManager.setPinned(workspace, pinned: true)
         }
         if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
@@ -7870,9 +7887,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
+        guard let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
             ?? targetTabManager.tabs.first?.id
-            ?? targetTabManager.addWorkspace(select: true).id
+            ?? targetTabManager.addWorkspaceIfActive(select: true)?.id else {
+            return false
+        }
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
@@ -8118,8 +8137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let workspace = context.tabManager.selectedWorkspace
-            ?? context.tabManager.addWorkspace(select: shouldBringToFront, autoWelcomeIfNeeded: false)
+        guard let workspace = context.tabManager.selectedWorkspace
+            ?? context.tabManager.addWorkspaceIfActive(select: shouldBringToFront, autoWelcomeIfNeeded: false) else {
+            return false
+        }
         // In a remote tmux mirror workspace, paste targets the existing focused
         // pane. Do NOT fall back to creating a new surface there: that would
         // route to a remote `new-window` (a surprising side effect) yet still
@@ -8165,8 +8186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let workspace = context.tabManager.selectedWorkspace
-            ?? context.tabManager.addWorkspace(workingDirectory: parentDirectory, select: true)
+        guard let workspace = context.tabManager.selectedWorkspace
+            ?? context.tabManager.addWorkspaceIfActive(workingDirectory: parentDirectory, select: true) else {
+            return false
+        }
         guard let paneId = workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first else {
             return false
@@ -8238,9 +8261,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             bringToFront(window)
         }
 
-        let workspace: Workspace
+        let workspace: Workspace?
         if initialSurface == .browser {
-            workspace = context.tabManager.addWorkspace(
+            workspace = context.tabManager.addWorkspaceIfActive(
                 title: title,
                 initialSurface: .browser,
                 initialBrowserURL: initialBrowserURL,
@@ -8249,7 +8272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 select: true
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
-            workspace = context.tabManager.addWorkspace(
+            workspace = context.tabManager.addWorkspaceIfActive(
                 title: title,
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
@@ -8257,10 +8280,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 autoWelcomeIfNeeded: initialTerminalInput == nil
             )
         } else if title != nil {
-            workspace = context.tabManager.addWorkspace(title: title, select: true)
+            workspace = context.tabManager.addWorkspaceIfActive(title: title, select: true)
         } else {
-            workspace = context.tabManager.addTab(select: true)
+            workspace = context.tabManager.addWorkspaceIfActive(select: true)
         }
+        guard let workspace else { return nil }
         #if DEBUG
         logWorkspaceCreationRouting(
             phase: "created",
@@ -8861,7 +8885,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        let workspace = context.tabManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        guard let workspace = context.tabManager.addWorkspaceIfActive(select: true, autoWelcomeIfNeeded: false) else {
+            return
+        }
         sendWelcomeCommandWhenReady(to: workspace)
     }
 
@@ -9700,7 +9726,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
-        let tab = tabManager.addTab()
+        guard let tab = tabManager.addWorkspaceIfActive() else { return }
         let config = GhosttyConfig.load()
         let minimumTargetBytes = 2_000_000
         let maximumTargetBytes = 200_000_000
@@ -9720,7 +9746,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openDebugLoremTab(_ sender: Any?) {
         guard let tabManager else { return }
-        let tab = tabManager.addTab()
+        guard let tab = tabManager.addWorkspaceIfActive() else { return }
         let lineCount = 2000
         let base = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore."
         var lines: [String] = []
@@ -9774,7 +9800,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let existing = existingByTitle[title] {
                 targetTab = existing
             } else {
-                targetTab = tabManager.addTab()
+                guard let createdTab = tabManager.addWorkspaceIfActive() else { return }
+                targetTab = createdTab
             }
             tabManager.setCustomTitle(tabId: targetTab.id, title: title)
             tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
@@ -9807,8 +9834,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             for index in 0..<self.debugStressWorkspaceCount {
                 let workspaceStart = ProcessInfo.processInfo.systemUptime
-                guard let workspace = tabManager.acquireWorkspaceIfActive({
-                    tabManager.addWorkspace(select: false, placementOverride: .end)
+                guard let workspace = tabManager.acquireOptionalWorkspaceIfActive({
+                    tabManager.addWorkspaceIfActive(select: false, placementOverride: .end)
                 }) else {
                     break
                 }
@@ -10354,7 +10381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 waitForContext { context in
                     let tabManager = context.tabManager
                     let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
-                    let tab = tabManager.addTab()
+                    guard let tab = tabManager.addWorkspaceIfActive() else { return }
                     guard let initialPanelId = tab.focusedPanelId else { return }
 
                     _ = tabManager.newSplit(tabId: tab.id, surfaceId: initialPanelId, direction: .right)
@@ -10514,7 +10541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             guard let tabManager = self.tabManager else { return }
 
-            let tab = tabManager.addTab()
+            guard let tab = tabManager.addWorkspaceIfActive() else { return }
             guard let initialPanelId = tab.focusedPanelId else {
                 self.writeGotoSplitTestData(["setupError": "Missing initial panel id"])
                 return
@@ -15385,7 +15412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .builtIn(let builtIn):
             switch builtIn {
             case .newWorkspace:
-                context.tabManager.addWorkspace()
+                guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
                 onExecuted?()
                 return true
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)

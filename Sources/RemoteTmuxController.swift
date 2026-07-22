@@ -298,13 +298,19 @@ final class RemoteTmuxController {
         guard sessionMirrors[key] == nil else { return false }
         // Admit the connection and workspace as one active-manager acquisition:
         // a finalized window must start neither the ssh process nor a workspace.
-        guard let acquisition = try tabManager.acquireWorkspaceIfActive({
+        guard let acquisition = try tabManager.acquireOptionalWorkspaceIfActive({ () throws -> (
+            connection: RemoteTmuxControlConnection,
+            workspace: Workspace
+        )? in
             let connection = try attach(host: host, sessionName: sessionName)
-            let workspace = tabManager.addWorkspace(
+            guard let workspace = tabManager.addWorkspaceIfActive(
                 title: sessionName,
                 select: false,
                 autoWelcomeIfNeeded: false
-            )
+            ) else {
+                connection.stop()
+                return nil
+            }
             return (connection: connection, workspace: workspace)
         }) else {
             return false
@@ -610,8 +616,8 @@ final class RemoteTmuxController {
                 // Preserve a usable owning window when the remote disappears.
                 // The replacement is local and must not inherit the remote path.
                 if manager.tabs.count == 1 {
-                    guard manager.acquireWorkspaceIfActive({
-                        manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                    guard manager.acquireOptionalWorkspaceIfActive({
+                        manager.addWorkspaceIfActive(inheritWorkingDirectory: false, select: false)
                     }) != nil else {
                         return
                     }

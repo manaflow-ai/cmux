@@ -101,7 +101,7 @@ extension TerminalController {
                 }
             }
             v2MainSync {
-                let ws = tabManager.addWorkspace(
+                guard let ws = tabManager.addWorkspaceIfActive(
                     title: execution.title,
                     workingDirectory: execution.workingDirectory,
                     initialTerminalCommand: execution.layoutNode == nil ? execution.initialCommand : nil,
@@ -110,7 +110,7 @@ extension TerminalController {
                     select: execution.shouldFocus,
                     eagerLoadTerminal: execution.shouldEagerLoadTerminal,
                     autoRefreshMetadata: execution.shouldAutoRefreshMetadata
-                )
+                ) else { return }
                 ws.taskCreateOperationID = operationID
                 ws.setCustomDescription(execution.description)
                 if let layoutNode = execution.layoutNode {

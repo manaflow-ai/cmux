@@ -25,6 +25,7 @@ extension AppDelegate {
     func availableWindowIdForNewMainWindow(preferredWindowId: UUID?) -> UUID? {
         guard let preferredWindowId else { return nil }
         guard !mainWindowContexts.values.contains(where: { $0.windowId == preferredWindowId }) else { return nil }
+        guard recoverableMainWindowRoute(windowId: preferredWindowId) == nil else { return nil }
         return preferredWindowId
     }
 

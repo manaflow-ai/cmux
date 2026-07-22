@@ -148,8 +148,8 @@ extension CmuxConfigExecutor {
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
-        guard let newWorkspace = tabManager.acquireWorkspaceIfActive({
-            tabManager.addWorkspace(
+        guard let newWorkspace = tabManager.acquireOptionalWorkspaceIfActive({
+            tabManager.addWorkspaceIfActive(
                 workingDirectory: resolvedCwd,
                 workspaceEnvironment: wsDef.env ?? [:]
             )

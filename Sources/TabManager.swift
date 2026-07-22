@@ -1039,6 +1039,15 @@ class TabManager: ObservableObject {
         return try acquisition()
     }
 
+    /// Flattens optional workspace acquisitions so callers do not accidentally
+    /// treat a rejected direct creation as a successful nested optional.
+    func acquireOptionalWorkspaceIfActive<Result>(
+        _ acquisition: () throws -> Result?
+    ) rethrows -> Result? {
+        guard !isFinalizedForWindowClose else { return nil }
+        return try acquisition()
+    }
+
     @discardableResult
     func addWorkspace(
         title: String? = nil,
@@ -1060,6 +1069,57 @@ class TabManager: ObservableObject {
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
+        precondition(
+            !isFinalizedForWindowClose,
+            "Cannot create a workspace after its window manager is finalized"
+        )
+        guard let workspace = addWorkspaceIfActive(
+            title: title,
+            workingDirectory: overrideWorkingDirectory,
+            initialSurface: initialSurface,
+            initialTerminalCommand: initialTerminalCommand,
+            initialTerminalInput: initialTerminalInput,
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            workspaceEnvironment: workspaceEnvironment,
+            inheritWorkingDirectory: inheritWorkingDirectory,
+            select: select,
+            eagerLoadTerminal: eagerLoadTerminal,
+            placementOverride: placementOverride,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            autoRefreshMetadata: autoRefreshMetadata,
+            normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+        ) else {
+            preconditionFailure("Cannot create a workspace after its window manager is finalized")
+        }
+        return workspace
+    }
+
+    @discardableResult
+    func addWorkspaceIfActive(
+        title: String? = nil,
+        workingDirectory overrideWorkingDirectory: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
+        initialTerminalCommand: String? = nil,
+        initialTerminalInput: String? = nil,
+        initialTerminalEnvironment: [String: String] = [:],
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
+        workspaceEnvironment: [String: String] = [:],
+        inheritWorkingDirectory: Bool = true,
+        select: Bool = true,
+        eagerLoadTerminal: Bool = false,
+        placementOverride: WorkspacePlacement? = nil,
+        autoWelcomeIfNeeded: Bool = true,
+        autoRefreshMetadata: Bool = true,
+        normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        allowTextBoxFocusDefault: Bool = true
+    ) -> Workspace? {
+        guard !isFinalizedForWindowClose else { return nil }
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         // Snapshot the selected tab from the pinned workspace instead of rereading the
@@ -1318,8 +1378,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func recoverEmptyWorkspaceAfterStartupIfNeeded() -> Bool {
         guard !isFinalizedForWindowClose, tabs.isEmpty else { return false }
-        addWorkspace()
-        return true
+        return addWorkspaceIfActive() != nil
     }
 
     // Keep addTab as convenience alias
@@ -1881,8 +1940,8 @@ class TabManager: ObservableObject {
         workingDirectory: String?,
         inheritWorkingDirectory: Bool,
         select: Bool
-    ) -> Workspace {
-        addWorkspace(
+    ) -> Workspace? {
+        addWorkspaceIfActive(
             title: title,
             workingDirectory: workingDirectory,
             inheritWorkingDirectory: inheritWorkingDirectory,
@@ -1902,8 +1961,8 @@ class TabManager: ObservableObject {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool
-    ) -> Workspace {
-        addWorkspace(
+    ) -> Workspace? {
+        addWorkspaceIfActive(
             title: title,
             workingDirectory: workingDirectory,
             initialSurface: initialSurface,
@@ -4231,12 +4290,12 @@ class TabManager: ObservableObject {
     @discardableResult
     func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
         let preRestoreFocus = currentFocusHistoryEntry
-        let workspace = addWorkspace(
+        guard let workspace = addWorkspaceIfActive(
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false
-        )
+        ) else { return false }
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: liveStableIdentitySet())
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)

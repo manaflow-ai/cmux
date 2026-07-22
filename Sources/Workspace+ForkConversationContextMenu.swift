@@ -134,8 +134,8 @@ extension Workspace {
             return false
         }
 
-        guard let forkWorkspace = owningTabManager.acquireWorkspaceIfActive({
-            owningTabManager.addWorkspace(
+        guard let forkWorkspace = owningTabManager.acquireOptionalWorkspaceIfActive({
+            owningTabManager.addWorkspaceIfActive(
                 workingDirectory: launch.terminalWorkingDirectory,
                 initialTerminalCommand: launch.initialTerminalCommand,
                 initialTerminalInput: launch.initialTerminalInput,

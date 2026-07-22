@@ -278,8 +278,8 @@ extension ContentView {
                     NSSound.beep()
                     return
                 }
-                guard let forkWorkspace = tabManager.acquireWorkspaceIfActive({
-                    tabManager.addWorkspace(
+                guard let forkWorkspace = tabManager.acquireOptionalWorkspaceIfActive({
+                    tabManager.addWorkspaceIfActive(
                         workingDirectory: launch.terminalWorkingDirectory,
                         initialTerminalCommand: launch.initialTerminalCommand,
                         initialTerminalInput: launch.initialTerminalInput,

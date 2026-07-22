@@ -11926,15 +11926,22 @@ class TerminalController {
         var newTabId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            let workspace = tabManager.addWorkspace(
+            guard let workspace = tabManager.addWorkspaceIfActive(
                 title: title,
                 select: focus,
                 eagerLoadTerminal: !focus,
                 allowTextBoxFocusDefault: false
-            )
+            ) else { return }
             newTabId = workspace.id
         }
-        return "OK \(newTabId?.uuidString ?? "unknown")"
+        guard let newTabId else {
+            let message = String(
+                localized: "applescript.error.failedToCreateWorkspace",
+                defaultValue: "Failed to create workspace."
+            )
+            return "ERROR: \(message)"
+        }
+        return "OK \(newTabId.uuidString)"
     }
 
     /// v1 socket error for a left/up split directed at a mirror workspace

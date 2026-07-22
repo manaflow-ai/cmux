@@ -254,12 +254,26 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         let ownerPanel = try #require(ownerWorkspace.focusedTerminalPanel)
         let duplicateManager = TabManager()
         let duplicateWorkspace = try #require(duplicateManager.selectedWorkspace)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            ownerWorkspace.teardownAllPanels()
+            ownerWorkspace.teardownRemoteConnection()
+            duplicateWorkspace.teardownAllPanels()
+            duplicateWorkspace.teardownRemoteConnection()
+        }
+
+        TerminalController.shared.setActiveTabManager(owner)
+        #expect(!app.toggleSidebarInActiveMainWindow())
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === owner)
+        #expect(app.availableWindowIdForNewMainWindow(preferredWindowId: windowId) == nil)
+
         let duplicateWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
+        duplicateWindow.isReleasedWhenClosed = false
         duplicateWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         let replacementWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
@@ -267,21 +281,12 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             backing: .buffered,
             defer: false
         )
+        replacementWindow.isReleasedWhenClosed = false
         replacementWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         defer {
-            app.unregisterMainWindowContextForTesting(windowId: windowId)
-            ownerWorkspace.teardownAllPanels()
-            ownerWorkspace.teardownRemoteConnection()
-            duplicateWorkspace.teardownAllPanels()
-            duplicateWorkspace.teardownRemoteConnection()
             duplicateWindow.orderOut(nil)
             replacementWindow.orderOut(nil)
         }
-
-        TerminalController.shared.setActiveTabManager(owner)
-        #expect(!app.toggleSidebarInActiveMainWindow())
-        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === owner)
-        #expect(app.availableWindowIdForNewMainWindow(preferredWindowId: windowId) == nil)
 
         app.registerMainWindow(
             duplicateWindow,
@@ -369,8 +374,8 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
     }
 
-    @Test("Finalized manager rejects direct workspace creation")
-    func finalizedManagerRejectsDirectWorkspaceCreation() throws {
+    @Test("Finalized manager rejects guarded direct workspace creation")
+    func finalizedManagerRejectsGuardedDirectWorkspaceCreation() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         defer {
@@ -383,7 +388,7 @@ struct GhostMainWindowContextLifecycleTests {
             GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)
         )
 
-        let lateWorkspace: Workspace? = manager.addWorkspace(
+        let lateWorkspace = manager.addWorkspaceIfActive(
             initialTerminalCommand: "/usr/bin/true"
         )
         defer {
