@@ -191,8 +191,7 @@ _DURATION_COMPARE = re.compile(
 # too. These are all CALL forms, so quoted `sleep 5` fixture data never matches.
 _SLEEP_CALL = re.compile(
     r"""(?x)
-    \btime\.sleep\s*\(
-  | (?<!\.)\bsleep\s*\(                    # unqualified C-style sleep(...)
+    (?<!\.)\bsleep\s*\(                    # unqualified C-style sleep(...)
   | \b(?:Darwin|Glibc)\.sleep\s*\(
   | \busleep\s*\(
   | \bnanosleep\s*\(
@@ -201,7 +200,6 @@ _SLEEP_CALL = re.compile(
   | try\s+await\s+Task\.sleep
   | \b(?:ContinuousClock|SuspendingClock)\s*(?:\.\s*init)?\s*
     \(\s*\)\.sleep\s*\(
-  | \b(?:asyncio|trio|anyio|gevent)\.sleep\s*\(
   | \bBun\.sleep\s*\(
   | \bsetTimeout\s*\(                       # JS, when used as a bare delay
     """
@@ -219,9 +217,24 @@ _CONTINUED_SLEEP_CALL = re.compile(r"^\s*[?!]?\s*\.sleep\s*\(")
 _PYTHON_SLEEP_MODULES = frozenset(
     ("time", "asyncio", "trio", "anyio", "gevent")
 )
-_PYTHON_ALIASED_SLEEP_CALL = re.compile(
+_PYTHON_MODULE_SLEEP_CALL = re.compile(
     r"(?<![.\w])([A-Za-z_]\w*)\.sleep\s*\("
 )
+_PYTHON_ASSIGNMENT_TARGET = re.compile(
+    r"(?<![.\w])([A-Za-z_]\w*)\s*(?::[^=,\n]+)?=(?!=)"
+)
+_PYTHON_DEFINITION_TARGET = re.compile(
+    r"^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)\b"
+)
+_PYTHON_FOR_TARGET = re.compile(
+    r"^\s*(?:async\s+)?for\s+([A-Za-z_]\w*)\b"
+)
+_PYTHON_AS_TARGET = re.compile(r"\bas\s+([A-Za-z_]\w*)\b")
+_PYTHON_DEL_TARGET = re.compile(r"^\s*del\s+([A-Za-z_]\w*)\b")
+_PYTHON_FUNCTION_PARAMETERS = re.compile(
+    r"^\s*(?:async\s+)?def\b[^\n]*\(([^)]*)\)"
+)
+_IDENTIFIER = re.compile(r"\b[A-Za-z_]\w*\b")
 _LOCAL_SCOPE_HEADER = re.compile(
     r"^\s*"
     r"(?:(?:@\w+(?:\([^)]*\))?|[A-Za-z_]\w*(?:\([^)]*\))?)\s+)*"
@@ -230,6 +243,11 @@ _LOCAL_SCOPE_HEADER = re.compile(
 _CONDITIONAL_SCOPE_HEADER = re.compile(
     r"^\s*(?:}\s*else\s+)?(?:if|while|for)\b"
 )
+_RUNTIME_IF_SCOPE_HEADER = re.compile(
+    r"^\s*(?:}\s*else\s+)?if\b"
+)
+_RUNTIME_ELSE_SCOPE_HEADER = re.compile(r"^\s*}\s*else\b")
+_RUNTIME_ELSE_IF_SCOPE_HEADER = re.compile(r"^\s*}\s*else\s+if\b")
 _DO_SCOPE_HEADER = re.compile(r"\bdo\s*$")
 _SWITCH_SCOPE_HEADER = re.compile(r"^\s*switch\b")
 _SWITCH_CASE_HEADER = re.compile(
@@ -938,10 +956,25 @@ class _CompilationScopeFrame:
     base_scopes: list[dict[str, bool]]
     base_scope_kinds: list[str]
     base_scope_mutations: list[Optional[tuple[int, bool]]]
+    base_scope_declared_real: list[bool]
     branch_scopes: list[list[dict[str, bool]]]
     branch_scope_mutations: list[
         list[Optional[tuple[int, bool]]]
     ]
+    branch_scope_declared_real: list[list[bool]]
+    has_else: bool = False
+
+
+@dataclass
+class _RuntimeScopeFrame:
+    base_scopes: list[dict[str, bool]]
+    base_scope_mutations: list[Optional[tuple[int, bool]]]
+    base_scope_declared_real: list[bool]
+    branch_scopes: list[list[dict[str, bool]]]
+    branch_scope_mutations: list[
+        list[Optional[tuple[int, bool]]]
+    ]
+    branch_scope_declared_real: list[list[bool]]
     has_else: bool = False
 
 
@@ -1005,6 +1038,85 @@ def _merge_compilation_mutations(
                 False,
             )
     return merged
+
+
+def _merge_compilation_declared_real(
+    frame: _CompilationScopeFrame,
+) -> list[bool]:
+    branches = list(frame.branch_scope_declared_real)
+    if not frame.has_else:
+        branches.append(list(frame.base_scope_declared_real))
+    return [
+        all(
+            scope_index < len(branch) and branch[scope_index]
+            for branch in branches
+        )
+        for scope_index in range(len(frame.base_scope_declared_real))
+    ]
+
+
+def _merge_runtime_branches(
+    frame: _RuntimeScopeFrame, receiver: str
+) -> list[dict[str, bool]]:
+    branches = list(frame.branch_scopes)
+    if not frame.has_else:
+        branches.append(_copy_scope_stack(frame.base_scopes))
+
+    merged = _copy_scope_stack(frame.base_scopes)
+    for scope_index, scope in enumerate(merged):
+        values = [
+            branch[scope_index].get(receiver)
+            for branch in branches
+            if scope_index < len(branch)
+        ]
+        if values and all(value is True for value in values):
+            scope[receiver] = True
+        elif any(value is False for value in values):
+            scope[receiver] = False
+        else:
+            scope.pop(receiver, None)
+    return merged
+
+
+def _merge_runtime_mutations(
+    frame: _RuntimeScopeFrame,
+) -> list[Optional[tuple[int, bool]]]:
+    branches = list(frame.branch_scope_mutations)
+    if not frame.has_else:
+        branches.append(list(frame.base_scope_mutations))
+
+    merged = list(frame.base_scope_mutations)
+    for scope_index in range(len(merged)):
+        mutations = [
+            branch[scope_index]
+            for branch in branches
+            if scope_index < len(branch)
+        ]
+        concrete = [mutation for mutation in mutations if mutation is not None]
+        if not concrete:
+            continue
+        targets = {mutation[0] for mutation in concrete}
+        if len(concrete) == len(mutations) and len(targets) == 1:
+            merged[scope_index] = (
+                targets.pop(),
+                all(mutation[1] for mutation in concrete),
+            )
+        else:
+            merged[scope_index] = (min(targets), False)
+    return merged
+
+
+def _merge_runtime_declared_real(frame: _RuntimeScopeFrame) -> list[bool]:
+    branches = list(frame.branch_scope_declared_real)
+    if not frame.has_else:
+        branches.append(list(frame.base_scope_declared_real))
+    return [
+        all(
+            scope_index < len(branch) and branch[scope_index]
+            for branch in branches
+        )
+        for scope_index in range(len(frame.base_scope_declared_real))
+    ]
 
 
 def _nearest_receiver_kind(
@@ -1498,16 +1610,23 @@ def _resolve_named_receiver_kind(
 
     current = masked_lines[call_index]
     prefix_lines = masked_lines[:call_index] + [current[:call_column]]
+    tracks_reassignment = any(
+        _local_receiver_assignments(line, receiver)
+        for line in prefix_lines
+    )
     scopes: list[dict[str, bool]] = [{}]
     scope_kinds = ["root"]
     scope_mutations: list[Optional[tuple[int, bool]]] = [None]
+    scope_declared_real = [False]
     pending_function = False
     pending_parameter: Optional[bool] = None
     pending_function_paren_depth = 0
     pending_function_saw_parameters = False
     pending_conditional: Optional[dict[str, bool]] = None
+    pending_conditional_declared_real = False
     pending_switch = False
     compilation_frames: list[_CompilationScopeFrame] = []
+    runtime_frames: list[_RuntimeScopeFrame] = []
 
     def pop_scope() -> None:
         if len(scopes) <= 1:
@@ -1515,6 +1634,7 @@ def _resolve_named_receiver_kind(
         scopes.pop()
         scope_kind = scope_kinds.pop()
         mutation = scope_mutations.pop()
+        scope_declared_real.pop()
         if mutation is None:
             return
         target, assigned_kind = mutation
@@ -1523,7 +1643,8 @@ def _resolve_named_receiver_kind(
         prior_kind = scopes[target].get(receiver)
         propagated_kind = (
             assigned_kind
-            if scope_kind == "do" or prior_kind == assigned_kind
+            if scope_kind in ("do", "runtime_branch")
+            or prior_kind == assigned_kind
             else False
         )
         if target == len(scopes) - 1:
@@ -1542,8 +1663,10 @@ def _resolve_named_receiver_kind(
                         base_scopes=_copy_scope_stack(scopes),
                         base_scope_kinds=list(scope_kinds),
                         base_scope_mutations=list(scope_mutations),
+                        base_scope_declared_real=list(scope_declared_real),
                         branch_scopes=[],
                         branch_scope_mutations=[],
+                        branch_scope_declared_real=[],
                     )
                 )
             elif directive in ("elseif", "else") and compilation_frames:
@@ -1552,19 +1675,27 @@ def _resolve_named_receiver_kind(
                 frame.branch_scope_mutations.append(
                     list(scope_mutations)
                 )
+                frame.branch_scope_declared_real.append(
+                    list(scope_declared_real)
+                )
                 frame.has_else = frame.has_else or directive == "else"
                 scopes = _copy_scope_stack(frame.base_scopes)
                 scope_kinds = list(frame.base_scope_kinds)
                 scope_mutations = list(frame.base_scope_mutations)
+                scope_declared_real = list(frame.base_scope_declared_real)
             elif directive == "endif" and compilation_frames:
                 frame = compilation_frames.pop()
                 frame.branch_scopes.append(_copy_scope_stack(scopes))
                 frame.branch_scope_mutations.append(
                     list(scope_mutations)
                 )
+                frame.branch_scope_declared_real.append(
+                    list(scope_declared_real)
+                )
                 scopes = _merge_compilation_branches(frame, receiver)
                 scope_kinds = list(frame.base_scope_kinds)
                 scope_mutations = _merge_compilation_mutations(frame)
+                scope_declared_real = _merge_compilation_declared_real(frame)
             continue
 
         if _SWITCH_CASE_HEADER.match(candidate):
@@ -1574,6 +1705,31 @@ def _resolve_named_receiver_kind(
                 scopes.append({})
                 scope_kinds.append("case")
                 scope_mutations.append(None)
+                scope_declared_real.append(False)
+
+        runtime_else = tracks_reassignment and bool(
+            _RUNTIME_ELSE_SCOPE_HEADER.match(candidate)
+        )
+        runtime_else_if = tracks_reassignment and bool(
+            _RUNTIME_ELSE_IF_SCOPE_HEADER.match(candidate)
+        )
+        pending_runtime_branch = False
+        if runtime_else and runtime_frames:
+            pending_runtime_branch = True
+            if not runtime_else_if:
+                runtime_frames[-1].has_else = True
+        elif tracks_reassignment and _RUNTIME_IF_SCOPE_HEADER.match(candidate):
+            runtime_frames.append(
+                _RuntimeScopeFrame(
+                    base_scopes=_copy_scope_stack(scopes),
+                    base_scope_mutations=list(scope_mutations),
+                    base_scope_declared_real=list(scope_declared_real),
+                    branch_scopes=[],
+                    branch_scope_mutations=[],
+                    branch_scope_declared_real=[],
+                )
+            )
+            pending_runtime_branch = True
 
         if _LOCAL_SCOPE_HEADER.search(candidate):
             pending_function = True
@@ -1584,9 +1740,13 @@ def _resolve_named_receiver_kind(
             pending_parameter = _annotated_receiver_kind(candidate, receiver)
         if _CONDITIONAL_SCOPE_HEADER.search(candidate):
             pending_conditional = {}
+            pending_conditional_declared_real = False
             for_binding = _FOR_SCOPE_BINDING.search(candidate)
             if for_binding and for_binding.group(1) == receiver:
                 pending_conditional[receiver] = False
+        elif runtime_else:
+            pending_conditional = {}
+            pending_conditional_declared_real = False
         if _SWITCH_SCOPE_HEADER.search(candidate):
             pending_switch = True
 
@@ -1622,7 +1782,13 @@ def _resolve_named_receiver_kind(
                 is_conditional_body = pending_conditional is not None
                 is_switch_body = pending_switch
                 scope = dict(pending_conditional or {})
+                declared_real = (
+                    pending_conditional_declared_real
+                    if is_conditional_body
+                    else False
+                )
                 pending_conditional = None
+                pending_conditional_declared_real = False
                 is_function_body = bool(
                     pending_function
                     and pending_function_saw_parameters
@@ -1632,6 +1798,8 @@ def _resolve_named_receiver_kind(
                     scope_kind = "function"
                 elif is_switch_body:
                     scope_kind = "switch"
+                elif pending_runtime_branch:
+                    scope_kind = "runtime_branch"
                 elif is_conditional_body:
                     scope_kind = "conditional"
                 elif _DO_SCOPE_HEADER.search(candidate[:pos]):
@@ -1641,6 +1809,7 @@ def _resolve_named_receiver_kind(
                 if is_function_body:
                     if pending_parameter is not None:
                         scope[receiver] = pending_parameter
+                        declared_real = pending_parameter
                     pending_function = False
                     pending_parameter = None
                     pending_function_paren_depth = 0
@@ -1677,15 +1846,52 @@ def _resolve_named_receiver_kind(
                         )
                 if closure_kind is not None:
                     scope[receiver] = closure_kind
+                    declared_real = bool(
+                        _annotated_receiver_kind(closure_header, receiver)
+                    )
                 scopes.append(scope)
                 scope_kinds.append(scope_kind)
                 scope_mutations.append(None)
+                scope_declared_real.append(declared_real)
+                if pending_runtime_branch:
+                    pending_runtime_branch = False
             elif event == "}":
                 if len(scopes) > 1 and scope_kinds[-1] == "case":
                     pop_scope()
                 if len(scopes) > 1:
+                    closing_kind = scope_kinds[-1]
                     pop_scope()
+                    if closing_kind == "runtime_branch" and runtime_frames:
+                        frame = runtime_frames[-1]
+                        frame.branch_scopes.append(
+                            _copy_scope_stack(scopes)
+                        )
+                        frame.branch_scope_mutations.append(
+                            list(scope_mutations)
+                        )
+                        frame.branch_scope_declared_real.append(
+                            list(scope_declared_real)
+                        )
+                        if runtime_else:
+                            scopes = _copy_scope_stack(frame.base_scopes)
+                            scope_mutations = list(
+                                frame.base_scope_mutations
+                            )
+                            scope_declared_real = list(
+                                frame.base_scope_declared_real
+                            )
+                            runtime_else = False
+                        else:
+                            runtime_frames.pop()
+                            scopes = _merge_runtime_branches(frame, receiver)
+                            scope_mutations = _merge_runtime_mutations(frame)
+                            scope_declared_real = (
+                                _merge_runtime_declared_real(frame)
+                            )
             elif declaration is not None:
+                has_explicit_real_type = bool(
+                    _REAL_CLOCK_TYPE.search(declaration)
+                )
                 if _receiver_declaration_inherits_kind(declaration, receiver):
                     inherited_kind = _nearest_receiver_kind(scopes, receiver)
                     kind = (
@@ -1728,6 +1934,8 @@ def _resolve_named_receiver_kind(
                     )
                     if binding_scope is None:
                         continue
+                    if scope_declared_real[binding_scope]:
+                        kind = True
                     if binding_scope == len(scopes) - 1:
                         scopes[binding_scope][receiver] = kind
                     else:
@@ -1735,8 +1943,12 @@ def _resolve_named_receiver_kind(
                         scope_mutations[-1] = (binding_scope, kind)
                 elif pending_conditional is not None:
                     pending_conditional[receiver] = kind
+                    pending_conditional_declared_real = (
+                        has_explicit_real_type
+                    )
                 else:
                     scopes[-1][receiver] = kind
+                    scope_declared_real[-1] = has_explicit_real_type
 
     search_end = len(scopes)
     if self_receiver:
@@ -1823,53 +2035,70 @@ def _is_named_real_clock_sleep(
     )
 
 
-def _python_alias_is_rebound(line: str, receiver: str) -> bool:
-    """Conservatively reject a module alias after a visible shadow/rebind."""
-    escaped = re.escape(receiver)
-    return any(
-        pattern.search(line)
-        for pattern in (
-            re.compile(
-                rf"^\s*(?:async\s+)?(?:def|class)\s+{escaped}\b"
-            ),
-            re.compile(rf"^\s*(?:async\s+)?for\s+{escaped}\b"),
-            re.compile(rf"\bas\s+{escaped}\b"),
-            re.compile(
-                rf"(?<![.\w]){escaped}\s*(?::[^=,\n]+)?=(?!=)"
-            ),
-            re.compile(rf"^\s*del\s+{escaped}\b"),
-            re.compile(
-                rf"^\s*(?:async\s+)?def\b[^\n]*\([^)]*\b{escaped}\b"
-            ),
-        )
-    )
+def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
+    """Resolve standard Python sleep modules once for the whole source file."""
+    active = set(_PYTHON_SLEEP_MODULES)
+    sleep_lines: set[int] = set()
 
-
-def _is_python_aliased_sleep(
-    masked_lines: list[str], idx: int
-) -> bool:
-    """Recognize direct aliases of standard Python sleep modules."""
-    call = _PYTHON_ALIASED_SLEEP_CALL.search(masked_lines[idx])
-    if not call:
-        return False
-    receiver = call.group(1)
-    active = False
-
-    for line in masked_lines[: idx + 1]:
+    for line_index, line in enumerate(masked_lines):
         import_line = re.match(r"^\s*import\s+(.+)$", line)
         if import_line:
             for import_spec in import_line.group(1).split(","):
+                direct = re.fullmatch(
+                    r"\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*",
+                    import_spec,
+                )
+                if direct:
+                    bound_name = direct.group(1).split(".", 1)[0]
+                    if direct.group(1) in _PYTHON_SLEEP_MODULES:
+                        active.add(bound_name)
+                    else:
+                        active.discard(bound_name)
                 alias = re.fullmatch(
                     r"\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
                     r"\s+as\s+([A-Za-z_]\w*)\s*",
                     import_spec,
                 )
-                if alias and alias.group(2) == receiver:
-                    active = alias.group(1) in _PYTHON_SLEEP_MODULES
+                if alias:
+                    if alias.group(1) in _PYTHON_SLEEP_MODULES:
+                        active.add(alias.group(2))
+                    else:
+                        active.discard(alias.group(2))
             continue
-        if active and _python_alias_is_rebound(line, receiver):
-            active = False
-    return active
+        from_import = re.match(
+            r"^\s*from\s+\S+\s+import\s+(.+)$", line
+        )
+        if from_import:
+            for import_spec in from_import.group(1).split(","):
+                binding = re.fullmatch(
+                    r"\s*([A-Za-z_]\w*)"
+                    r"(?:\s+as\s+([A-Za-z_]\w*))?\s*",
+                    import_spec,
+                )
+                if binding:
+                    active.discard(binding.group(2) or binding.group(1))
+            continue
+
+        rebound_names = {
+            match.group(1)
+            for pattern in (
+                _PYTHON_ASSIGNMENT_TARGET,
+                _PYTHON_DEFINITION_TARGET,
+                _PYTHON_FOR_TARGET,
+                _PYTHON_AS_TARGET,
+                _PYTHON_DEL_TARGET,
+            )
+            for match in pattern.finditer(line)
+        }
+        parameters = _PYTHON_FUNCTION_PARAMETERS.match(line)
+        if parameters:
+            rebound_names.update(_IDENTIFIER.findall(parameters.group(1)))
+        active.difference_update(rebound_names)
+
+        call = _PYTHON_MODULE_SLEEP_CALL.search(line)
+        if call and call.group(1) in active:
+            sleep_lines.add(line_index)
+    return sleep_lines
 
 
 def detect_sleep_then_assert(
@@ -1878,14 +2107,19 @@ def detect_sleep_then_assert(
     idx: int,
     path_suffix: str,
     external_real_members: Optional[dict[str, set[str]]] = None,
+    python_standard_sleep: bool = False,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = masked_lines[idx]
-    is_sleep = bool(_SLEEP_CALL.search(line)) or _is_named_real_clock_sleep(
-        masked_lines, idx, external_real_members
+    has_sleep_token = "sleep" in line or "setTimeout" in line
+    is_sleep = has_sleep_token and (
+        bool(_SLEEP_CALL.search(line))
+        or _is_named_real_clock_sleep(
+            masked_lines, idx, external_real_members
+        )
     )
     if not is_sleep and path_suffix == ".py":
-        is_sleep = _is_python_aliased_sleep(masked_lines, idx)
+        is_sleep = python_standard_sleep
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -1943,6 +2177,11 @@ def scan_text(
         if needs_sleep_mask
         else code_lines
     )
+    python_standard_sleep_lines = (
+        _python_standard_sleep_lines(masked_lines)
+        if suffix == ".py" and needs_sleep_mask
+        else set()
+    )
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
@@ -1963,6 +2202,7 @@ def scan_text(
             i,
             suffix,
             external_real_members,
+            i in python_standard_sleep_lines,
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
@@ -2411,7 +2651,7 @@ def _self_test() -> int:
         (
             "Tests/TripleQuoteLineCommentBeforeRealSleepTests.swift",
             "// Syntax example only: \"\"\"\n"
-            "time.sleep(0.3)\n"
+            "Thread.sleep(forTimeInterval: 0.3)\n"
             "#expect(widget.isRendered)\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
