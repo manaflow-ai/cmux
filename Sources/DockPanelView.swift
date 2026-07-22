@@ -280,7 +280,7 @@ final class DockKeyboardFocusView: NSView {
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
         if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
-        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+        guard let ghosttyView = CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: responder),
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
         }

@@ -761,10 +761,6 @@ func shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
     return shortcutForAction(.commandPalette).matches(event: event)
 }
 
-func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
-    CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: responder)
-}
-
 enum CmuxGhosttyResponderResolution {
     /// Strict owner lookup for direct Ghostty responder chains, sidebar ownership,
     /// and call sites that must not treat hosted surface descendants as Ghostty.

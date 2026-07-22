@@ -2725,19 +2725,19 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         ghosttyView.addSubview(descendant)
 
-        XCTAssertTrue(cmuxOwningGhosttyView(for: descendant) === ghosttyView)
+        XCTAssertTrue(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: descendant) === ghosttyView)
     }
 
     func testResolvesGhosttyViewFromGhosttyResponder() {
         let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
-        XCTAssertTrue(cmuxOwningGhosttyView(for: ghosttyView) === ghosttyView)
+        XCTAssertTrue(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: ghosttyView) === ghosttyView)
     }
 
     func testDoesNotResolveGhosttyViewFromHostedSurfaceContainerResponder() {
         let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
 
-        XCTAssertNil(cmuxOwningGhosttyView(for: hostedView))
+        XCTAssertNil(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: hostedView))
     }
 
     func testDoesNotResolveGhosttyViewFromHostedSurfaceDescendantResponderByDefault() {
@@ -2746,7 +2746,7 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         hostedView.addSubview(descendant)
 
-        XCTAssertNil(cmuxOwningGhosttyView(for: descendant))
+        XCTAssertNil(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: descendant))
     }
 
     func testResolvesTerminalKeyEquivalentGhosttyViewFromHostedSurfaceDescendantResponder() {
@@ -2773,13 +2773,13 @@ final class GhosttyResponderResolutionTests: XCTestCase {
 
     func testReturnsNilForUnrelatedResponder() {
         let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        XCTAssertNil(cmuxOwningGhosttyView(for: view))
+        XCTAssertNil(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: view))
     }
 
     func testDoesNotReadTextViewDelegateForGhosttyResponderResolution() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
 
-        XCTAssertNil(cmuxOwningGhosttyView(for: textView))
+        XCTAssertNil(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: textView))
         XCTAssertEqual(
             textView.delegateReadCount,
             0,

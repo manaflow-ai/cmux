@@ -8504,7 +8504,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Mapping can transiently drift during split-tree mutations. If the target panel is
         // currently focused (or is the active terminal first responder), close whichever tab
         // bonsplit marks selected in that focused pane.
-        let firstResponderPanelId = cmuxOwningGhosttyView(
+        let firstResponderPanelId = CmuxGhosttyResponderResolution.strictOwningGhosttyView(
             for: NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder
         )?.terminalSurface?.id
         let targetIsActive = focusedPanelId == panelId || firstResponderPanelId == panelId
