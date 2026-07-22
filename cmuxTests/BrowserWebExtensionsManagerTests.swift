@@ -4353,7 +4353,7 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
-    @Test func removeThenReinstallStartsWithFreshExtensionOwnedState() async throws {
+    @Test func removalQuarantinesDataUntilSafeCleanupAndReinstallStartsFresh() async throws {
         let sourceRoot = try Self.makeExtensionsRoot()
         let managedRoot = try Self.makeExtensionsRoot()
         defer {
@@ -4380,9 +4380,125 @@ struct BrowserWebExtensionsManagerTests {
         let repository = BrowserWebExtensionDirectoryRepository()
         let cookiePermission = WKWebExtension.Permission.cookies
         let deniedPermission = WKWebExtension.Permission.clipboardWrite
+        let controllerIdentifier = UUID()
+        let oldRecordID: String
+        let oldContextIdentifier: String
+        do {
+            let manager = BrowserWebExtensionsManager(
+                directory: managedRoot,
+                controllerIdentifier: controllerIdentifier,
+                directoryRepository: repository,
+                permissionPromptPresenter: { request, _ in
+                    request.permissions.contains(deniedPermission.rawValue)
+                        ? .deny
+                        : .grant
+                }
+            )
+
+            _ = try await manager.installExtension(from: source)
+            let oldRecord = try #require(
+                try await repository.managementLedger(in: managedRoot).records.values.first
+            )
+            oldRecordID = oldRecord.id
+            var oldContext: WKWebExtensionContext? = try #require(manager.loadedContexts.first)
+            oldContextIdentifier = try #require(oldContext).uniqueIdentifier
+            try await manager.setToolbarActionPinned(
+                true,
+                uniqueIdentifier: oldContextIdentifier
+            )
+            do {
+                let permissionContext = try #require(oldContext)
+                let grantedCookies = await withCheckedContinuation { continuation in
+                    manager.webExtensionController(
+                        manager.controller,
+                        promptForPermissions: [cookiePermission],
+                        in: nil,
+                        for: permissionContext
+                    ) { permissions, _ in
+                        continuation.resume(returning: permissions)
+                    }
+                }
+                let deniedClipboardWrite = await withCheckedContinuation { continuation in
+                    manager.webExtensionController(
+                        manager.controller,
+                        promptForPermissions: [deniedPermission],
+                        in: nil,
+                        for: permissionContext
+                    ) { permissions, _ in
+                        continuation.resume(returning: permissions)
+                    }
+                }
+                #expect(grantedCookies == [cookiePermission])
+                #expect(deniedClipboardWrite.isEmpty)
+            }
+            var stateWebView: WKWebView? = try await Self.loadExtensionPage(
+                "probe.html",
+                context: try #require(oldContext),
+                manager: manager
+            )
+            _ = try await stateWebView?.callAsyncJavaScript(
+                """
+                const api = globalThis.browser ?? globalThis.chrome;
+                await api.storage.local.set({ removalMarker: 'stale' });
+                await api.declarativeNetRequest.updateDynamicRules({
+                  addRules: [{
+                    id: 991,
+                    priority: 1,
+                    action: { type: 'block' },
+                    condition: {
+                      urlFilter: 'cmux-remove-reinstall-stale',
+                      resourceTypes: ['xmlhttprequest'],
+                    },
+                  }],
+                });
+                return true;
+                """,
+                arguments: [:],
+                in: nil,
+                contentWorld: .page
+            )
+            let populatedRecord = try #require(
+                try await repository.managementLedger(in: managedRoot).records[oldRecord.id]
+            )
+            #expect(populatedRecord.isToolbarPinned)
+            #expect(
+                populatedRecord.grantedPermissions[
+                    cookiePermission.rawValue
+                ] != nil
+            )
+            #expect(
+                populatedRecord.deniedPermissions[
+                    deniedPermission.rawValue
+                ] != nil
+            )
+            let oldDataRecords = await manager.controller.dataRecords(
+                ofTypes: WKWebExtensionController.allExtensionDataTypes
+            )
+            #expect(oldDataRecords.contains { $0.uniqueIdentifier == oldContextIdentifier })
+            stateWebView?.stopLoading()
+            stateWebView = nil
+            oldContext = nil
+            await Self.waitForMainQueueTurn()
+            await Self.waitForMainQueueTurn()
+
+            try await manager.removeExtension(managementID: oldRecord.id)
+
+            #expect(try await repository.managementLedger(in: managedRoot).records.isEmpty)
+            #expect(manager.loadedContexts.isEmpty)
+            let quarantinedRecords = await manager.controller.dataRecords(
+                ofTypes: WKWebExtensionController.allExtensionDataTypes
+            )
+            let quarantinedRecord = try #require(
+                quarantinedRecords.first { $0.uniqueIdentifier == oldContextIdentifier }
+            )
+            #expect(quarantinedRecord.totalSizeInBytes > 0)
+            await manager.shutdownAndWait()
+        }
+        await Self.waitForMainQueueTurn()
+
         let manager = BrowserWebExtensionsManager(
             directory: managedRoot,
-            controllerIdentifier: UUID(),
+            controllerIdentifier: controllerIdentifier,
             directoryRepository: repository,
             permissionPromptPresenter: { request, _ in
                 request.permissions.contains(deniedPermission.rawValue)
@@ -4391,107 +4507,15 @@ struct BrowserWebExtensionsManagerTests {
             }
         )
         defer { manager.shutdown() }
-
-        _ = try await manager.installExtension(from: source)
-        let oldRecord = try #require(
-            try await repository.managementLedger(in: managedRoot).records.values.first
-        )
-        var oldContext: WKWebExtensionContext? = try #require(manager.loadedContexts.first)
-        let oldContextIdentifier = try #require(oldContext).uniqueIdentifier
-        try await manager.setToolbarActionPinned(
-            true,
-            uniqueIdentifier: oldContextIdentifier
-        )
-        do {
-            let permissionContext = try #require(oldContext)
-            let grantedCookies = await withCheckedContinuation { continuation in
-                manager.webExtensionController(
-                    manager.controller,
-                    promptForPermissions: [cookiePermission],
-                    in: nil,
-                    for: permissionContext
-                ) { permissions, _ in
-                    continuation.resume(returning: permissions)
-                }
-            }
-            let deniedClipboardWrite = await withCheckedContinuation { continuation in
-                manager.webExtensionController(
-                    manager.controller,
-                    promptForPermissions: [deniedPermission],
-                    in: nil,
-                    for: permissionContext
-                ) { permissions, _ in
-                    continuation.resume(returning: permissions)
-                }
-            }
-            #expect(grantedCookies == [cookiePermission])
-            #expect(deniedClipboardWrite.isEmpty)
-        }
-        var stateWebView: WKWebView? = try await Self.loadExtensionPage(
-            "probe.html",
-            context: try #require(oldContext),
-            manager: manager
-        )
-        _ = try await stateWebView?.callAsyncJavaScript(
-            """
-            const api = globalThis.browser ?? globalThis.chrome;
-            await api.storage.local.set({ removalMarker: 'stale' });
-            await api.declarativeNetRequest.updateDynamicRules({
-              addRules: [{
-                id: 991,
-                priority: 1,
-                action: { type: 'block' },
-                condition: {
-                  urlFilter: 'cmux-remove-reinstall-stale',
-                  resourceTypes: ['xmlhttprequest'],
-                },
-              }],
-            });
-            return true;
-            """,
-            arguments: [:],
-            in: nil,
-            contentWorld: .page
-        )
-        let populatedRecord = try #require(
-            try await repository.managementLedger(in: managedRoot).records[oldRecord.id]
-        )
-        #expect(populatedRecord.isToolbarPinned)
-        #expect(
-            populatedRecord.grantedPermissions[
-                cookiePermission.rawValue
-            ] != nil
-        )
-        #expect(
-            populatedRecord.deniedPermissions[
-                deniedPermission.rawValue
-            ] != nil
-        )
-        let oldDataRecords = await manager.controller.dataRecords(
-            ofTypes: WKWebExtensionController.allExtensionDataTypes
-        )
-        #expect(oldDataRecords.contains { $0.uniqueIdentifier == oldContextIdentifier })
-        stateWebView?.stopLoading()
-        stateWebView = nil
-        oldContext = nil
-        await Self.waitForMainQueueTurn()
-        await Self.waitForMainQueueTurn()
-
-        try await manager.removeExtension(managementID: oldRecord.id)
-
-        #expect(try await repository.managementLedger(in: managedRoot).records.isEmpty)
+        await manager.loadExtensions()
         #expect(manager.loadedContexts.isEmpty)
-        let remainingDataRecords = await manager.controller.dataRecords(
-            ofTypes: WKWebExtensionController.allExtensionDataTypes
-        )
-        #expect(!remainingDataRecords.contains { $0.uniqueIdentifier == oldContextIdentifier })
 
         _ = try await manager.installExtension(from: source)
         let newRecord = try #require(
             try await repository.managementLedger(in: managedRoot).records.values.first
         )
         let newContext = try #require(manager.loadedContexts.first)
-        #expect(newRecord.id != oldRecord.id)
+        #expect(newRecord.id != oldRecordID)
         #expect(newContext.uniqueIdentifier != oldContextIdentifier)
         #expect(!newRecord.isToolbarPinned)
         #expect(
@@ -5342,9 +5366,21 @@ struct BrowserWebExtensionsManagerTests {
                 panel: firstPanel
             )
             #expect(persistedResponses == ["blocked", "blocked"])
-            let updatedRuleIDs = try await Self.updateDynamicDNRRules(
-                remove: [900],
+            let expandedRuleIDs = try await Self.updateDynamicDNRRules(
+                remove: [],
                 add: (id: 901, fragment: "cmux-updated-blocked"),
+                context: reloadedFirstContext,
+                manager: firstManager
+            )
+            #expect(expandedRuleIDs == [900, 901])
+            let expandedResponses = try await Self.fetchDNRPaths(
+                ["/cmux-dynamic-blocked", "/cmux-updated-blocked"],
+                server: server,
+                panel: firstPanel
+            )
+            #expect(expandedResponses == ["blocked", "blocked"])
+            let updatedRuleIDs = try await Self.removeDynamicDNRRules(
+                [900],
                 context: reloadedFirstContext,
                 manager: firstManager
             )
@@ -5537,6 +5573,37 @@ struct BrowserWebExtensionsManagerTests {
                 "ruleID": rule.id,
                 "fragment": rule.fragment,
             ],
+            in: nil,
+            contentWorld: .page
+        )
+        guard let numbers = result as? [NSNumber] else {
+            throw BehaviorFixtureError.invalidJavaScriptResult
+        }
+        return numbers.map(\.intValue)
+    }
+
+    @available(macOS 15.4, *)
+    private static func removeDynamicDNRRules(
+        _ ruleIDs: [Int],
+        context: WKWebExtensionContext,
+        manager: BrowserWebExtensionsManager
+    ) async throws -> [Int] {
+        let webView = try await loadExtensionPage(
+            "probe.html",
+            context: context,
+            manager: manager
+        )
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const api = globalThis.browser ?? globalThis.chrome;
+            await api.declarativeNetRequest.updateDynamicRules({
+              removeRuleIds: ruleIDs,
+            });
+            return (await api.declarativeNetRequest.getDynamicRules())
+              .map((item) => item.id)
+              .sort((left, right) => left - right);
+            """,
+            arguments: ["ruleIDs": ruleIDs],
             in: nil,
             contentWorld: .page
         )
