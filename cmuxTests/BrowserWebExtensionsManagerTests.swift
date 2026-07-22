@@ -4628,15 +4628,16 @@ struct BrowserWebExtensionsManagerTests {
         let reinstalledRecord = try #require(
             try await repository.managementLedger(in: managedRoot).records.values.first
         )
-        let reinstalledContext = try #require(manager.loadedContexts.first)
+        var reinstalledContext: WKWebExtensionContext? = try #require(manager.loadedContexts.first)
+        let reinstalledContextIdentifier = try #require(reinstalledContext).uniqueIdentifier
         #expect(reinstalledRecord.id == originalRecord.id)
-        #expect(reinstalledContext.uniqueIdentifier != originalContextIdentifier)
-        let reinstalledWebView = try await Self.loadExtensionPage(
+        #expect(reinstalledContextIdentifier != originalContextIdentifier)
+        var reinstalledWebView: WKWebView? = try await Self.loadExtensionPage(
             "probe.html",
-            context: reinstalledContext,
+            context: try #require(reinstalledContext),
             manager: manager
         )
-        let staleMarker = try await reinstalledWebView.callAsyncJavaScript(
+        let staleMarker = try await reinstalledWebView?.callAsyncJavaScript(
             """
             const api = globalThis.browser ?? globalThis.chrome;
             const storage = await api.storage.local.get('sameSessionRemovalMarker');
@@ -4647,6 +4648,11 @@ struct BrowserWebExtensionsManagerTests {
             contentWorld: .page
         )
         #expect((staleMarker as? NSNumber)?.boolValue == false)
+        reinstalledWebView?.stopLoading()
+        reinstalledWebView = nil
+        reinstalledContext = nil
+        await Self.waitForMainQueueTurn()
+        await manager.shutdownAndWait()
     }
 
     @available(macOS 15.4, *)
