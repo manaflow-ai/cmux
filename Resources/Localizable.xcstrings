@@ -99041,13 +99041,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session failed on the remote host. No workspace was created."
+            "value": "cmux could not start a new tmux session on the remote host, so no workspace was created. Check that the host is still reachable and try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートホストで tmux new-session が失敗しました。ワークスペースは作成されませんでした。"
+            "value": "cmux はリモートホストで新しい tmux セッションを開始できなかったため、ワークスペースは作成されませんでした。ホストに到達できるか確認して、もう一度お試しください。"
           }
         }
       }
