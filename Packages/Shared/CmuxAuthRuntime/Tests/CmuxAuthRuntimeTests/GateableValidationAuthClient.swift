@@ -28,6 +28,8 @@ actor GateableValidationAuthClient: AuthClient {
     /// so tests can tell WHICH exchange's write the store currently holds:
     /// exchange N stores `"access-N"` / `"refresh-N"` in write order.
     private var exchangeCounter = 0
+    /// Tests awaiting a settled token store after a late exchange.
+    private var tokenWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private var currentUserStartCount = 0
     private let validationGate = Gate()
     private let teamsGate = Gate()
@@ -53,6 +55,29 @@ actor GateableValidationAuthClient: AuthClient {
     private func release(_ gate: Gate) {
         guard !gate.parked.isEmpty else { return }
         gate.parked.removeFirst().resume()
+    }
+
+    // MARK: - Token-store settling
+
+    /// Suspends until exchange `count` has written its tokens, or until a clear
+    /// emptied the store. Those are the two outcomes a late exchange racing
+    /// sign-out can produce, and both are written inside this actor, so the
+    /// waiter is resumed by the write instead of polling for it.
+    func tokensDidSettle(afterExchange count: Int) async {
+        if tokensSettled(afterExchange: count) { return }
+        await withCheckedContinuation { tokenWaiters.append((count, $0)) }
+    }
+
+    private func tokensSettled(afterExchange count: Int) -> Bool {
+        exchangeCounter >= count || refresh == nil
+    }
+
+    private func resumeSettledTokenWaiters() {
+        tokenWaiters.removeAll { waiter in
+            guard tokensSettled(afterExchange: waiter.count) else { return false }
+            waiter.continuation.resume()
+            return true
+        }
     }
 
     private func parkIfArmed(_ gate: Gate) async {
@@ -138,6 +163,7 @@ actor GateableValidationAuthClient: AuthClient {
         exchangeCounter += 1
         access = "access-\(exchangeCounter)"
         refresh = "refresh-\(exchangeCounter)"
+        resumeSettledTokenWaiters()
     }
 
     func accessToken() async -> String? { access }
@@ -151,6 +177,7 @@ actor GateableValidationAuthClient: AuthClient {
         exchangeCounter += 1
         access = "access-\(exchangeCounter)"
         refresh = "refresh-\(exchangeCounter)"
+        resumeSettledTokenWaiters()
     }
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
 
@@ -163,6 +190,7 @@ actor GateableValidationAuthClient: AuthClient {
         await parkIfArmed(clearGate)
         access = nil
         refresh = nil
+        resumeSettledTokenWaiters()
     }
 
     func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
@@ -173,6 +201,7 @@ actor GateableValidationAuthClient: AuthClient {
         guard refresh == refreshToken else { return }
         access = nil
         refresh = nil
+        resumeSettledTokenWaiters()
     }
 
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
