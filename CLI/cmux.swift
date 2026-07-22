@@ -30966,6 +30966,21 @@ export default CMUXSessionRestore;
                 )
             }
 
+            // Message-backed agents can name the workspace from the first prompt while work continues.
+            if usesHookMessageCacheForAutoNaming(def), !suppressVisibleMutations {
+                spawnDetachedAgentAutoNameIfEnabled(
+                    def: def,
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
+                    cwd: hookCwd ?? mapped?.cwd,
+                    env: env,
+                    client: client,
+                    telemetry: telemetry
+                )
+            }
+
         case .stop:
             if def.name == "codex", !sessionId.isEmpty {
                 let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -31287,19 +31302,9 @@ export default CMUXSessionRestore;
                 }
             }
 
-            // Opt-in auto-naming for generic-agent sessions: a detached pass so the
-            // summarization subprocess never blocks this short sync hook.
-            // Gate the fork on the live setting (one cheap socket probe) so a
-            // disabled feature spawns nothing extra on turn end; the detached
-            // process re-probes to honor a toggle that lands mid-pass.
-            if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
-               let autoNameProbe = try? client.sendV2(
-                   method: "workspace.set_auto_title",
-                   params: ["probe": true, "workspace_id": workspaceId]
-               ),
-               autoNameProbe["enabled"] as? Bool == true,
-               autoNameProbe["workspace_user_owned"] as? Bool != true {
-                spawnDetachedAgentAutoName(
+            // Turn-end naming refreshes file-backed agents and incorporates the completed response.
+            if !suppressVisibleMutations {
+                spawnDetachedAgentAutoNameIfEnabled(
                     def: def,
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -31307,6 +31312,7 @@ export default CMUXSessionRestore;
                     transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
                     cwd: cwd,
                     env: env,
+                    client: client,
                     telemetry: telemetry
                 )
             }
