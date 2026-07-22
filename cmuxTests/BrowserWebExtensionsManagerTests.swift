@@ -2657,7 +2657,7 @@ struct BrowserWebExtensionsManagerTests {
         let deletedManager = services.webExtensionsManager(for: deletedProfile.id)
         #expect(services.registeredBrowserPanelCount == 1)
 
-        #expect(BrowserProfileStore.shared.deleteProfile(id: deletedProfile.id))
+        #expect(BrowserProfileStore.shared.deleteProfile(id: deletedProfile.id) != nil)
         for _ in 0..<20 {
             if !services.hasRetainedWebExtensionsManagerForTesting(profileID: deletedProfile.id) {
                 break
@@ -2841,14 +2841,17 @@ struct BrowserWebExtensionsManagerTests {
             openerPanel: panel
         )
 
-        let popupWindow = try #require(manager
-            .webExtensionController(manager.controller, openWindowsFor: context)
-            .first(where: { window in
-                window.windowType(for: context) == .popup
-                    && (window.tabs?(for: context) ?? []).contains(where: {
-                        $0.webView?(for: context) === popup.webView
-                    })
-            }))
+        let openWindows = manager.webExtensionController(
+            manager.controller,
+            openWindowsFor: context
+        )
+        let popupWindow = try #require(openWindows.first(where: { window in
+            guard window.windowType?(for: context) == .popup else { return false }
+            let tabs = window.tabs?(for: context) ?? []
+            return tabs.contains(where: {
+                $0.webView?(for: context) === popup.webView
+            })
+        }))
         #expect(popupWindow.activeTab?(for: context)?.webView?(for: context) === popup.webView)
 
         popup.closePopup()
@@ -2856,7 +2859,7 @@ struct BrowserWebExtensionsManagerTests {
 
         #expect(!manager
             .webExtensionController(manager.controller, openWindowsFor: context)
-            .contains(where: { $0.windowType(for: context) == .popup }))
+            .contains(where: { $0.windowType?(for: context) == .popup }))
     }
 
     @available(macOS 15.4, *)
@@ -3642,10 +3645,10 @@ struct BrowserWebExtensionsManagerTests {
         try await manager.approveInstalledCandidate(extensionDirectory)
         await manager.loadExtensions()
         let context = try #require(manager.loadedContexts.first)
-        let tab = try #require(manager
+        let tabs = manager
             .webExtensionController(manager.controller, openWindowsFor: context)
             .flatMap { $0.tabs?(for: context) ?? [] }
-            .first)
+        let tab = try #require(tabs.first)
         let action = try #require(context.action(for: tab))
         #expect(action.isEnabled)
 
@@ -3790,10 +3793,10 @@ struct BrowserWebExtensionsManagerTests {
             in: panel.webView
         )
         let context = try #require(manager.loadedContexts.first)
-        let tab = try #require(manager
+        let tabs = manager
             .webExtensionController(manager.controller, openWindowsFor: context)
             .flatMap { $0.tabs?(for: context) ?? [] }
-            .first)
+        let tab = try #require(tabs.first)
         let action = try #require(context.action(for: tab))
 
         #expect(manager.performAction(
@@ -3989,17 +3992,19 @@ struct BrowserWebExtensionsManagerTests {
             controllerID: firstControllerID,
             approving: firstExtension
         ) { manager, panel, context in
-            #expect(try await Self.updateDynamicDNRRules(
+            let dynamicRuleIDs = try await Self.updateDynamicDNRRules(
                 remove: [],
                 add: (id: 900, fragment: "cmux-dynamic-blocked"),
                 context: context,
                 manager: manager
-            ) == [900])
-            #expect(try await Self.fetchDNRPaths(
+            )
+            #expect(dynamicRuleIDs == [900])
+            let responses = try await Self.fetchDNRPaths(
                 ["/control", "/cmux-static-blocked", "/cmux-dynamic-blocked"],
                 server: server,
                 panel: panel
-            ) == ["control-ok", "blocked", "blocked"])
+            )
+            #expect(responses == ["control-ok", "blocked", "blocked"])
         }
 
         try await Self.withDNRBehaviorHarness(
@@ -4007,12 +4012,17 @@ struct BrowserWebExtensionsManagerTests {
             controllerID: secondControllerID,
             approving: secondExtension
         ) { manager, panel, context in
-            #expect(try await Self.dynamicDNRRuleIDs(context: context, manager: manager).isEmpty)
-            #expect(try await Self.fetchDNRPaths(
+            let dynamicRuleIDs = try await Self.dynamicDNRRuleIDs(
+                context: context,
+                manager: manager
+            )
+            #expect(dynamicRuleIDs.isEmpty)
+            let responses = try await Self.fetchDNRPaths(
                 ["/cmux-static-blocked", "/cmux-dynamic-blocked"],
                 server: server,
                 panel: panel
-            ) == ["blocked", "dynamic-server"])
+            )
+            #expect(responses == ["blocked", "dynamic-server"])
         }
 
         try await Self.withDNRBehaviorHarness(
@@ -4020,23 +4030,30 @@ struct BrowserWebExtensionsManagerTests {
             controllerID: firstControllerID,
             approving: nil
         ) { manager, panel, context in
-            #expect(try await Self.dynamicDNRRuleIDs(context: context, manager: manager) == [900])
-            #expect(try await Self.fetchDNRPaths(
+            let persistedRuleIDs = try await Self.dynamicDNRRuleIDs(
+                context: context,
+                manager: manager
+            )
+            #expect(persistedRuleIDs == [900])
+            let persistedResponses = try await Self.fetchDNRPaths(
                 ["/cmux-static-blocked", "/cmux-dynamic-blocked"],
                 server: server,
                 panel: panel
-            ) == ["blocked", "blocked"])
-            #expect(try await Self.updateDynamicDNRRules(
+            )
+            #expect(persistedResponses == ["blocked", "blocked"])
+            let updatedRuleIDs = try await Self.updateDynamicDNRRules(
                 remove: [900],
                 add: (id: 901, fragment: "cmux-updated-blocked"),
                 context: context,
                 manager: manager
-            ) == [901])
-            #expect(try await Self.fetchDNRPaths(
+            )
+            #expect(updatedRuleIDs == [901])
+            let updatedResponses = try await Self.fetchDNRPaths(
                 ["/cmux-dynamic-blocked", "/cmux-updated-blocked"],
                 server: server,
                 panel: panel
-            ) == ["dynamic-server", "blocked"])
+            )
+            #expect(updatedResponses == ["dynamic-server", "blocked"])
         }
 
         #expect(server.requestCount(for: "/control") == 1)
@@ -4572,10 +4589,10 @@ struct BrowserWebExtensionsManagerTests {
         defer { window.close() }
 
         let context = try #require(manager.loadedContexts.first)
-        let tab = try #require(manager
+        let tabs = manager
             .webExtensionController(manager.controller, openWindowsFor: context)
             .flatMap { $0.tabs?(for: context) ?? [] }
-            .first)
+        let tab = try #require(tabs.first)
         let action = try #require(context.action(for: tab))
         #expect(manager.performAction(
             uniqueIdentifier: context.uniqueIdentifier,
@@ -4656,10 +4673,10 @@ struct BrowserWebExtensionsManagerTests {
         defer { window.close() }
 
         let context = try #require(manager.loadedContexts.first)
-        let tab = try #require(manager
+        let tabs = manager
             .webExtensionController(manager.controller, openWindowsFor: context)
             .flatMap { $0.tabs?(for: context) ?? [] }
-            .first)
+        let tab = try #require(tabs.first)
         let action = try #require(context.action(for: tab))
         #expect(manager.performAction(
             uniqueIdentifier: context.uniqueIdentifier,
