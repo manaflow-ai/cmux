@@ -946,6 +946,7 @@ class TabManager: ObservableObject {
     }
 
     func makeWorkspaceForCreation(
+        id: UUID? = nil,
         title: String,
         workingDirectory: String?,
         portOrdinal: Int,
@@ -961,6 +962,7 @@ class TabManager: ObservableObject {
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         Workspace(
+            id: id,
             title: title,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
@@ -1076,6 +1078,7 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func addWorkspace(
+        id: UUID? = nil,
         title: String? = nil,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
@@ -1147,6 +1150,7 @@ class TabManager: ObservableObject {
                 defaultTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
             }
             let newWorkspace = makeWorkspaceForCreation(
+                id: id,
                 title: title ?? defaultTitle,
                 workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
@@ -4212,13 +4216,23 @@ class TabManager: ObservableObject {
     @discardableResult
     func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
         let preRestoreFocus = currentFocusHistoryEntry
+        var reservedWorkspaceIds = liveWorkspaceIdSet()
+        let excludedStableIdentities = liveStableIdentitySet()
+        let restoredWorkspaceId = Self.restoredWorkspaceId(
+            from: entry.snapshot,
+            reservedWorkspaceIds: &reservedWorkspaceIds,
+            shouldExcludePersistedWorkspaceId: entry.snapshot.stableId.map {
+                excludedStableIdentities.contains($0)
+            } ?? false
+        )
         let workspace = addWorkspace(
+            id: restoredWorkspaceId,
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false
         )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: liveStableIdentitySet())
+        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
@@ -5958,14 +5972,37 @@ extension TabManager {
         )
     }
 
-    private func releaseRestoredAwayWorkspace(_ workspace: Workspace) {
+    private func releaseRestoredAwayWorkspace(_ workspace: Workspace, clearNotifications: Bool = true) {
         // Session restore replaces the bootstrap workspace objects with freshly
         // restored ones. Tear the old graph down after the atomic swap so late
         // panel/socket callbacks cannot keep mutating hidden pre-restore state.
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        if clearNotifications {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        }
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil
+    }
+
+    private static func restoredWorkspaceId(
+        from snapshot: SessionWorkspaceSnapshot,
+        reservedWorkspaceIds: inout Set<UUID>,
+        shouldExcludePersistedWorkspaceId: Bool = false
+    ) -> UUID {
+        if !shouldExcludePersistedWorkspaceId,
+           let persistedWorkspaceId = snapshot.workspaceId,
+           reservedWorkspaceIds.insert(persistedWorkspaceId).inserted {
+            return persistedWorkspaceId
+        }
+        return freshWorkspaceId(reservingIn: &reservedWorkspaceIds)
+    }
+
+    private static func freshWorkspaceId(reservingIn reservedWorkspaceIds: inout Set<UUID>) -> UUID {
+        var id = UUID()
+        while !reservedWorkspaceIds.insert(id).inserted {
+            id = UUID()
+        }
+        return id
     }
 
     private static func normalizedCloudVMSessionRestoreWorkspaces<S: Sequence>(
@@ -5985,14 +6022,8 @@ extension TabManager {
         let keptCloudIndex = selectedManagedCloudIndex ?? managedCloudIndexes.first
         var indexMap: [Int: Int] = [:]
         var filtered: [SessionWorkspaceSnapshot] = []
-
-        if let keptCloudIndex {
-            indexMap[keptCloudIndex] = filtered.count
-            filtered.append(snapshots[keptCloudIndex])
-        }
-
         for (index, snapshot) in snapshots.enumerated() {
-            if cloudIndexes.contains(index) {
+            if cloudIndexes.contains(index), index != keptCloudIndex {
                 continue
             }
             indexMap[index] = filtered.count
@@ -6009,6 +6040,7 @@ extension TabManager {
         _ snapshot: SessionTabManagerSnapshot,
         remapClosedPanelHistory: Bool = true,
         excludingStableIdentities: Set<UUID> = [],
+        excludingWorkspaceIds: Set<UUID> = [],
         workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil
     ) -> [[UUID: UUID]] {
         isRestoringSessionSnapshot = true
@@ -6046,10 +6078,19 @@ extension TabManager {
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         var restoredOriginalWorkspaceIds: [UUID?] = []
+        var reservedWorkspaceIds = excludingWorkspaceIds
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
+            let restoredWorkspaceId = Self.restoredWorkspaceId(
+                from: workspaceSnapshot,
+                reservedWorkspaceIds: &reservedWorkspaceIds,
+                shouldExcludePersistedWorkspaceId: workspaceSnapshot.stableId.map {
+                    excludingStableIdentities.contains($0)
+                } ?? false
+            )
             let workspace = Workspace(
+                id: restoredWorkspaceId,
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
@@ -6069,7 +6110,9 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
+            let fallbackWorkspaceId = Self.freshWorkspaceId(reservingIn: &reservedWorkspaceIds)
             let fallback = Workspace(
+                id: fallbackWorkspaceId,
                 title: "Terminal 1",
                 portOrdinal: ordinal,
                 settings: settings,
@@ -6108,11 +6151,10 @@ extension TabManager {
             return groupSnapshots.compactMap { groupSnapshot in
                 guard let members = workspaceIdsByGroupId[groupSnapshot.id], !members.isEmpty,
                       seen.insert(groupSnapshot.id).inserted else { return nil }
-                // Resolve anchor: prefer the restore-stable index (since each
-                // restored workspace gets a fresh UUID, the old
-                // anchorWorkspaceId rarely matches). Fall back to the in-process
-                // UUID hint, then to "first member by tab order" for very old
-                // snapshots that pre-date both fields.
+                // Resolve anchor: prefer the restore-stable index, then the
+                // persisted UUID hint. The UUID hint matches on ordinary
+                // session restore, but duplicate/corrupt snapshots can still
+                // mint fresh workspace ids.
                 let anchorId: UUID = {
                     if let index = groupSnapshot.anchorMemberIndex,
                        members.indices.contains(index) {
@@ -6145,8 +6187,9 @@ extension TabManager {
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarMultiSelection.intersectSelection(with: existingIds)
+        let restoredWorkspaceIds = Set(newTabs.map(\.id))
         for workspace in previousTabs {
-            releaseRestoredAwayWorkspace(workspace)
+            releaseRestoredAwayWorkspace(workspace, clearNotifications: !restoredWorkspaceIds.contains(workspace.id))
         }
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }

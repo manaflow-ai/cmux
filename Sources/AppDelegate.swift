@@ -3365,7 +3365,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 for windowSnapshot in additionalWindows {
-                    _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
+                    _ = self.createMainWindow(
+                        sessionWindowSnapshot: windowSnapshot,
+                        excludingStableIdentitiesFromSessionSnapshot: self.liveStableIdentitySet(),
+                        excludingWorkspaceIdsFromSessionSnapshot: self.liveWorkspaceIdSet()
+                    )
                 }
                 self.completeSessionRestoreOperation(isManualReopen: false)
             }
@@ -3418,14 +3422,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = nil
         didAttemptStartupSessionRestore = true
         var createdWindowIds: [UUID] = []
+        var excludedWorkspaceIds = liveWorkspaceIdSet()
 
         for windowSnapshot in snapshotWindows {
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: false,
-                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet()
+                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet(),
+                excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds
             )
             createdWindowIds.append(windowId)
+            if let context = mainWindowContexts[windowId] {
+                excludedWorkspaceIds.formUnion(context.tabManager.liveWorkspaceIdSet())
+            }
         }
 
         completeSessionRestoreOperation(isManualReopen: true)
@@ -8567,6 +8576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         excludingStableIdentitiesFromSessionSnapshot: Set<UUID> = [],
+        excludingWorkspaceIdsFromSessionSnapshot: Set<UUID> = [],
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
@@ -8586,6 +8596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sessionWindowSnapshot.tabManager,
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot,
                 excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
+                excludingWorkspaceIds: excludingWorkspaceIdsFromSessionSnapshot,
                 workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
             )
             if let configFrames = sessionWindowSnapshot.configFrames {

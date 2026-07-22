@@ -154,6 +154,14 @@ extension AppDelegate {
         return identities
     }
 
+    func liveWorkspaceIdSet() -> Set<UUID> {
+        var identities: Set<UUID> = []
+        for context in mainWindowContexts.values {
+            identities.formUnion(context.tabManager.liveWorkspaceIdSet())
+        }
+        return identities
+    }
+
     func flushPendingStartupNavigationURLRequests() {
         guard !pendingStartupNavigationURLRequests.isEmpty else { return }
         let requests = pendingStartupNavigationURLRequests

@@ -3050,6 +3050,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     init(
+        id: UUID? = nil,
         title: String = "Terminal",
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
@@ -3071,7 +3072,7 @@ final class Workspace: Identifiable, ObservableObject {
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
-        self.id = UUID()
+        self.id = id ?? UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker

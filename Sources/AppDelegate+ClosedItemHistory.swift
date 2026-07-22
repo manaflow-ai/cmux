@@ -131,6 +131,7 @@ extension AppDelegate {
                 shouldActivate: shouldActivate,
                 remapClosedPanelHistoryFromSessionSnapshot: false,
                 excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet(),
+                excludingWorkspaceIdsFromSessionSnapshot: liveWorkspaceIdSet(),
                 restoredSessionSnapshotHandler: { panelIdsByWorkspaceIndex, tabManager in
                     restoredPanelIdsByWorkspaceIndex = panelIdsByWorkspaceIndex
                     restoredTabManager = tabManager

@@ -26,8 +26,8 @@ private final class DurableDeepLinkDockTestPanel: Panel, ObservableObject {
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5486:
 /// a copied `cmux://` deep link must keep resolving to the same logical
-/// workspace/tab after the session is persisted and restored with re-minted
-/// runtime UUIDs (what happens across an app restart).
+/// workspace/tab after the session is persisted and restored across an app
+/// restart.
 @MainActor
 @Suite("Durable deep link restore")
 struct CmuxDurableDeepLinkRestoreTests {
@@ -43,7 +43,7 @@ struct CmuxDurableDeepLinkRestoreTests {
         }
     }
 
-    @Test func workspaceLinkResolvesAfterRestoreWithRemintedIds() throws {
+    @Test func workspaceLinkResolvesAfterRestore() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         workspace.setCustomTitle("Linked workspace")
@@ -59,9 +59,8 @@ struct CmuxDurableDeepLinkRestoreTests {
         let restoredWorkspace = try #require(
             restored.tabs.first(where: { $0.customTitle == "Linked workspace" })
         )
-        // The restart breakage this feature fixes: runtime ids are re-minted…
-        #expect(restoredWorkspace.id != workspace.id)
-        // …while the persisted stable id survives.
+        // Runtime and stable workspace identities both survive ordinary session restore.
+        #expect(restoredWorkspace.id == workspace.id)
         #expect(restoredWorkspace.stableId == workspace.stableId)
 
         let resolver = CmuxNavigationTargetResolver(

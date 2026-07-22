@@ -685,7 +685,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         let restoredWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         XCTAssertEqual(restoredWorkspace.customTitle, "Recovered")
-        XCTAssertNotEqual(restoredWorkspace.id, originalSecondWorkspaceId)
+        XCTAssertEqual(restoredWorkspace.id, originalSecondWorkspaceId)
         XCTAssertEqual(restoredWorkspace.panels.count, 1)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
@@ -922,7 +922,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
-        XCTAssertNotEqual(restoredWorkspace.id, workspace.id)
+        XCTAssertEqual(restoredWorkspace.id, workspace.id)
         XCTAssertTrue(restoredManager.reopenMostRecentlyClosedItem())
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Closed Panel"))
     }
@@ -1335,7 +1335,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )))
 
         let restoreManager = TabManager()
-        _ = restoreManager.restoreSessionSnapshot(sourceSnapshot)
+        _ = restoreManager.restoreSessionSnapshot(
+            sourceSnapshot,
+            excludingWorkspaceIds: [sourceWorkspace.id]
+        )
         let restoredWorkspace = try XCTUnwrap(restoreManager.tabs.first { $0.customTitle == "Restored Parent" })
         XCTAssertNotEqual(restoredWorkspace.id, sourceWorkspace.id)
 
@@ -1567,7 +1570,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertTrue(restoreManager.reopenMostRecentlyClosedItem())
         let restoredWorkspace = try XCTUnwrap(restoreManager.tabs.first { $0.customTitle == "Recovered Parent" })
-        XCTAssertNotEqual(restoredWorkspace.id, sourceWorkspace.id)
+        XCTAssertEqual(restoredWorkspace.id, sourceWorkspace.id)
         XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Remapped Skipped Tab"])
 
         XCTAssertTrue(restoreManager.reopenMostRecentlyClosedItem())
@@ -1998,7 +2001,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, restored.tabs.first?.id)
     }
 
-    func testRestoreSessionSnapshotKeepsSingleManagedCloudVMAtTop() throws {
+    func testRestoreSessionSnapshotKeepsSingleManagedCloudVMInSavedOrder() throws {
         let managedPanelId = UUID()
         let localPanelId = UUID()
         let snapshot = SessionTabManagerSnapshot(
@@ -2017,11 +2020,31 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restored = TabManager()
         restored.restoreSessionSnapshot(snapshot)
 
-        XCTAssertEqual(restored.tabs.map(\.customTitle), ["Cloud VM", "Local"])
-        XCTAssertEqual(restored.selectedTabId, restored.tabs.first?.id)
-        let restoredCloudVM = try XCTUnwrap(restored.tabs.first)
+        XCTAssertEqual(restored.tabs.map(\.customTitle), ["Local", "Cloud VM"])
+        XCTAssertEqual(restored.selectedTabId, restored.tabs.last?.id)
+        let restoredCloudVM = try XCTUnwrap(restored.tabs.last)
         XCTAssertTrue(restoredCloudVM.isPinned)
         XCTAssertEqual(restoredCloudVM.remoteConfiguration?.managedCloudVMID, "vm-single-cloud")
+    }
+
+    func testRestoreSessionSnapshotRemintsDuplicatePersistedWorkspaceIds() throws {
+        let duplicateWorkspaceId = UUID()
+        var firstWorkspace = Self.localWorkspaceSnapshot(title: "First", panelId: UUID())
+        var secondWorkspace = Self.localWorkspaceSnapshot(title: "Second", panelId: UUID())
+        firstWorkspace.workspaceId = duplicateWorkspaceId
+        secondWorkspace.workspaceId = duplicateWorkspaceId
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 1,
+            workspaces: [firstWorkspace, secondWorkspace]
+        ))
+
+        XCTAssertEqual(restored.tabs.map(\.customTitle), ["First", "Second"])
+        XCTAssertEqual(restored.tabs.first?.id, duplicateWorkspaceId)
+        XCTAssertNotEqual(restored.tabs.last?.id, duplicateWorkspaceId)
+        XCTAssertEqual(Set(restored.tabs.map(\.id)).count, 2)
+        XCTAssertEqual(restored.selectedTabId, restored.tabs.last?.id)
     }
 
     func testClosedHistorySkipsNonRestorableRemoteWorkspaces() {
@@ -2536,7 +2559,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
 
         let restored = TabManager()
-        restored.restoreSessionSnapshot(snapshot)
+        restored.restoreSessionSnapshot(snapshot, excludingWorkspaceIds: [originalWorkspaceId])
 
         let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Relay Alias SSH" })
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
@@ -2768,7 +2791,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
 
         let restored = TabManager()
-        restored.restoreSessionSnapshot(snapshot)
+        restored.restoreSessionSnapshot(
+            snapshot,
+            excludingWorkspaceIds: Set(manager.tabs.map(\.id))
+        )
 
         let restoredWorkspace = try XCTUnwrap(
             restored.tabs.first { $0.customTitle == "Moved Relay Destination" }
@@ -2959,7 +2985,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
 
         let restored = TabManager()
-        restored.restoreSessionSnapshot(legacySnapshot)
+        restored.restoreSessionSnapshot(legacySnapshot, excludingWorkspaceIds: [remoteWorkspace.id])
 
         let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Legacy Persistent SSH" })
         XCTAssertNotEqual(restoredWorkspace.id, remoteWorkspace.id)
