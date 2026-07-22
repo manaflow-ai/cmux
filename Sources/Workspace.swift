@@ -1042,27 +1042,28 @@ extension Workspace {
     ) -> String? {
         guard includeScrollback else { return nil }
 #if DEBUG
-        let debugFallback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
+        if let debugFallback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
             ? debugSessionSnapshotSyntheticScrollbackByPanelId[panelId]
-            : nil
-#else
-        let debugFallback: String? = nil
+            : nil {
+            defer {
+                debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
+                debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
+            }
+            return sessionRestorePolicy.resolvedSnapshotTerminalScrollback(
+                capturedScrollback: nil,
+                fallbackScrollback: debugFallback,
+                allowFallbackScrollback: true
+            )
+        }
 #endif
         let fallback = allowFallbackScrollback
-            ? (debugFallback ?? restoredTerminalScrollbackByPanelId[panelId])
+            ? restoredTerminalScrollbackByPanelId[panelId]
             : nil
         let resolved = sessionRestorePolicy.resolvedSnapshotTerminalScrollback(
             capturedScrollback: capturedScrollback,
             fallbackScrollback: fallback,
             allowFallbackScrollback: allowFallbackScrollback
         )
-#if DEBUG
-        if debugFallback != nil {
-            debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
-            debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
-            return resolved
-        }
-#endif
         if let resolved {
             restoredTerminalScrollbackByPanelId[panelId] = resolved
         } else {
