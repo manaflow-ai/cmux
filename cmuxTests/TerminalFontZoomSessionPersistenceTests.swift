@@ -96,7 +96,7 @@ struct TerminalFontZoomSessionPersistenceTests {
     @Test("initial non-explicit template preserves its font size for first runtime creation")
     func initialNonExplicitTemplateSeedsFirstRuntimeCreation() {
         var inheritedTemplate = CmuxSurfaceConfigTemplate()
-        inheritedTemplate.fontSize = 12
+        inheritedTemplate.setFontSize(12, isExplicitOverride: false)
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,

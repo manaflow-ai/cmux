@@ -8,7 +8,7 @@ import Testing
 @Suite struct TerminalSurfaceFontSizeLineageTests {
     @Test func initialNonExplicitTemplateSeedsFirstRuntimeCreation() {
         var template = CmuxSurfaceConfigTemplate()
-        template.fontSize = 19
+        template.setFontSize(19, isExplicitOverride: false)
         let surface = makeSurface(configTemplate: template)
 
         #expect(surface.runtimeSurfaceGeneration == 0)

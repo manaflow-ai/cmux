@@ -1,7 +1,34 @@
 import Testing
 import CmuxTerminalCore
+import GhosttyKit
 
 @Suite struct SurfaceConfigTemplateFontSizeTests {
+    @Test func freshFontSizeAssignmentClaimsExplicitOwnership() {
+        var template = CmuxSurfaceConfigTemplate()
+
+        template.fontSize = 13
+
+        #expect(template.fontSizeLineage == TerminalFontSizeLineage(
+            basePoints: 13,
+            isExplicitOverride: true
+        ))
+    }
+
+    @Test func inheritedCConfigFontSizeRemainsNonExplicit() {
+        var cConfig = ghostty_surface_config_s()
+        cConfig.font_size = 24
+
+        let template = CmuxSurfaceConfigTemplate(
+            cConfig: cConfig,
+            globalFontMagnificationPercent: 200
+        )
+
+        #expect(template.fontSizeLineage == TerminalFontSizeLineage(
+            basePoints: 12,
+            isExplicitOverride: false
+        ))
+    }
+
     @Test func convertsRuntimeFontSizeToBasePoints() {
         let basePoints = CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: 24, percent: 200)
 
