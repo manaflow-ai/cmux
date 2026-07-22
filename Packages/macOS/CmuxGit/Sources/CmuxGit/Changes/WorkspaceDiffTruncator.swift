@@ -34,7 +34,37 @@ struct WorkspaceDiffTruncator {
             accepted.append(contentsOf: hunk)
             acceptedBytes += separatorBytes + hunkBytes
         }
+        if accepted.count == firstHunkStart {
+            // Not even the first hunk fit whole. Emit as much of it as the
+            // caps allow under a header rewritten to describe the partial
+            // body, instead of a contentless header-only diff.
+            let end = hunkStarts.count > 1 ? hunkStarts[1] : lines.endIndex
+            let hunk = Array(lines[firstHunkStart..<end])
+            var body: [String] = []
+            var bytes = acceptedBytes + (accepted.isEmpty ? 0 : 1) + hunk[0].utf8.count
+            for line in hunk.dropFirst() {
+                let lineBytes = line.utf8.count + 1
+                guard accepted.count + 1 + body.count + 1 <= maximumLines,
+                      bytes + lineBytes <= maximumBytes else { break }
+                body.append(line)
+                bytes += lineBytes
+            }
+            if !body.isEmpty {
+                accepted.append(partialHunkHeader(from: hunk[0], including: body))
+                accepted.append(contentsOf: body)
+            }
+        }
         return (accepted.joined(separator: "\n"), true)
+    }
+
+    /// Rewrites `@@ -a,b +c,d @@` so the old/new counts describe exactly the
+    /// included partial body; start lines are preserved.
+    private func partialHunkHeader(from header: String, including body: [String]) -> String {
+        let pattern = /@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
+        guard let match = header.firstMatch(of: pattern) else { return header }
+        let old = body.count { $0.hasPrefix("-") || $0.hasPrefix(" ") }
+        let new = body.count { $0.hasPrefix("+") || $0.hasPrefix(" ") }
+        return "@@ -\(match.1),\(old) +\(match.2),\(new) @@"
     }
 
     private func fits(_ lines: [String]) -> Bool {
