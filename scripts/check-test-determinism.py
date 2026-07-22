@@ -231,10 +231,9 @@ _PYTHON_FOR_TARGET = re.compile(
 )
 _PYTHON_AS_TARGET = re.compile(r"\bas\s+([A-Za-z_]\w*)\b")
 _PYTHON_DEL_TARGET = re.compile(r"^\s*del\s+([A-Za-z_]\w*)\b")
-_PYTHON_FUNCTION_PARAMETERS = re.compile(
-    r"^\s*(?:async\s+)?def\b[^\n]*\(([^)]*)\)"
+_PYTHON_FUNCTION_HEADER = re.compile(
+    r"^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\("
 )
-_IDENTIFIER = re.compile(r"\b[A-Za-z_]\w*\b")
 _LOCAL_SCOPE_HEADER = re.compile(
     r"^\s*"
     r"(?:(?:@\w+(?:\([^)]*\))?|[A-Za-z_]\w*(?:\([^)]*\))?)\s+)*"
@@ -252,6 +251,9 @@ _DO_SCOPE_HEADER = re.compile(r"\bdo\s*$")
 _SWITCH_SCOPE_HEADER = re.compile(r"^\s*switch\b")
 _SWITCH_CASE_HEADER = re.compile(
     r"^\s*(?:@unknown\s+)?(?:case\b|default\s*:)"
+)
+_SWITCH_CASE_LEADING_BINDING = re.compile(
+    r"^\s*(?:@unknown\s+)?case\s+(?:let|var)\b"
 )
 _COMPILATION_DIRECTIVE = re.compile(r"^\s*#(if|elseif|else|endif)\b")
 _TYPE_SCOPE_HEADER = re.compile(
@@ -1128,6 +1130,40 @@ def _nearest_receiver_kind(
     )
 
 
+def _switch_case_receiver_kind(
+    candidate: str, receiver: str
+) -> Optional[bool]:
+    """Return the kind of a receiver bound by a Swift switch pattern."""
+    if not _SWITCH_CASE_HEADER.match(candidate):
+        return None
+
+    pattern = re.split(r"\bwhere\b", candidate, maxsplit=1)[0]
+    escaped_receiver = re.escape(receiver)
+    has_local_binding = bool(
+        re.search(
+            rf"\b(?:let|var)\s+{escaped_receiver}\b",
+            pattern,
+        )
+    )
+    if not has_local_binding and _SWITCH_CASE_LEADING_BINDING.match(pattern):
+        has_local_binding = bool(
+            re.search(
+                rf"(?<![.\w]){escaped_receiver}\b(?!\s*:)", pattern
+            )
+        )
+    if not has_local_binding:
+        return None
+
+    has_explicit_real_type = bool(
+        re.search(
+            rf"\b{escaped_receiver}\b\s+as\s+"
+            r"(?:[A-Za-z_]\w*\.)*(?:ContinuousClock|SuspendingClock)\b",
+            pattern,
+        )
+    )
+    return has_explicit_real_type
+
+
 def _has_explicit_real_member(
     masked_lines: list[str],
     call_index: int,
@@ -1625,6 +1661,7 @@ def _resolve_named_receiver_kind(
     pending_conditional: Optional[dict[str, bool]] = None
     pending_conditional_declared_real = False
     pending_switch = False
+    pending_switch_case: Optional[list[str]] = None
     compilation_frames: list[_CompilationScopeFrame] = []
     runtime_frames: list[_RuntimeScopeFrame] = []
 
@@ -1698,14 +1735,40 @@ def _resolve_named_receiver_kind(
                 scope_declared_real = _merge_compilation_declared_real(frame)
             continue
 
-        if _SWITCH_CASE_HEADER.match(candidate):
+        switch_case_header = bool(_SWITCH_CASE_HEADER.match(candidate))
+        if pending_switch_case is not None and not switch_case_header:
+            pending_switch_case.append(candidate)
+            case_receiver_kind = _switch_case_receiver_kind(
+                " ".join(pending_switch_case), receiver
+            )
+            if (
+                case_receiver_kind is not None
+                and scope_kinds[-1] == "case"
+            ):
+                scopes[-1][receiver] = case_receiver_kind
+                scope_declared_real[-1] = case_receiver_kind
+            if candidate.rstrip().endswith(":"):
+                pending_switch_case = None
+
+        if switch_case_header:
             if len(scopes) > 1 and scope_kinds[-1] == "case":
                 pop_scope()
             if scope_kinds[-1] == "switch":
-                scopes.append({})
+                case_scope: dict[str, bool] = {}
+                case_receiver_kind = _switch_case_receiver_kind(
+                    candidate, receiver
+                )
+                if case_receiver_kind is not None:
+                    case_scope[receiver] = case_receiver_kind
+                scopes.append(case_scope)
                 scope_kinds.append("case")
                 scope_mutations.append(None)
-                scope_declared_real.append(False)
+                scope_declared_real.append(case_receiver_kind is True)
+                pending_switch_case = (
+                    None
+                    if candidate.rstrip().endswith(":")
+                    else [candidate]
+                )
 
         runtime_else = tracks_reassignment and bool(
             _RUNTIME_ELSE_SCOPE_HEADER.match(candidate)
@@ -2035,12 +2098,115 @@ def _is_named_real_clock_sleep(
     )
 
 
+def _python_function_parameter_names(signature: str) -> set[str]:
+    """Extract parameter bindings while respecting nested default expressions."""
+    open_paren = signature.find("(")
+    if open_paren < 0:
+        return set()
+
+    depth = 0
+    start = open_paren + 1
+    chunks: list[str] = []
+    for index in range(open_paren, len(signature)):
+        token = signature[index]
+        if token == "(":
+            depth += 1
+        elif token == ")":
+            depth -= 1
+            if depth == 0:
+                chunks.append(signature[start:index])
+                break
+        elif token == "," and depth == 1:
+            chunks.append(signature[start:index])
+            start = index + 1
+
+    names: set[str] = set()
+    for chunk in chunks:
+        parameter = chunk.strip().lstrip("*").strip()
+        if not parameter or parameter == "/":
+            continue
+        binding = re.match(r"([A-Za-z_]\w*)\b", parameter)
+        if binding:
+            names.add(binding.group(1))
+    return names
+
+
 def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
-    """Resolve standard Python sleep modules once for the whole source file."""
+    """Resolve standard Python sleep modules once with function-local scopes."""
     active = set(_PYTHON_SLEEP_MODULES)
+    scopes: list[tuple[int, dict[str, bool]]] = [(-1, {})]
+    pending_signature: Optional[tuple[int, list[str], int]] = None
+    continuation_depth = 0
+    backslash_continuation = False
     sleep_lines: set[int] = set()
 
+    def set_alias(name: str, is_active: bool) -> None:
+        prior_values = scopes[-1][1]
+        prior_values.setdefault(name, name in active)
+        if is_active:
+            active.add(name)
+        else:
+            active.discard(name)
+
+    def pop_scope() -> None:
+        _, prior_values = scopes.pop()
+        for name, was_active in prior_values.items():
+            if was_active:
+                active.add(name)
+            else:
+                active.discard(name)
+
+    def update_continuation(line: str) -> None:
+        nonlocal continuation_depth, backslash_continuation
+        continuation_depth = max(
+            0,
+            continuation_depth
+            + sum(line.count(opening) for opening in "([{")
+            - sum(line.count(closing) for closing in ")]}")
+        )
+        backslash_continuation = line.rstrip().endswith("\\")
+
     for line_index, line in enumerate(masked_lines):
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+
+        if pending_signature is not None:
+            header_indent, signature_lines, paren_depth = pending_signature
+            signature_lines.append(line)
+            paren_depth += line.count("(") - line.count(")")
+            if paren_depth > 0:
+                pending_signature = (
+                    header_indent,
+                    signature_lines,
+                    paren_depth,
+                )
+                continue
+            scopes.append((header_indent, {}))
+            for name in _python_function_parameter_names(
+                " ".join(signature_lines)
+            ):
+                set_alias(name, False)
+            pending_signature = None
+            continue
+
+        is_continuation = continuation_depth > 0 or backslash_continuation
+        if stripped and not is_continuation:
+            while len(scopes) > 1 and indent <= scopes[-1][0]:
+                pop_scope()
+
+        function_header = _PYTHON_FUNCTION_HEADER.match(line)
+        if function_header:
+            set_alias(function_header.group(1), False)
+            paren_depth = line.count("(") - line.count(")")
+            signature_lines = [line]
+            if paren_depth > 0:
+                pending_signature = (indent, signature_lines, paren_depth)
+            else:
+                scopes.append((indent, {}))
+                for name in _python_function_parameter_names(line):
+                    set_alias(name, False)
+            continue
+
         import_line = re.match(r"^\s*import\s+(.+)$", line)
         if import_line:
             for import_spec in import_line.group(1).split(","):
@@ -2051,9 +2217,9 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
                 if direct:
                     bound_name = direct.group(1).split(".", 1)[0]
                     if direct.group(1) in _PYTHON_SLEEP_MODULES:
-                        active.add(bound_name)
+                        set_alias(bound_name, True)
                     else:
-                        active.discard(bound_name)
+                        set_alias(bound_name, False)
                 alias = re.fullmatch(
                     r"\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
                     r"\s+as\s+([A-Za-z_]\w*)\s*",
@@ -2061,9 +2227,10 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
                 )
                 if alias:
                     if alias.group(1) in _PYTHON_SLEEP_MODULES:
-                        active.add(alias.group(2))
+                        set_alias(alias.group(2), True)
                     else:
-                        active.discard(alias.group(2))
+                        set_alias(alias.group(2), False)
+            update_continuation(line)
             continue
         from_import = re.match(
             r"^\s*from\s+\S+\s+import\s+(.+)$", line
@@ -2076,7 +2243,8 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
                     import_spec,
                 )
                 if binding:
-                    active.discard(binding.group(2) or binding.group(1))
+                    set_alias(binding.group(2) or binding.group(1), False)
+            update_continuation(line)
             continue
 
         rebound_names = {
@@ -2090,14 +2258,13 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
             )
             for match in pattern.finditer(line)
         }
-        parameters = _PYTHON_FUNCTION_PARAMETERS.match(line)
-        if parameters:
-            rebound_names.update(_IDENTIFIER.findall(parameters.group(1)))
-        active.difference_update(rebound_names)
+        for name in rebound_names:
+            set_alias(name, False)
 
         call = _PYTHON_MODULE_SLEEP_CALL.search(line)
         if call and call.group(1) in active:
             sleep_lines.add(line_index)
+        update_continuation(line)
     return sleep_lines
 
 
@@ -2641,6 +2808,43 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/TypedSwitchPatternRealClockTests.swift",
+            "func verify(clock: TestRelayClock) async {\n"
+            "    switch state {\n"
+            "    case let .ready(clock as ContinuousClock):\n"
+            "        try await clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/MultilineTypedSwitchPatternRealClockTests.swift",
+            "func verify(clock: TestRelayClock) async {\n"
+            "    switch state {\n"
+            "    case let .ready(\n"
+            "        clock as ContinuousClock\n"
+            "    ):\n"
+            "        try await clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/LabeledSwitchPatternOuterClockTests.swift",
+            "func verify() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    switch state {\n"
+            "    case let .ready(clock: value):\n"
+            "        consume(value)\n"
+            "        try await clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/URLBlockCommentBeforeRealClockTests.swift",
             "/* See https://example.test for the fixture contract. */\n"
             "let clock = ContinuousClock()\n"
@@ -2703,6 +2907,19 @@ def _self_test() -> int:
             "import time as clock_time\n"
             "def pace():\n"
             "    clock_time = TestClock()\n"
+            "    clock_time.sleep(0.3)\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/restored_alias_after_outdented_continuation.py",
+            "import time as clock_time\n"
+            "def pace():\n"
+            "    values = (\n"
+            "        1,\n"
+            ")\n"
+            "    clock_time = TestClock(values)\n"
             "    clock_time.sleep(0.3)\n"
             "clock_time.sleep(0.3)\n"
             "assert widget.is_rendered\n",
@@ -3441,6 +3658,19 @@ def _self_test() -> int:
             "    let clock = ContinuousClock()\n"
             "    switch state {\n"
             "    case let .ready(clock):\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/MultilineSwitchPatternVirtualClockTests.swift",
+            "func verify() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    switch state {\n"
+            "    case let .ready(\n"
+            "        clock\n"
+            "    ):\n"
             "        try await clock.sleep(until: deadline)\n"
             "        #expect(await events.next() == expected)\n"
             "    }\n"
