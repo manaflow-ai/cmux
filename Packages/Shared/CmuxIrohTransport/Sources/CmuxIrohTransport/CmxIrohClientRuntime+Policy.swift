@@ -218,7 +218,8 @@ extension CmxIrohClientRuntime {
                     bindingID: policy.binding.bindingID,
                     endpointIdentity: policy.binding.endpointID,
                     bootstrap: bootstrap,
-                    waitForInitialCredential: requiresRelayReadiness
+                    waitForInitialCredential: requiresRelayReadiness,
+                    mintNotBefore: configuration.relayCredentialMintNotBefore
                 )
             } catch {
                 if requiresRelayReadiness { throw error }

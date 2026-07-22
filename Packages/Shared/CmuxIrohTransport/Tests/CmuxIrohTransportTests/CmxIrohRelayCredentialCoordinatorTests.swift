@@ -5,6 +5,44 @@ import Testing
 
 @Suite
 struct CmxIrohRelayCredentialCoordinatorTests {
+    /// A Retry-After floor from the caller's own bootstrap attempt covers the
+    /// same relay-token endpoint, so activation without a bootstrap must wait
+    /// out the floor instead of minting into a guaranteed 429.
+    @Test
+    func mintNotBeforeDefersTheFirstMintPastTheFloor() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let broker = TestRelayTokenBroker(steps: [])
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 },
+            credentialDidInstall: { _ in }
+        )
+        let floor = fixture.now.addingTimeInterval(600)
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            mintNotBefore: floor
+        )
+
+        guard case let .sleep(deadline) = await clockEvents.next() else {
+            Issue.record("Expected the deferred mint sleep")
+            return
+        }
+        #expect(deadline == floor)
+        #expect(await broker.observedEndpointIDs().isEmpty)
+        await coordinator.deactivate()
+        #expect(await clockEvents.next() == .cancelled)
+    }
+
     @Test
     func bootstrapInstallsCompleteFleetBeforeSleepingUntilRefresh() async throws {
         let fixture = try RelayCoordinatorFixture()

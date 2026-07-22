@@ -1339,6 +1339,10 @@ public final class MobileIrohRuntimeComposition:
         let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
             Set(relay.relayFleet) == managedRelayURLs ? relay : nil
         }
+        let relayCredentialMintNotBefore = brokerCooldown.remainingSeconds(
+            accountID: accountID,
+            now: now()
+        ).map { now().addingTimeInterval(TimeInterval($0)) }
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -1349,7 +1353,8 @@ public final class MobileIrohRuntimeComposition:
             capabilities: Self.capabilities,
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay
+            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
+            relayCredentialMintNotBefore: relayCredentialMintNotBefore
         )
         let credentialRepository = brokerCredentials
         let routeCatalog = routeCatalog
@@ -1504,14 +1509,14 @@ public final class MobileIrohRuntimeComposition:
         }
         self.runtime = runtime
         activeAccountID = accountID
-        // Activation succeeded, so future reconnects are ungated, but a
-        // rate-limited relay bootstrap's Retry-After must still reach the
-        // policy refresh scheduler below instead of dying with the gate.
+        // The floor survives a successful direct-only activation: live dials
+        // bypass the gate through the active runtime, while a torn-down
+        // runtime must not reach the rate-limited broker before Retry-After
+        // expires. It also seeds the policy refresh scheduler below.
         let pendingRelayRetryAfterSeconds = brokerCooldown.remainingSeconds(
             accountID: accountID,
             now: now()
         )
-        brokerCooldown.clear(accountID: accountID)
         diagnosticLog?.record(DiagnosticEvent(.endpointActive, a: DiagnosticTransportKind.iroh.rawValue))
         relayPolicyService = resolvedPolicyService
         relayPolicyEffective = resolvedEffectivePolicy

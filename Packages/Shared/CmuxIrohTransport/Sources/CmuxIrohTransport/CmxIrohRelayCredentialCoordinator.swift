@@ -90,7 +90,8 @@ public actor CmxIrohRelayCredentialCoordinator {
         bindingID: String,
         endpointIdentity: CmxIrohPeerIdentity,
         bootstrap: CmxIrohRelayTokenResponse? = nil,
-        waitForInitialCredential: Bool = false
+        waitForInitialCredential: Bool = false,
+        mintNotBefore: Date? = nil
     ) async throws {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
@@ -127,6 +128,22 @@ public actor CmxIrohRelayCredentialCoordinator {
                 }
                 return
             }
+        }
+        // A Retry-After floor from the caller's own bootstrap attempt covers
+        // this same endpoint; the first mint waits it out instead of spending
+        // a guaranteed rejection.
+        if let mintNotBefore, mintNotBefore > clock.now() {
+            if waitForInitialCredential {
+                try await installInitialCredentialAfterRetry(
+                    binding: expectedBinding,
+                    revision: revision,
+                    firstRetry: mintNotBefore,
+                    initialFailureCount: 0
+                )
+            } else {
+                startLoopIfEnabled(revision: revision, firstRefresh: mintNotBefore)
+            }
+            return
         }
         do {
             let response = try await broker.issueRelayToken(
