@@ -71,11 +71,11 @@ extension TerminalController {
             paneID: nil
         )
         guard controlSurfaceRoutingResolvesTabManager(routing: routing) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
         switch controlSurfaceFocus(routing: routing, surfaceID: surfaceID) {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case let .surfaceNotFound(id):

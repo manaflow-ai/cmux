@@ -94,7 +94,7 @@ struct WorkspaceDetailView: View {
             isChatMode: isChatMode,
             hasChosenChatSession: chosenChatSession != nil,
             hasActiveBrowser: activeBrowser != nil,
-            selectedMacSurface: workspace.surfaces.first { $0.id == store.selectedMacSurfaceID && !$0.kind.isTerminal }
+            selectedMacSurface: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)
         )
     }
     #endif

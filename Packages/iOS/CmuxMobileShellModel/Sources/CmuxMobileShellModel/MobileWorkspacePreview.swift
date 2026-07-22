@@ -151,3 +151,15 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.surfaces = surfaces
     }
 }
+
+extension MobileWorkspacePreview {
+    /// The picker-selected non-terminal Mac surface, if it still exists.
+    ///
+    /// Terminal-kinded rows are never a Mac-surface selection (terminals have
+    /// their own selection axis), so this is the one lookup every call site
+    /// must share rather than re-filtering `surfaces` inline.
+    public func selectedMacSurface(id: MobileSurfacePreview.ID?) -> MobileSurfacePreview? {
+        guard let id else { return nil }
+        return surfaces.first { $0.id == id && !$0.kind.isTerminal }
+    }
+}

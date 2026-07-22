@@ -35,6 +35,8 @@ import Testing
         store.connectPreviewHost()
 
         #expect(!store.isReconnectingStoredMac)
+    }
+
     @Test func macSurfaceSelectionIsExplicitAndIndependentFromTerminalSelection() {
         let store = MobileShellComposite.preview()
         let terminal = MobileTerminalPreview(id: "terminal", name: "Shell")

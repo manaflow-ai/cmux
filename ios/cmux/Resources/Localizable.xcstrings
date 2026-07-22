@@ -16385,6 +16385,7 @@
     "mobile.surface.kind.terminal": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Terminal"}},"ja":{"stringUnit":{"state":"translated","value":"ターミナル"}}}},
     "mobile.surface.kind.todo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"ja":{"stringUnit":{"state":"translated","value":"ToDo"}}}},
     "mobile.surface.openOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open on Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Macで開く"}}}},
+    "mobile.surface.openOnMacFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't reach your Mac. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続できませんでした。もう一度お試しください。"}}}},
     "mobile.surface.renderedOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Rendered on your Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Mac上でレンダリングされています"}}}},
     "mobile.surface.section": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac Surfaces"}},"ja":{"stringUnit":{"state":"translated","value":"Macのサーフェス"}}}}
   },
