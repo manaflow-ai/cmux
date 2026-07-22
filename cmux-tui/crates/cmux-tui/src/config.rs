@@ -59,7 +59,7 @@
 //!     "new-tab": ["t", "alt+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
-//!     "select-screen-1": "1",
+//!     "select-screen-0": "0",
 //!     "browser-edit-url": "u"
 //!   }
 //! }
@@ -75,7 +75,7 @@
 //! chord string, an array of chord strings, or `"none"`. Overrides replace
 //! all default chords for that action. Action names are:
 //! `new-tab`, `new-browser-tab` (alias: `new_browser_tab`),
-//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-1` through
+//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-0` through
 //! `select-tab-9`, `split-right`, `split-down`, `close-tab`,
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
@@ -89,9 +89,8 @@
 //! The defaults intentionally match tmux where cmux has the same
 //! capability. `x` closes the active pane and `X` closes the active tab;
 //! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
-//! cmux defaults. Screens are visibly numbered from 1, so
-//! `select-screen-1` selects the first visible screen, ..., and
-//! `select-screen-0` selects the tenth visible screen. Zellij's modal
+//! cmux defaults. Screen positions are zero-based, so each
+//! `select-screen-N` action selects the screen at index `N`. Zellij's modal
 //! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
@@ -691,15 +690,14 @@ impl Action {
 
     pub fn screen_index(&self) -> Option<usize> {
         match self {
-            Action::SelectScreen(0) => Some(9),
-            Action::SelectScreen(number @ 1..=9) => Some((*number as usize) - 1),
+            Action::SelectScreen(number @ 0..=9) => Some(*number as usize),
             _ => None,
         }
     }
 
     pub fn tab_index(&self) -> Option<usize> {
         match self {
-            Action::SelectTab(number @ 1..=9) => Some((*number as usize) - 1),
+            Action::SelectTab(number @ 0..=9) => Some(*number as usize),
             _ => None,
         }
     }
@@ -896,6 +894,7 @@ fn all_actions() -> &'static [Action] {
         Action::NewPaneSmart,
         Action::NextTab,
         Action::PrevTab,
+        Action::SelectTab(0),
         Action::SelectTab(1),
         Action::SelectTab(2),
         Action::SelectTab(3),
@@ -1212,7 +1211,7 @@ pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOp
     options.browser_capture_scale = config.browser.capture_scale;
 }
 
-/// The label for a tab: user name if set, otherwise its 1-based number
+/// The label for a tab: user name if set, otherwise its zero-based index
 /// plus a recognized agent program name (or the full title when
 /// `show_titles` is on).
 pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> String {
@@ -1221,7 +1220,7 @@ pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> 
     {
         return name.to_string();
     }
-    let number = index + 1;
+    let number = index;
     let suffix = if tabs.show_titles {
         (!title.is_empty()).then(|| title.to_string())
     } else {
@@ -1961,20 +1960,27 @@ mod tests {
     #[test]
     fn tab_labels_are_numbers_except_agents() {
         let tabs = Tabs::default();
-        assert_eq!(tab_label(&tabs, 0, "", None), "1");
-        assert_eq!(tab_label(&tabs, 1, "zsh", None), "2");
-        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "3");
+        assert_eq!(tab_label(&tabs, 0, "", None), "0");
+        assert_eq!(tab_label(&tabs, 1, "zsh", None), "1");
+        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "2");
         // Recognized agent programs surface in the label.
-        assert_eq!(tab_label(&tabs, 0, "claude", None), "1 claude");
-        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "4 codex");
-        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "5 opencode");
+        assert_eq!(tab_label(&tabs, 0, "claude", None), "0 claude");
+        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "3 codex");
+        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "4 opencode");
         // "pi" matches only as a word, not inside other words.
-        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "6");
-        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "6 pi");
+        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "5");
+        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "5 pi");
         assert_eq!(tab_label(&tabs, 5, "pi chat", Some("api")), "api");
 
         let titled = Tabs { show_titles: true, ..Tabs::default() };
-        assert_eq!(tab_label(&titled, 1, "zsh", None), "2 zsh");
+        assert_eq!(tab_label(&titled, 1, "zsh", None), "1 zsh");
+    }
+
+    #[test]
+    fn tab_selection_actions_use_zero_based_indexes() {
+        assert_eq!(Action::SelectTab(0).tab_index(), Some(0));
+        assert_eq!(Action::SelectTab(9).tab_index(), Some(9));
+        assert_eq!(Action::SelectTab(10).tab_index(), None);
     }
 
     #[test]
@@ -2009,6 +2015,7 @@ mod tests {
                     "rename-pane": "r",
                     "focus-left": ["left", "alt+h"],
                     "next-tab": "none",
+                    "select-tab-0": "q",
                     "browser-edit-url": "u"
                 }
             }"##,
@@ -2042,6 +2049,10 @@ mod tests {
             Some(Action::RenameTab)
         );
         assert_eq!(config.keys.action_for(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)), None);
+        assert_eq!(
+            config.keys.action_for(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            Some(Action::SelectTab(0))
+        );
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
             Some(Action::BrowserEditUrl)
@@ -2230,9 +2241,9 @@ mod tests {
             );
         }
 
-        assert_eq!(Action::SelectScreen(1).screen_index(), Some(0));
-        assert_eq!(Action::SelectScreen(9).screen_index(), Some(8));
-        assert_eq!(Action::SelectScreen(0).screen_index(), Some(9));
+        assert_eq!(Action::SelectScreen(0).screen_index(), Some(0));
+        assert_eq!(Action::SelectScreen(1).screen_index(), Some(1));
+        assert_eq!(Action::SelectScreen(9).screen_index(), Some(9));
     }
 
     #[test]
