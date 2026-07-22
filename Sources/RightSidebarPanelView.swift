@@ -429,7 +429,7 @@ struct RightSidebarPanelView: View {
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .agents:
-                SubrouterAgentsPanelHostView()
+                SubrouterAgentsPanelHostView(isSidebarVisible: fileExplorerState.isVisible)
             case .customSidebar:
                 EmptyView()
             }

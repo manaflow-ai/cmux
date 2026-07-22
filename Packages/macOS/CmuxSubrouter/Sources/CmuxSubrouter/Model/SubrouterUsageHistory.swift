@@ -30,6 +30,8 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
     public static let maximumSamplesPerSeries = 96
     /// Samples older than this are pruned on record.
     public static let retention: TimeInterval = 7 * 24 * 3600
+    /// Hard cap on distinct series; least-recently-sampled series fall off.
+    public static let maximumSeriesCount = 256
 
     private var seriesByKey: [String: [Sample]]
 
@@ -38,14 +40,24 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
         seriesByKey = [:]
     }
 
-    /// The series key for an account's window.
-    public static func key(accountID: String, windowName: String) -> String {
-        "\(accountID)\u{1F}\(windowName)"
+    /// The series key for an account's window. Provider-scoped because
+    /// account IDs are only unique within one provider (a Codex email and a
+    /// Claude profile name can be the same string).
+    public static func key(
+        provider: SubrouterProvider,
+        accountID: String,
+        windowName: String
+    ) -> String {
+        "\(provider.rawValue)\u{1F}\(accountID)\u{1F}\(windowName)"
     }
 
     /// The recorded samples for an account window, oldest first.
-    public func samples(accountID: String, windowName: String) -> [Sample] {
-        seriesByKey[Self.key(accountID: accountID, windowName: windowName)] ?? []
+    public func samples(
+        provider: SubrouterProvider,
+        accountID: String,
+        windowName: String
+    ) -> [Sample] {
+        seriesByKey[Self.key(provider: provider, accountID: accountID, windowName: windowName)] ?? []
     }
 
     /// Records the current usage snapshot at `now`. Returns `true` when any
@@ -56,9 +68,14 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
         now: Date
     ) -> Bool {
         var changed = false
+        let cutoff = now.addingTimeInterval(-Self.retention)
         for account in usageStatuses {
             for window in account.windows {
-                let key = Self.key(accountID: account.id, windowName: window.name)
+                let key = Self.key(
+                    provider: account.provider,
+                    accountID: account.id,
+                    windowName: window.name
+                )
                 var series = seriesByKey[key] ?? []
                 if let last = series.last {
                     let spaced = now.timeIntervalSince(last.recordedAt) >= Self.minimumSampleSpacing
@@ -66,7 +83,6 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
                     guard spaced || moved else { continue }
                 }
                 series.append(Sample(recordedAt: now, usedPercent: window.usedPercent))
-                let cutoff = now.addingTimeInterval(-Self.retention)
                 series.removeAll { $0.recordedAt < cutoff }
                 if series.count > Self.maximumSamplesPerSeries {
                     series.removeFirst(series.count - Self.maximumSamplesPerSeries)
@@ -74,6 +90,38 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
                 seriesByKey[key] = series
                 changed = true
             }
+        }
+        changed = evictStaleSeries(cutoff: cutoff) || changed
+        return changed
+    }
+
+    /// Removes series no refresh has touched within the retention window
+    /// (removed accounts, renamed windows, and legacy pre-provider-scoped
+    /// keys) plus least-recently-sampled overflow past
+    /// ``maximumSeriesCount``, so the in-memory map and its persisted file
+    /// stay bounded for the life of an install.
+    private mutating func evictStaleSeries(cutoff: Date) -> Bool {
+        var changed = false
+        let staleKeys = seriesByKey.compactMap { key, series -> String? in
+            guard let newest = series.last, newest.recordedAt >= cutoff else { return key }
+            return nil
+        }
+        for key in staleKeys {
+            seriesByKey.removeValue(forKey: key)
+            changed = true
+        }
+        if seriesByKey.count > Self.maximumSeriesCount {
+            let overflowKeys = seriesByKey
+                .sorted { lhs, rhs in
+                    (lhs.value.last?.recordedAt ?? .distantPast)
+                        < (rhs.value.last?.recordedAt ?? .distantPast)
+                }
+                .prefix(seriesByKey.count - Self.maximumSeriesCount)
+                .map(\.key)
+            for key in overflowKeys {
+                seriesByKey.removeValue(forKey: key)
+            }
+            changed = true
         }
         return changed
     }

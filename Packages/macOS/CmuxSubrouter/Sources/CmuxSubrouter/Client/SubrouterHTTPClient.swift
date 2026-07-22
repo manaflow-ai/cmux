@@ -67,16 +67,33 @@ public struct SubrouterHTTPClient: SubrouterClienting {
             throw SubrouterClientError.unreachable(description: error.localizedDescription)
         }
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            let body = String(data: data.prefix(200), encoding: .utf8) ?? ""
-            throw SubrouterClientError.httpStatus(
-                code: http.statusCode,
-                description: body.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
+            // The raw body never crosses this boundary: `shortDescription`
+            // feeds UI and CLI surfaces, so only the status code is safe.
+            throw SubrouterClientError.httpStatus(code: http.statusCode, description: "")
         }
         do {
             return try decoder.decode(Payload.self, from: data)
+        } catch let error as DecodingError {
+            throw SubrouterClientError.decoding(description: Self.decodingSummary(error))
         } catch {
-            throw SubrouterClientError.decoding(description: String(describing: error))
+            throw SubrouterClientError.decoding(description: "unexpected daemon response")
+        }
+    }
+
+    /// A payload-free summary of a decode failure, safe for user-facing
+    /// error text (never includes response contents or coding-path dumps).
+    private static func decodingSummary(_ error: DecodingError) -> String {
+        switch error {
+        case .keyNotFound:
+            return "unexpected daemon response (missing field)"
+        case .valueNotFound:
+            return "unexpected daemon response (missing value)"
+        case .typeMismatch:
+            return "unexpected daemon response (type mismatch)"
+        case .dataCorrupted:
+            return "unexpected daemon response (corrupt payload)"
+        @unknown default:
+            return "unexpected daemon response"
         }
     }
 

@@ -4,8 +4,17 @@ import CmuxSubrouterUI
 /// The thin app-target shim mounting the packaged Agents panel with the
 /// shared app-owned store (mirrors how `FeedPanelView` reaches its
 /// coordinator).
+///
+/// The right-sidebar shell keeps its content mounted once shown, so the
+/// host forwards the sidebar's real visibility: the panel's poll surface
+/// must go idle when the sidebar is hidden, not just on unmount.
 struct SubrouterAgentsPanelHostView: View {
+    let isSidebarVisible: Bool
+
     var body: some View {
-        AgentsPanelView(store: SubrouterAppRuntime.shared.store)
+        AgentsPanelView(
+            store: SubrouterAppRuntime.shared.store,
+            isPanelVisible: isSidebarVisible
+        )
     }
 }

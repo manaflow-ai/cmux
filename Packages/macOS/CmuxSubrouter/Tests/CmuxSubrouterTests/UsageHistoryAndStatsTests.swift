@@ -3,10 +3,14 @@ import Testing
 @testable import CmuxSubrouter
 
 @Suite struct UsageHistoryTests {
-    private func account(id: String, used: Double) -> SubrouterAccountUsageStatus {
+    private func account(
+        id: String,
+        used: Double,
+        provider: SubrouterProvider = .codex
+    ) -> SubrouterAccountUsageStatus {
         SubrouterAccountUsageStatus(
             id: id,
-            provider: .codex,
+            provider: provider,
             email: id,
             authChecked: true,
             authValid: true,
@@ -36,8 +40,56 @@ import Testing
         // Spacing elapsed records even without movement.
         let spaced = history.record(usageStatuses: [account(id: "a", used: 45)], now: base.addingTimeInterval(120 + 601))
         #expect(spaced)
-        let samples = history.samples(accountID: "a", windowName: "5h")
+        let samples = history.samples(provider: .codex, accountID: "a", windowName: "5h")
         #expect(samples.map(\.usedPercent) == [40, 45, 45])
+    }
+
+    @Test func scopesSeriesByProvider() {
+        var history = SubrouterUsageHistory()
+        let base = Date(timeIntervalSince1970: 1_500_000)
+        // The same account ID under two providers (a Codex email and a
+        // Claude profile name can collide) must keep separate series.
+        _ = history.record(
+            usageStatuses: [
+                account(id: "a", used: 40, provider: .codex),
+                account(id: "a", used: 80, provider: .claude),
+            ],
+            now: base
+        )
+        #expect(history.samples(provider: .codex, accountID: "a", windowName: "5h").map(\.usedPercent) == [40])
+        #expect(history.samples(provider: .claude, accountID: "a", windowName: "5h").map(\.usedPercent) == [80])
+    }
+
+    @Test func evictsSeriesForAccountsThatDisappear() {
+        var history = SubrouterUsageHistory()
+        let base = Date(timeIntervalSince1970: 1_600_000)
+        _ = history.record(usageStatuses: [account(id: "removed", used: 10)], now: base)
+        // A refresh after the retention window that no longer includes the
+        // old account prunes its series entirely, keeping the persisted
+        // file bounded over the life of an install.
+        let later = base.addingTimeInterval(SubrouterUsageHistory.retention + 60)
+        let changed = history.record(usageStatuses: [account(id: "kept", used: 20)], now: later)
+        #expect(changed)
+        #expect(history.samples(provider: .codex, accountID: "removed", windowName: "5h").isEmpty)
+        #expect(history.samples(provider: .codex, accountID: "kept", windowName: "5h").count == 1)
+    }
+
+    @Test func capsTotalSeriesCount() {
+        var history = SubrouterUsageHistory()
+        let base = Date(timeIntervalSince1970: 1_700_000)
+        // Oldest-by-newest-sample series fall off past the global cap.
+        for index in 0..<(SubrouterUsageHistory.maximumSeriesCount + 10) {
+            _ = history.record(
+                usageStatuses: [account(id: "acct-\(index)", used: 50)],
+                now: base.addingTimeInterval(Double(index))
+            )
+        }
+        #expect(history.samples(provider: .codex, accountID: "acct-0", windowName: "5h").isEmpty)
+        #expect(!history.samples(
+            provider: .codex,
+            accountID: "acct-\(SubrouterUsageHistory.maximumSeriesCount + 9)",
+            windowName: "5h"
+        ).isEmpty)
     }
 
     @Test func capsAndPrunesSeries() {
@@ -49,7 +101,7 @@ import Testing
                 now: base.addingTimeInterval(Double(index) * 700)
             )
         }
-        let samples = history.samples(accountID: "a", windowName: "5h")
+        let samples = history.samples(provider: .codex, accountID: "a", windowName: "5h")
         #expect(samples.count <= SubrouterUsageHistory.maximumSamplesPerSeries)
         #expect(samples.first!.recordedAt > base)
     }

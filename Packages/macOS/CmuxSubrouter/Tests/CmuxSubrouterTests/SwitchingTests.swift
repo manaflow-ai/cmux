@@ -198,6 +198,23 @@ import Testing
         #expect(runner.invocations[0].arguments == ["switch", "dev@example.com"])
     }
 
+    @Test func tildeCommandPathExpandsToHomeDirectory() async throws {
+        // Settings accepts `~/bin/subrouter`, but neither CommandRunner nor
+        // /usr/bin/env expands a tilde — the switcher must resolve it.
+        let expanded = ("~/bin/sr-tilde-test" as NSString).expandingTildeInPath
+        let runner = FakeCommandRunner()
+        runner.resultsByExecutable[expanded] = FakeCommandRunner.success()
+        let switcher = SubrouterCommandSwitcher(commandRunner: runner, workingDirectory: "/tmp")
+
+        try await switcher.switchAccount(
+            provider: .codex,
+            accountID: "dev@example.com",
+            commandPath: "~/bin/sr-tilde-test"
+        )
+        #expect(runner.invocations.map(\.executable) == [expanded])
+        #expect(expanded.hasPrefix("/"))
+    }
+
     @Test func fallsBackFromSrToSubrouter() async throws {
         let runner = FakeCommandRunner()
         runner.resultsByExecutable["subrouter"] = FakeCommandRunner.success()

@@ -183,7 +183,9 @@ public final class SubrouterStore {
             } catch let error as SubrouterClientError {
                 outcome = .failure(description: error.shortDescription)
             } catch {
-                outcome = .failure(description: String(describing: error))
+                // Unknown errors never carry raw dumps into user-facing
+                // state; the type name alone is safe and still diagnostic.
+                outcome = .failure(description: "unexpected error (\(type(of: error)))")
             }
             guard let self, !Task.isCancelled else { return }
             self.refreshTask = nil

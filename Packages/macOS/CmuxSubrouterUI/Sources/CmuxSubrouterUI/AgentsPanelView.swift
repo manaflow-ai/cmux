@@ -9,11 +9,18 @@ public import CmuxSubrouter
 /// the store's poll gating via `onAppear`/`onDisappear`.
 public struct AgentsPanelView: View {
     private let store: SubrouterStore
+    private let isPanelVisible: Bool
 
     /// Creates the panel.
-    /// - Parameter store: The app-owned subrouter store.
-    public init(store: SubrouterStore) {
+    /// - Parameters:
+    ///   - store: The app-owned subrouter store.
+    ///   - isPanelVisible: Whether the hosting sidebar is actually on
+    ///     screen. Hosts that keep hidden content mounted (the right
+    ///     sidebar shell never unmounts once shown) must pass their real
+    ///     visibility here so polling stops while the panel is hidden.
+    public init(store: SubrouterStore, isPanelVisible: Bool = true) {
         self.store = store
+        self.isPanelVisible = isPanelVisible
     }
 
     public var body: some View {
@@ -68,8 +75,11 @@ public struct AgentsPanelView: View {
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .onAppear { store.setSurfaceVisible(.agentsPanel, true) }
+        .onAppear { store.setSurfaceVisible(.agentsPanel, isPanelVisible) }
         .onDisappear { store.setSurfaceVisible(.agentsPanel, false) }
+        .onChange(of: isPanelVisible) { _, visible in
+            store.setSurfaceVisible(.agentsPanel, visible)
+        }
         .accessibilityIdentifier("SubrouterAgentsPanel")
     }
 

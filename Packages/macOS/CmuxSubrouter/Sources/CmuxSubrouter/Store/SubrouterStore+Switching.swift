@@ -39,7 +39,10 @@ extension SubrouterStore {
             lastSwitchError = error
             throw error
         } catch {
-            let wrapped = SubrouterSwitchError.commandFailed(description: String(describing: error))
+            // Unknown errors never carry raw dumps into user-facing state.
+            let wrapped = SubrouterSwitchError.commandFailed(
+                description: "unexpected error (\(type(of: error)))"
+            )
             lastSwitchError = wrapped
             throw wrapped
         }
@@ -53,7 +56,7 @@ extension SubrouterStore {
         } catch let error as SubrouterClientError {
             reloadWarning = error.shortDescription
         } catch {
-            reloadWarning = String(describing: error)
+            reloadWarning = "unexpected error (\(type(of: error)))"
         }
         await performFreshRefresh(reason: "switch")
         if let reloadWarning, snapshot.lastErrorDescription == nil {

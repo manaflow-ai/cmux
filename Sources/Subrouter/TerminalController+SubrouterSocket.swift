@@ -105,7 +105,13 @@ extension TerminalController {
         } catch let error as SubrouterSwitchError {
             return Self.subrouterSwitchError(error)
         } catch {
-            return .err(code: "sr_failed", message: String(describing: error), data: nil)
+            // Unknown errors stay generic: raw dumps never cross the
+            // socket/CLI boundary (typed errors are mapped above).
+            return .err(
+                code: "sr_failed",
+                message: "The account switch failed unexpectedly (\(type(of: error))).",
+                data: nil
+            )
         }
         let snapshot = await MainActor.run { store.snapshot }
         var payload: [String: Any] = [
@@ -133,7 +139,11 @@ extension TerminalController {
         } catch let error as SubrouterClientError {
             return .err(code: "daemon_unreachable", message: error.shortDescription, data: nil)
         } catch {
-            return .err(code: "daemon_unreachable", message: String(describing: error), data: nil)
+            return .err(
+                code: "daemon_unreachable",
+                message: "Could not reach the subrouter daemon (\(type(of: error))).",
+                data: nil
+            )
         }
     }
 

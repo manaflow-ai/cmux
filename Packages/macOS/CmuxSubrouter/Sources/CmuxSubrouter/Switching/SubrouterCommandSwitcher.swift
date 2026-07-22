@@ -40,8 +40,12 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
     ) async throws {
         let arguments = try Self.switchArguments(provider: provider, accountID: accountID)
         let executables: [String]
-        if let commandPath, !commandPath.trimmingCharacters(in: .whitespaces).isEmpty {
-            executables = [commandPath]
+        let trimmedCommandPath = commandPath?.trimmingCharacters(in: .whitespaces) ?? ""
+        if !trimmedCommandPath.isEmpty {
+            // Settings accepts values like `~/bin/subrouter`; neither
+            // CommandRunner nor /usr/bin/env expands a tilde, so resolve it
+            // here or the configured path silently never launches.
+            executables = [(trimmedCommandPath as NSString).expandingTildeInPath]
         } else {
             executables = ["sr", "subrouter"]
         }

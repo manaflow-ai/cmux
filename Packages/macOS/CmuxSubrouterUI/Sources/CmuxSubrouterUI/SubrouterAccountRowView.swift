@@ -103,7 +103,11 @@ public struct SubrouterAccountRowView: View {
             ForEach(Array(account.windows.enumerated()), id: \.offset) { _, window in
                 SubrouterUsageBarView(
                     window: window,
-                    historySamples: usageHistory.samples(accountID: account.id, windowName: window.name)
+                    historySamples: usageHistory.samples(
+                        provider: account.provider,
+                        accountID: account.id,
+                        windowName: window.name
+                    )
                 )
             }
         }

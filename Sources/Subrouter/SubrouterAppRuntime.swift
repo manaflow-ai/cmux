@@ -19,14 +19,21 @@ final class SubrouterAppRuntime {
     private var appIsActive = NSApp.isActive
     private var observationTasks: [Task<Void, Never>] = []
 
+    /// The cached `sr server` default from `~/.subrouter/codex/servers.json`.
+    /// Loaded off-main at init and on app activation; the hot
+    /// `UserDefaults` did-change path composes configuration from this
+    /// cache instead of re-reading disk on every defaults write.
+    private var serverSelection: SubrouterServerSelection.Server?
+
     private init() {
         let historyURL = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first?
             .appendingPathComponent("cmux/subrouter-usage-history.json")
         store = SubrouterStore(historyStorageURL: historyURL)
-        store.updateConfiguration(SubrouterIntegrationSettings.currentConfiguration())
+        applyCurrentConfiguration()
         startObservers()
+        refreshServerSelection()
     }
 
     deinit {
@@ -53,20 +60,42 @@ final class SubrouterAppRuntime {
         store.setSurfaceVisible(.footerSwitcher, footerVisibleCount > 0 && appIsActive)
     }
 
+    private func applyCurrentConfiguration() {
+        store.updateConfiguration(
+            SubrouterIntegrationSettings.currentConfiguration(serverSelection: serverSelection)
+        )
+    }
+
+    /// Re-reads the `sr` server registry off the main actor, then reapplies
+    /// configuration. `updateConfiguration` no-ops on equal values, so a
+    /// selection that has not changed costs nothing beyond the read.
+    private func refreshServerSelection() {
+        Task { @MainActor [weak self] in
+            let selection = await Task.detached(priority: .utility) {
+                SubrouterIntegrationSettings.loadDefaultServerSelection()
+            }.value
+            guard let self else { return }
+            self.serverSelection = selection
+            self.applyCurrentConfiguration()
+        }
+    }
+
     private func startObservers() {
         let center = NotificationCenter.default
         observationTasks.append(Task { @MainActor [weak self] in
             for await _ in center.notifications(named: UserDefaults.didChangeNotification).map({ _ in () }) {
                 guard let self else { return }
                 // updateConfiguration no-ops when the derived value is equal,
-                // so the frequent defaults churn stays cheap.
-                self.store.updateConfiguration(SubrouterIntegrationSettings.currentConfiguration())
+                // so the frequent defaults churn stays cheap. Composes from
+                // the cached server selection: this fires on every defaults
+                // write and must never touch disk.
+                self.applyCurrentConfiguration()
             }
         })
         observationTasks.append(Task { @MainActor [weak self] in
             for await _ in center.notifications(named: .cmuxFeatureFlagsDidChange).map({ _ in () }) {
                 guard let self else { return }
-                self.store.updateConfiguration(SubrouterIntegrationSettings.currentConfiguration())
+                self.applyCurrentConfiguration()
             }
         })
         observationTasks.append(Task { @MainActor [weak self] in
@@ -74,9 +103,10 @@ final class SubrouterAppRuntime {
                 guard let self else { return }
                 self.appIsActive = true
                 // Endpoint resolution follows sr's servers.json, which is
-                // not a defaults key — re-derive on activation so `sr server
-                // use` in a terminal is picked up when the user returns.
-                self.store.updateConfiguration(SubrouterIntegrationSettings.currentConfiguration())
+                // not a defaults key — re-read it (off-main) on activation
+                // so `sr server use` in a terminal is picked up when the
+                // user returns.
+                self.refreshServerSelection()
                 self.syncFooterSurfaceVisibility()
             }
         })
