@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly REPOSITORY="usr-bin-roygbiv/cmux"
+readonly REPOSITORY="${REPOSITORY:-usr-bin-roygbiv/cmux}"
 readonly WORKFLOW="memory-autoresearch.yml"
-readonly REQUIRED_GH_CONFIG_DIR="/home/zac/.config/gh-usr-bin-roygbiv"
-export GH_CONFIG_DIR="$REQUIRED_GH_CONFIG_DIR"
+readonly DEFAULT_GH_CONFIG_DIR="/home/zac/.config/gh-usr-bin-roygbiv"
+export GH_CONFIG_DIR="${GH_CONFIG_DIR:-$DEFAULT_GH_CONFIG_DIR}"
 
 usage() {
   cat <<'USAGE'
@@ -34,8 +34,9 @@ Single candidate example:
 Explicit unattended repetition:
   ./autoresearch.sh --source-ref main --continuous --interval 1800
 
-The dispatcher always uses repository usr-bin-roygbiv/cmux and
-GH_CONFIG_DIR=/home/zac/.config/gh-usr-bin-roygbiv.
+Environment:
+  REPOSITORY          Repository containing the workflow (owner/name)
+  GH_CONFIG_DIR       GitHub CLI configuration directory
 USAGE
 }
 
@@ -134,7 +135,7 @@ mkdir -p "$artifact_root"
   || fail "artifact directory is not writable: $artifact_root"
 
 gh auth status --hostname github.com >/dev/null \
-  || fail "gh is not authenticated with GH_CONFIG_DIR=$GH_CONFIG_DIR"
+  || fail "gh is not authenticated; configure gh or set GH_CONFIG_DIR"
 
 run_once() {
   local sequence="$1"
