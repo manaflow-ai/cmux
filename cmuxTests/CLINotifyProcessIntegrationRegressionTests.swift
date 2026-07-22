@@ -846,6 +846,158 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedLineCount)
     }
 
+    func testClaudeAutoNameTranscriptShrinkReconcilesPanelUnderManualWorkspaceWithoutSummarizing() throws {
+        let context = try makeClaudeHookContext(name: "claude-shrink-manual")
+        defer { context.cleanup() }
+
+        let sessionId = "shrink-manual-session"
+        let transcriptURL = context.root.appendingPathComponent("compacted.jsonl")
+        try #"{"type":"user","message":{"content":"Keep the existing topic"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let compactedLineCount = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        let lastNamedAt = now - 60
+        let lastAttemptAt = now - 30
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: lastNamedAt,
+            lastAttemptAt: lastAttemptAt,
+            inFlightAt: nil
+        )
+        let summarizerMarker = context.root.appendingPathComponent("summarizer-invoked")
+        let summarizerURL = context.root.appendingPathComponent("fake-claude")
+        try "#!/bin/sh\n/usr/bin/touch \"\(summarizerMarker.path)\"\n/bin/echo 'Unexpected title'\n"
+            .write(to: summarizerURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: summarizerURL.path
+        )
+
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 2
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            if params["probe"] as? Bool == true {
+                return self.v2Response(id: id, ok: true, result: [
+                    "enabled": true,
+                    "workspace_user_owned": true,
+                ])
+            }
+            XCTAssertEqual(params["title"] as? String, "Fix auth bug")
+            XCTAssertEqual(params["expected_workspace_title"] as? String, "Fix auth bug")
+            XCTAssertEqual(params["clear_status_on_apply"] as? Bool, false)
+            return self.v2Response(id: id, ok: true, result: [
+                "workspace_applied": false,
+                "workspace_apply_skipped": true,
+                "panel_applied": true,
+                "panel_apply_skipped": false,
+            ])
+        }
+        let result = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: ["CMUX_CUSTOM_CLAUDE_PATH": summarizerURL.path]
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: summarizerMarker.path))
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedLineCount)
+        XCTAssertEqual(record["autoNameLastTitle"] as? String, "Fix auth bug")
+        XCTAssertEqual(record["autoNameLastNamedAt"] as? Double, lastNamedAt)
+        XCTAssertEqual(record["autoNameLastAttemptAt"] as? Double, lastAttemptAt)
+    }
+
+    func testClaudeAutoNamePersistsNewTitleWhenManualWorkspaceRaceStillAppliesPanel() throws {
+        let context = try makeClaudeHookContext(name: "claude-panel-only-title")
+        defer { context.cleanup() }
+
+        let sessionId = "panel-only-title-session"
+        let transcriptURL = context.root.appendingPathComponent("conversation.jsonl")
+        let transcript = (0..<12).map { index in
+            #"{"type":"user","message":{"content":"Investigate authentication \#(index)"}}"#
+        }.joined(separator: "\n")
+        try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let transcriptLineCount = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 1,
+            lastTitle: "Earlier automatic topic",
+            lastNamedAt: now - 600,
+            lastAttemptAt: now - 600,
+            inFlightAt: nil
+        )
+        let summarizerMarker = context.root.appendingPathComponent("summarizer-invoked")
+        let summarizerURL = context.root.appendingPathComponent("fake-claude")
+        try "#!/bin/sh\n/usr/bin/touch \"\(summarizerMarker.path)\"\n/bin/echo 'New panel topic'\n"
+            .write(to: summarizerURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: summarizerURL.path
+        )
+
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 2
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            if params["probe"] as? Bool == true {
+                return self.v2Response(id: id, ok: true, result: [
+                    "enabled": true,
+                    "workspace_user_owned": false,
+                ])
+            }
+            XCTAssertEqual(params["title"] as? String, "New panel topic")
+            XCTAssertNil(params["expected_workspace_title"])
+            XCTAssertEqual(params["clear_status_on_apply"] as? Bool, true)
+            return self.v2Response(id: id, ok: true, result: [
+                "workspace_applied": false,
+                "workspace_apply_skipped": true,
+                "panel_applied": true,
+                "panel_apply_skipped": false,
+            ])
+        }
+        let result = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: ["CMUX_CUSTOM_CLAUDE_PATH": summarizerURL.path]
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: summarizerMarker.path))
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameLastTitle"] as? String, "New panel topic")
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, transcriptLineCount)
+    }
+
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }
