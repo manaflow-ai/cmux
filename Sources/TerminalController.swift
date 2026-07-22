@@ -5138,8 +5138,8 @@ class TerminalController {
         guard let ptr = text.text, text.text_len > 0 else {
             return ""
         }
-        let rawData = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: rawData, as: UTF8.self)
+        let bytes = UnsafeRawBufferPointer(start: ptr, count: Int(text.text_len))
+        return Self.decodeTerminalText(bytes)
     }
 
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
@@ -5152,23 +5152,25 @@ class TerminalController {
         ) else {
             return "ERROR: Terminal surface not found"
         }
-        switch Self.terminalTextPayload(
+        return Self.terminalTextBase64Response(
             from: snapshot,
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
-        ) {
-        case .success(let payload):
-            return "OK \(payload.base64)"
-        case .failure(let error):
-            return "ERROR: \(error.message)"
-        }
+        )
     }
 
-    nonisolated static func terminalTextPayload(
+    nonisolated static func decodeTerminalText(_ bytes: UnsafeRawBufferPointer) -> String {
+        // Ghostty owns this buffer until `ghostty_surface_free_text`. String's
+        // decoder consumes it synchronously and returns owned storage, so no
+        // Data copy is needed while the pointer is alive.
+        String(decoding: bytes, as: UTF8.self)
+    }
+
+    nonisolated static func terminalTextOutput(
         from snapshot: TerminalTextRawSnapshot,
         includeScrollback: Bool,
         lineLimit: Int?
-    ) -> Result<TerminalTextPayload, TerminalTextPayloadError> {
+    ) -> Result<String, TerminalTextPayloadError> {
         let output: String
         if includeScrollback {
             var candidates: [String] = []
@@ -5209,8 +5211,42 @@ class TerminalController {
             output = viewport
         }
 
-        let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
-        return .success(TerminalTextPayload(text: output, base64: base64))
+        return .success(output)
+    }
+
+    nonisolated static func terminalTextPayload(
+        from snapshot: TerminalTextRawSnapshot,
+        includeScrollback: Bool,
+        lineLimit: Int?
+    ) -> Result<TerminalTextPayload, TerminalTextPayloadError> {
+        switch terminalTextOutput(
+            from: snapshot,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ) {
+        case .success(let output):
+            let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
+            return .success(TerminalTextPayload(text: output, base64: base64))
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+
+    nonisolated static func terminalTextBase64Response(
+        from snapshot: TerminalTextRawSnapshot,
+        includeScrollback: Bool,
+        lineLimit: Int?
+    ) -> String {
+        switch terminalTextPayload(
+            from: snapshot,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ) {
+        case .success(let payload):
+            return "OK \(payload.base64)"
+        case .failure(let error):
+            return "ERROR: \(error.message)"
+        }
     }
 
     nonisolated private static func terminalTextCandidateScore(_ text: String) -> (lines: Int, bytes: Int) {
@@ -5460,21 +5496,18 @@ class TerminalController {
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
-        let response = readTerminalTextBase64(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        )
-        guard response.hasPrefix("OK ") else { return nil }
-        let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        if base64.isEmpty {
-            return ""
-        }
-        guard let data = Data(base64Encoded: base64),
-              let decoded = String(data: data, encoding: .utf8) else {
+        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readPlainTerminalTextForSnapshot") != nil,
+              let snapshot = readTerminalTextRawSnapshot(
+                  terminalPanel: terminalPanel,
+                  includeScrollback: includeScrollback
+              ) else {
             return nil
         }
-        return decoded
+        return try? Self.terminalTextOutput(
+            from: snapshot,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ).get()
     }
 
     func readTerminalTextForSnapshot(
