@@ -134,6 +134,27 @@ extension Workspace {
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
     }
 
+    /// True when `binding` is a plain (non-tmux) agent-hook resume binding
+    /// whose session no longer shows up as a live process. Generalizes the
+    /// tmux-only `isProcessDetected` staleness signal in
+    /// `reconcileSurfaceResumeBindings` so a normal exit of a resumed
+    /// non-tmux agent doesn't leave a binding that gets replayed as a resume
+    /// on the next relaunch (#8446).
+    func isStaleAgentHookBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
+        guard binding.isAgentHookBinding,
+              let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !checkpointId.isEmpty,
+              let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !kind.isEmpty else {
+            return false
+        }
+        return !AgentResumeLiveness.hasLiveProcess(
+            for: SharedLiveAgentIndex.shared.index?.entry(workspaceId: id, panelId: panelId),
+            kind: kind,
+            sessionId: checkpointId
+        )
+    }
+
     func seedSessionRestoredAgentState(
         panelId: UUID,
         restorableAgent: SessionRestorableAgentSnapshot?,

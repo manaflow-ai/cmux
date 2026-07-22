@@ -12,6 +12,8 @@ import Foundation
 final class AgentResumeLaunchGuard {
     static let shared = AgentResumeLaunchGuard()
 
+    private var claimedSessionKeys: Set<String> = []
+
     init() {}
 
     /// Attempts to claim the resume launch for `(kind, sessionId)`.
@@ -20,10 +22,12 @@ final class AgentResumeLaunchGuard {
     /// caller should proceed with firing the resume. Returns `false` on every
     /// subsequent call for the same session, meaning some other panel already
     /// claimed it and the caller must skip firing a duplicate resume.
-    // TODO(#8446): this does not yet track claims, so every caller is told
-    // it's free to launch — restore this to the real dedup once verified.
     @discardableResult
     func claimResumeLaunch(kind: String, sessionId: String) -> Bool {
-        true
+        claimedSessionKeys.insert(Self.key(kind: kind, sessionId: sessionId)).inserted
+    }
+
+    private static func key(kind: String, sessionId: String) -> String {
+        "\(kind)\u{1f}\(sessionId)"
     }
 }

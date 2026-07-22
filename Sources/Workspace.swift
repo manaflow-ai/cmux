@@ -1220,6 +1220,12 @@ extension Workspace {
             guard let detectedBinding else {
                 if storedBinding.isProcessDetected {
                     surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                } else if isStaleAgentHookBinding(storedBinding, panelId: panelId) {
+                    // Generalizes the tmux-only reconciliation above: a plain
+                    // (non-tmux) agent-hook binding whose session no longer
+                    // shows up as live gets dropped here too, instead of being
+                    // replayed as a resume on the next relaunch (#8446).
+                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                 }
                 continue
             }
@@ -1372,8 +1378,38 @@ extension Workspace {
                 )
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
+            // A crash-restart can leave this exact agent session alive from the
+            // previous launch (or a duplicate panel can reference the same
+            // session in this same restore pass); firing another `codex
+            // resume`/`claude --resume` on top of it just piles up redundant
+            // processes contending for the same on-disk session data (#8446).
+            // Consult the same live-process index already used for "reopen
+            // closed tab" / Fork Conversation availability, and fall back to a
+            // per-launch dedup claim so two panels can't both win the race
+            // before the freshly spawned process becomes visible to the index.
+            let agentSessionAlreadyActive: Bool = {
+                guard shouldAutoResumeAgent, restoredHibernation == nil, restoredBindingLaunch == nil,
+                      let restorableAgent else {
+                    return false
+                }
+                let liveIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                    ?? RestorableAgentSessionIndex.load()
+                let liveEntry = liveIndex.entry(workspaceId: id, panelId: snapshot.id)
+                if AgentResumeLiveness.hasLiveProcess(
+                    for: liveEntry,
+                    kind: restorableAgent.kind.rawValue,
+                    sessionId: restorableAgent.sessionId
+                ) {
+                    return true
+                }
+                return !AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                    kind: restorableAgent.kind.rawValue,
+                    sessionId: restorableAgent.sessionId
+                )
+            }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
+                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
+                    && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
