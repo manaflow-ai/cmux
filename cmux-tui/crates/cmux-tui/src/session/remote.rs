@@ -1460,6 +1460,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, AtomicU64};
+    use std::sync::mpsc::{Receiver, Sender};
     use std::sync::{Mutex, Weak};
 
     use ghostty_vt::{Callbacks, Terminal};
@@ -1530,6 +1531,98 @@ mod tests {
             self.closed.store(true, Ordering::Release);
             Ok(())
         }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum InitializationFailure {
+        IdentifyRejected,
+        WrongApp,
+        WrongProtocol,
+        ClientInfoRejected,
+        SubscribeRejected,
+    }
+
+    struct ScriptedInitializationReader {
+        responses: Receiver<String>,
+    }
+
+    impl RemoteMessageReader for ScriptedInitializationReader {
+        fn receive(&mut self) -> io::Result<Option<String>> {
+            Ok(self.responses.recv().ok())
+        }
+    }
+
+    struct ScriptedInitializationWriter {
+        responses: Sender<String>,
+        failure: InitializationFailure,
+        closed: Arc<AtomicBool>,
+    }
+
+    impl RemoteMessageWriter for ScriptedInitializationWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let command = request
+                .get("cmd")
+                .and_then(Value::as_str)
+                .ok_or_else(|| io::Error::other("remote request omitted its command"))?;
+            let response = match (self.failure, command) {
+                (InitializationFailure::IdentifyRejected, "identify") => {
+                    json!({"id": id, "ok": false, "error": "identify rejected"})
+                }
+                (InitializationFailure::WrongApp, "identify") => json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {"app": "not-cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION},
+                }),
+                (InitializationFailure::WrongProtocol, "identify") => json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION - 1},
+                }),
+                (InitializationFailure::ClientInfoRejected, "set-client-info") => {
+                    json!({"id": id, "ok": false, "error": "client info rejected"})
+                }
+                (InitializationFailure::SubscribeRejected, "subscribe") => {
+                    json!({"id": id, "ok": false, "error": "subscribe rejected"})
+                }
+                (_, "identify") => json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION},
+                }),
+                (_, "set-client-info" | "subscribe") => {
+                    json!({"id": id, "ok": true, "data": null})
+                }
+                (_, command) => {
+                    return Err(io::Error::other(format!(
+                        "unexpected initialization command: {command}"
+                    )));
+                }
+            };
+            self.responses
+                .send(response.to_string())
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "reader exited"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            self.closed.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
+    fn scripted_initialization_transport(
+        failure: InitializationFailure,
+        closed: Arc<AtomicBool>,
+    ) -> RemoteTransport {
+        let (responses, received_responses) = channel();
+        RemoteTransport::new(
+            Box::new(ScriptedInitializationReader { responses: received_responses }),
+            Box::new(ScriptedInitializationWriter { responses, failure, closed }),
+        )
     }
 
     struct UnexpectedWriteWriter;
@@ -1651,6 +1744,30 @@ mod tests {
 
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn initialization_failures_after_reader_spawn_close_the_transport() {
+        for (failure, expected_error) in [
+            (InitializationFailure::IdentifyRejected, "identify rejected"),
+            (InitializationFailure::WrongApp, "socket endpoint is not a cmux-tui session"),
+            (InitializationFailure::WrongProtocol, "unsupported cmux-tui protocol"),
+            (InitializationFailure::ClientInfoRejected, "client info rejected"),
+            (InitializationFailure::SubscribeRejected, "subscribe rejected"),
+        ] {
+            let closed = Arc::new(AtomicBool::new(false));
+            let result = RemoteSession::connect_transport(scripted_initialization_transport(
+                failure,
+                closed.clone(),
+            ));
+
+            let error = result.err().expect("scripted initialization should fail");
+            assert!(
+                error.to_string().contains(expected_error),
+                "{failure:?} returned unexpected error: {error}"
+            );
+            assert!(closed.load(Ordering::Acquire), "{failure:?} did not close its transport");
+        }
     }
 
     #[cfg(unix)]
