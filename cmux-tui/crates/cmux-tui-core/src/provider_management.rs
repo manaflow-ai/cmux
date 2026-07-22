@@ -161,7 +161,7 @@ fn read_message(mut reader: impl Read) -> io::Result<SensitiveBytes> {
     let mut byte = Zeroizing::new([0_u8; 1]);
     loop {
         match reader.read(&mut *byte) {
-            Ok(0) => break,
+            Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
             Ok(1) => {
                 let value = byte[0];
                 byte.zeroize();
