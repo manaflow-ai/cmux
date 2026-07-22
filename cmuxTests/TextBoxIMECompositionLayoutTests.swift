@@ -60,9 +60,9 @@ struct TextBoxIMECompositionLayoutTests {
             window.close()
         }
         var completedLayoutCount = 0
-        textView.onLayoutCompleted = { textView in
+        textView.onLayoutCompleted = { textView, lineFragmentCount in
             completedLayoutCount += 1
-            coordinator.recalculateHeight(textView)
+            coordinator.recalculateHeight(textView, lineFragmentCount: lineFragmentCount)
         }
         textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
             coordinator?.noteMarkedTextStateChanged(hasMarkedText, from: textView)
@@ -82,6 +82,9 @@ struct TextBoxIMECompositionLayoutTests {
 
         #expect(textView.hasMarkedText())
         #expect(markedTextStates == [true])
+        #expect(textView.needsLayout)
+        #expect(completedLayoutCount == 0)
+        textView.layoutSubtreeIfNeeded()
         #expect(completedLayoutCount == 1)
         #expect(textViewHeight > committedOnlyHeight)
         #expect(textView.frame.height == textViewHeight)
@@ -99,6 +102,9 @@ struct TextBoxIMECompositionLayoutTests {
 
         #expect(textView.hasMarkedText())
         #expect(markedTextStates == [true])
+        #expect(textView.needsLayout)
+        #expect(completedLayoutCount == 0)
+        textView.layoutSubtreeIfNeeded()
         #expect(completedLayoutCount == 1)
         #expect(textViewHeight > firstCompositionHeight)
         #expect(textView.frame.height == textViewHeight)
