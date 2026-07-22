@@ -88,6 +88,17 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         let entry = FocusHistoryEntry(workspaceId: workspaceId, panelId: panelId)
         guard focusHistoryEntryIsValid(entry) else { return }
 
+        if navigationScope() == .workspacesOnly,
+           historyIndex >= 0,
+           historyIndex < focusHistory.count,
+           focusHistory[historyIndex].entry.workspaceId == workspaceId {
+            if focusHistory[historyIndex].entry != entry {
+                focusHistory[historyIndex] = FocusHistoryRecord(entry: entry)
+                host?.focusHistoryRevisionDidChange()
+            }
+            return
+        }
+
         if historyIndex >= 0,
            historyIndex < focusHistory.count,
            focusHistory[historyIndex].entry == entry {

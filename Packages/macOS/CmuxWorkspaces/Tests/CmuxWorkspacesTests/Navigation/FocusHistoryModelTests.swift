@@ -121,6 +121,37 @@ struct FocusHistoryModelTests {
         #expect(!model.canNavigateBack)
     }
 
+    @Test func workspacesOnlyScopePreservesForwardWorkspaceAfterPaneFocus() {
+        let host = FakeFocusHistoryHost()
+        let model = FocusHistoryModel(maxHistorySize: 3, navigationScope: { .workspacesOnly })
+        model.attach(host: host)
+        let panelA = UUID()
+        let panelB1 = UUID()
+        let panelB2 = UUID()
+        let panelC = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA: "a"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB1: "b1", panelB2: "b2"])
+        let wsC = host.addWorkspace(title: "C", panels: [panelC: "c"])
+
+        for (workspaceId, panelId) in [(wsA, panelA), (wsB, panelB1), (wsC, panelC)] {
+            host.selectedWorkspaceId = workspaceId
+            host.workspaces[workspaceId]?.rememberedFocusedPanelId = panelId
+            model.recordFocusInHistory(workspaceId: workspaceId, panelId: panelId)
+        }
+
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsB)
+        host.workspaces[wsB]?.rememberedFocusedPanelId = panelB2
+        model.recordFocusInHistory(workspaceId: wsB, panelId: panelB2)
+
+        #expect(model.canNavigateForward)
+        #expect(model.navigateForward())
+        #expect(host.selectedWorkspaceId == wsC)
+        #expect(model.navigateBack())
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsA)
+    }
+
     @Test func recordAndNavigateBackForwardAcrossWorkspaces() {
         let (model, host) = makeModel()
         let panelA = UUID()

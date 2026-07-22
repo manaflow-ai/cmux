@@ -392,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
@@ -480,6 +481,7 @@ class TabManager: ObservableObject {
     ) {
         self.settings = settings
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
+        self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
             settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
         })
@@ -607,6 +609,7 @@ class TabManager: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarMetadataSettingsDidChange()
+                self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
                 self?.refreshWindowTitle()
             }
@@ -656,6 +659,13 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.sidebarGitMetadataWatchSettingsDidChange()
         pullRequestProbing.sidebarPullRequestPollingSettingsDidChange()
         refreshRemotePortScanningEnablement()
+    }
+
+    private func focusHistoryScopeSettingsDidChange() {
+        let includesPanesAndTabs = settings.value(for: settingsCatalog.app.focusHistoryIncludesPanesAndTabs)
+        guard includesPanesAndTabs != lastFocusHistoryIncludesPanesAndTabs else { return }
+        lastFocusHistoryIncludesPanesAndTabs = includesPanesAndTabs
+        focusHistoryRevisionDidChange()
     }
 
     /// Last ports-visibility enablement fanned out to remote sessions; gates

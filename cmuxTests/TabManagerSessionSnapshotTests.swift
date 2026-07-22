@@ -106,6 +106,35 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
+    func testFocusHistoryScopeChangeInvalidatesAvailability() throws {
+        let suiteName = "TabManagerSessionSnapshotTests.focusHistoryScopeChange.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let scopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
+        settings.set(true, for: scopeKey)
+        let manager = TabManager(settings: settings)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        workspace.focusPanel(firstPanelId)
+        workspace.focusPanel(secondPanelId)
+        XCTAssertTrue(manager.canNavigateBack)
+
+        let enabledRevision = manager.focusHistoryRevision
+        settings.set(false, for: scopeKey)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        XCTAssertGreaterThan(manager.focusHistoryRevision, enabledRevision)
+        XCTAssertFalse(manager.canNavigateBack)
+
+        let disabledRevision = manager.focusHistoryRevision
+        settings.set(true, for: scopeKey)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        XCTAssertGreaterThan(manager.focusHistoryRevision, disabledRevision)
+        XCTAssertTrue(manager.canNavigateBack)
+    }
+
     func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
