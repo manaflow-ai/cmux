@@ -22,7 +22,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var resizeDidEndObserver: NSObjectProtocol?
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) },
-        viewportChangeFlush: { [weak self] in self?.flushViewportChange() }
+        viewportChangeFlush: { [weak self] in self?.flushViewportChange() },
+        reloadFlush: { [weak self] in self?.containerView?.tableView.reloadData() }
     )
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
@@ -141,7 +142,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageViewportChange()
             return
         }
-        mutationScheduler.cancelPendingTableMutations()
+        mutationScheduler.cancelPendingApplyAndViewport()
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -156,7 +157,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let previousRowIds = rows.map(\.id)
         rows = rows.filter { liveIds.contains($0.workspaceId) }
         if previousRowIds != rows.map(\.id) {
-            containerView?.tableView.reloadData()
+            mutationScheduler.stageTableReload()
         }
     }
 
@@ -179,7 +180,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if let containerView {
             clearDropViewActions(in: containerView)
             if previousRowIds != rows.map(\.id) {
-                containerView.tableView.reloadData()
+                mutationScheduler.stageTableReload()
             }
         }
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)

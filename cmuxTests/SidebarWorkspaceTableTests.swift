@@ -264,7 +264,7 @@ struct SidebarWorkspaceTableTests {
         scheduler.stageApply(input)
         scheduler.stageViewportChange()
         scheduler.stageTableReload()
-        scheduler.cancelPendingTableMutations()
+        scheduler.cancelPendingApplyAndViewport()
         await flushStagedTableMutations()
         #expect(appliedInputs == 0)
         #expect(viewportFlushes == 0)
