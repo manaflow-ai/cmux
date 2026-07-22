@@ -281,7 +281,7 @@ extension RemoteTmuxController {
             controller.v2WorkspaceCreate(params: params)
         }
         Self.logger.info(
-            "reconnect-auth: login workspace for \(host.connectionHash, privacy: .public): \(String(describing: result), privacy: .public)")
+            "reconnect-auth: login workspace for \(host.connectionHash, privacy: .public): \(Self.loginWorkspaceOutcomeLabel(result), privacy: .public)")
         guard case .ok(let payload) = result,
               let workspaceId = (payload as? [String: Any])?["workspace_id"] as? String,
               let loginWorkspace = UUID(uuidString: workspaceId) else {
@@ -624,4 +624,21 @@ extension RemoteTmuxController {
             + "\(quoted) && printf '%s\\n' \(ok) || printf '%s\\n' \(failed); exec \(shell) -i"
         return "/bin/sh -c \(RemoteTmuxHost.shellSingleQuoted(payload))"
     }
+
+    /// Names a `V2CallResult` for a public log line without publishing what it carries.
+    /// `.ok` wraps the created workspace's fields and `.err` carries an arbitrary `data`
+    /// value, so interpolating the whole result would put both in the system log. The
+    /// error code is a fixed identifier rather than caller data, so it stays public and
+    /// keeps the line useful for diagnosing a failed login-workspace create.
+    private static func loginWorkspaceOutcomeLabel(
+        _ result: TerminalController.V2CallResult
+    ) -> String {
+        switch result {
+        case .ok:
+            return "ok"
+        case .err(let code, _, _):
+            return "err(\(code))"
+        }
+    }
+
 }
