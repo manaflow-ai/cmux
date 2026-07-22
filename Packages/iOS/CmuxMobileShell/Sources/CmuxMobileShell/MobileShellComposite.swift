@@ -374,16 +374,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             signalVoiceFocusConnectionChanged()
         }
     }
-    /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
-    public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
-    /// Whether the Mac supports rename/pin workspace actions.
-    public var supportsWorkspaceActions: Bool { supportedHostCapabilities.contains(Self.workspaceActionsCapability) }
-    /// Whether the Mac supports mark read/unread workspace actions.
-    public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
-    /// Whether the Mac supports workspace close requests.
-    public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
-    /// Whether the Mac supports dogfood feedback submission.
-    public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Whether the Mac supports iPhone Voice Mode input and focus streaming.
     public var supportsVoiceMode: Bool {
         supportedHostCapabilities.contains(Self.voiceInputCapability)
