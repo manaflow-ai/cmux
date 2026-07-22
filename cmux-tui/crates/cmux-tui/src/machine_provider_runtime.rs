@@ -2847,16 +2847,19 @@ mod tests {
 
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {
             let _control = serve_initial_snapshot(
                 &listener,
                 snapshot(1, "Machine", protocol::MachineStatus::Running),
             );
+            finished.recv().unwrap();
         });
         let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
 
         let error = runtime.open_selected().err().expect("machine is not connectable");
         assert_eq!(error.to_string(), "選択したマシンは接続準備ができていません");
+        finish.send(()).unwrap();
         drop(runtime);
         server.join().unwrap();
     }
