@@ -1556,6 +1556,15 @@ extension Workspace {
                 restoredSurfaceId: reusableSurfaceId
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
+                // The claim taken above (if any) was for a launch that never
+                // actually happened; release it immediately instead of
+                // leaving it to block a legitimate resume for up to the TTL.
+                if restoredAgentResumeLaunch != nil, let restorableAgent {
+                    AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                        kind: restorableAgent.kind.rawValue,
+                        sessionId: restorableAgent.sessionId
+                    )
+                }
                 return nil
             }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)

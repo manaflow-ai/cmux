@@ -20,7 +20,9 @@ final class AgentResumeLaunchGuard {
 
     private static let claimTTL: TimeInterval = 60
 
-    private var claimedSessionKeys: [String: Date] = [:]
+    /// Internal (not `private`) so tests can assert on eviction behavior via
+    /// `@testable import` instead of a dedicated debug-only accessor.
+    var claimedSessionKeys: [String: Date] = [:]
     private let dateProvider: () -> Date
 
     init(dateProvider: @escaping () -> Date = Date.init) {
@@ -38,11 +40,27 @@ final class AgentResumeLaunchGuard {
     func claimResumeLaunch(kind: String, sessionId: String) -> Bool {
         let key = Self.key(kind: kind, sessionId: sessionId)
         let now = dateProvider()
+        pruneExpiredClaims(now: now)
         if let claimedAt = claimedSessionKeys[key], now.timeIntervalSince(claimedAt) < Self.claimTTL {
             return false
         }
         claimedSessionKeys[key] = now
         return true
+    }
+
+    /// Releases a claim early, before its TTL elapses, when the caller
+    /// discovers its own launch never actually happened (e.g. terminal
+    /// surface creation failed after the claim was taken). Safe to call for
+    /// a key that was never claimed or already expired.
+    func releaseResumeLaunch(kind: String, sessionId: String) {
+        claimedSessionKeys.removeValue(forKey: Self.key(kind: kind, sessionId: sessionId))
+    }
+
+    /// Bounds `claimedSessionKeys` growth over a long-running app process:
+    /// every distinct session ever resumed would otherwise leave a permanent
+    /// dictionary entry.
+    private func pruneExpiredClaims(now: Date) {
+        claimedSessionKeys = claimedSessionKeys.filter { now.timeIntervalSince($0.value) < Self.claimTTL }
     }
 
     private static func key(kind: String, sessionId: String) -> String {
