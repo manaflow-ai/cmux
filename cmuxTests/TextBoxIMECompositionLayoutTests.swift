@@ -50,13 +50,10 @@ struct TextBoxIMECompositionLayoutTests {
         )
         let coordinator = TextBoxInputView.Coordinator(parent: inputView)
         let textView = makeTextView()
-        let scrollView = NSScrollView(frame: textView.bounds)
-        scrollView.documentView = textView
-        let window = NSWindow(contentRect: scrollView.bounds, styleMask: [], backing: .buffered, defer: false)
-        window.contentView = scrollView
+        let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = textView
         defer {
             window.contentView = nil
-            scrollView.documentView = nil
             window.close()
         }
         var completedLayoutCount = 0
