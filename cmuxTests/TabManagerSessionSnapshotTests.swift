@@ -135,6 +135,22 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(manager.canNavigateBack)
     }
 
+    func testRestoredWorkspaceDockUsesInjectedFocusHistorySetting() throws {
+        let suiteName = "TabManagerSessionSnapshotTests.restoredFocusHistoryScope.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.focusHistoryIncludesPanesAndTabs)
+        let source = TabManager(settings: settings)
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+
+        let restored = TabManager(settings: settings)
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first)
+        XCTAssertTrue(restoredWorkspace.dockSplit.focusHistoryIncludesPanesAndTabs)
+    }
+
     func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)

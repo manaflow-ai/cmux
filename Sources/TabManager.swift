@@ -6024,6 +6024,7 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
+                settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
@@ -6042,6 +6043,7 @@ extension TabManager {
             let fallback = Workspace(
                 title: "Terminal 1",
                 portOrdinal: ordinal,
+                settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )

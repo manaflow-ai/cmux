@@ -68,6 +68,7 @@ extension TabManager {
                 workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
+                settings: settings,
                 initialDetachedSurface: detached,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
