@@ -4,6 +4,17 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator sidebar v1 dispatch")
 struct ControlCommandCoordinatorSidebarV1Tests {
+    @Test func conditionalNeedsInputFlagRejectsNonRunningLifecycle() {
+        let coordinator = ControlCommandCoordinator(context: FakeSidebarV1ControlCommandContext())
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex idle --tab=workspace-1 --if-needs-input"
+        )
+
+        #expect(response?.contains("--if-needs-input requires lifecycle running") == true)
+    }
+
     @Test func workspaceLoadingFailureReasonReturnsErrorLine() {
         let context = FakeSidebarV1ControlCommandContext()
         context.workspaceLoadingResult = ControlSidebarWorkspaceLoadingState(

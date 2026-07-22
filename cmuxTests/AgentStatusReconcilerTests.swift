@@ -432,6 +432,28 @@ struct AgentStatusReconcilerTests {
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] != .needsInput)
     }
 
+    @Test @MainActor func delayedClaudeHookCannotCrossSamePIDSessionReplacement() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(key: "claude_code", pid: getpid(), panelId: panelId, refreshPorts: false)
+        #expect(workspace.setSurfaceResumeBinding(SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume current-session",
+            checkpointId: "current-session",
+            source: "agent-hook"
+        ), panelId: panelId))
+        let staleEvent = WorkstreamEvent(
+            sessionId: "claude-previous-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            ppid: Int(getpid()),
+            receivedAt: now
+        )
+
+        #expect(!workspace.agentStatusRuntimeIsCurrent(event: staleEvent, panelId: panelId))
+    }
+
     @Test func ordinaryFeedTelemetryDoesNotBypassLifecycleRouting() {
         let event = WorkstreamEvent(
             sessionId: "codex-session",

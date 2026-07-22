@@ -31,6 +31,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
         )
+        let resumeClearRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let resumeClear = try XCTUnwrap(resumeClearRequests.first)
+        XCTAssertEqual(resumeClear["surface_id"] as? String, context.surfaceId)
+        XCTAssertEqual(resumeClear["source"] as? String, "agent-hook")
+        XCTAssertNil(
+            resumeClear["checkpoint_id"],
+            "An accepted /clear session replaces any prior agent-hook binding on the surface."
+        )
     }
 
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
@@ -598,6 +612,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
             },
             "Expected a new Claude session to replace a stopped idle owner on prompt-submit, saw \(newPromptCommands)"
+        )
+        let replacementClear = try XCTUnwrap(newPromptCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }.first)
+        XCTAssertNil(
+            replacementClear["checkpoint_id"],
+            "An accepted prompt replacement must clear the prior session's agent-hook binding."
         )
     }
 

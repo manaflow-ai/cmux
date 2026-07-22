@@ -10,6 +10,32 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
+    @Test("A PID-less internal Codex approval still surfaces Needs input")
+    func pidlessCodexApprovalSurfacesNeedsInput() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let event = WorkstreamEvent(
+            sessionId: "codex-app-server-thread",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            workspaceId: fixture.source.id.uuidString,
+            surfaceId: fixture.panelId.uuidString,
+            requestId: "codex-app-server-approval"
+        )
+
+        let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: event,
+            resolved: (fixture.source.id, fixture.panelId)
+        )
+        defer {
+            if let target { FeedCoordinator.shared.concludeBlockingDecisionAttention(target) }
+        }
+
+        #expect(target != nil)
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["codex"] == .needsInput)
+        #expect(fixture.source.statusEntries["codex"]?.icon == "bell.fill")
+    }
+
     // Generous for loaded CI runners: subprocess spawn, signal propagation,
     // and marker writes can take multiple seconds there. A long timeout only
     // slows the failure path.
