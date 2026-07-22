@@ -272,6 +272,7 @@ extension CMUXCLI {
 
                 let defaultVisible = activeForWorkspace
                     || activeForSurface
+                    || record.restoreAuthority == true
                     || record.isRestorable == true
                     || launchBacked
                     || transcriptBacked
@@ -337,8 +338,12 @@ extension CMUXCLI {
         fileManager: FileManager = .default,
         client: SocketClient
     ) throws {
-        let instanceScope = try agentsInstanceScope(client: client, processEnv: processEnv)
         let subcommand = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if subcommand == "help" {
+            print(agentsUsage())
+            return
+        }
+        let instanceScope = try agentsInstanceScope(client: client, processEnv: processEnv)
         switch subcommand {
         case nil, "", "list", "debug":
             try runSessionsCommand(
@@ -357,8 +362,6 @@ extension CMUXCLI {
                 fileManager: fileManager,
                 instanceScope: instanceScope
             )
-        case "help":
-            print(agentsUsage())
         case let subcommand? where subcommand.hasPrefix("-"):
             try runSessionsCommand(
                 commandArgs: commandArgs,
@@ -458,6 +461,12 @@ extension CMUXCLI {
         let selectedSpecs: [SessionListAgentSpec]
         if let agentRaw {
             let normalized = agentRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.agents.tree.error.agentRequiresValue",
+                    defaultValue: "agents tree: --agent requires a value"
+                ))
+            }
             if ["claude", "claude-code", "claude_code"].contains(normalized) {
                 selectedSpecs = sessionsListAgentSpecs().filter { $0.name == "claude" }
             } else if let definition = Self.agentDef(named: normalized) {
@@ -478,8 +487,12 @@ extension CMUXCLI {
         let sessionFilter = sessionsListNormalized(sessionRaw)?.lowercased()
         let workspaceFilter = sessionsListNormalizedIDRef(workspaceRaw)?.lowercased()
         let surfaceFilter = sessionsListNormalizedIDRef(surfaceRaw)?.lowercased()
+        let hasRecordFilter = sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil
         let decoder = JSONDecoder()
-        var nodes: [[String: Any]] = []
+        let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(
+            homeDirectory: sessionsListExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
+        )
+        var candidateNodes: [(node: [String: Any], matchesFilters: Bool, defaultVisible: Bool)] = []
         var nodesByRunKey: [String: [[String: Any]]] = [:]
         var nodesBySessionKey: [String: [[String: Any]]] = [:]
 
@@ -491,27 +504,25 @@ extension CMUXCLI {
                 ClaudeHookSessionStoreFile.self,
                 from: Data(contentsOf: storeURL)
             )
-            for record in store.sessions.values {
+            for rawRecord in store.sessions.values {
+                let record = spec.name == "claude"
+                    ? sessionsListResolvedClaudeWorkflowRecord(rawRecord, lookup: claudeTranscriptLookup)
+                    : rawRecord
                 guard instanceScope.contains(record) else { continue }
-                guard sessionFilter == nil || record.sessionId.lowercased() == sessionFilter else { continue }
-                guard workspaceFilter == nil || record.workspaceId.lowercased() == workspaceFilter else { continue }
-                guard surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter else { continue }
-                let activeForWorkspace = store.activeSessionsByWorkspace[record.workspaceId]?.sessionId == record.sessionId
-                let activeForSurface = store.activeSessionsBySurface[record.surfaceId]?.sessionId == record.sessionId
+                let rawSessionID = rawRecord.sessionId.lowercased()
+                let resolvedSessionID = record.sessionId.lowercased()
+                let matchesFilters = (sessionFilter == nil
+                        || rawSessionID == sessionFilter
+                        || resolvedSessionID == sessionFilter)
+                    && (workspaceFilter == nil || record.workspaceId.lowercased() == workspaceFilter)
+                    && (surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter)
+                let workspaceActiveSessionID = store.activeSessionsByWorkspace[record.workspaceId]?.sessionId
+                let surfaceActiveSessionID = store.activeSessionsBySurface[record.surfaceId]?.sessionId
+                let activeForWorkspace = workspaceActiveSessionID == rawRecord.sessionId
+                    || workspaceActiveSessionID == record.sessionId
+                let activeForSurface = surfaceActiveSessionID == rawRecord.sessionId
+                    || surfaceActiveSessionID == record.sessionId
                 let restoreAuthority = record.restoreAuthority ?? record.isRestorable ?? false
-                guard includeAll || sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil
-                        || activeForWorkspace || activeForSurface || restoreAuthority else {
-                    continue
-                }
-                guard nodes.count < maximumNodes else {
-                    throw CLIError(message: String(
-                        format: String(
-                            localized: "cli.agents.tree.error.nodeLimit",
-                            defaultValue: "agents tree: more than %lld nodes matched; narrow the filters or raise --max-nodes"
-                        ),
-                        maximumNodes
-                    ))
-                }
                 let runID = sessionsListNormalized(record.runId) ?? record.sessionId
                 let parentRunID = sessionsListNormalized(record.parentRunId)
                 let parentSessionID = sessionsListNormalized(record.parentSessionId)
@@ -538,12 +549,94 @@ extension CMUXCLI {
                     "started_at_unix": record.startedAt,
                     "updated_at_unix": record.updatedAt,
                 ]
-                nodes.append(node)
-                nodesByRunKey[agentSessionGraphKey(agent: spec.name, identifier: runID), default: []].append(node)
-                nodesBySessionKey[agentSessionGraphKey(agent: spec.name, identifier: record.sessionId), default: []].append(node)
+                var outputNode = node
+                if rawRecord.sessionId != record.sessionId {
+                    outputNode["hook_session_id"] = rawRecord.sessionId
+                }
+                candidateNodes.append((
+                    node: outputNode,
+                    matchesFilters: matchesFilters,
+                    defaultVisible: activeForWorkspace || activeForSurface || restoreAuthority
+                ))
+                nodesByRunKey[agentSessionGraphKey(agent: spec.name, identifier: runID), default: []].append(outputNode)
+                nodesBySessionKey[agentSessionGraphKey(agent: spec.name, identifier: record.sessionId), default: []].append(outputNode)
+                if rawRecord.sessionId != record.sessionId {
+                    nodesBySessionKey[
+                        agentSessionGraphKey(agent: spec.name, identifier: rawRecord.sessionId),
+                        default: []
+                    ].append(outputNode)
+                }
             }
         }
 
+        func resolvedParent(for node: [String: Any]) -> [String: Any]? {
+            guard let agent = node["agent"] as? String else { return nil }
+            let sessionParents = (node["parent_session_id"] as? String).map {
+                nodesBySessionKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
+            } ?? []
+            let runParents = (node["parent_run_id"] as? String).map {
+                nodesByRunKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
+            } ?? []
+            let sessionParent = sessionParents.count == 1 ? sessionParents[0] : nil
+            let runParent = runParents.count == 1 ? runParents[0] : nil
+            if let sessionParent, let runParent,
+               sessionParent["node_id"] as? String != runParent["node_id"] as? String {
+                return nil
+            }
+            return sessionParent ?? runParent
+        }
+
+        var selectedNodeIDs = Set(candidateNodes.compactMap { candidate -> String? in
+            guard candidate.matchesFilters,
+                  includeAll || hasRecordFilter || candidate.defaultVisible else {
+                return nil
+            }
+            return candidate.node["node_id"] as? String
+        })
+        var ancestorQueue = candidateNodes.compactMap { candidate -> [String: Any]? in
+            guard let nodeID = candidate.node["node_id"] as? String,
+                  selectedNodeIDs.contains(nodeID) else {
+                return nil
+            }
+            return candidate.node
+        }
+        var ancestorIndex = 0
+        while ancestorIndex < ancestorQueue.count {
+            let node = ancestorQueue[ancestorIndex]
+            ancestorIndex += 1
+            guard let parent = resolvedParent(for: node),
+                  let parentNodeID = parent["node_id"] as? String,
+                  selectedNodeIDs.insert(parentNodeID).inserted else {
+                continue
+            }
+            guard selectedNodeIDs.count <= maximumNodes else {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.agents.tree.error.nodeLimit",
+                        defaultValue: "agents tree: more than %lld nodes matched; narrow the filters or raise --max-nodes"
+                    ),
+                    maximumNodes
+                ))
+            }
+            ancestorQueue.append(parent)
+        }
+        guard selectedNodeIDs.count <= maximumNodes else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.agents.tree.error.nodeLimit",
+                    defaultValue: "agents tree: more than %lld nodes matched; narrow the filters or raise --max-nodes"
+                ),
+                maximumNodes
+            ))
+        }
+
+        var nodes = candidateNodes.compactMap { candidate -> [String: Any]? in
+            guard let nodeID = candidate.node["node_id"] as? String,
+                  selectedNodeIDs.contains(nodeID) else {
+                return nil
+            }
+            return candidate.node
+        }
         nodes.sort {
             let lhs = ($0["started_at_unix"] as? TimeInterval) ?? 0
             let rhs = ($1["started_at_unix"] as? TimeInterval) ?? 0
@@ -551,23 +644,15 @@ extension CMUXCLI {
             return (($0["node_id"] as? String) ?? "") < (($1["node_id"] as? String) ?? "")
         }
         let edges = nodes.compactMap { node -> [String: Any]? in
-            guard let agent = node["agent"] as? String,
-                  let childNodeID = node["node_id"] as? String,
+            guard let childNodeID = node["node_id"] as? String,
                   let childRunID = node["run_id"] as? String,
                   let childSessionID = node["session_id"] as? String else { return nil }
-            let sessionParents = (node["parent_session_id"] as? String).map {
-                nodesBySessionKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
-            } ?? []
-            let runParents = (node["parent_run_id"] as? String).map {
-                nodesByRunKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
-            } ?? []
-            let parent: [String: Any]? = sessionParents.count == 1
-                ? sessionParents[0]
-                : (runParents.count == 1 ? runParents[0] : nil)
+            let parent = resolvedParent(for: node)
             guard let parent,
                   let parentNodeID = parent["node_id"] as? String,
                   let parentRunID = parent["run_id"] as? String,
                   let parentSessionID = parent["session_id"] as? String,
+                  selectedNodeIDs.contains(parentNodeID),
                   parentNodeID != childNodeID else { return nil }
             return [
                 "from_node_id": parentNodeID,
@@ -613,7 +698,7 @@ extension CMUXCLI {
 
         Inspect coding-agent sessions owned by the targeted cmux instance.
         The target comes from --socket, CMUX_SOCKET_PATH, or the default cmux socket.
-        `agents list` prints the existing session diagnostics as schema version 2 JSON.
+        `agents list` prints session diagnostics; pass --json for schema version 2 JSON.
         `agents tree` projects saved run and parent metadata into nodes and edges.
 
         Shared options:

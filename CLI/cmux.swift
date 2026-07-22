@@ -35040,6 +35040,10 @@ export default CMUXSessionRestore;
     }
 
     private func usage() -> String {
+        let agentSessionCommands = String(
+            localized: "cli.usage.agentSessionCommands",
+            defaultValue: "agents <list|tree> [options]\n          sessions [list] [options]                           (compatibility alias)"
+        )
         return """
         cmux - control cmux via Unix socket
 
@@ -35084,8 +35088,7 @@ export default CMUXSessionRestore;
           hooks setup|uninstall [--agent <name>]
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
-          agents <list|tree> [options]
-          sessions [list] [options]                           (compatibility alias)
+          \(agentSessionCommands)
           ping
           version
           capabilities
