@@ -1253,6 +1253,93 @@ mod tests {
     }
 
     #[test]
+    fn full_event_queue_preserves_connection_closed_control_state() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let (send_events, receive_events) = mpsc::channel();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello(&mut stream, &mut reader, "provider-secret");
+            receive_events.recv().expect("wait for subscriber");
+            for index in 0..PROVIDER_EVENT_QUEUE_CAPACITY {
+                write_test_frame(
+                    &mut stream,
+                    &EventEnvelope::new(ProviderEvent::Notice(ProviderNotice {
+                        level: NoticeLevel::Info,
+                        message: format!("queued notice {index}"),
+                    })),
+                );
+            }
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::new(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+                    connection_id: id("revoked-connection"),
+                    machine_id: id("machine-1"),
+                    reason: "machine access revoked".to_string(),
+                })),
+            );
+
+            // The response is ordered after every event on the provider stream.
+            // Receiving it proves the client reader has handled the saturated burst.
+            let request: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(request.request, ProviderRequest::Snapshot(_)));
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(
+                    request.id,
+                    SnapshotResult {
+                        revision: 1,
+                        scopes: Vec::new(),
+                        selected_scope_id: id("personal"),
+                        machines: Vec::new(),
+                        selected_machine_id: None,
+                        capabilities: cmux_tui_machine_protocol::ProviderCapabilities {
+                            create_machine: false,
+                            connect_external_machine: false,
+                        },
+                        actions: Vec::new(),
+                        notice: None,
+                    },
+                ),
+            );
+            finished.recv().expect("hold provider connection open");
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        let events = provider.subscribe_events().expect("subscribe to all events");
+        send_events.send(()).expect("trigger provider events");
+        provider.snapshot(None).expect("synchronize after event burst");
+
+        let mut saw_closure = false;
+        while let Ok(event) = events.recv_timeout(Duration::from_millis(20)) {
+            if matches!(
+                event,
+                ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+                    ref connection_id,
+                    ref machine_id,
+                    ..
+                }) if connection_id == &id("revoked-connection")
+                    && machine_id == &id("machine-1")
+            ) {
+                saw_closure = true;
+                break;
+            }
+        }
+        finish.send(()).expect("finish provider server");
+        drop(provider);
+        server.join().expect("join fake provider");
+
+        assert!(saw_closure, "connection closure was dropped behind best-effort events");
+    }
+
+    #[test]
     fn preserves_typed_provider_errors() {
         let socket = TestSocket::bind();
         let listener = socket.listener();
