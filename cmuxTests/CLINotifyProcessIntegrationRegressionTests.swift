@@ -455,6 +455,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .success,
             "The first Stop never claimed the pending reconciliation"
         )
+        let firstCompactedLineCount = try autoNamingGrowthMetric(transcriptURL)
+        try [
+            #"{"type":"user","message":{"content":"Fix the auth bug"}}"#,
+            #"{"type":"assistant","message":{"content":"Continue after compaction"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let secondCompactedLineCount = try autoNamingGrowthMetric(transcriptURL)
+        XCTAssertGreaterThan(secondCompactedLineCount, firstCompactedLineCount)
+        XCTAssertLessThan(secondCompactedLineCount, 500)
         let secondCompact = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
@@ -481,6 +489,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(olderStopStdout, "OK\n")
         var record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertEqual(record["autoNameTitleReconciliationGeneration"] as? String, secondGeneration)
+        XCTAssertEqual(
+            record["autoNameLastLineCount"] as? Int,
+            500,
+            "An older reconciliation generation must not commit its stale compacted baseline"
+        )
 
         let finalStop = runClaudeHookWithoutServer(
             context: context,
@@ -491,6 +504,91 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(finalStop.status, 0, finalStop.stderr)
         record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, secondCompactedLineCount)
+    }
+
+    func testClaudeAutoNamePendingReconciliationRefusesFocusedFallbackSurface() throws {
+        let context = try makeClaudeHookContext(name: "claude-auto-name-fallback")
+        defer { context.cleanup() }
+
+        let sessionId = "auto-name-fallback-session"
+        let recordedSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let pendingGeneration = "pending-generation"
+        let transcriptURL = context.root.appendingPathComponent("fallback.jsonl")
+        try #"{"type":"user","message":{"content":"Keep this topic"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil,
+            surfaceId: recordedSurfaceId
+        )
+        try updateClaudeHookSession(sessionId, context: context) { session in
+            session["autoNameTitleReconciliationGeneration"] = pendingGeneration
+        }
+
+        startDetachedMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 8
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "agent.resolve_delivery_target":
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "method_not_found", "message": "resolver unavailable"]
+                )
+            case "workspace.set_auto_title":
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplySkipped: true
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        let result = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": ""]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        let autoTitleRequests = context.state.snapshot().filter {
+            jsonObject($0)?["method"] as? String == "workspace.set_auto_title"
+        }
+        XCTAssertTrue(
+            autoTitleRequests.isEmpty,
+            "A focused fallback pane must not receive an auto-title probe or replay"
+        )
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameTitleReconciliationGeneration"] as? String, pendingGeneration)
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
     }
 
     func testClaudeCompactSignalIgnoresNonCompactNestedAndStaleSessionStarts() throws {

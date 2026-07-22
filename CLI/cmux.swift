@@ -458,13 +458,13 @@ final class ClaudeHookSessionStore {
         try withLockedState { state in
             guard var record = state.sessions[normalized] else { return }
             record.autoNameInFlightAt = nil
-            if confirmedApply {
+            if confirmedApply,
+               record.autoNameTitleReconciliationGeneration == claimedReconciliationGeneration {
                 if let compactedLineCount {
                     record.autoNameLastLineCount = compactedLineCount
                 }
                 if clearPendingOnConfirmation,
-                   let claimedReconciliationGeneration,
-                   record.autoNameTitleReconciliationGeneration == claimedReconciliationGeneration {
+                   claimedReconciliationGeneration != nil {
                     record.autoNameTitleReconciliationGeneration = nil
                 }
             }
@@ -24398,30 +24398,25 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                    preferred: mappedSession?.workspaceId,
-                    fallback: workspaceArg,
-                    preferCallerTTYOverFallback: preferCallerTTYRouting,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
+                    mappedSession: mappedSession,
+                    routing: hookRouting,
                     client: client
                 ) else {
                     telemetry.breadcrumb("claude-hook.auto-name.unresolved")
                     printClaudeHookAck()
                     return
                 }
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                    preferred: mappedSession?.surfaceId,
-                    fallback: surfaceArg,
-                    fallbackIsExplicit: hookSurfaceFlag != nil,
-                    workspaceId: workspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
-                    client: client
-                )
+                guard resolvedTarget.isAuthoritative else {
+                    telemetry.breadcrumb("claude-hook.auto-name.non-authoritative-target")
+                    printClaudeHookAck()
+                    return
+                }
                 runClaudeAutoNameHook(
                     parsedInput: parsedInput,
                     mappedSession: mappedSession,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
+                    workspaceId: resolvedTarget.workspaceId,
+                    surfaceId: resolvedTarget.surfaceId,
                     sessionStore: sessionStore,
                     client: client,
                     telemetry: telemetry
