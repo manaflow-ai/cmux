@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -386,6 +388,426 @@ func TestWebSocketPTYReconnectKeepsSessionProcess(t *testing.T) {
 	}
 	waitForBinaryContains(t, ctx, conn, "alive", 5*time.Second)
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYReconnectKeepsForegroundProcessAfterHangup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("foreground PTY hangup delivery is a Linux terminal-session regression")
+	}
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "first-token", "sess-hangup", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "first-token", "sess-hangup", "same", 80, 24)
+	readReady(t, ctx, conn)
+	command := `sh -c 'printf "%b=%s\n" "\103\115\125\130\137\110\125\120\137\103\110\111\114\104\137\120\111\104" "$$"; trap "printf \"%b\\n\" \"\\103\\115\\125\\130\\137\\110\\125\\120\\137\\103\\110\\111\\114\\104\\137\\101\\114\\111\\126\\105\"" USR1; while :; do sleep 1; done'` + "\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
+		t.Fatalf("launch foreground process: %v", err)
+	}
+	const pidMarker = "CMUX_HUP_CHILD_PID="
+	output := waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	markerIndex := strings.LastIndex(output, pidMarker)
+	pidStart := markerIndex + len(pidMarker)
+	pidEnd := pidStart
+	for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+		pidEnd++
+	}
+	childPID, err := strconv.Atoi(output[pidStart:pidEnd])
+	if err != nil || childPID <= 0 {
+		t.Fatalf("parse foreground process pid from output %q: pid=%d err=%v", output, childPID, err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-childPID, syscall.SIGKILL) })
+
+	_ = conn.Close(websocket.StatusNormalClosure, "relay drop")
+	waitForHubSessionSize(t, hub, "sess-hangup", 0, 80, 24, 5*time.Second)
+	if err := syscall.Kill(-childPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to foreground process group: %v", err)
+	}
+
+	writeTestLease(t, leasePath, "second-token", "sess-hangup", true, time.Now().Add(time.Minute))
+	conn = dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, conn, "second-token", "sess-hangup", "same", 80, 24)
+	readReady(t, ctx, conn)
+	waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	if err := syscall.Kill(-childPID, syscall.SIGUSR1); err != nil {
+		t.Fatalf("foreground process did not survive hangup: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, "CMUX_HUP_CHILD_ALIVE", 5*time.Second)
+
+	_ = syscall.Kill(-childPID, syscall.SIGKILL)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("exit\r")); err != nil {
+		t.Fatalf("exit reattached shell: %v", err)
+	}
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("interactive PTY hangup delivery is a Linux terminal-session regression")
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skipf("interactive Bash is unavailable: %v", err)
+	}
+	if _, err := os.Stat("/usr/bin/python3"); err != nil {
+		t.Skipf("Python hangup fixture is unavailable: %v", err)
+	}
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+	const sessionID = "sess-interactive-hangup"
+	if err := func() error {
+		hub.mu.Lock()
+		defer hub.mu.Unlock()
+		startupCommand := `/bin/true; if [ -n "${CMUX_PERSISTENT_PTY_EXEC_HELPER:-}" ]; then exec "$CMUX_PERSISTENT_PTY_EXEC_HELPER" --internal-persistent-pty-exec /bin/bash /bin/bash --noprofile --norc -i; fi; exec /bin/bash --noprofile --norc -i`
+		session, err := hub.startSessionLocked(
+			persistentPTYSessionKey(sessionID),
+			sessionID,
+			80,
+			24,
+			startupCommand,
+		)
+		if err != nil {
+			return err
+		}
+		hub.sessions[session.key] = session
+		return nil
+	}(); err != nil {
+		t.Fatalf("start persistent interactive Bash session: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "interactive-token", sessionID, true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, conn, "interactive-token", sessionID, "same", 80, 24)
+	readReady(t, ctx, conn)
+	// Prove that the interactive Bash has started through an input/output
+	// handshake. Do not infer readiness from prompt text: PS1 is environment-
+	// specific and need not contain the word "bash".
+	const bashReadyMarker = "CMUX_INTERACTIVE_BASH_READY"
+	bashReadyCommand := `test -n "${BASH_VERSION:-}" && printf 'CMUX_INTERACTIVE_%s version=%s\n' BASH_READY "$BASH_VERSION"` + "\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(bashReadyCommand)); err != nil {
+		t.Fatalf("send interactive Bash readiness probe: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, bashReadyMarker, 5*time.Second)
+
+	// The production bootstrap runs external programs before its final login
+	// shell. Agent runtimes may then restore SIGHUP's default disposition, so
+	// both foreground and background jobs must inherit protection from that
+	// final exec boundary instead of depending on the outer /bin/sh process.
+	backgroundCode := `import os,signal,time;signal.signal(signal.SIGHUP,signal.SIG_DFL);status=open("/proc/self/status").read();mask=int(next(line for line in status.splitlines() if line.startswith("SigBlk:")).split()[1],16);blocked=bool(mask&1);ignored=signal.getsignal(signal.SIGHUP)==signal.SIG_IGN;print("CMUX_"+"BACKGROUND_HUP_HELPER pid=%d blocked=%s ignored=%s protected=%s"%(os.getpid(),str(blocked).lower(),str(ignored).lower(),str(blocked or ignored).lower()),flush=True);signal.signal(signal.SIGUSR1,lambda *_:print("CMUX_"+"BACKGROUND_HUP_HELPER alive",flush=True));time.sleep(1000000)`
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("set -m; /usr/bin/python3 -u -c '"+backgroundCode+"' &\r")); err != nil {
+		t.Fatalf("launch background helper from interactive Bash: %v", err)
+	}
+	const backgroundPIDMarker = "CMUX_BACKGROUND_HUP_HELPER pid="
+	backgroundOutput := waitForBinaryContains(t, ctx, conn, backgroundPIDMarker, 5*time.Second)
+
+	foregroundCode := `import os,signal,time;signal.signal(signal.SIGHUP,signal.SIG_DFL);status=open("/proc/self/status").read();mask=int(next(line for line in status.splitlines() if line.startswith("SigBlk:")).split()[1],16);blocked=bool(mask&1);ignored=signal.getsignal(signal.SIGHUP)==signal.SIG_IGN;print("CMUX_"+"FOREGROUND_HUP_HELPER pid=%d blocked=%s ignored=%s protected=%s"%(os.getpid(),str(blocked).lower(),str(ignored).lower(),str(blocked or ignored).lower()),flush=True);signal.signal(signal.SIGUSR1,lambda *_:print("CMUX_"+"FOREGROUND_HUP_HELPER alive",flush=True));time.sleep(1000000)`
+	command := "/usr/bin/python3 -u -c '" + foregroundCode + "'\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
+		t.Fatalf("launch foreground helper from interactive Bash: %v", err)
+	}
+	const foregroundPIDMarker = "CMUX_FOREGROUND_HUP_HELPER pid="
+	foregroundOutput := waitForBinaryContains(t, ctx, conn, foregroundPIDMarker, 5*time.Second)
+	parsePID := func(output string, marker string) (int, string) {
+		markerIndex := strings.LastIndex(output, marker)
+		pidStart := markerIndex + len(marker)
+		pidEnd := pidStart
+		for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+			pidEnd++
+		}
+		pid, parseErr := strconv.Atoi(output[pidStart:pidEnd])
+		if parseErr != nil || pid <= 0 {
+			t.Fatalf("parse interactive helper pid from output %q marker=%q: pid=%d err=%v", output, marker, pid, parseErr)
+		}
+		return pid, output[markerIndex:]
+	}
+	backgroundPID, backgroundProtection := parsePID(backgroundOutput, backgroundPIDMarker)
+	foregroundPID, foregroundProtection := parsePID(foregroundOutput, foregroundPIDMarker)
+	t.Logf("interactive background helper state: %q", backgroundProtection)
+	t.Logf("interactive foreground helper state: %q", foregroundProtection)
+	t.Cleanup(func() {
+		_ = syscall.Kill(-foregroundPID, syscall.SIGKILL)
+		_ = syscall.Kill(-backgroundPID, syscall.SIGKILL)
+	})
+
+	_ = conn.Close(websocket.StatusNormalClosure, "relay drop")
+	waitForHubSessionSize(t, hub, sessionID, 0, 80, 24, 5*time.Second)
+	if err := syscall.Kill(-foregroundPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to interactive foreground process group: %v", err)
+	}
+	if err := syscall.Kill(-backgroundPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to interactive background process group: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := syscall.Kill(-foregroundPID, syscall.SIGUSR1); err != nil {
+		t.Fatalf("interactive foreground helper did not survive hangup: %v", err)
+	}
+	if err := syscall.Kill(-backgroundPID, syscall.SIGUSR1); err != nil {
+		t.Fatalf("interactive background helper did not survive hangup: %v", err)
+	}
+
+	writeTestLease(t, leasePath, "reattach-token", sessionID, true, time.Now().Add(time.Minute))
+	conn = dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "reattach-token", sessionID, "same", 80, 24)
+	readReady(t, ctx, conn)
+	waitForBinaryContainsAll(t, ctx, conn, []string{
+		"CMUX_FOREGROUND_HUP_HELPER alive",
+		"CMUX_BACKGROUND_HUP_HELPER alive",
+	}, 5*time.Second)
+	if !strings.Contains(foregroundProtection, "blocked=true ignored=false protected=true") {
+		t.Fatalf("interactive Bash foreground child did not inherit blocked SIGHUP: %q", foregroundProtection)
+	}
+	if !strings.Contains(backgroundProtection, "blocked=true ignored=false protected=true") {
+		t.Fatalf("interactive Bash background child did not inherit blocked SIGHUP: %q", backgroundProtection)
+	}
+
+	_ = syscall.Kill(-foregroundPID, syscall.SIGKILL)
+	_ = syscall.Kill(-backgroundPID, syscall.SIGKILL)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("exit\r")); err != nil {
+		t.Fatalf("exit reattached shell: %v", err)
+	}
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestPersistentPTYExecHelperKeepsHangupBlockedAcrossExec(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("persistent PTY exec helper is supported on Darwin and Linux")
+	}
+	if os.Getenv("CMUX_PERSISTENT_PTY_EXEC_TEST_CHILD") == "1" {
+		signal.Reset(syscall.SIGHUP)
+		if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+			t.Fatalf("send SIGHUP to helper child: %v", err)
+		}
+		_, _ = os.Stdout.WriteString("CMUX_PERSISTENT_PTY_EXEC_SURVIVED\n")
+		return
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	cmd := exec.Command(
+		executable,
+		persistentPTYExecHelperArgument,
+		executable,
+		executable,
+		"-test.run",
+		"^TestPersistentPTYExecHelperKeepsHangupBlockedAcrossExec$",
+	)
+	cmd.Env = append(os.Environ(), "CMUX_PERSISTENT_PTY_EXEC_TEST_CHILD=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("persistent PTY exec helper child failed: %v output=%q", err, output)
+	}
+	if !bytes.Contains(output, []byte("CMUX_PERSISTENT_PTY_EXEC_SURVIVED")) {
+		t.Fatalf("persistent PTY exec helper child did not survive SIGHUP: %q", output)
+	}
+}
+
+func TestPersistentPTYExecHelperResolvesBareExecutableFromPATH(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("persistent PTY exec helper is supported on Darwin and Linux")
+	}
+	if os.Getenv("CMUX_PERSISTENT_PTY_PATH_LOOKUP_TEST_CHILD") == "1" {
+		_, _ = os.Stdout.WriteString("CMUX_PERSISTENT_PTY_PATH_LOOKUP_OK\n")
+		return
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	bin := t.TempDir()
+	for _, helperName := range []string{"bash", "cmux-custom-shell"} {
+		t.Run(helperName, func(t *testing.T) {
+			if err := os.Symlink(executable, filepath.Join(bin, helperName)); err != nil {
+				t.Fatalf("link helper test executable: %v", err)
+			}
+			cmd := exec.Command(
+				executable,
+				persistentPTYExecHelperArgument,
+				helperName,
+				helperName,
+				"-test.run",
+				"^TestPersistentPTYExecHelperResolvesBareExecutableFromPATH$",
+			)
+			cmd.Env = append(os.Environ(),
+				"PATH="+bin,
+				"CMUX_PERSISTENT_PTY_PATH_LOOKUP_TEST_CHILD=1",
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("persistent PTY exec helper did not resolve bare executable %q through PATH: %v output=%q", helperName, err, output)
+			}
+			if !bytes.Contains(output, []byte("CMUX_PERSISTENT_PTY_PATH_LOOKUP_OK")) {
+				t.Fatalf("persistent PTY exec helper child did not run through PATH: %q", output)
+			}
+		})
+	}
+}
+
+func TestPersistentPTYCommandOverridesStaleExecHelperEnvironment(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", `test "$CMUX_PERSISTENT_PTY_EXEC_HELPER" = "$CMUX_EXPECTED_PTY_EXEC_HELPER"`)
+	cmd.Env = append(os.Environ(),
+		persistentPTYExecHelperEnvironment+"=/missing/cmuxd-remote",
+		"CMUX_EXPECTED_PTY_EXEC_HELPER="+executable,
+	)
+	wrapped, err := persistentPTYCommand(cmd)
+	if err != nil {
+		t.Fatalf("wrap persistent PTY command: %v", err)
+	}
+	if output, err := wrapped.CombinedOutput(); err != nil {
+		t.Fatalf("wrapped command did not receive authoritative helper path: %v output=%q", err, output)
+	}
+}
+
+func TestWebSocketPTYAnonymousSessionExitsOnHangup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("foreground PTY hangup delivery is a Linux terminal-session regression")
+	}
+	hangupWasIgnored := signal.Ignored(syscall.SIGHUP)
+	signal.Reset(syscall.SIGHUP)
+	t.Cleanup(func() {
+		if hangupWasIgnored {
+			signal.Ignore(syscall.SIGHUP)
+		}
+	})
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, _ := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "anonymous-token", "anonymous-hangup", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, conn, "anonymous-token", "anonymous-hangup", 80, 24)
+	readReady(t, ctx, conn)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	command := "CMUX_ANON_HUP_HELPER=1 exec " + strconv.Quote(executable) + " -test.run '^TestWebSocketPTYAnonymousHangupHelper$'\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
+		t.Fatalf("launch anonymous foreground process: %v", err)
+	}
+	const pidMarker = "CMUX_ANON_HUP_HELPER pid="
+	output := waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	markerIndex := strings.LastIndex(output, pidMarker)
+	pidStart := markerIndex + len(pidMarker)
+	pidEnd := pidStart
+	for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+		pidEnd++
+	}
+	childPID, err := strconv.Atoi(output[pidStart:pidEnd])
+	if err != nil || childPID <= 0 {
+		t.Fatalf("parse anonymous foreground process pid from output %q: pid=%d err=%v", output, childPID, err)
+	}
+	if !strings.Contains(output[markerIndex:], "ignored=false") {
+		t.Fatalf("anonymous foreground process inherited ignored SIGHUP: %q", output[markerIndex:])
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-childPID, syscall.SIGKILL) })
+
+	if err := syscall.Kill(-childPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to anonymous foreground process group: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(-childPID, 0); errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("anonymous foreground process group %d ignored SIGHUP", childPID)
+}
+
+func TestWebSocketPTYAnonymousHangupHelper(t *testing.T) {
+	if os.Getenv("CMUX_ANON_HUP_HELPER") != "1" {
+		return
+	}
+	_, _ = os.Stdout.WriteString(
+		"CMUX_ANON_HUP_HELPER pid=" + strconv.Itoa(os.Getpid()) +
+			" ignored=" + strconv.FormatBool(signal.Ignored(syscall.SIGHUP)) + "\n",
+	)
+	select {}
+}
+
+func TestTerminateProcessesSerializesPTYClose(t *testing.T) {
+	ptyFile, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open PTY stand-in: %v", err)
+	}
+	session := &wsPTYSession{ptyFile: ptyFile}
+	lookupStarted := make(chan struct{})
+	releaseLookup := make(chan struct{})
+	terminated := make(chan struct{})
+	go func() {
+		session.terminateProcessesWithForegroundGroupLookup(func(*os.File) int {
+			close(lookupStarted)
+			<-releaseLookup
+			return 0
+		})
+		close(terminated)
+	}()
+	<-lookupStarted
+
+	closed := make(chan struct{})
+	go func() {
+		session.closePTYFile()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("PTY closed while foreground process-group lookup held its descriptor")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseLookup)
+	select {
+	case <-terminated:
+	case <-time.After(5 * time.Second):
+		t.Fatal("process termination did not finish after lookup was released")
+	}
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY close did not finish after process termination released the descriptor")
+	}
+	if session.ptyFileSnapshot() != nil {
+		t.Fatal("closed PTY descriptor remained available to later operations")
+	}
+}
+
+func TestTerminateProcessesRunsOnlyOnce(t *testing.T) {
+	ptyFile, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open PTY stand-in: %v", err)
+	}
+	t.Cleanup(func() { _ = ptyFile.Close() })
+
+	session := &wsPTYSession{ptyFile: ptyFile}
+	lookupCount := 0
+	lookup := func(*os.File) int {
+		lookupCount++
+		return 0
+	}
+	session.terminateProcessesWithForegroundGroupLookup(lookup)
+	session.terminateProcessesWithForegroundGroupLookup(lookup)
+
+	if lookupCount != 1 {
+		t.Fatalf("process teardown ran %d times, want exactly once", lookupCount)
+	}
 }
 
 func TestWebSocketPTYReplacedAttachmentCannotWriteInput(t *testing.T) {
@@ -1409,6 +1831,40 @@ func waitForBinaryContains(t *testing.T, ctx context.Context, conn *websocket.Co
 	return waitForBinaryContainsLabel(t, ctx, conn, needle, needle, timeout)
 }
 
+func waitForBinaryContainsAll(t *testing.T, ctx context.Context, conn *websocket.Conn, needles []string, timeout time.Duration) string {
+	t.Helper()
+	var output strings.Builder
+	deadline := time.Now().Add(timeout)
+	closeOnTimeout := time.AfterFunc(timeout, func() {
+		_ = conn.Close(websocket.StatusNormalClosure, "test read timeout")
+	})
+	defer closeOnTimeout.Stop()
+	for time.Now().Before(deadline) {
+		readCtx, cancelRead := context.WithTimeout(ctx, time.Until(deadline))
+		msgType, payload, err := conn.Read(readCtx)
+		cancelRead()
+		if err != nil {
+			t.Fatalf("read terminal output while waiting for %q: %v output=%q", needles, err, output.String())
+		}
+		if msgType != websocket.MessageBinary {
+			continue
+		}
+		output.Write(payload)
+		matchedAll := true
+		for _, needle := range needles {
+			if !strings.Contains(output.String(), needle) {
+				matchedAll = false
+				break
+			}
+		}
+		if matchedAll {
+			return output.String()
+		}
+	}
+	t.Fatalf("timed out waiting for %q, got %q", needles, output.String())
+	return output.String()
+}
+
 func waitForBinaryContainsLabel(t *testing.T, ctx context.Context, conn *websocket.Conn, label string, needle string, timeout time.Duration) string {
 	t.Helper()
 	var output strings.Builder
@@ -1556,9 +2012,13 @@ func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool
 
 	session.ptyWriteMu.Lock()
 	defer session.ptyWriteMu.Unlock()
-	sizeFile := session.ptyFile
-
-	size, err := pty.GetsizeFull(sizeFile)
+	var size *pty.Winsize
+	available := session.withPTYFileLocked(func(sizeFile *os.File) {
+		size, err = pty.GetsizeFull(sizeFile)
+	})
+	if !available {
+		return 0, 0, true, os.ErrClosed
+	}
 	if err != nil {
 		return 0, 0, true, err
 	}

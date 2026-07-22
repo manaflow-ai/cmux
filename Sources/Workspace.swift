@@ -52,7 +52,15 @@ extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        agentProcessPresence: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let rawLayout = sessionLayoutSnapshot(from: tree)
@@ -78,7 +86,9 @@ extension Workspace {
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
-                    )
+                    ),
+                    currentAgentProcessIdentity: currentAgentProcessIdentity,
+                    agentProcessPresence: agentProcessPresence
                 )
             }
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
@@ -400,7 +410,15 @@ extension Workspace {
         panelId: UUID,
         includeScrollback: Bool,
         restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
-        resumeBinding: SurfaceResumeBindingSnapshot?
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        agentProcessPresence: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
@@ -519,15 +537,52 @@ extension Workspace {
                 ? sessionRestorePolicy.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
             let agentWasRunning: Bool? = {
-                guard effectiveRestorableAgent != nil else { return nil }
-                switch panelShellActivityStates[panelId] {
-                case .some(.commandRunning):
-                    return true
-                case .some(.promptIdle):
-                    return false
-                case .some(.unknown), .none:
-                    return nil
+                if resumeBinding?.isAgentHookBinding == true {
+                    guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding?.kind),
+                          let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
+                          let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding?.checkpointId) else {
+                        return false
+                    }
+                    let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                        kind: bindingKind,
+                        sessionId: bindingSessionId,
+                        panelId: panelId,
+                        currentProcessIdentity: currentAgentProcessIdentity
+                    )
+                    if !confirmedRuntimeProcessIdentities.isEmpty {
+                        return true
+                    }
+                    guard let effectiveRestorableAgent,
+                          effectiveRestorableAgent.kind == bindingKind,
+                          effectiveRestorableAgent.sessionId == bindingSessionId,
+                          let restorableAgentObservation,
+                          restorableAgentObservation.snapshot.kind == bindingKind,
+                          restorableAgentObservation.snapshot.sessionId == bindingSessionId else {
+                        return false
+                    }
+                    return restorableAgentObservation.processLiveness
+                        .wasRunning(
+                            fallingBackTo: panelShellActivityStates[panelId],
+                            recordedProcessIdentities: restorableAgentObservation.agentProcessIdentities,
+                            confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                            currentProcessIdentity: currentAgentProcessIdentity,
+                            processPresence: agentProcessPresence
+                        ) ?? false
                 }
+                guard let effectiveRestorableAgent else { return nil }
+                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                    for: effectiveRestorableAgent,
+                    panelId: panelId,
+                    currentProcessIdentity: currentAgentProcessIdentity
+                )
+                return (restorableAgentObservation?.processLiveness ?? .unknown)
+                    .wasRunning(
+                        fallingBackTo: panelShellActivityStates[panelId],
+                        recordedProcessIdentities: restorableAgentObservation?.agentProcessIdentities ?? [:],
+                        confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                        currentProcessIdentity: currentAgentProcessIdentity,
+                        processPresence: agentProcessPresence
+                    )
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 resumeBinding,
@@ -748,9 +803,9 @@ extension Workspace {
         // (sysctl-per-record + disk, ~350ms-1.8s on machines with large agent history) so closing a
         // tab does not freeze the main thread. Fall back to a fresh load only when the cache has not
         // loaded yet (the brief window after launch before the first refresh completes; the cache is
-        // prewarmed at launch so this is rare). A cached entry at most one refresh stale is acceptable
-        // here because restore prefers the always-fresh in-memory resumeBinding and only consults this
-        // agent snapshot when no binding exists, so cmux-launched agents reopen correctly regardless of cache freshness.
+        // prewarmed at launch so this is rare). The snapshot path revalidates cached `.running`
+        // evidence against the recorded process generation before it lets the always-fresh in-memory
+        // resume binding auto-launch, so an exited generation cannot be revived from this warm cache.
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
         let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)
@@ -8582,46 +8637,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
     func preferredRightSideTargetPane(fromPanelId panelId: UUID) -> PaneID? {
         guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
-        let sourcePaneId = sourcePane.id.uuidString
-        let tree = bonsplitController.treeSnapshot()
-        guard let path = browserPathToPane(targetPaneId: sourcePaneId, node: tree) else { return nil }
-
-        let layout = bonsplitController.layoutSnapshot()
-        let paneFrameById = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneId, $0.frame) })
-        let sourceFrame = paneFrameById[sourcePaneId]
-        let sourceCenterY = sourceFrame.map { $0.y + ($0.height * 0.5) } ?? 0
-        let sourceRightX = sourceFrame.map { $0.x + $0.width } ?? 0
-
-        for crumb in path {
-            guard crumb.split.orientation == "horizontal", crumb.branch == .first else { continue }
-            var candidateNodes: [ExternalPaneNode] = []
-            browserCollectPaneNodes(node: crumb.split.second, into: &candidateNodes)
-            if candidateNodes.isEmpty { continue }
-
-            let sorted = candidateNodes.sorted { lhs, rhs in
-                let lhsDy = abs((lhs.frame.y + (lhs.frame.height * 0.5)) - sourceCenterY)
-                let rhsDy = abs((rhs.frame.y + (rhs.frame.height * 0.5)) - sourceCenterY)
-                if lhsDy != rhsDy { return lhsDy < rhsDy }
-
-                let lhsDx = abs(lhs.frame.x - sourceRightX)
-                let rhsDx = abs(rhs.frame.x - sourceRightX)
-                if lhsDx != rhsDx { return lhsDx < rhsDx }
-
-                if lhs.frame.x != rhs.frame.x { return lhs.frame.x < rhs.frame.x }
-                return lhs.id < rhs.id
-            }
-
-            for candidate in sorted {
-                guard let candidateUUID = UUID(uuidString: candidate.id),
-                      candidateUUID != sourcePane.id,
-                      let pane = bonsplitController.allPaneIds.first(where: { $0.id == candidateUUID }) else {
-                    continue
-                }
-                return pane
-            }
-        }
-
-        return nil
+        return BrowserRightSidePaneResolver().preferredPane(
+            from: sourcePane,
+            in: bonsplitController
+        )
     }
 
     /// Returns the top-right pane in the current split tree.
@@ -8665,33 +8684,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
-    }
-
-    private enum BrowserPaneBranch {
-        case first
-        case second
-    }
-
-    private struct BrowserPaneBreadcrumb {
-        let split: ExternalSplitNode
-        let branch: BrowserPaneBranch
-    }
-
-    private func browserPathToPane(targetPaneId: String, node: ExternalTreeNode) -> [BrowserPaneBreadcrumb]? {
-        switch node {
-        case .pane(let paneNode):
-            return paneNode.id == targetPaneId ? [] : nil
-        case .split(let splitNode):
-            if var path = browserPathToPane(targetPaneId: targetPaneId, node: splitNode.first) {
-                path.append(BrowserPaneBreadcrumb(split: splitNode, branch: .first))
-                return path
-            }
-            if var path = browserPathToPane(targetPaneId: targetPaneId, node: splitNode.second) {
-                path.append(BrowserPaneBreadcrumb(split: splitNode, branch: .second))
-                return path
-            }
-            return nil
-        }
     }
 
     private func browserCollectPaneNodes(node: ExternalTreeNode, into output: inout [ExternalPaneNode]) {

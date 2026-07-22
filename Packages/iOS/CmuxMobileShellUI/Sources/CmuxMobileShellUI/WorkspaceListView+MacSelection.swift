@@ -121,21 +121,22 @@ extension WorkspaceListView {
         }
     }
 
-    var macTitlePickerSelection: Binding<WorkspaceMacSelection> {
-        Binding(
-            get: { currentMacTitlePickerSelection },
-            set: { _ = handleMacTitlePickerSelection($0) }
-        )
-    }
-
     func macTitlePicker(machineSnapshots: WorkspaceMachineSnapshots) -> some View {
         WorkspaceMacTitlePicker(
-            title: macTitlePickerTitle(machineSnapshots: machineSnapshots),
-            isLoading: macTitlePickerShowsProgress,
-            selection: macTitlePickerSelection,
-            machines: machineSnapshots.macPickerMachines,
-            showAddDevice: showAddDevice
+            value: WorkspaceMacTitlePickerValue(
+                title: macTitlePickerTitle(machineSnapshots: machineSnapshots),
+                isLoading: macTitlePickerShowsProgress,
+                selection: currentMacTitlePickerSelection,
+                machines: machineSnapshots.macPickerMachines,
+                canAddDevice: showAddDevice != nil,
+                labelWidth: 155
+            ),
+            actions: WorkspaceMacTitlePickerActions(
+                select: { _ = handleMacTitlePickerSelection($0) },
+                addDevice: showAddDevice
+            )
         )
+        .equatable()
     }
 
     var showsDevicesButton: Bool {
@@ -156,47 +157,31 @@ extension WorkspaceListView {
 }
 
 #if os(iOS)
-struct WorkspaceMacTitlePicker: View {
-    let title: String
-    let isLoading: Bool
-    @Binding var selection: WorkspaceMacSelection
-    let machines: [WorkspaceFilterMachine]
-    let showAddDevice: (() -> Void)?
-    let labelWidth: CGFloat
+struct WorkspaceMacTitlePicker: View, Equatable {
+    let value: WorkspaceMacTitlePickerValue
+    let actions: WorkspaceMacTitlePickerActions
 
-    init(
-        title: String,
-        isLoading: Bool,
-        selection: Binding<WorkspaceMacSelection>,
-        machines: [WorkspaceFilterMachine],
-        showAddDevice: (() -> Void)?,
-        labelWidth: CGFloat = 155
-    ) {
-        self.title = title
-        self.isLoading = isLoading
-        _selection = selection
-        self.machines = machines
-        self.showAddDevice = showAddDevice
-        self.labelWidth = labelWidth
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.value == rhs.value
     }
 
     var body: some View {
         Menu {
             Picker(
                 L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Computer"),
-                selection: $selection
+                selection: Binding(get: { value.selection }, set: { actions.select($0) })
             ) {
                 Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers"))
                     .tag(WorkspaceMacSelection.all)
-                ForEach(machines) { machine in
+                ForEach(value.machines) { machine in
                     Text(machine.name)
                         .tag(WorkspaceMacSelection.machine(machine.id))
                 }
             }
             .labelsVisibility(.visible)
-            if let showAddDevice {
+            if value.canAddDevice {
                 Divider()
-                Button(action: showAddDevice) {
+                Button(action: { actions.addDevice?() }) {
                     Label(
                         L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
                         systemImage: "plus"
@@ -206,9 +191,9 @@ struct WorkspaceMacTitlePicker: View {
             }
         } label: {
             WorkspaceMacTitlePickerLabel(
-                title: title,
-                isLoading: isLoading,
-                width: labelWidth
+                title: value.title,
+                isLoading: value.isLoading,
+                width: value.labelWidth
             )
         }
         .buttonStyle(.plain)
