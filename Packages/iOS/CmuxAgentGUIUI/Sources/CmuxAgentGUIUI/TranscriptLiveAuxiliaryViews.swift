@@ -1,4 +1,5 @@
 import CmuxAgentGUIProjection
+import CmuxAgentChatUI
 import CmuxAgentReplica
 import CmuxAgentSync
 import CmuxAgentWire
@@ -26,6 +27,13 @@ struct AgentSessionInteractionCapabilities: Equatable {
     }
 }
 
+/// Keeps the selected host path coupled to the loader that authorizes it
+/// when SwiftUI presents the artifact outside the transcript row hierarchy.
+struct AgentTranscriptArtifactRoute {
+    let path: String
+    let loader: ChatArtifactLoader
+}
+
 #if os(iOS)
 struct AgentCapabilityRequestKey: Hashable {
     let sessionID: AgentSessionID
@@ -38,7 +46,7 @@ enum AgentTranscriptSheet: Identifiable {
     case activity(TranscriptActivityDetails)
     case codeBlock(AgentCodeBlockSelection)
     case failedTicket(SendTicket)
-    case artifact(String)
+    case artifact(AgentTranscriptArtifactRoute)
 
     var id: String {
         switch self {
@@ -46,7 +54,7 @@ enum AgentTranscriptSheet: Identifiable {
         case .activity(let details): "activity:\(details.id.description)"
         case .codeBlock(let selection): selection.id
         case .failedTicket(let ticket): "failed-ticket:\(ticket.id.uuidString)"
-        case .artifact(let path): "artifact:\(path)"
+        case .artifact(let route): "artifact:\(route.path)"
         }
     }
 }

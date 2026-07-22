@@ -66,6 +66,7 @@ public struct ChatAttachmentBubbleView: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .sheet(item: $fallbackSelection) { selection in
             ChatArtifactViewerSheet(path: selection.path)
+                .environment(\.chatArtifactLoader, artifactLoader)
         }
     }
 

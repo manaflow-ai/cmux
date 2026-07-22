@@ -111,7 +111,12 @@ public struct TranscriptLiveView: View {
                             onOpenFailedTicket: { selectedSheet = .failedTicket($0) },
                             onRetrySync: engine.retryNow,
                             onShowTerminal: onShowTerminal,
-                            onOpenArtifact: { selectedSheet = .artifact($0) },
+                            onOpenArtifact: {
+                                selectedSheet = .artifact(AgentTranscriptArtifactRoute(
+                                    path: $0,
+                                    loader: artifactLoader
+                                ))
+                            },
                             onShowCodeBlock: showCodeBlock
                         )
                     }
@@ -173,8 +178,9 @@ public struct TranscriptLiveView: View {
                     },
                     showTerminal: onShowTerminal
                 )
-            case .artifact(let path):
-                ChatArtifactViewerSheet(path: path)
+            case .artifact(let route):
+                ChatArtifactViewerSheet(path: route.path)
+                    .environment(\.chatArtifactLoader, route.loader)
             }
         }
         .onAppear(perform: startDriverIfNeeded)
