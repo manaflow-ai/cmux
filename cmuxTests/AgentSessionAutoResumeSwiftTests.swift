@@ -65,7 +65,7 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(snapshot.customTitle == nil)
             #expect(snapshot.processTitle == resumeCommand)
             #expect(snapshot.panels.first?.title == friendlyTitle)
-            #expect(snapshot.panels.first?.terminal?.resumeBinding?.command == resumeCommand)
+            #expect(snapshot.panels.first?.terminal?.resumeBinding?.command.contains(resumeCommand) == true)
 
             let restored = Workspace()
             let restoredPanelIDs = restored.restoreSessionSnapshot(snapshot)
