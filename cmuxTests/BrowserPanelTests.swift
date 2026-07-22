@@ -1006,6 +1006,40 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelReactGrabBridgeTests: XCTestCase {
+    func testStateConfirmationWaitsForMatchingBridgeState() async {
+        let confirmation = ReactGrabStateConfirmation(target: true)
+        let waiter = Task { await confirmation.wait(timeout: .seconds(1)) }
+
+        confirmation.receive(false)
+        await Task.yield()
+        confirmation.receive(true)
+
+        let confirmed = await waiter.value
+        XCTAssertTrue(confirmed)
+    }
+
+    func testStateConfirmationCancellationReportsFailure() async {
+        let confirmation = ReactGrabStateConfirmation(target: true)
+        confirmation.cancel()
+
+        let confirmed = await confirmation.wait(timeout: .seconds(1))
+        XCTAssertFalse(confirmed)
+    }
+
+    func testBridgeStateChangeIsTheConfirmedStateAuthority() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let confirmation = ReactGrabStateConfirmation(target: true)
+        panel.reactGrabStateConfirmation = confirmation
+
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: false))
+        XCTAssertFalse(panel.isReactGrabActive)
+
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        XCTAssertTrue(panel.isReactGrabActive)
+        let confirmed = await confirmation.wait(timeout: .seconds(1))
+        XCTAssertTrue(confirmed)
+    }
+
     @MainActor
     func testExplicitWebViewFocusDoesNotSuppressOmnibarAutofocusWhenFocusFails() {
         let panel = BrowserPanel(workspaceId: UUID())
