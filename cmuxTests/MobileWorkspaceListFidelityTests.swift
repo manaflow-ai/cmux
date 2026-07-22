@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import Bonsplit
 import CmuxCore
+import Foundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -61,6 +62,47 @@ struct MobileWorkspaceListFidelityTests {
             surfaceID: filePreview.id.uuidString,
             requestedPath: filePreview.filePath
         ) == nil)
+    }
+
+    @Test func panelArtifactGrantDeniesSymlinkRetarget() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-panel-artifact-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let firstFile = directory.appendingPathComponent("first.md")
+        let secondFile = directory.appendingPathComponent("second.md")
+        let panelLink = directory.appendingPathComponent("panel.md")
+        try Data("first".utf8).write(to: firstFile)
+        try Data("second".utf8).write(to: secondFile)
+        try fileManager.createSymbolicLink(atPath: panelLink.path, withDestinationPath: firstFile.path)
+
+        let controller = TerminalController.shared
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let panel = try #require(workspace.newFilePreviewSurface(
+            inPane: paneID,
+            filePath: panelLink.path,
+            focus: false
+        ))
+        defer { _ = workspace.closePanel(panel.id, force: true) }
+
+        _ = controller.mobileSurfaceDescriptors(in: workspace)
+        try fileManager.removeItem(at: panelLink)
+        try fileManager.createSymbolicLink(atPath: panelLink.path, withDestinationPath: secondFile.path)
+
+        let result = await controller.v2MobilePanelArtifactStat(params: [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": panel.id.uuidString,
+            "path": panelLink.path,
+        ])
+        guard case .err(let code, _, _) = result else {
+            Issue.record("retargeted panel symlink should be denied")
+            return
+        }
+        #expect(code == "forbidden")
     }
 
     /// Builds a workspace with `count` terminals as tabs in a single pane so that
