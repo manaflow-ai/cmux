@@ -104,6 +104,22 @@ struct TranscriptDecoderTests {
     }
 
     @Test
+    func codexUserImageEmitsStructuredAttachmentWithLocalPath() throws {
+        let line = #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect this image.\n<image name=[Image #1] path=\"/tmp/codex-inline-test.png\">"},{"type":"input_image","image_url":"data:image/png;base64,AQID"}]}}"#
+        var decoder = CodexTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:userMessage", "1:attachment"])
+        #expect(userMessagePayload(in: batch, seq: 0)?.attachmentCount == 1)
+        #expect(userMessagePayload(in: batch, seq: 0)?.hasImage == true)
+        let attachment = try #require(attachmentPayload(in: batch, seq: 1))
+        #expect(attachment.kind == "image")
+        #expect(attachment.displayName == "codex-inline-test.png")
+        #expect(attachment.hostPath == "/tmp/codex-inline-test.png")
+        #expect(attachment.mimeType == "image/png")
+    }
+
+    @Test
     func codexCustomToolOutputPairsByCallID() {
         let lines = [
             #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"call_patch","input":"patch placeholder"}}"#,
@@ -267,6 +283,50 @@ struct TranscriptDecoderTests {
         #expect(imageBatch.entries.count == 2)
         #expect(userMessagePayload(in: imageBatch, seq: 0)?.hasImage == false)
         #expect(attachmentPayload(in: imageBatch, seq: 1)?.mimeType == "image/png")
+    }
+
+    @Test
+    func claudeBase64ImagePublishesDeferredImageSideTable() throws {
+        let encodedImage = "AQID"
+        var decoder = ClaudeTranscriptDecoder()
+        let line = #"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Inspect this image."},{"type":"image","file_name":"claude-inline-test.png","width":1,"height":1,"source":{"type":"base64","media_type":"image/png","data":"\#(encodedImage)"}}]}}"#
+        let journalID = JournalID(rawValue: "journal")
+        let batch = decoder.feed([line], startingAt: 0, journalID: journalID)
+
+        #expect(kindTable(batch.entries) == ["0:userMessage", "1:attachment"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 1))
+        #expect(attachment.hostPath == nil)
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.byteCount == 3)
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        let embedded = try #require(batch.embeddedImages.first)
+        #expect(batch.embeddedImages.count == 1)
+        #expect(embedded.journalID == journalID)
+        #expect(embedded.entrySeq == EntrySeq(rawValue: 1))
+        #expect(embedded.mimeType == "image/png")
+        #expect(embedded.base64EncodedData == encodedImage)
+        #expect(!String(decoding: try JSONEncoder().encode(batch.entries), as: UTF8.self).contains(encodedImage))
+    }
+
+    @Test
+    func codexImageWithoutLocalPathPublishesDeferredImageSideTable() throws {
+        let encodedImage = "AQID"
+        let line = #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect this image."},{"type":"input_image","image_url":"data:image/png;base64,\#(encodedImage)"}]}}"#
+        let journalID = JournalID(rawValue: "codex-journal")
+        var decoder = CodexTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 40, journalID: journalID)
+
+        #expect(kindTable(batch.entries) == ["40:userMessage", "41:attachment"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 41))
+        #expect(attachment.hostPath == nil)
+        #expect(attachment.mimeType == "image/png")
+        let embedded = try #require(batch.embeddedImages.first)
+        #expect(batch.embeddedImages.count == 1)
+        #expect(embedded.journalID == journalID)
+        #expect(embedded.entrySeq == EntrySeq(rawValue: 41))
+        #expect(embedded.mimeType == "image/png")
+        #expect(embedded.base64EncodedData == encodedImage)
     }
 
     @Test

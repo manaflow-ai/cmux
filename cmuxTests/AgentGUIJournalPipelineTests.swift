@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import CmuxAgentReplica
 import Foundation
 import Testing
@@ -11,6 +12,51 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AgentGUIJournalPipelineTests {
+    @Test func embeddedClaudeImageIsMaterializedAndAuthorizedBeforePublish() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-gui-inline-image-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let transcript = directory.appendingPathComponent("claude.jsonl")
+        let cache = directory.appendingPathComponent("image-cache", isDirectory: true)
+        let sessionID = AgentSessionID(rawValue: "session-inline-image")
+        let base64PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        let line = #"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"See screenshot."},{"type":"image","file_name":"screenshot.png","source":{"type":"base64","media_type":"image/png","data":"\#(base64PNG)"}}]}}"#
+        try write(lines: [line], to: transcript)
+        let imageStore = AgentGUITranscriptImageStore(rootURL: cache)
+        let pipeline = AgentGUIJournalPipeline(
+            sessionID: sessionID,
+            kind: .claude,
+            path: transcript.path,
+            imageStore: imageStore
+        )
+
+        _ = await pipeline.ingestInitial()
+
+        let page = try #require(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 10))
+        let attachment = try #require(page.entries.compactMap { entry -> AttachmentPayload? in
+            guard case .attachment(let payload) = entry.content.payload else { return nil }
+            return payload
+        }.first)
+        let hostPath = try #require(attachment.hostPath)
+        #expect(FileManager.default.fileExists(atPath: hostPath))
+        #expect(hostPath.hasPrefix(cache.path + "/"))
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.byteCount != nil)
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+
+        let indexed = try await AgentChatArtifactIndex.shared.snapshot(
+            sessionID: sessionID.rawValue,
+            agentKind: .claude,
+            transcriptPath: transcript.path,
+            workingDirectory: directory.path
+        )
+        #expect(indexed.referencedPaths.contains(hostPath))
+        await AgentChatArtifactIndex.shared.removeSupplementalAttachments(sessionID: sessionID.rawValue)
+    }
+
     @Test func missingJournalIsAnEmptyPageThenResetsWhenCreated() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-gui-missing-\(UUID().uuidString)", isDirectory: true)

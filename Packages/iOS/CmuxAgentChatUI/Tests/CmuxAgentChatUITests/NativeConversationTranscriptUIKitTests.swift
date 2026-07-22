@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentChat
 import SwiftUI
 import Testing
 import UIKit
@@ -56,6 +57,39 @@ struct NativeConversationTranscriptUIKitTests {
         let firstCell = try #require(table.cellForRow(at: IndexPath(row: 0, section: 0)))
         let secondCell = try #require(table.cellForRow(at: IndexPath(row: 1, section: 0)))
         #expect(firstCell.frame.maxY <= secondCell.frame.minY + 0.5)
+    }
+
+    @Test("inline image preview reserves a full row without covering its neighbor")
+    func inlineImagePreviewDoesNotOverlapFollowingRow() async throws {
+        let rows = [
+            TranscriptTestRow(
+                id: 0,
+                attachment: ChatAttachment(
+                    media: .image,
+                    displayName: "screen.png",
+                    hostPath: "/tmp/screen.png",
+                    mimeType: "image/png",
+                    byteCount: 456_789,
+                    pixelWidth: 1_600,
+                    pixelHeight: 900
+                )
+            ),
+            TranscriptTestRow(id: 1, text: "Following response"),
+        ]
+        let mounted = mount(
+            TranscriptTestHarness(rows: rows),
+            size: CGSize(width: 390, height: 844)
+        )
+        defer { mounted.window.isHidden = true }
+
+        await settle(mounted.host, passes: 20)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        let imageRect = table.rectForRow(at: IndexPath(row: 0, section: 0))
+        let followingRect = table.rectForRow(at: IndexPath(row: 1, section: 0))
+        #expect(imageRect.height >= 180)
+        #expect(imageRect.maxY <= followingRect.minY + 0.5)
+        #expect(!imageRect.insetBy(dx: 0, dy: 0.5).intersects(followingRect.insetBy(dx: 0, dy: 0.5)))
     }
 
     @Test("detached first-visible anchor survives a prepend")
@@ -343,8 +377,23 @@ struct NativeConversationTranscriptUIKitTests {
 }
 
 private struct TranscriptTestRow: Identifiable, Equatable, Sendable {
+    enum Content: Equatable, Sendable {
+        case text(String)
+        case attachment(ChatAttachment)
+    }
+
     let id: Int
-    let text: String
+    let content: Content
+
+    init(id: Int, text: String) {
+        self.id = id
+        content = .text(text)
+    }
+
+    init(id: Int, attachment: ChatAttachment) {
+        self.id = id
+        content = .attachment(attachment)
+    }
 }
 
 @MainActor
@@ -424,13 +473,25 @@ private struct TranscriptTestHarness: View {
             onSemanticHead: onSemanticHead,
             onSemanticTail: onSemanticTail
         ) { row in
-            Text(row.text)
-                .font(.system(size: 16))
-                .foregroundStyle(Color.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
+            switch row.content {
+            case .text(let text):
+                Text(text)
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+            case .attachment(let attachment):
+                ChatAttachmentBubbleView(
+                    attachment: attachment,
+                    groupPosition: .solo,
+                    showsTimestamp: false,
+                    timestamp: Date(timeIntervalSince1970: 0)
+                )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
+            }
         }
     }
 }

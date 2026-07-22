@@ -73,7 +73,15 @@ struct ChatMessageCodableTests {
                 )
             ),
             .status(ChatStatusTransition(event: .sessionStarted, detail: "claude")),
-            .attachment(ChatAttachment(media: .image, displayName: "design.png", hostPath: "/tmp/design.png")),
+            .attachment(ChatAttachment(
+                media: .image,
+                displayName: "design.png",
+                hostPath: "/tmp/design.png",
+                mimeType: "image/png",
+                byteCount: 456_789,
+                pixelWidth: 1_600,
+                pixelHeight: 900
+            )),
         ]
         for kind in kinds {
             let original = message(kind: kind)
