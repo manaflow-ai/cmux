@@ -390,6 +390,12 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
     @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
+    @State private var commandPalettePreparedSearchScope: CommandPaletteListScope?
+    @State private var commandPalettePreparedSearchFingerprint: Int?
+    @State private var commandPalettePreparedCommandCorpus: CommandPalettePreparedSearchCorpus?
+    @State private var commandPaletteSearchCorpusPreloader = CommandPaletteSearchCorpusPreloader()
+    @State private var commandPaletteCommandPreloadTask: Task<Void, Never>?
+    @State private var commandPaletteCommandPreloadGeneration: UInt64 = 0
     @State private var commandPaletteSearchIndexBuildTask: Task<Void, Never>?
     @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
@@ -2096,6 +2102,14 @@ struct ContentView: View {
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
             syncTrafficLightInset()
+            Task { @MainActor in
+                // Let the first window frame commit, then capture lightweight
+                // command descriptors. Normalization, indexing, and default
+                // ranking run on the dedicated preparation actor.
+                await Task.yield()
+                refreshCommandPaletteUsageHistory()
+                refreshCommandPaletteSearchCorpus(query: Self.commandPaletteCommandsPrefix)
+            }
 
             // Startup recovery (#399): if session restore or a race condition leaves the
             // view in a broken state (empty tabs, no selection, unmounted workspaces),
@@ -4276,10 +4290,37 @@ struct ContentView: View {
             includeSurfaces: includeSurfaces,
             commandsContext: commandsContext
         )
-        commandPaletteSearchCommandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
+        let commandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
             entries,
             keyedBy: \.id
         )
+        cachedCommandPaletteScope = scope
+        cachedCommandPaletteFingerprint = fingerprint
+
+        if scope == .commands {
+            if !force,
+               let prepared = commandPalettePreparedCommandCorpus,
+               prepared.fingerprint == fingerprint {
+                activatePreparedCommandCorpus(
+                    prepared,
+                    commandsByID: commandsByID,
+                    publishDefaultResults: !isCommandPalettePresented
+                        || Self.commandPaletteQueryForMatching(
+                            query: commandPaletteQuery,
+                            scope: .commands
+                        ).isEmpty
+                )
+                return
+            }
+            scheduleCommandPaletteCommandPreload(
+                entries: entries,
+                commandsByID: commandsByID,
+                fingerprint: fingerprint
+            )
+            return
+        }
+
+        commandPaletteSearchCommandsByID = commandsByID
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
                 payload: entry.id,
@@ -4293,8 +4334,8 @@ struct ContentView: View {
             searchCorpus,
             keyedBy: \.payload
         )
-        cachedCommandPaletteScope = scope
-        cachedCommandPaletteFingerprint = fingerprint
+        commandPalettePreparedSearchScope = scope
+        commandPalettePreparedSearchFingerprint = fingerprint
         scheduleCommandPaletteSearchIndexBuild(
             entries: searchCorpus,
             scope: scope,
@@ -4311,6 +4352,103 @@ struct ContentView: View {
         commandPaletteSearchIndexBuildTask?.cancel()
         commandPaletteSearchIndexBuildTask = nil
         commandPaletteSearchIndexBuildGeneration &+= 1
+    }
+
+    private func scheduleCommandPaletteCommandPreload(
+        entries: [CommandPaletteCommand],
+        commandsByID: [String: CommandPaletteCommand],
+        fingerprint: Int
+    ) {
+        commandPaletteCommandPreloadTask?.cancel()
+        commandPaletteCommandPreloadGeneration &+= 1
+        let generation = commandPaletteCommandPreloadGeneration
+        let descriptors = entries.map { entry in
+            CommandPaletteSearchCorpusDescriptor(
+                id: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        let usageHistory = commandPaletteUsageHistoryByCommandId
+        let historyTimestamp = Date().timeIntervalSince1970
+        let preloader = commandPaletteSearchCorpusPreloader
+
+        commandPaletteCommandPreloadTask = Task(priority: .utility) { @MainActor in
+            let prepared = await preloader.prepare(
+                descriptors: descriptors,
+                fingerprint: fingerprint,
+                usageHistory: usageHistory,
+                historyTimestamp: historyTimestamp
+            )
+            guard !Task.isCancelled,
+                  commandPaletteCommandPreloadGeneration == generation else { return }
+
+            commandPaletteCommandPreloadTask = nil
+            commandPalettePreparedCommandCorpus = prepared
+
+            let currentScope = Self.commandPaletteListScope(for: commandPaletteQuery)
+            guard !isCommandPalettePresented || currentScope == .commands else { return }
+            let matchingQuery = Self.commandPaletteQueryForMatching(
+                query: commandPaletteQuery,
+                scope: .commands
+            )
+            activatePreparedCommandCorpus(
+                prepared,
+                commandsByID: commandsByID,
+                publishDefaultResults: !isCommandPalettePresented || matchingQuery.isEmpty
+            )
+            if isCommandPalettePresented, !matchingQuery.isEmpty {
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    preservePendingActivation: true
+                )
+            }
+        }
+    }
+
+    private func activatePreparedCommandCorpus(
+        _ prepared: CommandPalettePreparedSearchCorpus,
+        commandsByID: [String: CommandPaletteCommand],
+        publishDefaultResults: Bool
+    ) {
+        commandPaletteSearchCommandsByID = commandsByID
+        commandPaletteSearchCorpus = prepared.entries
+        commandPaletteSearchCorpusByID = prepared.entriesByID
+        commandPaletteNucleoSearchIndex = prepared.searchIndex
+        commandPalettePreparedSearchScope = .commands
+        commandPalettePreparedSearchFingerprint = prepared.fingerprint
+        cachedCommandPaletteScope = .commands
+        cachedCommandPaletteFingerprint = prepared.fingerprint
+
+        guard publishDefaultResults else { return }
+        let defaultResults = Self.commandPaletteMaterializedSearchResults(
+            matches: prepared.defaultMatches,
+            commandsByID: commandsByID
+        )
+        cachedCommandPaletteResults = defaultResults
+        commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
+        commandPaletteResolvedSearchScope = .commands
+        commandPaletteResolvedSearchFingerprint = prepared.fingerprint
+        commandPaletteResolvedMatchingQuery = ""
+        isCommandPaletteSearchPending = false
+        setCommandPaletteVisibleResults(
+            defaultResults,
+            scope: .commands,
+            fingerprint: prepared.fingerprint
+        )
+        let pendingActivationResolution = Self.commandPalettePendingActivationResolution(
+            commandPalettePendingActivation,
+            requestID: commandPaletteSearchRequestID,
+            resultIDs: defaultResults.map(\.id)
+        )
+        if pendingActivationResolution.shouldClearPendingActivation {
+            commandPalettePendingActivation = nil
+        }
+        commandPaletteResultsRevision &+= 1
+        if let resolvedActivation = pendingActivationResolution.resolvedActivation {
+            runCommandPaletteResolvedActivation(resolvedActivation)
+        }
     }
 
     private func scheduleCommandPaletteSearchIndexBuild(
@@ -4332,6 +4470,8 @@ struct ContentView: View {
                     return
                 }
                 commandPaletteNucleoSearchIndex = index
+                commandPalettePreparedSearchScope = scope
+                commandPalettePreparedSearchFingerprint = fingerprint
                 commandPaletteSearchIndexBuildTask = nil
                 guard index != nil else { return }
                 if isCommandPalettePresented,
@@ -4447,6 +4587,23 @@ struct ContentView: View {
         commandPaletteSearchRequestID &+= 1
         let requestID = commandPaletteSearchRequestID
         let fingerprint = cachedCommandPaletteFingerprint
+        guard commandPalettePreparedSearchScope == scope,
+              commandPalettePreparedSearchFingerprint == fingerprint else {
+            isCommandPaletteSearchPending = true
+            syncCommandPaletteOverlayCommandListState()
+            return
+        }
+        if matchingQuery.isEmpty,
+           commandPaletteVisibleResultsScope == scope,
+           commandPaletteVisibleResultsFingerprint == fingerprint,
+           commandPaletteResolvedSearchScope == scope,
+           commandPaletteResolvedSearchFingerprint == fingerprint,
+           commandPaletteResolvedMatchingQuery.isEmpty {
+            commandPaletteResolvedSearchRequestID = requestID
+            isCommandPaletteSearchPending = false
+            syncCommandPaletteOverlayCommandListState()
+            return
+        }
         let searchCorpus = commandPaletteSearchCorpus
         let searchCorpusByID = commandPaletteSearchCorpusByID
         let searchIndex = commandPaletteNucleoSearchIndex
@@ -9053,7 +9210,7 @@ struct ContentView: View {
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
-        scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+        scheduleCommandPaletteResultsRefresh()
         syncCommandPaletteOverlayCommandListState()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
@@ -9147,7 +9304,6 @@ struct ContentView: View {
         }
 #endif
         cancelCommandPaletteSearch()
-        cancelCommandPaletteSearchIndexBuild()
         cancelCommandPaletteForkableAgentAvailabilityProbe()
         cancelCommandPaletteForkableAgentProbeResultExpiryRefresh()
         commandPaletteForkableAgentActivePanelKey = nil
@@ -9168,26 +9324,11 @@ struct ContentView: View {
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
         commandPalettePendingRequestFocusTarget = nil
-        commandPaletteSearchCorpus = []
-        commandPaletteSearchCorpusByID = [:]
-        commandPaletteSearchCommandsByID = [:]
-        commandPaletteNucleoSearchIndex = nil
-        cachedCommandPaletteResults = []
-        commandPaletteVisibleResults = []
-        commandPaletteVisibleResultsScope = nil
-        commandPaletteVisibleResultsFingerprint = nil
-        commandPaletteVisibleResultsVersion &+= 1
-        cachedCommandPaletteScope = nil
-        cachedCommandPaletteFingerprint = nil
         commandPalettePendingTextSelectionBehavior = nil
         commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
-        commandPaletteResolvedSearchScope = nil
-        commandPaletteResolvedSearchFingerprint = nil
         commandPaletteTerminalOpenTargetAvailability = []
         isCommandPaletteSearchPending = false
         commandPalettePendingActivation = nil
-        commandPaletteResultsRevision &+= 1
-        syncCommandPaletteOverlayCommandListState()
         if let window = commandPaletteInputWindow {
             _ = window.makeFirstResponder(nil)
         }

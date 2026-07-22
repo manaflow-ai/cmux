@@ -1295,6 +1295,10 @@ struct WindowDragHandleView: NSViewRepresentable {
 
         override var mouseDownCanMoveWindow: Bool { false }
 
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            true
+        }
+
         override func hitTest(_ point: NSPoint) -> NSView? {
             let currentEvent = NSApp.currentEvent
             // Fast bail-out: only claim hits for left-mouse-down events.
@@ -1348,6 +1352,7 @@ struct WindowDragHandleView: NSViewRepresentable {
             }
 
             if let window {
+                window.makeKey()
                 let previousMovableState = withTemporaryWindowMovableEnabled(window: window) {
                     window.performDrag(with: event)
                 }

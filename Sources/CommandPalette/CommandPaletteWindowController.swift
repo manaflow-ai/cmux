@@ -56,7 +56,9 @@ final class WindowCommandPalettePanelController: NSObject {
         panel.hidesOnDeactivate = false
         panel.level = .floating
         panel.collectionBehavior = [.fullScreenAuxiliary, .transient, .ignoresCycle]
-        panel.animationBehavior = .utilityWindow
+        // The palette owns an instant show/hide lifecycle. AppKit's utility
+        // window behavior adds a second fade after the user presses Escape.
+        panel.animationBehavior = .none
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -216,7 +218,6 @@ final class WindowCommandPalettePanelController: NSObject {
         isPaletteVisible = false
         onDismiss = nil
         onDidBecomeKey = nil
-        hostingView.rootView = AnyView(EmptyView())
         if panel.firstResponder != nil {
             _ = panel.makeFirstResponder(nil)
         }

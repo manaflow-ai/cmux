@@ -45,15 +45,11 @@ final class CommandPaletteOverlayRenderModel {
     func scheduleCommandListUpdate(_ state: CommandPaletteCommandListRenderState) {
         scheduledCommandListSequence &+= 1
         let sequence = scheduledCommandListSequence
-
-        Task { @MainActor in
-            await Task.yield()
-            guard sequence >= appliedCommandListSequence else { return }
-            guard state.resultsVersion >= appliedCommandListResultsVersion else { return }
-            appliedCommandListSequence = sequence
-            appliedCommandListResultsVersion = max(appliedCommandListResultsVersion, state.resultsVersion)
-            updateCommandList(state)
-        }
+        guard sequence >= appliedCommandListSequence else { return }
+        guard state.resultsVersion >= appliedCommandListResultsVersion else { return }
+        appliedCommandListSequence = sequence
+        appliedCommandListResultsVersion = max(appliedCommandListResultsVersion, state.resultsVersion)
+        updateCommandList(state)
     }
 
     private func updateCommandList(_ state: CommandPaletteCommandListRenderState) {

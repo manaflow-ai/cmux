@@ -3313,14 +3313,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
     }
 
-    func testWorkspaceFloatingDockTitlebarIdentityAcceptsFirstMouseWithoutAppKitDragInterception() {
-        let dragRegion = WorkspaceFloatingDockTitlebarDragNSView(
-            frame: NSRect(x: 0, y: 0, width: WorkspaceFloatingDockChromeMetrics.identityWidth, height: 38)
-        )
-
-        XCTAssertTrue(dragRegion.acceptsFirstMouse(for: nil))
-        XCTAssertFalse(dragRegion.mouseDownCanMoveWindow)
+    func testWorkspaceFloatingDockTitlebarIdentityLeavesRoomForSharedDragHandleAndNewButton() {
         XCTAssertEqual(WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset, 140)
+        XCTAssertEqual(
+            WorkspaceFloatingDockChromeMetrics.identityWidth,
+            WorkspaceFloatingDockChromeMetrics.dragRegionWidth
+                + WorkspaceFloatingDockChromeMetrics.newDockButtonWidth
+        )
     }
 
     func testWorkspaceFloatingDockTitlebarDoubleClickDoesNotInvokeNativeWindowActions() throws {
@@ -3330,24 +3329,9 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        let dragRegion = WorkspaceFloatingDockTitlebarDragNSView(
-            frame: NSRect(x: 0, y: 0, width: WorkspaceFloatingDockChromeMetrics.dragRegionWidth, height: 38)
-        )
-        window.contentView = dragRegion
-        let event = try XCTUnwrap(NSEvent.mouseEvent(
-            with: .leftMouseDown,
-            location: NSPoint(x: 10, y: 10),
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 1,
-            clickCount: 2,
-            pressure: 1
-        ))
+        let result = handleTitlebarDoubleClick(window: window, behavior: .suppress)
 
-        dragRegion.mouseDown(with: event)
-
+        XCTAssertTrue(result.consumesEvent)
         XCTAssertEqual(window.zoomInvocationCount, 0)
         XCTAssertEqual(window.miniaturizeInvocationCount, 0)
     }
@@ -3424,28 +3408,19 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
     }
 
-    func testWorkspaceFloatingDockCloseMotionStaysNearTheWindowInsteadOfCollapsingContent() {
+    func testWorkspaceFloatingDockCloseMotionUsesAWholeRootTransformWithoutWindowRelayout() {
         let windowFrame = CGRect(x: 900, y: 420, width: 520, height: 380)
         let pillFrame = CGRect(x: 1_640, y: 80, width: 36, height: 36)
-        let closingFrame = WorkspaceFloatingDockPresentationAnimation.closingFrame(
+        let transform = WorkspaceFloatingDockPresentationAnimation.closingTransform(
             windowFrame: windowFrame,
             toward: pillFrame
         )
 
-        XCTAssertEqual(closingFrame.width, 499.2, accuracy: 0.001)
-        XCTAssertEqual(closingFrame.height, 364.8, accuracy: 0.001)
-        XCTAssertGreaterThan(closingFrame.width, 320)
-        XCTAssertGreaterThan(closingFrame.height, 220)
-
-        let centerTravel = hypot(
-            closingFrame.midX - windowFrame.midX,
-            closingFrame.midY - windowFrame.midY
-        )
-        XCTAssertEqual(centerTravel, 18, accuracy: 0.001)
-        XCTAssertLessThan(
-            hypot(pillFrame.midX - closingFrame.midX, pillFrame.midY - closingFrame.midY),
-            hypot(pillFrame.midX - windowFrame.midX, pillFrame.midY - windowFrame.midY)
-        )
+        XCTAssertEqual(transform.m11, 0.9, accuracy: 0.001)
+        XCTAssertEqual(transform.m22, 0.9, accuracy: 0.001)
+        XCTAssertEqual(hypot(transform.m41, transform.m42), 30, accuracy: 0.001)
+        XCTAssertGreaterThan(transform.m41, 0)
+        XCTAssertLessThan(transform.m42, 0)
     }
 
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {

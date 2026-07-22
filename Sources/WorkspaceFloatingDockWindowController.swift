@@ -45,16 +45,18 @@ struct WorkspaceFloatingDockBackdropAppearance {
     }
 }
 
-/// Keeps presentation motion close to the live window so Bonsplit never has
-/// to reflow its contents down to the minimized pill's icon-sized frame.
+/// Describes the transform applied to the complete native window root while
+/// the real window frame remains fixed. Keeping AppKit geometry stable means
+/// Bonsplit and the titlebar animate as one composited surface.
 nonisolated enum WorkspaceFloatingDockPresentationAnimation {
-    static let closeDuration: TimeInterval = 0.18
-    static let restoreDuration: TimeInterval = 0.2
-    private static let closeScale: CGFloat = 0.96
-    private static let maximumTravel: CGFloat = 18
+    static let layerAnimationKey = "cmux.workspaceFloatingDock.presentation"
+    static let closeDuration: TimeInterval = 0.24
+    static let restoreDuration: TimeInterval = 0.22
+    static let closeScale: CGFloat = 0.9
+    static let maximumTravel: CGFloat = 30
 
-    static func closingFrame(windowFrame: CGRect, toward targetFrame: CGRect) -> CGRect {
-        guard !windowFrame.isEmpty else { return windowFrame }
+    static func closingTransform(windowFrame: CGRect, toward targetFrame: CGRect) -> CATransform3D {
+        guard !windowFrame.isEmpty else { return CATransform3DIdentity }
 
         let deltaX = targetFrame.midX - windowFrame.midX
         let deltaY = targetFrame.midY - windowFrame.midY
@@ -62,15 +64,21 @@ nonisolated enum WorkspaceFloatingDockPresentationAnimation {
         let travel = min(maximumTravel, distance)
         let travelX = distance > 0 ? deltaX / distance * travel : 0
         let travelY = distance > 0 ? deltaY / distance * travel : 0
-        let width = windowFrame.width * closeScale
-        let height = windowFrame.height * closeScale
+        var transform = CATransform3DMakeScale(closeScale, closeScale, 1)
+        transform.m41 = travelX
+        transform.m42 = travelY
+        return transform
+    }
+}
 
-        return CGRect(
-            x: windowFrame.midX + travelX - width / 2,
-            y: windowFrame.midY + travelY - height / 2,
-            width: width,
-            height: height
-        )
+private enum WorkspaceFloatingDockPresentationPhase: Equatable {
+    case hidden
+    case restoring
+    case visible
+    case minimizing
+
+    var isAnimating: Bool {
+        self == .restoring || self == .minimizing
     }
 }
 
@@ -85,9 +93,14 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     private let glassEffect = WindowGlassEffect()
     private weak var compatibilityBlurView: NSVisualEffectView?
     private var isApplyingModelFrame = false
-    private var isAnimatingPresentation = false
+    private var presentationPhase = WorkspaceFloatingDockPresentationPhase.hidden
+    private var presentationGeneration: UInt64 = 0
     private var hasAppliedInitialScreenPlacement = false
     private var isScreenConfigurationChanging = false
+
+    private var isAnimatingPresentation: Bool {
+        presentationPhase.isAnimating
+    }
 
     init(
         dock: WorkspaceFloatingDock,
@@ -145,6 +158,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.lockContentDrivenSizeChanges()
         glassEffect.changesTintWithWindowKeyState = false
         applyGlassTexture()
+        Self.configureStandardWindowButtons(in: panel)
     }
 
     required init?(coder: NSCoder) {
@@ -153,9 +167,10 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
 
     func show(focus: Bool, animatedFrom sourceFrame: CGRect? = nil) {
         guard let panel = window, let parentWindow else { return }
+        cancelPresentationAnimation(resetRootLayer: true)
         panel.title = dock.title
-        Self.configureStandardWindowButtons(in: panel)
         applyGlassTexture()
+        Self.configureStandardWindowButtons(in: panel)
         if hasAppliedInitialScreenPlacement {
             applyModelFrameIfNeeded()
         } else {
@@ -170,44 +185,35 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 parentWindow.addChildWindow(panel, ordered: .above)
             }
             if let sourceFrame,
-               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-               let floatingPanel = panel as? WorkspaceFloatingDockPanel {
-                let destinationFrame = panel.frame
-                let presentationFrame = WorkspaceFloatingDockPresentationAnimation.closingFrame(
-                    windowFrame: destinationFrame,
-                    toward: sourceFrame
-                )
-                isAnimatingPresentation = true
-                panel.ignoresMouseEvents = true
-                panel.alphaValue = 0
-                floatingPanel.setExplicitFrame(presentationFrame, display: false)
-                panel.orderFront(nil)
+               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                 dock.isPresented = true
                 dock.store.setVisibleInUI(true)
-                floatingPanel.beginAnimatedFrameMutation()
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = WorkspaceFloatingDockPresentationAnimation.restoreDuration
-                    context.timingFunction = CAMediaTimingFunction(
-                        controlPoints: 0.0,
-                        0.0,
-                        0.2,
-                        1.0
-                    )
-                    panel.animator().setFrame(destinationFrame, display: true)
-                    panel.animator().alphaValue = 1
-                } completionHandler: { [weak self, weak floatingPanel] in
-                    guard let self, let floatingPanel else { return }
-                    floatingPanel.endAnimatedFrameMutation()
-                    floatingPanel.ignoresMouseEvents = false
-                    self.isAnimatingPresentation = false
-                    self.finishShowing(floatingPanel, focus: focus)
+                animateRootPresentation(
+                    panel: panel,
+                    from: WorkspaceFloatingDockPresentationAnimation.closingTransform(
+                        windowFrame: panel.frame,
+                        toward: sourceFrame
+                    ),
+                    fromOpacity: 0,
+                    to: CATransform3DIdentity,
+                    toOpacity: 1,
+                    duration: WorkspaceFloatingDockPresentationAnimation.restoreDuration,
+                    timingFunction: CAMediaTimingFunction(controlPoints: 0.0, 0.0, 0.2, 1.0),
+                    phase: .restoring
+                ) { [weak self, weak panel] in
+                    guard let self, let panel else { return }
+                    self.presentationPhase = .visible
+                    panel.ignoresMouseEvents = false
+                    self.finishShowing(panel, focus: focus)
                 }
+                panel.orderFront(nil)
                 return
             }
             panel.orderFront(nil)
         }
         dock.isPresented = true
         dock.store.setVisibleInUI(true)
+        presentationPhase = .visible
         finishShowing(panel, focus: focus)
     }
 
@@ -226,54 +232,126 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
               panel.isVisible,
               let parentWindow else { return }
 
-        let originalFrame = panel.frame
         let targetFrame = WorkspaceFloatingDockMinimizedShelfLayout.animationTargetFrame(
             parentFrame: parentWindow.frame,
             itemCount: 1,
             destination: WorkspaceFloatingDockMinimizeDebugSettings.currentDestination()
         )
-        let presentationFrame = WorkspaceFloatingDockPresentationAnimation.closingFrame(
-            windowFrame: originalFrame,
-            toward: targetFrame
-        )
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-              let floatingPanel = panel as? WorkspaceFloatingDockPanel else {
-            completeMinimize(panel: panel, originalFrame: originalFrame)
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            completeMinimize(panel: panel)
             return
         }
 
-        isAnimatingPresentation = true
-        floatingPanel.ignoresMouseEvents = true
-        floatingPanel.beginAnimatedFrameMutation()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = WorkspaceFloatingDockPresentationAnimation.closeDuration
-            context.timingFunction = CAMediaTimingFunction(
-                controlPoints: 0.4,
-                0.0,
-                1.0,
-                1.0
-            )
-            floatingPanel.animator().setFrame(presentationFrame, display: true)
-            floatingPanel.animator().alphaValue = 0
-        } completionHandler: { [weak self, weak floatingPanel] in
-            guard let self, let floatingPanel else { return }
-            floatingPanel.endAnimatedFrameMutation()
-            self.completeMinimize(panel: floatingPanel, originalFrame: originalFrame)
+        panel.ignoresMouseEvents = true
+        animateRootPresentation(
+            panel: panel,
+            from: CATransform3DIdentity,
+            fromOpacity: 1,
+            to: WorkspaceFloatingDockPresentationAnimation.closingTransform(
+                windowFrame: panel.frame,
+                toward: targetFrame
+            ),
+            toOpacity: 0,
+            duration: WorkspaceFloatingDockPresentationAnimation.closeDuration,
+            timingFunction: CAMediaTimingFunction(controlPoints: 0.4, 0.0, 1.0, 1.0),
+            phase: .minimizing
+        ) { [weak self, weak panel] in
+            guard let self, let panel else { return }
+            self.completeMinimize(panel: panel)
         }
     }
 
-    private func completeMinimize(panel: NSWindow, originalFrame: CGRect) {
+    private func completeMinimize(panel: NSWindow) {
         panel.orderOut(nil)
         panel.alphaValue = 1
         panel.ignoresMouseEvents = false
-        if let panel = panel as? WorkspaceFloatingDockPanel {
-            panel.setExplicitFrame(originalFrame, display: false)
-        } else {
-            panel.setFrame(originalFrame, display: false)
-        }
-        isAnimatingPresentation = false
+        resetPresentationLayer(for: panel)
+        presentationPhase = .hidden
         onMinimizeRequest(dock.id)
         parentWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func animateRootPresentation(
+        panel: NSWindow,
+        from fromTransform: CATransform3D,
+        fromOpacity: Float,
+        to toTransform: CATransform3D,
+        toOpacity: Float,
+        duration: TimeInterval,
+        timingFunction: CAMediaTimingFunction,
+        phase: WorkspaceFloatingDockPresentationPhase,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        guard let rootView = panel.contentView?.superview else {
+            presentationPhase = phase
+            completion()
+            return
+        }
+        rootView.wantsLayer = true
+        guard let layer = rootView.layer else {
+            presentationPhase = phase
+            completion()
+            return
+        }
+
+        presentationGeneration &+= 1
+        let generation = presentationGeneration
+        presentationPhase = phase
+        layer.removeAnimation(forKey: WorkspaceFloatingDockPresentationAnimation.layerAnimationKey)
+
+        let transformAnimation = CABasicAnimation(keyPath: "transform")
+        transformAnimation.fromValue = NSValue(caTransform3D: fromTransform)
+        transformAnimation.toValue = NSValue(caTransform3D: toTransform)
+        let group = CAAnimationGroup()
+        group.animations = [transformAnimation]
+        group.duration = duration
+        group.timingFunction = timingFunction
+
+        panel.alphaValue = CGFloat(fromOpacity)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = timingFunction
+            panel.animator().alphaValue = CGFloat(toOpacity)
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        CATransaction.setCompletionBlock { [weak self, weak panel] in
+            Task { @MainActor in
+                guard let self,
+                      let panel,
+                      self.presentationGeneration == generation,
+                      self.presentationPhase == phase else { return }
+                completion()
+            }
+        }
+        layer.transform = toTransform
+        layer.opacity = 1
+        layer.add(group, forKey: WorkspaceFloatingDockPresentationAnimation.layerAnimationKey)
+        CATransaction.commit()
+    }
+
+    private func cancelPresentationAnimation(resetRootLayer: Bool) {
+        presentationGeneration &+= 1
+        guard let panel = window else { return }
+        panel.contentView?.superview?.layer?.removeAnimation(
+            forKey: WorkspaceFloatingDockPresentationAnimation.layerAnimationKey
+        )
+        if resetRootLayer {
+            resetPresentationLayer(for: panel)
+        }
+        panel.alphaValue = 1
+        panel.ignoresMouseEvents = false
+    }
+
+    private func resetPresentationLayer(for panel: NSWindow) {
+        guard let layer = panel.contentView?.superview?.layer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = CATransform3DIdentity
+        layer.opacity = 1
+        CATransaction.commit()
+        layer.removeAnimation(forKey: WorkspaceFloatingDockPresentationAnimation.layerAnimationKey)
     }
 
     func updateTintInPlace() {
@@ -287,6 +365,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     func hide() {
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
+        cancelPresentationAnimation(resetRootLayer: true)
+        presentationPhase = .hidden
         window?.orderOut(nil)
     }
 
@@ -303,6 +383,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     func teardown() {
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
+        cancelPresentationAnimation(resetRootLayer: true)
+        presentationPhase = .hidden
         if let window, let parent = window.parent {
             parent.removeChildWindow(window)
         }
@@ -364,6 +446,9 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 
     func windowDidResize(_ notification: Notification) {
+        if let panel = notification.object as? NSWindow {
+            Self.configureStandardWindowButtons(in: panel)
+        }
         captureModelFrame()
     }
 
@@ -564,11 +649,13 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 
     private static func configureStandardWindowButtons(in panel: NSWindow) {
+        var configuredButtons: [NSButton] = []
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let button = panel.standardWindowButton(buttonType) else { continue }
             button.isHidden = false
             button.alphaValue = 1
             button.isEnabled = buttonType != .zoomButton
+            configuredButtons.append(button)
             if buttonType == .miniaturizeButton,
                let floatingPanel = panel as? WorkspaceFloatingDockPanel {
                 button.target = floatingPanel
@@ -578,6 +665,15 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                     defaultValue: "Minimize Floating Window"
                 )
             }
+        }
+
+        guard let titlebarContainer = configuredButtons.first?.superview else { return }
+        let desiredMidY = titlebarContainer.bounds.maxY
+            - WindowChromeMetrics.bonsplitTabBarHeight / 2
+        for button in configuredButtons where button.superview === titlebarContainer {
+            var frame = button.frame
+            frame.origin.y = desiredMidY - frame.height / 2
+            button.setFrameOrigin(frame.origin)
         }
     }
 }
@@ -621,14 +717,6 @@ private final class WorkspaceFloatingDockPanel: NSPanel {
     }
 
     func endUserResize() {
-        sizeAuthority = .contentLocked
-    }
-
-    func beginAnimatedFrameMutation() {
-        sizeAuthority = .explicitMutation
-    }
-
-    func endAnimatedFrameMutation() {
         sizeAuthority = .contentLocked
     }
 

@@ -44,7 +44,7 @@ private struct WorkspaceFloatingDockTitlebarIdentity: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            WorkspaceFloatingDockTitlebarDragRegion()
+            WindowDragHandleView(doubleClickBehavior: .suppress)
                 .frame(
                     width: WorkspaceFloatingDockChromeMetrics.dragRegionWidth,
                     height: WindowChromeMetrics.bonsplitTabBarHeight
@@ -74,30 +74,5 @@ private struct WorkspaceFloatingDockTitlebarIdentity: View {
             height: WindowChromeMetrics.bonsplitTabBarHeight
         )
         .accessibilityIdentifier("WorkspaceFloatingDockTitlebarIdentity")
-    }
-}
-
-private struct WorkspaceFloatingDockTitlebarDragRegion: NSViewRepresentable {
-    func makeNSView(context: Context) -> WorkspaceFloatingDockTitlebarDragNSView {
-        WorkspaceFloatingDockTitlebarDragNSView()
-    }
-
-    func updateNSView(_ nsView: WorkspaceFloatingDockTitlebarDragNSView, context: Context) {}
-}
-
-final class WorkspaceFloatingDockTitlebarDragNSView: NSView {
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard let window else { return }
-        window.makeKey()
-        guard event.clickCount == 1 else { return }
-        withTemporaryWindowMovableEnabled(window: window) {
-            window.performDrag(with: event)
-        }
     }
 }
