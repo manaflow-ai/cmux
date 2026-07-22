@@ -79,6 +79,30 @@ final class WorkspaceListScrollEdgeCoordinator {
               let scrollView = registeredScrollView,
               controller.contentScrollView(for: edge) === scrollView else { return }
         controller.setContentScrollView(nil, for: edge)
+        // Deterministic handoff: a waiting table stood down while this one
+        // owned the edge, and UIKit does not guarantee it another layout pass
+        // after this teardown. Nudge it so its next pass claims the vacancy;
+        // the woken table still runs its own claim arbitration.
+        if let waiting = Self.firstWorkspaceTable(
+            under: controller.viewIfLoaded, excluding: scrollView
+        ) {
+            waiting.setNeedsLayout()
+        }
+    }
+
+    private static func firstWorkspaceTable(
+        under view: UIView?, excluding departing: UIScrollView
+    ) -> WorkspaceListUITableView? {
+        guard let view else { return nil }
+        if let table = view as? WorkspaceListUITableView, table !== departing {
+            return table
+        }
+        for subview in view.subviews {
+            if let found = firstWorkspaceTable(under: subview, excluding: departing) {
+                return found
+            }
+        }
+        return nil
     }
 
     /// Vacant (nil) and stale (holder departed its window without clearing,

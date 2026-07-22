@@ -83,20 +83,22 @@ import UIKit
         #expect(fixture.navigation.contentScrollView(for: .bottom) === fixture.tableView)
     }
 
-    /// When the owning table departs it clears the edges, and the surviving
-    /// table reclaims them on its next layout pass.
+    /// When the owning table departs it clears the edges and nudges the
+    /// waiting table, which claims them on the next layout flush. The test
+    /// only flushes pending window layout; the survivor is never marked
+    /// dirty by hand, so a missing wake fails the assertions.
     @Test func survivingTableReclaimsRegistrationAfterOwnerDeparts() throws {
         guard #available(iOS 26.0, *) else { return }
         let fixture = Fixture()
         let second = WorkspaceListUITableView(frame: .zero, style: .plain)
         fixture.content.view.addSubview(second)
         second.layoutIfNeeded()
+        #expect(fixture.content.contentScrollView(for: .top) === fixture.tableView)
 
         fixture.tableView.removeFromSuperview()
         #expect(fixture.content.contentScrollView(for: .top) == nil)
 
-        second.setNeedsLayout()
-        second.layoutIfNeeded()
+        fixture.window.layoutIfNeeded()
 
         #expect(fixture.content.contentScrollView(for: .top) === second)
         #expect(fixture.navigation.contentScrollView(for: .bottom) === second)
