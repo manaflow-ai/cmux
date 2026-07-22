@@ -3117,7 +3117,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertFalse(panel.isOpaque)
         XCTAssertTrue(panel.hasShadow)
         XCTAssertTrue(panel.usesWorkspaceFloatingDockGlassBackdrop)
-        XCTAssertFalse(panel.isMovable)
+        XCTAssertTrue(
+            panel.isMovable,
+            "Floating panels must be movable before mouse-down so NSWindow.performDrag can hand the gesture to Window Server"
+        )
         XCTAssertFalse(panel.isMovableByWindowBackground)
         XCTAssertFalse(panel.contentView?.mouseDownCanMoveWindow ?? true)
         XCTAssertTrue(panel.styleMask.contains(.resizable))
