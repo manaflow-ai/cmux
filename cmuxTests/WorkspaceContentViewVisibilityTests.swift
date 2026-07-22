@@ -78,29 +78,61 @@ final class WorkspaceContentViewVisibilityTests {
     @Test
     @MainActor
     func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async throws {
-        let scheduler = SidebarResizerCursorReleaseScheduler()
+        typealias SleepRequest = (
+            duration: Duration,
+            continuation: CheckedContinuation<Void, Error>
+        )
+        let (sleepRequests, sleepRequestContinuation) = AsyncStream.makeStream(
+            of: SleepRequest.self
+        )
+        let (completedSleeps, completedSleepContinuation) = AsyncStream.makeStream(
+            of: Duration.self
+        )
+        var sleepRequestIterator = sleepRequests.makeAsyncIterator()
+        var completedSleepIterator = completedSleeps.makeAsyncIterator()
+        let scheduler = SidebarResizerCursorReleaseScheduler { duration in
+            try await withCheckedThrowingContinuation { continuation in
+                sleepRequestContinuation.yield((duration, continuation))
+            }
+            completedSleepContinuation.yield(duration)
+        }
         var releases: [Bool] = []
+        let (releaseEvents, releaseContinuation) = AsyncStream.makeStream(
+            of: Bool.self
+        )
+        var releaseIterator = releaseEvents.makeAsyncIterator()
 
         scheduler.schedule(force: false, delay: .zero) { force in
             releases.append(force)
+            releaseContinuation.yield(force)
         }
         #expect(releases.isEmpty)
-        try await Task.sleep(for: .milliseconds(10))
+        #expect(await releaseIterator.next() == false)
         #expect(releases == [false])
         releases.removeAll()
 
         scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
             releases.append(force)
+            releaseContinuation.yield(force)
         }
+        let replacedRequest = try #require(await sleepRequestIterator.next())
+        #expect(replacedRequest.duration == .milliseconds(200))
+
         scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
             releases.append(force)
+            releaseContinuation.yield(force)
         }
+        let activeRequest = try #require(await sleepRequestIterator.next())
+        #expect(activeRequest.duration == .milliseconds(10))
 
-        try await Task.sleep(for: .milliseconds(80))
+        activeRequest.continuation.resume()
+        #expect(await completedSleepIterator.next() == .milliseconds(10))
+        #expect(await releaseIterator.next() == true)
         #expect(releases == [true])
 
         scheduler.cancelPendingRelease()
-        try await Task.sleep(for: .milliseconds(160))
+        replacedRequest.continuation.resume()
+        #expect(await completedSleepIterator.next() == .milliseconds(200))
         #expect(releases == [true])
     }
 

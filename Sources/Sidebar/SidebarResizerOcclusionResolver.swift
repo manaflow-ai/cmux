@@ -2,8 +2,18 @@ import AppKit
 
 @MainActor
 final class SidebarResizerCursorReleaseScheduler {
+    private let sleep: @MainActor (Duration) async throws -> Void
     private var pendingTask: Task<Void, Never>?
     private var generation: UInt64 = 0
+
+    init(
+        sleep: @escaping @MainActor (Duration) async throws -> Void = { duration in
+            // This is the intended cancellable UI delay; injection keeps tests deterministic.
+            try await Task.sleep(for: duration)
+        }
+    ) {
+        self.sleep = sleep
+    }
 
     func cancelPendingRelease() {
         generation &+= 1
@@ -19,10 +29,11 @@ final class SidebarResizerCursorReleaseScheduler {
         cancelPendingRelease()
 
         let scheduledGeneration = generation
+        let sleep = self.sleep
         pendingTask = Task { @MainActor [weak self] in
             if delay > .zero {
                 do {
-                    try await Task.sleep(for: delay)
+                    try await sleep(delay)
                 } catch {
                     return
                 }
