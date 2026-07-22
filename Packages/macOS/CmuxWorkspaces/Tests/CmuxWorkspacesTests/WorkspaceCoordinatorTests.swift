@@ -151,6 +151,128 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func sidebarDropPinsPromotedGroupChildAtExactPinnedSlot() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let pinnedC = CoordinatorStubTab(isPinned: true)
+        let draggedChild = CoordinatorStubTab()
+        let remainingChild = CoordinatorStubTab()
+        let plain = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, pinnedC, draggedChild, remainingChild, plain]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [draggedChild.id, remainingChild.id]
+        ))
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: draggedChild.id,
+            toIndex: 1,
+            isDragOperation: true,
+            usesTopLevelRows: true,
+            targetPinnedState: true
+        )
+
+        #expect(moved)
+        #expect(draggedChild.groupId == nil)
+        #expect(draggedChild.isPinned)
+        #expect(Array(model.sidebarTopLevelWorkspaceIds().prefix(4)) == [
+            pinnedA.id,
+            draggedChild.id,
+            pinnedB.id,
+            pinnedC.id,
+        ])
+        #expect(host.orderChanges.last == [draggedChild.id])
+        #expect(model.workspaceGroups.contains { $0.id == groupId })
+    }
+
+    @Test
+    func sidebarDropUnpinsTopLevelWorkspaceAtExactUnpinnedSlot() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinned = CoordinatorStubTab(isPinned: true)
+        let dragged = CoordinatorStubTab(isPinned: true)
+        let plainA = CoordinatorStubTab()
+        let plainB = CoordinatorStubTab()
+        model.tabs = [pinned, dragged, plainA, plainB]
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: 2,
+            isDragOperation: true,
+            usesTopLevelRows: true,
+            targetPinnedState: false
+        )
+
+        #expect(moved)
+        #expect(!dragged.isPinned)
+        #expect(model.sidebarTopLevelWorkspaceIds() == [
+            pinned.id,
+            plainA.id,
+            dragged.id,
+            plainB.id,
+        ])
+        #expect(host.orderChanges.last == [dragged.id])
+    }
+
+    @Test
+    func rejectedTopLevelReorderDoesNotMutateGroupPinState() {
+        let (model, host, _, reorder) = makeWorld()
+        let anchorId = UUID()
+        model.workspaceGroups = [WorkspaceGroup(
+            id: UUID(),
+            name: "Detached",
+            isCollapsed: false,
+            isPinned: false,
+            anchorWorkspaceId: anchorId,
+            customColor: nil,
+            iconSymbol: nil
+        )]
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: anchorId,
+            toIndex: 0,
+            isDragOperation: true,
+            usesTopLevelRows: true,
+            targetPinnedState: true
+        )
+
+        #expect(!moved)
+        #expect(model.workspaceGroups.first?.isPinned == false)
+        #expect(host.orderChanges.isEmpty)
+    }
+
+    @Test
+    func sidebarRawDropPinsWorkspaceAtLastRequestedPinnedSlot() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let pinnedC = CoordinatorStubTab(isPinned: true)
+        let plainA = CoordinatorStubTab()
+        let dragged = CoordinatorStubTab()
+        let plainB = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, pinnedC, plainA, dragged, plainB]
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: 3,
+            isDragOperation: true,
+            targetPinnedState: true
+        )
+
+        #expect(moved)
+        #expect(dragged.isPinned)
+        #expect(model.tabs.map(\.id) == [
+            pinnedA.id,
+            pinnedB.id,
+            pinnedC.id,
+            dragged.id,
+            plainA.id,
+            plainB.id,
+        ])
+        #expect(host.orderChanges.last == [dragged.id])
+    }
+
+    @Test
     func reorderWorkspaceBeforeDownwardMoveInsertsAtExpectedSlot() {
         let (model, host, _, reorder) = makeWorld()
         _ = host

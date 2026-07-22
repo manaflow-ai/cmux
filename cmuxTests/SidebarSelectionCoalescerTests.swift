@@ -94,6 +94,9 @@ struct SidebarSelectionCoalescerTests {
         coalescer.request { applied.append("a") }
         clock.advance(by: .milliseconds(30))
         coalescer.request { applied.append("b") }
+        // Let the trailing task register its manual-clock sleeper before
+        // advancing again; otherwise it can derive its deadline after the jump.
+        await drain()
         clock.advance(by: .milliseconds(30))
         coalescer.request { applied.append("c") }
         #expect(applied == ["a"])
@@ -157,71 +160,5 @@ struct SidebarSelectionCoalescerTests {
         coalescer.request { applied.append("a") }
         coalescer.flushNow()
         #expect(applied == ["a"])
-    }
-}
-
-@Suite
-struct SidebarWorkspaceSelectionInteractionTests {
-    @Test
-    func pressPaintsImmediatelyButDoesNotActivateUntilCompletedClick() {
-        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
-
-        interaction.mouseDown(on: "workspace-a", context: 7)
-
-        #expect(interaction.phase == .pressed(id: "workspace-a", context: 7))
-
-        let activation = interaction.completedClick(on: "workspace-a", fallbackContext: 99)
-
-        #expect(activation == .init(id: "workspace-a", context: 7))
-        #expect(interaction.phase == .activating(id: "workspace-a", context: 7))
-    }
-
-    @Test
-    func dragThresholdRollsBackPressAndSuppressesActivation() {
-        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
-        interaction.mouseDown(on: "workspace-a", context: 7)
-
-        let didBeginDrag = interaction.dragDidBegin(on: "workspace-a")
-        #expect(didBeginDrag)
-        #expect(interaction.phase == .dragging(id: "workspace-a", context: 7))
-        #expect(interaction.completedClick(on: "workspace-a", fallbackContext: 99) == nil)
-
-        interaction.dragDidEnd()
-
-        #expect(interaction.phase == .idle)
-    }
-
-    @Test
-    func trackingEndCancelsACompletedNeitherClickNorDrag() {
-        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
-        interaction.mouseDown(on: "workspace-a", context: 7)
-
-        let didCancelPress = interaction.trackingDidEnd()
-        #expect(didCancelPress)
-        #expect(interaction.phase == .idle)
-    }
-
-    @Test
-    func onlyMatchingAuthoritativeSelectionReconcilesActivation() {
-        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
-        interaction.mouseDown(on: "workspace-a", context: 7)
-        _ = interaction.completedClick(on: "workspace-a", fallbackContext: 99)
-
-        let unrelatedApplyReconciled = interaction.authoritativeSelectionDidApply(id: "workspace-b")
-        #expect(!unrelatedApplyReconciled)
-        #expect(interaction.phase == .activating(id: "workspace-a", context: 7))
-        let targetApplyReconciled = interaction.authoritativeSelectionDidApply(id: "workspace-a")
-        #expect(targetApplyReconciled)
-        #expect(interaction.phase == .idle)
-    }
-
-    @Test
-    func directCompletedClickStillUsesTheSharedActivationLifecycle() {
-        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
-
-        let activation = interaction.completedClick(on: "workspace-a", fallbackContext: 99)
-
-        #expect(activation == .init(id: "workspace-a", context: 99))
-        #expect(interaction.phase == .activating(id: "workspace-a", context: 99))
     }
 }

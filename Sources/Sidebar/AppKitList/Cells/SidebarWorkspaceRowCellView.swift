@@ -145,8 +145,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
-    /// True when a press at this view should not repaint selection (the
-    /// close button closes without selecting).
+    /// The close button performs its own action without selecting the row.
     func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
         hitView === closeButton || hitView.isDescendant(of: closeButton)
     }

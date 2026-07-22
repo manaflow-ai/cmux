@@ -22,7 +22,7 @@ struct SidebarWorkspaceTableTests {
                 && area.options.contains(.inVisibleRect)
         })
 
-        #expect(container.tableView.style == .fullWidth)
+        #expect(container.tableView.style == .plain)
         #expect(container.scrollView.contentInsets.left == 0)
         #expect(container.scrollView.contentInsets.right == 0)
         #expect(container.tableView.intercellSpacing.width == 0)
@@ -77,7 +77,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func rowHeightCacheInvalidatesWhenColumnWidthChanges() {
+    func rowHeightCacheRemeasuresWhenColumnWidthChangesAndServesFreshHeight() {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()
         var measurementCount = 0
@@ -91,7 +91,7 @@ struct SidebarWorkspaceTableTests {
 
         #expect(measurementCount == 2)
         #expect(changed == IndexSet(integer: 0))
-        #expect(cache.height(for: row, columnWidth: 200) == nil)
+        #expect(cache.height(for: row, columnWidth: 200) == 60)
         #expect(cache.height(for: row, columnWidth: 240) == 60)
     }
 
@@ -315,7 +315,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func stableHeightReorderKeepsAnimatedMovePath() {
+    func stableHeightReorderKeepsMovePathWithoutAnimatedSettlement() throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let window = NSWindow(
@@ -340,6 +340,10 @@ struct SidebarWorkspaceTableTests {
 
         var structuralUpdates: [SidebarWorkspaceTableStructuralUpdate] = []
         controller.structuralUpdateProbe = { structuralUpdates.append($0) }
+        var animationContexts: [(duration: TimeInterval, allowsImplicitAnimation: Bool)] = []
+        controller.tableAnimationContextProbe = { duration, allowsImplicitAnimation in
+            animationContexts.append((duration, allowsImplicitAnimation))
+        }
         let reorderedIds = [ids[2], ids[0], ids[1]]
         let reorderedRows = reorderedIds.map { id in
             initialRows[ids.firstIndex(of: id)!]
@@ -353,6 +357,9 @@ struct SidebarWorkspaceTableTests {
         )
 
         #expect(structuralUpdates == [.moveRows])
+        let context = try #require(animationContexts.last)
+        #expect(context.duration == 0)
+        #expect(context.allowsImplicitAnimation == false)
     }
 #endif
 

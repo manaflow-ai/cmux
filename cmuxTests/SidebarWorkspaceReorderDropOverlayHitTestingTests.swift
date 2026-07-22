@@ -184,7 +184,10 @@ import Testing
         }
 
         #expect(view.draggingEntered(sender) == .move)
-        #expect(updateCalls == 0)
+        #expect(
+            updateCalls == 1,
+            "drag updates must continue while row targets refresh so edge autoscroll does not stall"
+        )
         let expectedDropPoint = view.convert(sender.draggingLocation, from: nil)
         #expect(view.performDragOperation(sender))
         #expect(performedDrops.isEmpty)

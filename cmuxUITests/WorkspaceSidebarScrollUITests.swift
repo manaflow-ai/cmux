@@ -207,6 +207,208 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         )
     }
 
+    func testNotificationReorderKeepsWorkspaceRowsContiguous() {
+        let app = XCUIApplication()
+        let token = UUID().uuidString
+        let socketPath = "/tmp/cmux-ui-sidebar-notification-reorder-\(token).sock"
+        defer {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: socketPath)
+        }
+
+        configureLaunch(app)
+        app.launchArguments += [
+            "-socketControlMode", "allowAll",
+            "-NSAppSleepDisabled", "YES",
+            "-workspaceAutoReorderOnNotification", "YES",
+            "-sidebarShowNotificationMessage", "YES",
+            "-sidebarNotificationMessageLineLimit", "12",
+        ]
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = "ui-sidebar-notif-\(token.prefix(8))"
+
+        launchAndEnsureRunning(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
+        XCTAssertTrue(
+            pollUntil(timeout: 10.0) { self.sendSocketLine("ping", to: socketPath) == "PONG" },
+            "Expected the isolated control socket to become ready"
+        )
+
+        let workspaceCount = 5
+        for index in 2...workspaceCount {
+            let reply = sendSocketLine("new_workspace notification-geometry-\(index)", to: socketPath)
+            XCTAssertTrue(
+                reply?.hasPrefix("OK ") == true,
+                "Expected workspace \(index) creation to succeed; reply=\(reply ?? "nil")"
+            )
+        }
+
+        var initialOrder: [UUID] = []
+        XCTAssertTrue(
+            pollUntil(timeout: 12.0) {
+                initialOrder = self.workspaceIDs(from: self.sendSocketLine("list_workspaces", to: socketPath))
+                return initialOrder.count == workspaceCount
+            },
+            "Expected \(workspaceCount) workspaces"
+        )
+        guard initialOrder.indices.contains(3) else { return }
+        let targetId = initialOrder[3]
+        XCTAssertEqual(sendSocketLine("select_workspace \(initialOrder[0].uuidString)", to: socketPath), "OK")
+
+        var targetSurfaceId: UUID?
+        XCTAssertTrue(
+            pollUntil(timeout: 8.0) {
+                targetSurfaceId = self.workspaceIDs(
+                    from: self.sendSocketLine("list_surfaces \(targetId.uuidString)", to: socketPath)
+                ).first
+                return targetSurfaceId != nil
+            },
+            "Expected the notification target workspace to have a surface"
+        )
+        guard let targetSurfaceId else { return }
+
+        app.activate()
+        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected the workspace sidebar to exist")
+        let targetRow = workspaceRow(workspaceId: targetId, app: app)
+        XCTAssertTrue(targetRow.waitForExistence(timeout: 5.0), "Expected the notification target row to exist")
+        XCTAssertTrue(targetRow.isHittable, "Expected the notification target row to be visible before reordering")
+        let initialTargetFrame = targetRow.frame
+
+        let body = Array(
+            repeating: "notification-driven reordering must keep every sidebar row contiguous",
+            count: 10
+        ).joined(separator: " ")
+        XCTAssertEqual(
+            sendSocketLine(
+                "notify_target \(targetId.uuidString) \(targetSurfaceId.uuidString) Geometry|ui-test|\(body)",
+                to: socketPath,
+                responseTimeout: 6.0
+            ),
+            "OK"
+        )
+
+        var finalFrames: [CGRect] = []
+        XCTAssertTrue(
+            pollUntil(timeout: 12.0) {
+                let order = self.workspaceIDs(from: self.sendSocketLine("list_workspaces", to: socketPath))
+                guard order.count == workspaceCount, order.first == targetId else { return false }
+                let rows = order.map { self.workspaceRow(workspaceId: $0, app: app) }
+                guard rows.allSatisfy({ $0.exists && $0.isHittable && $0.frame.height > 0 }) else { return false }
+                let frames = rows.map(\.frame)
+                guard frames[0].height > initialTargetFrame.height + 20 else { return false }
+                guard zip(frames, frames.dropFirst()).allSatisfy({ upper, lower in
+                    abs(upper.maxY - lower.minY) <= 1.0
+                }) else { return false }
+                finalFrames = frames
+                return true
+            },
+            "A notification-driven height-changing reorder must move the target to the top without row gaps or overlap"
+        )
+        XCTAssertEqual(finalFrames.count, workspaceCount)
+    }
+
+    func testWorkspaceRowEdgeDragReachesBothEndsWithoutPrematureJump() {
+        let app = XCUIApplication()
+        let token = UUID().uuidString
+        let socketPath = "/tmp/cmux-ui-sidebar-edge-drag-\(token).sock"
+        defer {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: socketPath)
+        }
+
+        configureLaunch(app)
+        app.launchArguments += ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = "ui-sidebar-edge-\(token.prefix(8))"
+
+        launchAndEnsureRunning(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
+        XCTAssertTrue(
+            pollUntil(timeout: 10.0) { self.sendSocketLine("ping", to: socketPath) == "PONG" },
+            "Expected the isolated control socket to become ready"
+        )
+
+        let workspaceCount = 64
+        for index in 2...workspaceCount {
+            let reply = sendSocketLine("new_workspace sidebar-edge-\(index)", to: socketPath)
+            XCTAssertTrue(
+                reply?.hasPrefix("OK ") == true,
+                "Expected workspace \(index) creation to succeed; reply=\(reply ?? "nil")"
+            )
+        }
+        XCTAssertTrue(
+            pollUntil(timeout: 12.0) {
+                self.workspaceIDs(from: self.sendSocketLine("list_workspaces", to: socketPath)).count == workspaceCount
+            },
+            "Expected \(workspaceCount) workspaces"
+        )
+
+        app.activate()
+        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected the workspace sidebar to exist")
+        let table = sidebar.descendants(matching: .table).firstMatch
+        XCTAssertTrue(table.waitForExistence(timeout: 5.0), "Expected the sidebar workspace table to exist")
+        XCTAssertGreaterThan(table.frame.height, 120, "Expected a usable sidebar table viewport")
+
+        app.typeKey("1", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: workspaceCount, app: app, timeout: 8.0),
+            "Expected the sidebar to start at the first workspace"
+        )
+
+        let middleSource = workspaceRow(index: 2, count: workspaceCount, app: app)
+        XCTAssertTrue(middleSource.isHittable, "Expected a visible row for the non-edge drag")
+        middleSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click(
+            forDuration: 0.25,
+            thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.75
+        )
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: workspaceCount, app: app, timeout: 4.0),
+            "A drag toward the viewport middle must not jump the sidebar away from the top"
+        )
+        XCTAssertFalse(
+            workspaceRow(index: workspaceCount, count: workspaceCount, app: app).isHittable,
+            "A non-edge drag must not jump prematurely to the last workspace"
+        )
+
+        let downwardSource = workspaceRow(index: 2, count: workspaceCount, app: app)
+        XCTAssertTrue(downwardSource.isHittable, "Expected a visible row for downward edge drag")
+        downwardSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click(
+            forDuration: 0.25,
+            thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.995)),
+            withVelocity: .fast,
+            thenHoldForDuration: 5.0
+        )
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: workspaceCount, count: workspaceCount, app: app, timeout: 8.0),
+            "Holding a row at the bottom edge must reach the final workspace"
+        )
+
+        let upwardSource = workspaceRow(index: workspaceCount, count: workspaceCount, app: app)
+        XCTAssertTrue(upwardSource.isHittable, "Expected a visible row for upward edge drag")
+        upwardSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click(
+            forDuration: 0.25,
+            thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.005)),
+            withVelocity: .fast,
+            thenHoldForDuration: 5.0
+        )
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: workspaceCount, app: app, timeout: 8.0),
+            "Holding a row at the top edge must reach the first workspace"
+        )
+    }
+
     private func configureLaunch(_ app: XCUIApplication) {
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -245,6 +447,10 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         return app.descendants(matching: .other)
             .matching(NSPredicate(format: "label ENDSWITH %@", position))
             .firstMatch
+    }
+
+    private func workspaceRow(workspaceId: UUID, app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .other)["sidebarWorkspace.\(workspaceId.uuidString)"].firstMatch
     }
 
     private func workspaceIDs(from listWorkspacesReply: String?) -> [UUID] {

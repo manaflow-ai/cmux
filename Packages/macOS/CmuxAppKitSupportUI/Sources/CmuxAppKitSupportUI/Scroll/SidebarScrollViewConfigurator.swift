@@ -30,5 +30,8 @@ extension NSScrollView {
         if !hasVerticalScroller {
             hasVerticalScroller = true
         }
+        if verticalScrollElasticity != .none {
+            verticalScrollElasticity = .none
+        }
     }
 }

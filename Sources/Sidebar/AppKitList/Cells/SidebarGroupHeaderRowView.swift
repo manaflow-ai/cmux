@@ -245,8 +245,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         applyModel(model)
     }
 
-    /// True when a press at this view should not repaint selection (chevron
-    /// toggles collapse, plus creates a workspace — neither selects).
+    /// Header controls own their actions without focusing the group anchor.
     func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
         hitView === chevronButton || hitView.isDescendant(of: chevronButton)
             || hitView === plusButton || hitView.isDescendant(of: plusButton)

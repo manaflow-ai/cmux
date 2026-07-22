@@ -123,6 +123,20 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
         }
         guard let plan else { return false }
+        return applyWorkspaceReorderPlan(
+            plan,
+            isDragOperation: isDragOperation,
+            explicitGroupId: explicitGroupId
+        )
+    }
+
+    @discardableResult
+    private func applyWorkspaceReorderPlan(
+        _ plan: WorkspaceReorderPlanItem,
+        isDragOperation: Bool,
+        explicitGroupId: UUID?
+    ) -> Bool {
+        let tabId = plan.workspaceId
         // No-op reorders (single workspace, clamped to current index, etc.)
         // must not run group inference. Otherwise socket calls like
         // `workspace.action move_down` on the last ungrouped row would
@@ -178,12 +192,28 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// The clamped single-workspace reorder plan, or `nil` when unknown.
     public func workspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
+        workspaceReorderPlan(
+            tabId: tabId,
+            toIndex: targetIndex,
+            pinnedStateOverride: nil
+        )
+    }
+
+    private func workspaceReorderPlan(
+        tabId: UUID,
+        toIndex targetIndex: Int,
+        pinnedStateOverride: Bool?
+    ) -> WorkspaceReorderPlanItem? {
         guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         if model.tabs.count <= 1 {
             return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: currentIndex)
         }
         let workspace = model.tabs[currentIndex]
-        let clamped = model.clampedReorderIndex(for: workspace, targetIndex: targetIndex)
+        let clamped = model.clampedReorderIndex(
+            for: workspace,
+            targetIndex: targetIndex,
+            pinnedStateOverride: pinnedStateOverride
+        )
         return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: clamped)
     }
 
@@ -210,7 +240,8 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     public func sidebarReorderWorkspaceIds(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
-        usesTopLevelRows: Bool = false
+        usesTopLevelRows: Bool = false,
+        targetPinnedState: Bool? = nil
     ) -> [UUID] {
         guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedWorkspaceId,
@@ -218,22 +249,54 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         ) else {
             return model.tabs.map(\.id)
         }
-        return model.sidebarTopLevelWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
+        let projection = projectedPinnedState(
+            workspaceId: draggedWorkspaceId,
+            targetPinnedState: targetPinnedState
+        )
+        return model.sidebarTopLevelWorkspaceIds(
+            promotingWorkspaceId: draggedWorkspaceId,
+            pinnedStateProjection: projection
+        )
     }
 
     /// The pinned subset of the drag's row-id space.
     public func sidebarReorderPinnedWorkspaceIds(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
-        usesTopLevelRows: Bool = false
+        usesTopLevelRows: Bool = false,
+        targetPinnedState: Bool? = nil
     ) -> Set<UUID> {
+        let projection = projectedPinnedState(
+            workspaceId: draggedWorkspaceId,
+            targetPinnedState: targetPinnedState
+        )
         guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId
         ) else {
-            return Set(model.tabs.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
+            return Set(model.tabs.filter { workspace in
+                guard workspace.groupId == nil else { return false }
+                if projection?.workspaceId == workspace.id {
+                    return projection?.isPinned == true
+                }
+                return workspace.isPinned
+            }.map(\.id))
         }
-        return model.sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
+        return model.sidebarTopLevelPinnedWorkspaceIds(
+            promotingWorkspaceId: draggedWorkspaceId,
+            pinnedStateProjection: projection
+        )
+    }
+
+    private func projectedPinnedState(
+        workspaceId: UUID?,
+        targetPinnedState: Bool?
+    ) -> WorkspacePinnedStateProjection? {
+        guard let workspaceId, let targetPinnedState else { return nil }
+        return WorkspacePinnedStateProjection(
+            workspaceId: workspaceId,
+            isPinned: targetPinnedState
+        )
     }
 
     /// The legal insertion range for an in-group member drag, or `nil` when
@@ -285,38 +348,77 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         toIndex targetIndex: Int,
         isDragOperation: Bool = false,
         usesTopLevelRows: Bool = false,
-        explicitGroupId: UUID? = nil
+        explicitGroupId: UUID? = nil,
+        targetPinnedState: Bool? = nil
     ) -> Bool {
+        if let explicitGroupId,
+           !model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) {
+            return false
+        }
         if usesTopLevelRows || model.isWorkspaceGroupAnchor(tabId) {
             return reorderTopLevelWorkspaceItem(
                 tabId: tabId,
                 toIndex: targetIndex,
-                promotesGroupedWorkspace: usesTopLevelRows
+                promotesGroupedWorkspace: usesTopLevelRows,
+                targetPinnedState: targetPinnedState
             )
         }
-        return reorderWorkspace(
-            tabId: tabId,
-            toIndex: targetIndex,
+        guard let workspace = model.tabs.first(where: { $0.id == tabId }) else { return false }
+        let previousOrder = model.tabs.map(\.id)
+        let previousPinnedState = workspace.isPinned
+        let plan: WorkspaceReorderPlanItem?
+        if isDragOperation, explicitGroupId != nil {
+            plan = explicitGroupWorkspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
+        } else {
+            plan = workspaceReorderPlan(
+                tabId: tabId,
+                toIndex: targetIndex,
+                pinnedStateOverride: targetPinnedState
+            )
+        }
+        guard let plan else { return false }
+        let pinStateChanged = targetPinnedState.map { targetPinnedState in
+            guard workspace.isPinned != targetPinnedState else { return false }
+            workspace.isPinned = targetPinnedState
+            return true
+        } ?? false
+        let didReorder = applyWorkspaceReorderPlan(
+            plan,
             isDragOperation: isDragOperation,
             explicitGroupId: explicitGroupId
         )
+        guard didReorder else {
+            workspace.isPinned = previousPinnedState
+            return false
+        }
+        if pinStateChanged, model.tabs.map(\.id) == previousOrder {
+            host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        }
+        return didReorder
     }
 
     @discardableResult
     private func reorderTopLevelWorkspaceItem(
         tabId: UUID,
         toIndex targetIndex: Int,
-        promotesGroupedWorkspace: Bool = false
+        promotesGroupedWorkspace: Bool = false,
+        targetPinnedState: Bool? = nil
     ) -> Bool {
+        let projection = projectedPinnedState(
+            workspaceId: tabId,
+            targetPinnedState: targetPinnedState
+        )
         let topLevelIds = model.sidebarTopLevelWorkspaceIds(
-            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
+            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil,
+            pinnedStateProjection: projection
         )
         guard let fromIndex = topLevelIds.firstIndex(of: tabId) else { return false }
         let clampedTarget = model.clampedTopLevelReorderIndex(
             forWorkspaceId: tabId,
             targetIndex: targetIndex,
             topLevelIds: topLevelIds,
-            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
+            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil,
+            pinnedStateProjection: projection
         )
         let shouldPromoteGroupedWorkspace: Bool = {
             guard promotesGroupedWorkspace,
@@ -327,7 +429,23 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             }
             return true
         }()
-        guard fromIndex != clampedTarget || shouldPromoteGroupedWorkspace else { return false }
+        let pinStateChanged: Bool
+        if let targetPinnedState,
+           let currentPinnedState = topLevelPinnedState(workspaceId: tabId) {
+            pinStateChanged = currentPinnedState != targetPinnedState
+        } else {
+            pinStateChanged = false
+        }
+        guard fromIndex != clampedTarget || shouldPromoteGroupedWorkspace || pinStateChanged else { return false }
+
+        if pinStateChanged {
+            guard setTopLevelPinnedStateIfNeeded(
+                workspaceId: tabId,
+                targetPinnedState: targetPinnedState
+            ) else {
+                return false
+            }
+        }
 
         var desiredTopLevelIds = topLevelIds
         if fromIndex != clampedTarget {
@@ -347,6 +465,31 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             movedWorkspaceIds = [tabId]
         }
         host?.workspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        return true
+    }
+
+    private func topLevelPinnedState(workspaceId: UUID) -> Bool? {
+        if let group = model.workspaceGroups.first(where: { $0.anchorWorkspaceId == workspaceId }) {
+            return group.isPinned
+        }
+        return model.tabs.first(where: { $0.id == workspaceId })?.isPinned
+    }
+
+    private func setTopLevelPinnedStateIfNeeded(
+        workspaceId: UUID,
+        targetPinnedState: Bool?
+    ) -> Bool {
+        guard let targetPinnedState else { return false }
+        if let groupIndex = model.workspaceGroups.firstIndex(where: { $0.anchorWorkspaceId == workspaceId }) {
+            guard model.workspaceGroups[groupIndex].isPinned != targetPinnedState else { return false }
+            model.workspaceGroups[groupIndex].isPinned = targetPinnedState
+            return true
+        }
+        guard let workspace = model.tabs.first(where: { $0.id == workspaceId }),
+              workspace.isPinned != targetPinnedState else {
+            return false
+        }
+        workspace.isPinned = targetPinnedState
         return true
     }
 
