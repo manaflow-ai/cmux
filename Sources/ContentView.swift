@@ -867,7 +867,7 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    @State private var sidebarResizerCursorReleaseGeneration: UInt64 = 0
+    @State private var sidebarResizerCursorReleaseScheduler = SidebarResizerCursorReleaseScheduler()
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
@@ -1342,7 +1342,7 @@ struct ContentView: View {
     }
 
     private func activateSidebarResizerCursor() {
-        sidebarResizerCursorReleaseGeneration &+= 1
+        sidebarResizerCursorReleaseScheduler.cancelPendingRelease()
         isSidebarResizerCursorActive = true
         Self.fixedSidebarResizeCursor.set()
     }
@@ -1358,16 +1358,8 @@ struct ContentView: View {
     }
 
     private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: Duration = .zero) {
-        sidebarResizerCursorReleaseGeneration &+= 1
-        let generation = sidebarResizerCursorReleaseGeneration
-        guard delay > .zero else {
-            releaseSidebarResizerCursorIfNeeded(force: force)
-            return
-        }
-        Task { @MainActor [generation, delay, force] in
-            try? await ContinuousClock().sleep(for: delay)
-            guard sidebarResizerCursorReleaseGeneration == generation else { return }
-            releaseSidebarResizerCursorIfNeeded(force: force)
+        sidebarResizerCursorReleaseScheduler.schedule(force: force, delay: delay) { releaseForce in
+            releaseSidebarResizerCursorIfNeeded(force: releaseForce)
         }
     }
 

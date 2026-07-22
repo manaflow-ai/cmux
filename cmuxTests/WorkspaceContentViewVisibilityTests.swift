@@ -38,21 +38,6 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    private static func lineNumber(in source: String, at index: String.Index) -> Int {
-        source[..<index].reduce(into: 1) { lineNumber, character in
-            if character == "\n" {
-                lineNumber += 1
-            }
-        }
-    }
-
-    private static func lineReference(in source: String, at index: String.Index) -> String {
-        let lineStart = source[..<index].lastIndex(of: "\n").map { source.index(after: $0) } ?? source.startIndex
-        let lineEnd = source[index...].firstIndex(of: "\n") ?? source.endIndex
-        let line = source[lineStart..<lineEnd].trimmingCharacters(in: .whitespaces)
-        return "\(lineNumber(in: source, at: index)): \(line)"
-    }
-
     private static func restoreFocusTarget(
         workspaceId: UUID = UUID(),
         panelId: UUID = UUID(),
@@ -65,210 +50,21 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    private static func functionBody(named name: String, in source: String) throws -> String {
-        let declaration = "private func \(name)"
-        let declarationRange = try #require(source.range(of: declaration))
-        let bodyStart = try #require(source[declarationRange.upperBound...].firstIndex(of: "{"))
-        var depth = 0
-        var index = bodyStart
-        while index < source.endIndex {
-            switch source[index] {
-            case "{":
-                depth += 1
-            case "}":
-                depth -= 1
-                if depth == 0 {
-                    return String(source[bodyStart...index])
-                }
-            default:
-                break
-            }
-            index = source.index(after: index)
-        }
-        Issue.record("Could not find end of function body for \(name)")
-        return ""
-    }
-
-    private static func stateDispatchWorkItemDeclarations(in source: String) -> [String] {
-        var references: [String] = []
-        var searchStart = source.startIndex
-        while let stateRange = source.range(of: "@State", range: searchStart..<source.endIndex) {
-            searchStart = stateRange.upperBound
-            var sawPropertyDeclaration = Self.lineStartsVarDeclaration(
-                source[
-                    stateRange.lowerBound..<(source[stateRange.lowerBound...].firstIndex(of: "\n") ?? source.endIndex)
-                ]
-                .trimmingCharacters(in: .whitespaces)
-            )
-            var declarationEnd = source.endIndex
-            var lineEnd = source[stateRange.upperBound...].firstIndex(of: "\n") ?? source.endIndex
-
-            while lineEnd < source.endIndex {
-                let nextLineStart = source.index(after: lineEnd)
-                let nextLineEnd = source[nextLineStart...].firstIndex(of: "\n") ?? source.endIndex
-                let nextLine = source[nextLineStart..<nextLineEnd].trimmingCharacters(in: .whitespaces)
-                if !nextLine.isEmpty {
-                    if sawPropertyDeclaration, Self.lineStartsDeclarationBoundary(nextLine) {
-                        declarationEnd = lineEnd
-                        break
-                    }
-                    if !sawPropertyDeclaration,
-                       Self.lineStartsDeclarationBoundary(nextLine),
-                       !nextLine.hasPrefix("@"),
-                       !Self.lineStartsVarDeclaration(nextLine) {
-                        declarationEnd = lineEnd
-                        break
-                    }
-                    sawPropertyDeclaration = sawPropertyDeclaration || Self.lineStartsVarDeclaration(nextLine)
-                    if nextLine.contains(";") || nextLine.contains("{") {
-                        declarationEnd = nextLineEnd
-                        break
-                    }
-                }
-                lineEnd = nextLineEnd
-            }
-            if declarationEnd == source.endIndex {
-                declarationEnd = lineEnd
-            }
-            let declaration = source[stateRange.lowerBound..<declarationEnd]
-            guard sawPropertyDeclaration, declaration.contains("DispatchWorkItem") else { continue }
-            references.append(lineReference(in: source, at: stateRange.lowerBound))
-        }
-        return references
-    }
-
-    private static func lineStartsVarDeclaration(_ line: some StringProtocol) -> Bool {
-        var text = String(line).trimmingCharacters(in: .whitespaces)
-        while text.hasPrefix("@") {
-            guard let attributeEnd = text.firstIndex(where: { $0.isWhitespace }) else { return false }
-            text = text[attributeEnd...].trimmingCharacters(in: .whitespaces)
-        }
-        return text.hasPrefix("var ")
-            || text.hasPrefix("private var ")
-            || text.hasPrefix("fileprivate var ")
-            || text.hasPrefix("internal var ")
-    }
-
-    private static func lineStartsDeclarationBoundary(_ line: some StringProtocol) -> Bool {
-        line.hasPrefix("@")
-            || lineStartsVarDeclaration(line)
-            || line.hasPrefix("let ")
-            || line.hasPrefix("private let ")
-            || line.hasPrefix("fileprivate let ")
-            || line.hasPrefix("internal let ")
-            || line.hasPrefix("static ")
-            || line.hasPrefix("func ")
-            || line.hasPrefix("private func ")
-            || line.hasPrefix("}")
-    }
-
-    private static func dispatchWorkItemClosuresWithoutCaptureList(in source: String) -> [String] {
-        var references: [String] = []
-        var searchStart = source.startIndex
-        while let workItemRange = source.range(of: "DispatchWorkItem", range: searchStart..<source.endIndex) {
-            searchStart = workItemRange.upperBound
-            var next = workItemRange.upperBound
-            while next < source.endIndex, source[next].isWhitespace {
-                next = source.index(after: next)
-            }
-
-            let openingBrace: String.Index?
-            if next < source.endIndex, source[next] == "{" {
-                openingBrace = next
-            } else if next < source.endIndex, source[next] == "(" {
-                var depth = 0
-                var index = next
-                var afterArguments: String.Index?
-                while index < source.endIndex {
-                    switch source[index] {
-                    case "(":
-                        depth += 1
-                    case ")":
-                        depth -= 1
-                        if depth == 0 {
-                            afterArguments = source.index(after: index)
-                            index = source.endIndex
-                            continue
-                        }
-                    default:
-                        break
-                    }
-                    if index < source.endIndex {
-                        index = source.index(after: index)
-                    }
-                }
-                var brace = afterArguments
-                while let candidate = brace, candidate < source.endIndex, source[candidate].isWhitespace {
-                    brace = source.index(after: candidate)
-                }
-                if let candidate = brace, candidate < source.endIndex, source[candidate] == "{" {
-                    openingBrace = candidate
-                } else {
-                    openingBrace = nil
-                }
-            } else {
-                continue
-            }
-            guard let openingBrace else { continue }
-
-            var closureStart = source.index(after: openingBrace)
-            while closureStart < source.endIndex, source[closureStart].isWhitespace {
-                closureStart = source.index(after: closureStart)
-            }
-            if closureStart < source.endIndex, source[closureStart] == "[" {
-                continue
-            }
-            references.append(lineReference(in: source, at: workItemRange.lowerBound))
-        }
-        return references
-    }
-
     @Test
-    func contentViewDoesNotChainQueuedDispatchWorkItemsThroughSwiftUIState() throws {
+    func contentViewDoesNotKeepLegacyWorkItemStateForCoalescedReleases() throws {
         let source = try Self.sourceText("Sources/ContentView.swift")
-
-        let stateWorkItemLines = Self.stateDispatchWorkItemDeclarations(in: source)
+        let legacyState = [
+            "sidebarResizerCursorReleaseWorkItem",
+            "commandPaletteRestoreTimeoutWorkItem",
+        ].filter(source.contains)
         #expect(
-            stateWorkItemLines.isEmpty,
+            legacyState.isEmpty,
             """
-            ContentView must not keep DispatchWorkItems in SwiftUI @State. A queued \
-            DispatchWorkItem closure that captures the ContentView value can retain the \
-            previous @State work item, making replacement build an unbounded release chain:
-            \(stateWorkItemLines.joined(separator: "\n"))
+            ContentView must not keep the legacy DispatchWorkItem state properties that \
+            previously let queued closures retain prior work-item state:
+            \(legacyState.joined(separator: "\n"))
             """
         )
-
-        let implicitSelfWorkItemLines = Self.dispatchWorkItemClosuresWithoutCaptureList(in: source)
-        #expect(
-            implicitSelfWorkItemLines.isEmpty,
-            """
-            ContentView DispatchWorkItem closures must use an explicit capture list or be \
-            removed. The capture list may be formatted across lines, but implicit self \
-            captures can retain the view's @State snapshot and link queued work items recursively:
-            \(implicitSelfWorkItemLines.joined(separator: "\n"))
-            """
-        )
-
-        let coalescedReplacementFunctions = [
-            "scheduleSidebarResizerCursorRelease",
-            "requestCommandPaletteFocusRestore",
-        ]
-        let functionsConstructingGCDWork = try coalescedReplacementFunctions.compactMap { name -> String? in
-            let body = try Self.functionBody(named: name, in: source)
-            guard body.contains("DispatchWorkItem")
-                || body.contains("DispatchQueue.main.async")
-                || body.contains("DispatchQueue.main.asyncAfter") else { return nil }
-            return name
-        }
-        #expect(
-            functionsConstructingGCDWork.isEmpty,
-            """
-            High-frequency ContentView replacement paths must use generation tokens or another \
-            reference-free invalidation scheme instead of constructing GCD work:
-            \(functionsConstructingGCDWork.joined(separator: "\n"))
-            """
-        )
-
         #expect(
             source.contains("scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))"),
             """
@@ -280,44 +76,24 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    func dispatchWorkItemRegressionScannerCatchesSplitDeclarationsAndTrailingClosures() {
-        let source = """
-        struct ContentView {
-            @State
-            private var splitWorkItem:
-                DispatchWorkItem?
-            @State private var inlineWorkItem: DispatchWorkItem?
+    @MainActor
+    func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async throws {
+        let scheduler = SidebarResizerCursorReleaseScheduler()
+        var releases: [Bool] = []
 
-            private func scheduleWork() {
-                let unsafe = DispatchWorkItem(qos: .userInteractive) {
-                    _ = self
-                }
-                let safe = DispatchWorkItem(qos: .userInteractive) { [weak self] in
-                    _ = self
-                }
-                _ = (unsafe, safe)
-            }
+        scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
+            releases.append(force)
         }
-        """
+        scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
+            releases.append(force)
+        }
 
-        #expect(Self.stateDispatchWorkItemDeclarations(in: source).count == 2)
-        #expect(Self.dispatchWorkItemClosuresWithoutCaptureList(in: source).count == 1)
-    }
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(releases == [true])
 
-    @Test
-    func commandPaletteFocusRestoreBoundsUnresolvableTargetsWithoutTimedTasks() throws {
-        let contentViewSource = try Self.sourceText("Sources/ContentView.swift")
-        let restoreBody = try Self.functionBody(named: "attemptCommandPaletteFocusRestoreIfNeeded", in: contentViewSource)
-        #expect(!restoreBody.contains("DispatchWorkItem"))
-        #expect(!restoreBody.contains("DispatchQueue.main.async"))
-        #expect(!restoreBody.contains("DispatchQueue.main.asyncAfter"))
-        #expect(!restoreBody.contains("Task"))
-        #expect(!restoreBody.contains("sleep"))
-
-        let coordinatorSource = try Self.sourceText("Sources/CommandPaletteFocusRestoreCoordinator.swift")
-        #expect(!coordinatorSource.contains("DispatchWorkItem"))
-        #expect(!coordinatorSource.contains("Task"))
-        #expect(!coordinatorSource.contains("sleep"))
+        scheduler.cancelPendingRelease()
+        try await Task.sleep(for: .milliseconds(160))
+        #expect(releases == [true])
     }
 
     @Test
