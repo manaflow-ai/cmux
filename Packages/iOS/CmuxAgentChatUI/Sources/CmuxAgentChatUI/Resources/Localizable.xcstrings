@@ -919,6 +919,23 @@
         }
       }
     },
+    "chat.attachment.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル"
+          }
+        }
+      }
+    },
     "chat.attachment.image": {
       "extractionState": "manual",
       "localizations": {
@@ -932,6 +949,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "画像"
+          }
+        }
+      }
+    },
+    "chat.attachment.open_preview_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the full preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全なプレビューを開きます"
           }
         }
       }

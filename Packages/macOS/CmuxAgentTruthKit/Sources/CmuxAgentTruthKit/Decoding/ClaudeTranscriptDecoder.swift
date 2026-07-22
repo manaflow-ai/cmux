@@ -159,8 +159,15 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         guard !decodedBlocks.isEmpty else {
             return
         }
+        var embeddedImagesByOrdinal: [Int: TranscriptEmbeddedImageSource] = [:]
+        for (ordinal, block) in decodedBlocks.enumerated() {
+            if let embeddedImage = block.embeddedImage {
+                embeddedImagesByOrdinal[ordinal] = embeddedImage
+            }
+        }
         accumulator.emit(
             payloads: decodedBlocks.map(\.payload),
+            embeddedImagesByOrdinal: embeddedImagesByOrdinal,
             journalID: journalID,
             lineIndex: lineIndex
         )
@@ -185,18 +192,29 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             return ClaudeDecodedBlock(summary: text, payload: payload)
         case "image":
             let source = object["source"]?.object
+            let mimeType = source?["media_type"]?.string ?? object["media_type"]?.string
+            let base64EncodedData = source?["data"]?.string
             let attachment = AttachmentPayload(
                 kind: "image",
                 summary: "Image attachment",
                 attachmentID: object["id"]?.string,
                 displayName: object["file_name"]?.string ?? object["fileName"]?.string,
                 hostPath: source?["path"]?.string ?? object["path"]?.string,
-                mimeType: source?["media_type"]?.string ?? object["media_type"]?.string,
-                byteCount: source?["data"]?.string.map(estimatedDecodedByteCount),
+                mimeType: mimeType,
+                byteCount: base64EncodedData.map(estimatedDecodedByteCount),
                 width: object["width"]?.int,
                 height: object["height"]?.int
             )
-            return ClaudeDecodedBlock(summary: "Image attachment", payload: .attachment(attachment))
+            return ClaudeDecodedBlock(
+                summary: "Image attachment",
+                payload: .attachment(attachment),
+                embeddedImage: base64EncodedData.map {
+                    TranscriptEmbeddedImageSource(
+                        mimeType: mimeType,
+                        base64EncodedData: $0
+                    )
+                }
+            )
         case "thinking":
             let text = object["thinking"]?.string ?? object["text"]?.string ?? ""
             let bounded = textBudget.body(text)

@@ -190,13 +190,40 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         accumulator: inout TranscriptDecodeAccumulator
     ) {
         let role = payload["role"]?.string ?? "assistant"
-        let text = payload["content"]?.textFragments().joined(separator: "\n") ?? ""
-        let entryPayload: EntryPayload = if role == "user" {
-            .userMessage(UserMessagePayload(text: textBudget.body(text), attachmentCount: attachmentCount(in: payload["content"]), hasImage: hasImage(in: payload["content"])))
-        } else {
-            .agentProse(AgentProsePayload(markdown: textBudget.body(text)))
+        guard role == "user" else {
+            let text = payload["content"]?.textFragments().joined(separator: "\n") ?? ""
+            accumulator.emit(
+                payload: .agentProse(AgentProsePayload(markdown: textBudget.body(text))),
+                journalID: journalID,
+                lineIndex: lineIndex
+            )
+            return
         }
-        accumulator.emit(payload: entryPayload, journalID: journalID, lineIndex: lineIndex)
+
+        let decodedContent = decodeUserMessageContent(payload["content"])
+        var payloads: [EntryPayload] = []
+        if !decodedContent.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payloads.append(.userMessage(UserMessagePayload(
+                text: textBudget.body(decodedContent.text),
+                attachmentCount: decodedContent.images.count,
+                hasImage: !decodedContent.images.isEmpty
+            )))
+        }
+        let imageOrdinalStart = payloads.count
+        payloads.append(contentsOf: decodedContent.images.map { .attachment($0.attachment) })
+        guard !payloads.isEmpty else { return }
+        var embeddedImagesByOrdinal: [Int: TranscriptEmbeddedImageSource] = [:]
+        for (imageIndex, image) in decodedContent.images.enumerated() {
+            if let embeddedImage = image.embeddedImage {
+                embeddedImagesByOrdinal[imageIndex + imageOrdinalStart] = embeddedImage
+            }
+        }
+        accumulator.emit(
+            payloads: payloads,
+            embeddedImagesByOrdinal: embeddedImagesByOrdinal,
+            journalID: journalID,
+            lineIndex: lineIndex
+        )
     }
 
     private mutating func decodeFunctionCall(
@@ -414,17 +441,178 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         .unknown(UnknownPayload(rawKind: rawKind, summary: summary, rawJSON: raw))
     }
 
-    private func attachmentCount(in value: JSONValue?) -> Int {
-        value?.array?.filter { item in
-            guard let type = item.object?["type"]?.string else {
-                return false
+    private func decodeUserMessageContent(_ content: JSONValue?) -> CodexDecodedUserMessage {
+        guard let items = content?.array else {
+            return CodexDecodedUserMessage(
+                text: content?.textFragments().joined(separator: "\n") ?? "",
+                images: []
+            )
+        }
+
+        var proseFragments: [String] = []
+        var imageReferences: [CodexImageReference] = []
+        var imageInputs: [CodexImageInput] = []
+        for item in items {
+            guard let object = item.object else {
+                proseFragments.append(contentsOf: item.textFragments())
+                continue
             }
-            return type.contains("image") || type.contains("attachment")
-        }.count ?? 0
+            let type = object["type"]?.string ?? ""
+            if type == "input_image" || type == "image" {
+                imageInputs.append(codexImageInput(in: object))
+                continue
+            }
+            for fragment in item.textFragments() {
+                let parsed = codexImageReferences(in: fragment)
+                if !parsed.text.isEmpty {
+                    proseFragments.append(parsed.text)
+                }
+                imageReferences.append(contentsOf: parsed.references)
+            }
+        }
+
+        let imageCount = max(imageReferences.count, imageInputs.count)
+        var images: [CodexDecodedImage] = []
+        images.reserveCapacity(imageCount)
+        for imageIndex in 0 ..< imageCount {
+            let reference = imageReferences.indices.contains(imageIndex) ? imageReferences[imageIndex] : nil
+            let input = imageInputs.indices.contains(imageIndex) ? imageInputs[imageIndex] : nil
+            let hostPath = input?.hostPath ?? reference?.hostPath
+            let mimeType = input?.mimeType ?? hostPath.flatMap(imageMIMEType)
+            let displayName = hostPath.flatMap(imageDisplayName) ?? input?.displayName
+            let attachment = AttachmentPayload(
+                kind: "image",
+                summary: displayName ?? "Image attachment",
+                attachmentID: input?.attachmentID,
+                displayName: displayName,
+                hostPath: hostPath,
+                mimeType: mimeType,
+                byteCount: input?.base64EncodedData.map(estimatedDecodedByteCount),
+                width: input?.width,
+                height: input?.height
+            )
+            let embeddedImage: TranscriptEmbeddedImageSource? = if let base64EncodedData = input?.base64EncodedData {
+                TranscriptEmbeddedImageSource(
+                    mimeType: mimeType,
+                    base64EncodedData: base64EncodedData
+                )
+            } else {
+                nil
+            }
+            images.append(CodexDecodedImage(
+                attachment: attachment,
+                embeddedImage: embeddedImage
+            ))
+        }
+
+        return CodexDecodedUserMessage(
+            text: proseFragments.joined(separator: "\n"),
+            images: images
+        )
     }
 
-    private func hasImage(in value: JSONValue?) -> Bool {
-        attachmentCount(in: value) > 0
+    private func codexImageInput(in object: [String: JSONValue]) -> CodexImageInput {
+        let imageURL = object["image_url"]?.string
+            ?? object["image_url"]?.object?["url"]?.string
+            ?? object["url"]?.string
+        let dataURL = imageURL.flatMap(parseImageDataURL)
+        let directPath = object["path"]?.string
+            ?? object["file_path"]?.string
+            ?? object["local_path"]?.string
+        let fileURLPath: String? = if directPath == nil,
+                                      let imageURL,
+                                      let url = URL(string: imageURL),
+                                      url.isFileURL {
+            url.path
+        } else {
+            nil
+        }
+        return CodexImageInput(
+            attachmentID: object["id"]?.string,
+            displayName: object["file_name"]?.string
+                ?? object["fileName"]?.string
+                ?? object["name"]?.string,
+            hostPath: directPath ?? fileURLPath,
+            mimeType: object["mime_type"]?.string
+                ?? object["media_type"]?.string
+                ?? dataURL?.mimeType,
+            base64EncodedData: dataURL?.base64EncodedData,
+            width: object["width"]?.int,
+            height: object["height"]?.int
+        )
+    }
+
+    private func parseImageDataURL(_ value: String) -> CodexImageDataURL? {
+        guard value.hasPrefix("data:"), let comma = value.firstIndex(of: ",") else {
+            return nil
+        }
+        let metadata = value[value.index(value.startIndex, offsetBy: 5) ..< comma]
+        let components = metadata.split(separator: ";", omittingEmptySubsequences: false)
+        let declaredMIMEType = components.first.map(String.init).flatMap { $0.contains("/") ? $0 : nil }
+        guard components.dropFirst().contains(where: { $0.lowercased() == "base64" }) else {
+            return CodexImageDataURL(mimeType: declaredMIMEType, base64EncodedData: nil)
+        }
+        let dataStart = value.index(after: comma)
+        return CodexImageDataURL(
+            mimeType: declaredMIMEType,
+            base64EncodedData: String(value[dataStart...])
+        )
+    }
+
+    private func codexImageReferences(in text: String) -> (text: String, references: [CodexImageReference]) {
+        guard text.contains("<image") else {
+            return (text, [])
+        }
+        let pattern = #"<image\b[^>]*\bpath\s*=\s*(?:"([^"]+)"|'([^']+)')[^>]*>"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return (text, [])
+        }
+        let fullRange = NSRange(text.startIndex ..< text.endIndex, in: text)
+        let matches = expression.matches(in: text, range: fullRange)
+        guard !matches.isEmpty else {
+            return (text, [])
+        }
+
+        let source = text as NSString
+        let references = matches.compactMap { match -> CodexImageReference? in
+            for captureIndex in 1 ... 2 where match.range(at: captureIndex).location != NSNotFound {
+                return CodexImageReference(hostPath: source.substring(with: match.range(at: captureIndex)))
+            }
+            return nil
+        }
+        let stripped = NSMutableString(string: text)
+        for match in matches.reversed() {
+            stripped.replaceCharacters(in: match.range, with: "")
+        }
+        return (
+            String(stripped).trimmingCharacters(in: .whitespacesAndNewlines),
+            references
+        )
+    }
+
+    private func imageDisplayName(for path: String) -> String? {
+        let displayName = URL(fileURLWithPath: path).lastPathComponent
+        return displayName.isEmpty ? nil : displayName
+    }
+
+    private func imageMIMEType(for path: String) -> String? {
+        switch URL(fileURLWithPath: path).pathExtension.lowercased() {
+        case "png": "image/png"
+        case "jpg", "jpeg": "image/jpeg"
+        case "gif": "image/gif"
+        case "webp": "image/webp"
+        case "heic": "image/heic"
+        case "heif": "image/heif"
+        case "tif", "tiff": "image/tiff"
+        case "bmp": "image/bmp"
+        case "svg": "image/svg+xml"
+        default: nil
+        }
+    }
+
+    private func estimatedDecodedByteCount(_ base64: String) -> Int {
+        let padding = base64.suffix(2).filter { $0 == "=" }.count
+        return max(0, base64.utf8.count * 3 / 4 - padding)
     }
 
     private func isTerminalTool(name: String, arguments: JSONValue?) -> Bool {
@@ -590,4 +778,33 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             ?? payload["duration_ms"]?.number.map { $0 / 1_000 }
             ?? payload["durationMs"]?.number.map { $0 / 1_000 }
     }
+}
+
+private struct CodexDecodedUserMessage {
+    let text: String
+    let images: [CodexDecodedImage]
+}
+
+private struct CodexDecodedImage {
+    let attachment: AttachmentPayload
+    let embeddedImage: TranscriptEmbeddedImageSource?
+}
+
+private struct CodexImageReference {
+    let hostPath: String
+}
+
+private struct CodexImageInput {
+    let attachmentID: String?
+    let displayName: String?
+    let hostPath: String?
+    let mimeType: String?
+    let base64EncodedData: String?
+    let width: Int?
+    let height: Int?
+}
+
+private struct CodexImageDataURL {
+    let mimeType: String?
+    let base64EncodedData: String?
 }

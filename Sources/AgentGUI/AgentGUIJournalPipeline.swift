@@ -19,7 +19,8 @@ final class AgentGUIJournalPipeline {
     let sessionID: AgentSessionID
     private let kind: AgentKind
     private let path: String
-    private var decoder: AgentGUITranscriptDecoderBox
+    private let imageStore: AgentGUITranscriptImageStore
+    private let decodeWorker: AgentGUITranscriptDecodeWorker
     private var minter = JournalMinter()
     private var bookkeeper = AgentGUIJournalBookkeeper()
     private var toolPairingIndex = AgentGUIToolPairingIndex()
@@ -38,11 +39,17 @@ final class AgentGUIJournalPipeline {
     private(set) var lastReadByteCount = 0
     private(set) var lastReadFailed = false
 
-    init(sessionID: AgentSessionID, kind: AgentKind, path: String) {
+    init(
+        sessionID: AgentSessionID,
+        kind: AgentKind,
+        path: String,
+        imageStore: AgentGUITranscriptImageStore = .shared
+    ) {
         self.sessionID = sessionID
         self.kind = kind
         self.path = path
-        self.decoder = AgentGUITranscriptDecoderBox(kind: kind)
+        self.imageStore = imageStore
+        self.decodeWorker = AgentGUITranscriptDecodeWorker(kind: kind)
     }
 
     func setWatching(_ shouldWatch: Bool, onEvents: @escaping @MainActor ([AgentGUIJournalPipelineEvent]) -> Void) {
@@ -98,7 +105,10 @@ final class AgentGUIJournalPipeline {
         } else {
             contextLines = []
         }
-        let resultIDs = Set(rawPage.lines.flatMap { AgentGUIJournalToolCorrelation.resultIDs(in: $0.text) })
+        let rawPageLines = rawPage.lines
+        let resultIDs = await Task.detached(priority: .utility) {
+            Set(rawPageLines.flatMap { AgentGUIJournalToolCorrelation.resultIDs(in: $0.text) })
+        }.value
         if !resultIDs.isEmpty, rawPage.startOffset > 0 {
             var located: [String: AgentGUIJournalSourceLine] = [:]
             for callID in resultIDs {
@@ -132,25 +142,30 @@ final class AgentGUIJournalPipeline {
             let sourceStart: Int
             let sourceEnd: Int
         }
-        var pageDecoder = AgentGUITranscriptDecoderBox(kind: kind)
+        let pageDecodeWorker = AgentGUITranscriptDecodeWorker(kind: kind)
         var pageBookkeeper = AgentGUIJournalBookkeeper()
         var pagePairingIndex = AgentGUIToolPairingIndex()
         var locatedEntries: [LocatedEntry] = []
-        for sourceLine in contextLines {
-            let batch = pageDecoder.feed([sourceLine.text], startingAt: sourceLine.startOffset, journalID: window.journalID)
-            for decoded in batch.entries {
+        var embeddedImages: [TranscriptEmbeddedImage] = []
+        let contextBatches = await pageDecodeWorker.feed(contextLines, journalID: window.journalID)
+        for decodedLine in contextBatches {
+            for decoded in decodedLine.batch.entries {
                 _ = pageBookkeeper.stamp(pagePairingIndex.normalize(decoded))
             }
         }
-        for sourceLine in rawPage.lines {
-            cacheToolCalls(in: sourceLine)
-            let batch = pageDecoder.feed([sourceLine.text], startingAt: sourceLine.startOffset, journalID: window.journalID)
-            for decoded in batch.entries {
+        let rawBatches = await pageDecodeWorker.feed(rawPage.lines, journalID: window.journalID)
+        for decodedLine in rawBatches {
+            cacheToolCalls(
+                in: decodedLine.sourceLine,
+                callIDs: decodedLine.toolCallIDs
+            )
+            embeddedImages.append(contentsOf: decodedLine.batch.embeddedImages)
+            for decoded in decodedLine.batch.entries {
                 let stamped = pageBookkeeper.stamp(pagePairingIndex.normalize(decoded)).entry
                 locatedEntries.append(LocatedEntry(
                     entry: stamped,
-                    sourceStart: sourceLine.startOffset,
-                    sourceEnd: sourceLine.endOffset
+                    sourceStart: decodedLine.sourceLine.startOffset,
+                    sourceEnd: decodedLine.sourceLine.endOffset
                 ))
             }
         }
@@ -185,10 +200,14 @@ final class AgentGUIJournalPipeline {
             startOffset = selected.map(\.sourceStart).min() ?? rawPage.startOffset
             endOffset = selected.map(\.sourceEnd).max() ?? rawPage.endOffset
         }
+        let resolvedEntries = await resolveImages(
+            in: selected.map(\.entry),
+            embeddedImages: embeddedImages
+        )
         let committedTailOffset = pendingPartialLine.isEmpty ? currentByteOffset : pendingPartialLineStartOffset
         return AgentGUIJournalDecodedPage(
             journalID: window.journalID,
-            entries: selected.map(\.entry),
+            entries: resolvedEntries,
             startOffset: startOffset,
             endOffset: endOffset,
             tailOffset: committedTailOffset,
@@ -279,7 +298,12 @@ final class AgentGUIJournalPipeline {
         }
         lastReadFailed = false
         if didReset || shouldRebaseToTail {
-            decoder = AgentGUITranscriptDecoderBox(kind: kind)
+            await decodeWorker.reset()
+            if didReset {
+                await AgentChatArtifactIndex.shared.removeSupplementalAttachments(
+                    sessionID: sessionID.rawValue
+                )
+            }
             bookkeeper.reset()
             toolPairingIndex.reset()
             toolCallLinesByID.removeAll(keepingCapacity: true)
@@ -294,28 +318,113 @@ final class AgentGUIJournalPipeline {
         }
         lastReadByteCount = chunk.data.count
         if didReset || fullRefresh || shouldRebaseToTail {
-            let result = rebuildWindow(journalID: journalID, from: chunk)
+            let result = await rebuildWindow(journalID: journalID, from: chunk)
             currentByteOffset = chunk.endOffset
             return result
         }
 
         guard chunk.byteCount > 0 else { return [] }
         currentByteOffset = chunk.endOffset
-        return append(data: chunk.data, startingAt: chunk.startOffset, journalID: journalID)
+        return await append(data: chunk.data, startingAt: chunk.startOffset, journalID: journalID)
     }
 
-    private func decode(sourceLines: [AgentGUIJournalSourceLine], journalID: JournalID) -> [AgentGUIStampedEntry] {
-        sourceLines.flatMap { sourceLine in
-            cacheToolCalls(in: sourceLine)
-            let batch = decoder.feed([sourceLine.text], startingAt: sourceLine.startOffset, journalID: journalID)
-            return batch.entries.map { entry in
-                bookkeeper.stamp(toolPairingIndex.normalize(entry))
-            }
+    private func decode(
+        sourceLines: [AgentGUIJournalSourceLine],
+        journalID: JournalID
+    ) async -> [AgentGUIStampedEntry] {
+        var decodedEntries: [EntrySnapshot] = []
+        var embeddedImages: [TranscriptEmbeddedImage] = []
+        let decodedLines = await decodeWorker.feed(sourceLines, journalID: journalID)
+        for decodedLine in decodedLines {
+            cacheToolCalls(
+                in: decodedLine.sourceLine,
+                callIDs: decodedLine.toolCallIDs
+            )
+            decodedEntries.append(contentsOf: decodedLine.batch.entries)
+            embeddedImages.append(contentsOf: decodedLine.batch.embeddedImages)
+        }
+        let resolvedEntries = await resolveImages(
+            in: decodedEntries,
+            embeddedImages: embeddedImages
+        )
+        return resolvedEntries.map { entry in
+            bookkeeper.stamp(toolPairingIndex.normalize(entry))
         }
     }
 
-    private func cacheToolCalls(in sourceLine: AgentGUIJournalSourceLine) {
-        for callID in AgentGUIJournalToolCorrelation.callIDs(in: sourceLine.text) {
+    private func resolveImages(
+        in entries: [EntrySnapshot],
+        embeddedImages: [TranscriptEmbeddedImage]
+    ) async -> [EntrySnapshot] {
+        guard !entries.isEmpty else { return [] }
+        let entryKeys = Set(entries.map {
+            AgentGUITranscriptImageEntryKey(journalID: $0.journalID, sequence: $0.seq)
+        })
+        let relevantEmbeddedImages = embeddedImages.filter {
+            entryKeys.contains(AgentGUITranscriptImageEntryKey(
+                journalID: $0.journalID,
+                sequence: $0.entrySeq
+            ))
+        }
+        let referencedImages = entries.compactMap { entry -> AgentGUITranscriptImageStore.ReferencedImage? in
+            guard case .attachment(let attachment) = entry.content.payload,
+                  attachment.mimeType?.hasPrefix("image/") == true
+                    || attachment.kind.lowercased().contains("image"),
+                  let hostPath = attachment.hostPath,
+                  !hostPath.isEmpty else { return nil }
+            return AgentGUITranscriptImageStore.ReferencedImage(
+                entrySeq: entry.seq,
+                path: hostPath,
+                mimeType: attachment.mimeType
+            )
+        }
+        var resolvedImages = await imageStore.inspect(referencedImages)
+        let materializedImages = await imageStore.materialize(relevantEmbeddedImages)
+        resolvedImages.merge(materializedImages) { _, materialized in materialized }
+        let resolved = entries.map { entry -> EntrySnapshot in
+            guard case .attachment(let attachment) = entry.content.payload,
+                  let image = resolvedImages[entry.seq] else { return entry }
+            let payload = EntryPayload.attachment(AttachmentPayload(
+                kind: attachment.kind,
+                summary: attachment.summary,
+                attachmentID: attachment.attachmentID,
+                displayName: attachment.displayName,
+                hostPath: image.path,
+                mimeType: image.mimeType,
+                byteCount: image.byteCount,
+                width: image.width,
+                height: image.height
+            ))
+            return EntrySnapshot(
+                journalID: entry.journalID,
+                seq: entry.seq,
+                kind: entry.kind,
+                content: EntryContent(contentHash: payload.stableHash, payload: payload),
+                version: entry.version,
+                timestampMilliseconds: entry.timestampMilliseconds
+            )
+        }
+        let attachments = resolvedImages.map { sequence, image in
+            return AgentChatArtifactIndex.SupplementalAttachment(
+                path: image.path,
+                sourceSeq: sequence.rawValue
+            )
+        }
+        if !attachments.isEmpty {
+            await AgentChatArtifactIndex.shared.registerAttachments(
+                sessionID: sessionID.rawValue,
+                transcriptPath: path,
+                attachments: attachments
+            )
+        }
+        return resolved
+    }
+
+    private func cacheToolCalls(
+        in sourceLine: AgentGUIJournalSourceLine,
+        callIDs: Set<String>
+    ) {
+        for callID in callIDs {
             cacheToolCall(callID: callID, sourceLine: sourceLine)
         }
     }
@@ -356,9 +465,12 @@ final class AgentGUIJournalPipeline {
         return events
     }
 
-    private func rebuildWindow(journalID: JournalID, from chunk: ReadChunk) -> [AgentGUIJournalPipelineEvent] {
-        let lines = consumeCompleteLines(from: chunk.data, startingAt: chunk.startOffset)
-        let stamped = decode(sourceLines: lines, journalID: journalID)
+    private func rebuildWindow(
+        journalID: JournalID,
+        from chunk: ReadChunk
+    ) async -> [AgentGUIJournalPipelineEvent] {
+        let lines = await consumeCompleteLines(from: chunk.data, startingAt: chunk.startOffset)
+        let stamped = await decode(sourceLines: lines, journalID: journalID)
         var nextWindow = AgentGUIJournalWindow(journalID: journalID)
         nextWindow.reset(
             journalID: journalID,
@@ -369,10 +481,14 @@ final class AgentGUIJournalPipeline {
         return [.reset(journalID: journalID, tailSeq: nextWindow.tailSeq)]
     }
 
-    private func append(data: Data, startingAt byteOffset: Int, journalID: JournalID) -> [AgentGUIJournalPipelineEvent] {
-        let lines = consumeCompleteLines(from: data, startingAt: byteOffset)
+    private func append(
+        data: Data,
+        startingAt byteOffset: Int,
+        journalID: JournalID
+    ) async -> [AgentGUIJournalPipelineEvent] {
+        let lines = await consumeCompleteLines(from: data, startingAt: byteOffset)
         guard !lines.isEmpty else { return [] }
-        let stamped = decode(sourceLines: lines, journalID: journalID)
+        let stamped = await decode(sourceLines: lines, journalID: journalID)
         return apply(stamped)
     }
 
@@ -413,9 +529,46 @@ final class AgentGUIJournalPipeline {
         }.value
     }
 
-    private func consumeCompleteLines(from data: Data, startingAt byteOffset: Int) -> [AgentGUIJournalSourceLine] {
-        let combinedStartOffset = pendingPartialLine.isEmpty ? byteOffset : pendingPartialLineStartOffset
-        var bytes = pendingPartialLine
+    private func consumeCompleteLines(
+        from data: Data,
+        startingAt byteOffset: Int
+    ) async -> [AgentGUIJournalSourceLine] {
+        let priorPending = pendingPartialLine
+        let priorPendingStartOffset = pendingPartialLineStartOffset
+        let frame = await Task.detached(priority: .utility) {
+            AgentGUIJournalLineFramer.consume(
+                pendingData: priorPending,
+                pendingStartOffset: priorPendingStartOffset,
+                data: data,
+                startOffset: byteOffset
+            )
+        }.value
+        pendingPartialLine = frame.pendingData
+        pendingPartialLineStartOffset = frame.pendingStartOffset
+        return frame.lines
+    }
+}
+
+private struct AgentGUITranscriptImageEntryKey: Hashable {
+    let journalID: JournalID
+    let sequence: EntrySeq
+}
+
+private struct AgentGUIJournalLineFrame: Sendable {
+    let lines: [AgentGUIJournalSourceLine]
+    let pendingData: Data
+    let pendingStartOffset: Int
+}
+
+private enum AgentGUIJournalLineFramer {
+    static func consume(
+        pendingData: Data,
+        pendingStartOffset: Int,
+        data: Data,
+        startOffset: Int
+    ) -> AgentGUIJournalLineFrame {
+        let combinedStartOffset = pendingData.isEmpty ? startOffset : pendingStartOffset
+        var bytes = pendingData
         bytes.append(data)
         var lines: [AgentGUIJournalSourceLine] = []
         var lineStart = bytes.startIndex
@@ -424,15 +577,18 @@ final class AgentGUIJournalPipeline {
             let relativeStart = bytes.distance(from: bytes.startIndex, to: lineStart)
             let relativeEnd = bytes.distance(from: bytes.startIndex, to: next)
             lines.append(AgentGUIJournalSourceLine(
-                text: String(decoding: bytes[lineStart..<index], as: UTF8.self),
+                text: String(decoding: bytes[lineStart ..< index], as: UTF8.self),
                 startOffset: combinedStartOffset + relativeStart,
                 endOffset: combinedStartOffset + relativeEnd
             ))
             lineStart = next
         }
-        pendingPartialLine = Data(bytes[lineStart...])
-        pendingPartialLineStartOffset = combinedStartOffset + bytes.distance(from: bytes.startIndex, to: lineStart)
-        return lines
+        return AgentGUIJournalLineFrame(
+            lines: lines,
+            pendingData: Data(bytes[lineStart...]),
+            pendingStartOffset: combinedStartOffset
+                + bytes.distance(from: bytes.startIndex, to: lineStart)
+        )
     }
 }
 

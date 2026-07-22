@@ -9,6 +9,7 @@ struct TranscriptDecodeAccumulator {
     static let maxEntriesPerSourceRecord = 200
 
     private(set) var entries: [EntrySnapshot]
+    private(set) var embeddedImages: [TranscriptEmbeddedImage]
     private(set) var unknownKindCounts: [String: Int]
     private(set) var modeledKindCounts: [String: Int]
     private(set) var duplicateStreamCounts: [String: Int]
@@ -22,6 +23,7 @@ struct TranscriptDecodeAccumulator {
 
     init() {
         self.entries = []
+        self.embeddedImages = []
         self.unknownKindCounts = [:]
         self.modeledKindCounts = [:]
         self.duplicateStreamCounts = [:]
@@ -61,13 +63,16 @@ struct TranscriptDecodeAccumulator {
     /// strictly before the next source record's byte offset.
     mutating func emit(
         payloads: [EntryPayload],
+        embeddedImagesByOrdinal: [Int: TranscriptEmbeddedImageSource] = [:],
         journalID: JournalID,
         lineIndex: Int
     ) {
         let boundedPayloads: [EntryPayload]
+        let retainedSourcePayloadCount: Int
         if payloads.count > Self.maxEntriesPerSourceRecord {
             let retainedCount = Self.maxEntriesPerSourceRecord - 1
             countUnknown("source_record_entries_truncated")
+            retainedSourcePayloadCount = retainedCount
             boundedPayloads = Array(payloads.prefix(retainedCount)) + [
                 .unknown(UnknownPayload(
                     rawKind: "source_record_entries_truncated",
@@ -75,6 +80,7 @@ struct TranscriptDecodeAccumulator {
                 )),
             ]
         } else {
+            retainedSourcePayloadCount = payloads.count
             boundedPayloads = payloads
         }
         for (ordinal, payload) in boundedPayloads.enumerated() {
@@ -83,6 +89,15 @@ struct TranscriptDecodeAccumulator {
                 journalID: journalID,
                 lineIndex: lineIndex + ordinal
             )
+            if ordinal < retainedSourcePayloadCount,
+               let embeddedImage = embeddedImagesByOrdinal[ordinal] {
+                embeddedImages.append(TranscriptEmbeddedImage(
+                    journalID: journalID,
+                    entrySeq: EntrySeq(rawValue: lineIndex + ordinal),
+                    mimeType: embeddedImage.mimeType,
+                    base64EncodedData: embeddedImage.base64EncodedData
+                ))
+            }
         }
     }
 
@@ -125,6 +140,7 @@ struct TranscriptDecodeAccumulator {
     func batch() -> TranscriptDecodeBatch {
         TranscriptDecodeBatch(
             entries: entries,
+            embeddedImages: embeddedImages,
             diagnostics: TranscriptDecoderDiagnostics(
                 unknownKindCounts: unknownKindCounts,
                 modeledKindCounts: modeledKindCounts,

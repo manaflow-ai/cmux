@@ -7,8 +7,8 @@ import UIKit
 import AppKit
 #endif
 
-/// An outgoing attachment bubble: a photo glyph plus the attachment's
-/// display name, with the host-side path when known.
+/// An outgoing attachment bubble. Images reserve a stable inline preview;
+/// other files keep a compact filename-and-path treatment.
 public struct ChatAttachmentBubbleView: View {
     private let attachment: ChatAttachment
     private let groupPosition: ChatGroupPosition
@@ -22,7 +22,7 @@ public struct ChatAttachmentBubbleView: View {
 
     @State private var thumbnailData: Data?
     @State private var thumbnailFailed = false
-    @State private var thumbnailPath: String?
+    @State private var thumbnailRequest: ChatAttachmentThumbnailRequest?
     @State private var fallbackSelection: ChatArtifactPathSelection?
 
     /// Creates an attachment bubble.
@@ -53,7 +53,7 @@ public struct ChatAttachmentBubbleView: View {
         HStack(spacing: 0) {
             Spacer(minLength: 64)
             VStack(alignment: .trailing, spacing: 3) {
-                artifactAwareBubble
+                attachmentContent
                     .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
                 if showsTimestamp {
                     Text(timestamp.formatted(.dateTime.hour().minute()))
@@ -62,7 +62,6 @@ public struct ChatAttachmentBubbleView: View {
                         .padding(.horizontal, 4)
                 }
             }
-            .accessibilityElement(children: .combine)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .sheet(item: $fallbackSelection) { selection in
@@ -71,34 +70,62 @@ public struct ChatAttachmentBubbleView: View {
     }
 
     @ViewBuilder
-    private var artifactAwareBubble: some View {
-        if artifactLoader.supportsArtifacts, let hostPath = attachment.hostPath, !hostPath.isEmpty {
-            Button {
-                if let onOpenArtifact {
-                    onOpenArtifact(hostPath)
-                } else {
-                    fallbackSelection = ChatArtifactPathSelection(path: hostPath)
-                }
-            } label: {
-                if thumbnailFailed {
-                    bubble
-                } else {
-                    thumbnailBubble(hostPath: hostPath)
-                }
-            }
-            .buttonStyle(.plain)
-            .task(id: hostPath) {
-                await loadThumbnail(path: hostPath)
-            }
-        } else {
-            bubble
+    private var attachmentContent: some View {
+        switch attachment.media {
+        case .image:
+            imageAttachment
+        case .file:
+            fileAttachment
         }
     }
 
-    private var bubble: some View {
+    @ViewBuilder
+    private var imageAttachment: some View {
+        if let hostPath {
+            Button {
+                openArtifact(path: hostPath)
+            } label: {
+                imagePreview
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel(displayName)
+            .accessibilityHint(openPreviewHint)
+            .accessibilityIdentifier("ChatAttachmentImagePreview")
+            .task(id: currentThumbnailRequest) {
+                guard let request = currentThumbnailRequest else { return }
+                await loadThumbnail(request: request)
+            }
+        } else {
+            imagePreview
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(displayName)
+                .accessibilityIdentifier("ChatAttachmentImagePreview")
+        }
+    }
+
+    @ViewBuilder
+    private var fileAttachment: some View {
+        if artifactLoader.supportsArtifacts, let hostPath {
+            Button {
+                openArtifact(path: hostPath)
+            } label: {
+                fileBubble
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(displayName)
+            .accessibilityHint(openPreviewHint)
+        } else {
+            fileBubble
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(displayName)
+        }
+    }
+
+    private var fileBubble: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Image(systemName: "photo")
+                Image(systemName: "doc")
                     .font(.caption)
                 Text(displayName)
                     .font(.caption)
@@ -119,66 +146,95 @@ public struct ChatAttachmentBubbleView: View {
         .background(theme.outgoingBubbleFill, in: bubbleShape)
     }
 
-    private func thumbnailBubble(hostPath: String) -> some View {
-        HStack(spacing: 8) {
-            thumbnailImage
-                .frame(width: 48, height: 48)
-                .background(.white.opacity(0.16), in: .rect(cornerRadius: 6))
-                .clipShape(.rect(cornerRadius: 6))
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Image(systemName: "photo")
-                        .font(.caption)
-                    Text(displayName)
-                        .font(.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Text(hostPath)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
+    private var imagePreview: some View {
+        ZStack {
+            theme.terminalCardFill
+            imagePreviewContent
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(theme.outgoingBubbleFill, in: bubbleShape)
+        .aspectRatio(previewLayout.aspectRatio, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+        .clipShape(bubbleShape)
+        .overlay {
+            bubbleShape
+                .stroke(theme.hairline.opacity(0.7), lineWidth: 0.5)
+        }
+        .contentShape(bubbleShape)
     }
 
     @ViewBuilder
-    private var thumbnailImage: some View {
-        if let thumbnailData {
+    private var imagePreviewContent: some View {
+        if let currentThumbnailRequest,
+           thumbnailRequest == currentThumbnailRequest,
+           let thumbnailData {
             #if canImport(UIKit)
             if let image = UIImage(data: thumbnailData) {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                placeholderThumbnail
+                unavailablePreview
             }
             #elseif canImport(AppKit)
             if let image = NSImage(data: thumbnailData) {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                placeholderThumbnail
+                unavailablePreview
             }
             #else
-            placeholderThumbnail
+            unavailablePreview
             #endif
+        } else if !artifactLoader.supportsArtifacts
+            || hostPath == nil
+            || (thumbnailRequest == currentThumbnailRequest && thumbnailFailed) {
+            unavailablePreview
         } else {
-            placeholderThumbnail
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white.opacity(0.82))
         }
     }
 
-    private var placeholderThumbnail: some View {
-        Image(systemName: "photo")
-            .font(.title3)
-            .foregroundStyle(.white.opacity(0.82))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private var unavailablePreview: some View {
+        VStack(spacing: 7) {
+            Image(systemName: "photo")
+                .font(.title2)
+            Text(
+                String(
+                    localized: "chat.artifact.preview_unavailable.title",
+                    defaultValue: "Preview unavailable",
+                    bundle: .module
+                )
+            )
+            .font(.caption)
+        }
+        .foregroundStyle(.white.opacity(0.82))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var previewLayout: ChatAttachmentPreviewLayout {
+        ChatAttachmentPreviewLayout(
+            pixelWidth: attachment.pixelWidth,
+            pixelHeight: attachment.pixelHeight
+        )
+    }
+
+    private var hostPath: String? {
+        guard let hostPath = attachment.hostPath, !hostPath.isEmpty else { return nil }
+        return hostPath
+    }
+
+    private var currentThumbnailRequest: ChatAttachmentThumbnailRequest? {
+        guard let hostPath else { return nil }
+        return ChatAttachmentThumbnailRequest(
+            path: hostPath,
+            scope: artifactLoader.scope,
+            supportsArtifacts: artifactLoader.supportsArtifacts,
+            byteCount: attachment.byteCount.map(Int64.init)
+        )
     }
 
     /// Trailing-side grouped-corner shape matching the prose bubble rules.
@@ -199,20 +255,61 @@ public struct ChatAttachmentBubbleView: View {
         if let name = attachment.displayName, !name.isEmpty {
             return name
         }
-        return String(localized: "chat.attachment.image", defaultValue: "Image", bundle: .module)
+        switch attachment.media {
+        case .image:
+            return String(localized: "chat.attachment.image", defaultValue: "Image", bundle: .module)
+        case .file:
+            return String(localized: "chat.attachment.file", defaultValue: "File", bundle: .module)
+        }
     }
 
-    private func loadThumbnail(path: String) async {
-        if thumbnailPath != path {
-            thumbnailPath = path
+    private var openPreviewHint: String {
+        String(
+            localized: "chat.attachment.open_preview_hint",
+            defaultValue: "Opens the full preview",
+            bundle: .module
+        )
+    }
+
+    private func openArtifact(path: String) {
+        if let onOpenArtifact {
+            onOpenArtifact(path)
+        } else {
+            fallbackSelection = ChatArtifactPathSelection(path: path)
+        }
+    }
+
+    private func loadThumbnail(request: ChatAttachmentThumbnailRequest) async {
+        if thumbnailRequest != request {
+            thumbnailRequest = request
             thumbnailData = nil
             thumbnailFailed = false
         }
+        guard request.supportsArtifacts else {
+            thumbnailFailed = true
+            return
+        }
         guard thumbnailData == nil, !thumbnailFailed else { return }
         do {
-            thumbnailData = try await artifactLoader.thumbnail(path: path, maxDimension: 256).data
+            let thumbnail = try await artifactLoader.thumbnail(
+                path: request.path,
+                maxDimension: 1_024,
+                size: request.byteCount
+            )
+            guard !Task.isCancelled, thumbnailRequest == request else { return }
+            thumbnailData = thumbnail.data
+        } catch is CancellationError {
+            return
         } catch {
+            guard thumbnailRequest == request else { return }
             thumbnailFailed = true
         }
     }
+}
+
+private struct ChatAttachmentThumbnailRequest: Hashable {
+    let path: String
+    let scope: ChatArtifactLoaderScope
+    let supportsArtifacts: Bool
+    let byteCount: Int64?
 }

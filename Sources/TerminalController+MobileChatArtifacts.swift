@@ -3,7 +3,7 @@ import CmuxSettings
 import Foundation
 
 private enum TerminalControllerChatArtifactIndexProvider {
-    static let shared = AgentChatArtifactIndex()
+    static let shared = AgentChatArtifactIndex.shared
     static let ordering = ChatArtifactGalleryOrderingCache()
 }
 

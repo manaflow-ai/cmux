@@ -57,6 +57,45 @@ struct AgentGUIJournalPipelineTests {
         await AgentChatArtifactIndex.shared.removeSupplementalAttachments(sessionID: sessionID.rawValue)
     }
 
+    @Test func invalidClaudeImageDoesNotAuthorizeItsReferencedFile() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-gui-invalid-image-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let transcript = directory.appendingPathComponent("claude.jsonl")
+        let invalidImage = directory.appendingPathComponent("not-an-image.png")
+        try Data("plain text".utf8).write(to: invalidImage)
+        let sessionID = AgentSessionID(rawValue: "session-invalid-image-\(UUID().uuidString)")
+        let line = #"{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"file","media_type":"image/png","path":"\#(invalidImage.path)"}}]}}"#
+        try write(lines: [line], to: transcript)
+        let pipeline = AgentGUIJournalPipeline(
+            sessionID: sessionID,
+            kind: .claude,
+            path: transcript.path
+        )
+
+        _ = await pipeline.ingestInitial()
+
+        let result = try await AgentChatArtifactIndex.shared.canonicalPath(
+            sessionID: sessionID.rawValue,
+            agentKind: .claude,
+            transcriptPath: transcript.path,
+            workingDirectory: directory.path,
+            requestedPath: invalidImage.path,
+            operation: .file,
+            directoryAccessMode: .oneLevel
+        )
+        if case .notInSet = result {
+            // Expected: failed image validation never expands the artifact scope.
+        } else {
+            Issue.record("invalid transcript image path entered the artifact allowlist")
+        }
+        await AgentChatArtifactIndex.shared.removeSupplementalAttachments(
+            sessionID: sessionID.rawValue
+        )
+    }
+
     @Test func missingJournalIsAnEmptyPageThenResetsWhenCreated() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-gui-missing-\(UUID().uuidString)", isDirectory: true)

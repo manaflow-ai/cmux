@@ -1,6 +1,8 @@
 import CMUXMobileCore
+import CmuxAgentChatUI
 import CmuxAgentGUIUI
 import CmuxMobileBrowser
+import CmuxMobileShell
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -48,6 +50,7 @@ extension WorkspaceDetailView {
                     terminalThemeGeneration: store.terminalThemeGeneration,
                     density: displaySettings.transcriptDensity,
                     draft: agentGUIDraftBinding(for: availability.sessionID),
+                    artifactLoader: agentGUIArtifactLoader(sessionID: availability.sessionID.rawValue),
                     onShowTerminal: { guiModeSelected = false }
                 )
                 .transition(.opacity)
@@ -70,6 +73,18 @@ extension WorkspaceDetailView {
     }
 
     #if os(iOS)
+    func agentGUIArtifactLoader(sessionID: String) -> ChatArtifactLoader {
+        guard store.supportsChatArtifacts,
+              let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: sessionID,
+            cache: terminalArtifactThumbnailCache
+        )
+    }
+
     @ViewBuilder
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(

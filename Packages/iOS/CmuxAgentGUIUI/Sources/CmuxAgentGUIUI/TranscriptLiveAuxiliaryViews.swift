@@ -38,6 +38,7 @@ enum AgentTranscriptSheet: Identifiable {
     case activity(TranscriptActivityDetails)
     case codeBlock(AgentCodeBlockSelection)
     case failedTicket(SendTicket)
+    case artifact(String)
 
     var id: String {
         switch self {
@@ -45,6 +46,7 @@ enum AgentTranscriptSheet: Identifiable {
         case .activity(let details): "activity:\(details.id.description)"
         case .codeBlock(let selection): selection.id
         case .failedTicket(let ticket): "failed-ticket:\(ticket.id.uuidString)"
+        case .artifact(let path): "artifact:\(path)"
         }
     }
 }

@@ -46,6 +46,7 @@ public struct TranscriptDemoScreen: View {
                     onOpenFailedTicket: { _ in },
                     onRetrySync: {},
                     onShowTerminal: {},
+                    onOpenArtifact: { _ in },
                     onShowCodeBlock: { _, _ in }
                 )
             }

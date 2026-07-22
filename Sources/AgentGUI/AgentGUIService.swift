@@ -434,6 +434,11 @@ final class AgentGUIService {
                 if let pipeline = pipelines.removeValue(forKey: sessionID) {
                     pipeline.setWatching(false) { _ in }
                 }
+                Task {
+                    await AgentChatArtifactIndex.shared.removeSupplementalAttachments(
+                        sessionID: sessionID.rawValue
+                    )
+                }
                 let version = nextRemovalVersion(sessionID: sessionID)
                 publisher.publishSessionRemoved(sessionID, version: EntityVersion(rawValue: version))
             }

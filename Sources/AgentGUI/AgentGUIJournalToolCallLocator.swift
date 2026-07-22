@@ -2,6 +2,11 @@ import Foundation
 
 enum AgentGUIJournalToolCorrelation {
     static func callIDs(in line: String) -> Set<String> {
+        guard line.contains("\"tool_use\"")
+                || line.contains("\"function_call\"")
+                || line.contains("\"custom_tool_call\"")
+                || line.contains("\"web_search_call\"")
+                || line.contains("\"tool_search_call\"") else { return [] }
         guard let root = object(in: line) else { return [] }
         let payload = (root["payload"] as? [String: Any]) ?? root
         if root["type"] as? String == "response_item",
@@ -17,6 +22,10 @@ enum AgentGUIJournalToolCorrelation {
     }
 
     static func resultIDs(in line: String) -> Set<String> {
+        guard line.contains("\"tool_result\"")
+                || line.contains("\"function_call_output\"")
+                || line.contains("\"custom_tool_call_output\"")
+                || line.contains("\"tool_search_output\"") else { return [] }
         guard let root = object(in: line) else { return [] }
         let payload = (root["payload"] as? [String: Any]) ?? root
         if root["type"] as? String == "response_item",

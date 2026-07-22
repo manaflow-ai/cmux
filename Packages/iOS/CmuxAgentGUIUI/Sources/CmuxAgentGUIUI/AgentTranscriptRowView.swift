@@ -13,6 +13,7 @@ struct AgentTranscriptRowView: View {
     let onOpenFailedTicket: (SendTicket) -> Void
     let onRetrySync: () -> Void
     let onShowTerminal: () -> Void
+    let onOpenArtifact: (String) -> Void
     let onShowCodeBlock: (String, Int) -> Void
 
     var body: some View {
@@ -22,6 +23,7 @@ struct AgentTranscriptRowView: View {
                 snapshot: snapshot,
                 actions: ChatRowActions(
                     openTerminal: onShowTerminal,
+                    openArtifact: onOpenArtifact,
                     showCodeBlockDetail: onShowCodeBlock
                 )
             )

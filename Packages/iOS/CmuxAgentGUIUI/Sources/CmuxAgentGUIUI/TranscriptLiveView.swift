@@ -1,7 +1,7 @@
 #if os(iOS)
 public import CMUXMobileCore
 import CmuxAgentChat
-import CmuxAgentChatUI
+public import CmuxAgentChatUI
 import CmuxAgentGUIProjection
 public import CmuxAgentReplica
 public import CmuxAgentSync
@@ -16,6 +16,7 @@ public struct TranscriptLiveView: View {
     private let terminalTheme: TerminalTheme
     private let terminalThemeGeneration: UInt64
     private let density: TranscriptDensity
+    private let artifactLoader: ChatArtifactLoader
     private let onShowTerminal: () -> Void
 
     @State private var input = TranscriptProjectionInput(entries: [])
@@ -47,6 +48,7 @@ public struct TranscriptLiveView: View {
         terminalThemeGeneration: UInt64,
         density: TranscriptDensity,
         draft: Binding<String>,
+        artifactLoader: ChatArtifactLoader = .unsupported(),
         onShowTerminal: @escaping () -> Void = {}
     ) {
         self.engine = engine
@@ -54,6 +56,7 @@ public struct TranscriptLiveView: View {
         self.terminalTheme = terminalTheme
         self.terminalThemeGeneration = terminalThemeGeneration
         self.density = density
+        self.artifactLoader = artifactLoader
         _draft = draft
         self.onShowTerminal = onShowTerminal
     }
@@ -108,6 +111,7 @@ public struct TranscriptLiveView: View {
                             onOpenFailedTicket: { selectedSheet = .failedTicket($0) },
                             onRetrySync: engine.retryNow,
                             onShowTerminal: onShowTerminal,
+                            onOpenArtifact: { selectedSheet = .artifact($0) },
                             onShowCodeBlock: showCodeBlock
                         )
                     }
@@ -133,6 +137,7 @@ public struct TranscriptLiveView: View {
         .environment(\.chatTheme, appearance.chatTheme)
         .environment(\.chatMarkdownRenderer, markdownRenderer)
         .environment(\.chatContentCache, contentCache)
+        .environment(\.chatArtifactLoader, artifactLoader)
         .environment(\.colorScheme, appearance.colorScheme)
         .background(Color(theme.background))
         .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -168,6 +173,8 @@ public struct TranscriptLiveView: View {
                     },
                     showTerminal: onShowTerminal
                 )
+            case .artifact(let path):
+                ChatArtifactViewerSheet(path: path)
             }
         }
         .onAppear(perform: startDriverIfNeeded)

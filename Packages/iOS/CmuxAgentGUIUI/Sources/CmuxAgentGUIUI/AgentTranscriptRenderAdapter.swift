@@ -129,7 +129,11 @@ struct AgentTranscriptRenderAdapter {
             kind: .attachment(ChatAttachment(
                 media: isImage ? .image : .file,
                 displayName: attachment.displayName ?? attachment.summary,
-                hostPath: attachment.hostPath
+                hostPath: attachment.hostPath,
+                mimeType: attachment.mimeType,
+                byteCount: attachment.byteCount,
+                pixelWidth: attachment.width,
+                pixelHeight: attachment.height
             ))
         )
         return ChatMessageRowSnapshot(
