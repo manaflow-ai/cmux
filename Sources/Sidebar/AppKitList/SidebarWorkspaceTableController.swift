@@ -509,11 +509,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         proposedDropOperation dropOperation: NSTableView.DropOperation
     ) -> NSDragOperation {
         guard pasteboardCarriesReorderPayload(info) else { return [] }
-        reorderDragPayloadWorkspaceId = SidebarTabDragPayload.workspaceId(
-            fromPasteboardString: info.draggingPasteboard.string(
-                forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-            )
-        )
+        reorderDragPayloadWorkspaceId = Self.reorderPayloadWorkspaceId(info.draggingPasteboard)
         return updateReorderDrag(windowPoint: info.draggingLocation) ? .move : []
     }
 
@@ -527,11 +523,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard pasteboardCarriesReorderPayload(info),
               let actions,
               let table = containerView?.tableView else { return false }
-        let payloadWorkspaceId = SidebarTabDragPayload.workspaceId(
-            fromPasteboardString: info.draggingPasteboard.string(
-                forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-            )
-        )
+        let payloadWorkspaceId = Self.reorderPayloadWorkspaceId(info.draggingPasteboard)
         let point = table.convert(info.draggingLocation, from: nil)
         let targets = reorderDropTargets()
         let performed = actions.performWorkspaceDrop(point, targets, payloadWorkspaceId)
@@ -661,6 +653,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         info.draggingPasteboard.types?.contains(
             NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
         ) == true
+    }
+
+    /// Item-provider drag sources promise data rather than strings, so fall
+    /// back to a UTF-8 decode of the raw data when `string(forType:)` is nil.
+    private static func reorderPayloadWorkspaceId(_ pasteboard: NSPasteboard) -> UUID? {
+        let type = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        let raw = pasteboard.string(forType: type)
+            ?? pasteboard.data(forType: type).flatMap { String(data: $0, encoding: .utf8) }
+        let parsed = SidebarTabDragPayload.workspaceId(fromPasteboardString: raw)
+#if DEBUG
+        cmuxDebugLog(
+            "sidebar.drop.payload raw=\(raw.map { String($0.prefix(24)) } ?? "nil") " +
+            "parsed=\(parsed.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+        )
+#endif
+        return parsed
     }
 
     /// Optimistic press highlight: paints the clicked workspace cell as

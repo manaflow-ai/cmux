@@ -13137,6 +13137,9 @@ struct VerticalTabsSidebar: View, Equatable {
         // torn down mid-flight (app_resign_active failsafe) is only
         // recoverable through the session's pasteboard id.
         guard let dragId = dragState.currentWorkspaceDragId ?? pasteboardWorkspaceId else {
+#if DEBUG
+            cmuxDebugLog("sidebar.drag.activate rejected reason=noDragId")
+#endif
             return false
         }
         if tabManager.tabs.contains(where: { $0.id == dragId }) {
