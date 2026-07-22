@@ -114,6 +114,14 @@ def main() -> int:
             json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "0.74.0"}),
             encoding="utf-8",
         )
+        malformed_package = root / "malformed-node-modules" / "@earendil-works" / "pi-coding-agent"
+        malformed_cli = malformed_package / "dist" / "cli.js"
+        malformed_cli.parent.mkdir(parents=True)
+        make_executable(malformed_cli, "#!/usr/bin/env node\n")
+        (malformed_package / "package.json").write_text(
+            json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "development"}),
+            encoding="utf-8",
+        )
         # Match npm's launcher shape so version detection exercises the unresolved bin/pi symlink.
         legacy_bin_dir = root / "legacy-bin"
         legacy_bin_dir.mkdir()
@@ -203,6 +211,7 @@ esac
         check_env["CMUX_TEST_PI_MODERN_SCRIPT_PATH"] = str(modern_cli)
         check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
         check_env["CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH"] = str(root / "unknown-bin" / "pi")
+        check_env["CMUX_TEST_PI_MALFORMED_SCRIPT_PATH"] = str(malformed_cli)
         check_env["OPENAI_API_KEY"] = "openai-secret-should-not-leak"
         check_env["ANTHROPIC_AUTH_TOKEN"] = "anthropic-secret-should-not-leak"
         check_env["CUSTOM_PASSWORD"] = "password-should-not-leak"
@@ -400,6 +409,28 @@ await handlers.get("agent_end")({
 }, unknownCtx);
 completionCount += 2;
 if (await completionHookCount() !== completionCount) throw new Error("unknown Pi agent_end did not emit completion fallback");
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/opt/homebrew/bin/node",
+  process.env.CMUX_TEST_PI_MALFORMED_SCRIPT_PATH
+);
+const malformedCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-malformed"; }
+  }
+};
+await handlers.get("session_start")({}, malformedCtx);
+await handlers.get("before_agent_start")({ prompt: "malformed pi" }, malformedCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "malformed done" }],
+  stopReason: "completed"
+}, malformedCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("malformed Pi agent_end did not emit completion fallback");
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -417,9 +448,9 @@ if (await completionHookCount() !== completionCount) throw new Error("unknown Pi
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 21, timeout=20.0)
-        stdin_log = wait_for_text(fake_stdin_log, 34, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 21 * 3, timeout=20.0)
+        args_log = wait_for_text(fake_args_log, 39, timeout=20.0)
+        stdin_log = wait_for_text(fake_stdin_log, 64, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 39 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -450,30 +481,23 @@ if (await completionHookCount() !== completionCount) throw new Error("unknown Pi
             "set", "get",
             "set", "get",
             "set", "get",
+            "set", "get",
         ]
         if resume_ops != expected_resume_ops:
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
             return 1
-        stop_notification_ops = []
-        for line in arg_lines:
-            if "hooks pi notification" in line:
-                stop_notification_ops.append("notification")
-            elif "hooks pi stop" in line:
-                stop_notification_ops.append("stop")
-        if stop_notification_ops[:2] != ["notification", "stop"]:
-            print(
-                "FAIL: Pi completion stop suppressed native fallback before custom notification, "
-                f"got {stop_notification_ops!r}"
-            )
-            return 1
-        if stop_notification_ops[-2:] != ["notification", "stop"]:
-            print(
-                "FAIL: Pi notification failure path did not attempt custom notification before stop, "
-                f"got {stop_notification_ops!r}"
-            )
-            return 1
-
         payloads = payloads_from_log(stdin_log)
+        for session_id in ["pi-session-test", "pi-session-notification-fails"]:
+            # Verify each completion path routes its notification before suppressing the native stop fallback.
+            completion_events = [
+                payload.get("hook_event_name")
+                for payload in payloads
+                if payload.get("session_id") == session_id
+                and payload.get("hook_event_name") in {"Notification", "Stop"}
+            ]
+            if completion_events != ["Notification", "Stop"]:
+                print(f"FAIL: completion hooks were out of order for {session_id}: {completion_events!r}")
+                return 1
         if not any(payload.get("session_id") == "pi-session-test" for payload in payloads):
             print(f"FAIL: extension did not pass session id, got {payloads!r}")
             return 1
@@ -533,6 +557,18 @@ if (await completionHookCount() !== completionCount) throw new Error("unknown Pi
         )
         if unknown_stop_payload is None or unknown_stop_payload.get("last_assistant_message") != "unknown done":
             print(f"FAIL: unknown Pi agent_end did not emit its completion payload, got {payloads!r}")
+            return 1
+        malformed_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-malformed"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if malformed_stop_payload is None or malformed_stop_payload.get("last_assistant_message") != "malformed done":
+            print(f"FAIL: malformed Pi agent_end did not emit its completion payload, got {payloads!r}")
             return 1
         interrupted_stop_payload = next(
             (payload for payload in payloads if payload.get("terminationReason") == "terminated"),
