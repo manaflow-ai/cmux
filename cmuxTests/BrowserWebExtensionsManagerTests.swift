@@ -130,6 +130,46 @@ struct BrowserWebExtensionsManagerTests {
         }
     }
 
+    private actor PermissionPromptGate {
+        private var didEnter = false
+        private var enteredContinuation: CheckedContinuation<Void, Never>?
+        private var decisionContinuation: CheckedContinuation<BrowserWebExtensionPermissionDecision, Never>?
+        private var bufferedDecision: BrowserWebExtensionPermissionDecision?
+
+        func present() async -> BrowserWebExtensionPermissionDecision {
+            didEnter = true
+            enteredContinuation?.resume()
+            enteredContinuation = nil
+            if let bufferedDecision {
+                self.bufferedDecision = nil
+                return bufferedDecision
+            }
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    decisionContinuation = continuation
+                }
+            } onCancel: {
+                Task { await self.resolve(.deny) }
+            }
+        }
+
+        func waitUntilEntered() async {
+            guard !didEnter else { return }
+            await withCheckedContinuation { continuation in
+                enteredContinuation = continuation
+            }
+        }
+
+        func resolve(_ decision: BrowserWebExtensionPermissionDecision) {
+            if let decisionContinuation {
+                self.decisionContinuation = nil
+                decisionContinuation.resume(returning: decision)
+            } else {
+                bufferedDecision = decision
+            }
+        }
+    }
+
     private final class WebViewLoadWaiter: NSObject, WKNavigationDelegate {
         private var continuation: CheckedContinuation<Void, any Error>?
 
@@ -869,11 +909,15 @@ struct BrowserWebExtensionsManagerTests {
         #expect(first.image.height == 32)
         #expect(first.signature == second.signature)
         #expect(first.signature != changed.signature)
-        let bitmap = NSBitmapImageRep(cgImage: first.image)
-        let centerAlpha = try #require(bitmap.colorAt(x: 16, y: 16)).alphaComponent
-        let edgeAlpha = try #require(bitmap.colorAt(x: 16, y: 1)).alphaComponent
-        #expect(centerAlpha > 0.9)
-        #expect(edgeAlpha < 0.1)
+        let providerData = try #require(first.image.dataProvider?.data)
+        let bytes = try #require(CFDataGetBytePtr(providerData))
+        #expect(first.image.bitsPerPixel == 32)
+        #expect(first.image.alphaInfo == .premultipliedLast)
+        func alpha(x: Int, y: Int) -> UInt8 {
+            bytes[y * first.image.bytesPerRow + x * 4 + 3]
+        }
+        #expect(alpha(x: 16, y: 16) > 230)
+        #expect(alpha(x: 16, y: 1) < 25)
     }
 
     @Test func decodedExtensionIconCacheReusesContentIdentity() throws {
@@ -1322,6 +1366,170 @@ struct BrowserWebExtensionsManagerTests {
         ))
         #expect(manager.loadedContexts.count == 1)
         #expect(manager.presentationSnapshot().extensions.map(\.name) == ["cmux test extension"])
+    }
+
+    @available(macOS 15.4, *)
+    @Test func arbitraryDiskInstallsWithSameBasenameRemainIsolated() async throws {
+        let firstSourceRoot = try Self.makeExtensionsRoot()
+        let secondSourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: firstSourceRoot)
+            try? FileManager.default.removeItem(at: secondSourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        var firstManifest = Self.minimalManifest
+        firstManifest["name"] = "First basename fixture"
+        firstManifest["action"] = ["default_title": "First action"]
+        let firstSource = try Self.writeExtension(
+            named: "same-basename",
+            in: firstSourceRoot,
+            manifest: firstManifest
+        )
+        try "// first".write(
+            to: firstSource.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        var secondManifest = Self.minimalManifest
+        secondManifest["name"] = "Second basename fixture"
+        secondManifest["version"] = "2.0"
+        secondManifest["action"] = ["default_title": "Second action"]
+        let secondSource = try Self.writeExtension(
+            named: "same-basename",
+            in: secondSourceRoot,
+            manifest: secondManifest
+        )
+        try "// second".write(
+            to: secondSource.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository
+        )
+
+        _ = try await manager.installExtension(from: firstSource)
+        let firstContext = try #require(manager.loadedContexts.first)
+        try await manager.setToolbarActionPinned(
+            true,
+            uniqueIdentifier: firstContext.uniqueIdentifier
+        )
+        let secondPreview = try await manager.prepareInstall(from: secondSource)
+        #expect(!secondPreview.isUpdate)
+        _ = try await manager.confirmPreparedInstall(id: secondPreview.id)
+
+        let ledger = try await repository.managementLedger(in: managedRoot)
+        #expect(ledger.records.count == 2)
+        #expect(ledger.records.keys.allSatisfy { managementID in
+            guard managementID.hasPrefix("disk:") else { return false }
+            return UUID(uuidString: String(managementID.dropFirst("disk:".count))) != nil
+        })
+        #expect(ledger.records.values.filter(\.isToolbarPinned).count == 1)
+        #expect(manager.loadedContexts.count == 2)
+        #expect(Set(manager.loadedContexts.map(\.uniqueIdentifier)).count == 2)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func disabledDiskUpdateRemainsDisabledAndDoesNotCreateContext() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(
+            named: "disabled-update",
+            in: sourceRoot,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository
+        )
+        _ = try await manager.installExtension(from: source)
+        let managementID = try #require(
+            try await repository.managementLedger(in: managedRoot).records.keys.first
+        )
+        try await manager.setExtensionEnabled(managementID: managementID, isEnabled: false)
+
+        let updatePreview = try await manager.prepareInstall(from: source)
+        #expect(updatePreview.isUpdate)
+        _ = try await manager.confirmPreparedInstall(id: updatePreview.id)
+
+        let updatedRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        #expect(!updatedRecord.isEnabled)
+        #expect(manager.loadedContexts.isEmpty)
+        #expect(manager.controller.extensionContexts.isEmpty)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func failedSafariUpdateDoesNotLoadDisabledRollbackRecord() async throws {
+        let appRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: appRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let bundleIdentifier = "com.example.disabled-rollback.safari"
+        let fixture = try Self.writeSafariExtensionFixture(
+            in: appRoot,
+            bundleIdentifier: bundleIdentifier
+        )
+        let identity = BrowserWebExtensionSafariAppIdentity(
+            id: "disabled-rollback-fixture",
+            appBundleIdentifier: "com.example.disabled-rollback",
+            extensionBundleIdentifier: bundleIdentifier,
+            teamIdentifier: "TESTTEAM"
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository,
+            verifySafariAppExtension: { _ in identity },
+            appExtensionLoader: { _ in
+                let count = loadCount.withLock { count -> Int in
+                    count += 1
+                    return count
+                }
+                if count == 4 {
+                    throw BrowserWebExtensionInstallError.integrityMismatch
+                }
+                return try await WKWebExtension(resourceBaseURL: fixture.resources)
+            }
+        )
+        _ = try await manager.installExtension(from: fixture.app)
+        let managementID = try #require(
+            try await repository.managementLedger(in: managedRoot).records.keys.first
+        )
+        try await manager.setExtensionEnabled(managementID: managementID, isEnabled: false)
+        let updatePreview = try await manager.prepareInstall(from: fixture.app)
+        #expect(updatePreview.isUpdate)
+
+        await #expect(throws: BrowserWebExtensionInstallError.integrityMismatch) {
+            _ = try await manager.confirmPreparedInstall(id: updatePreview.id)
+        }
+
+        let restoredRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        #expect(!restoredRecord.isEnabled)
+        #expect(manager.loadedContexts.isEmpty)
+        #expect(manager.controller.extensionContexts.isEmpty)
     }
 
     @available(macOS 15.4, *)
@@ -3535,6 +3743,70 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func duplicateDisplayNameActionIsAmbiguousWhileExactIdentifierRoutes() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["name"] = "Duplicate action name"
+        manifest["action"] = ["default_title": "Duplicate action"]
+        for directoryName in ["duplicate-one", "duplicate-two"] {
+            let directory = try Self.writeExtension(
+                named: directoryName,
+                in: root,
+                manifest: manifest
+            )
+            try "// no-op".write(
+                to: directory.appendingPathComponent("content.js"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        let performCount = OSAllocatedUnfairLock(initialState: 0)
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            performExtensionAction: { _, _ in
+                performCount.withLock { $0 += 1 }
+            }
+        )
+        for directoryName in ["duplicate-one", "duplicate-two"] {
+            try await manager.approveInstalledCandidate(
+                root.appendingPathComponent(directoryName, isDirectory: true)
+            )
+        }
+        await manager.loadExtensions()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        defer { manager.unregister(panelID: panel.id) }
+
+        var rejectedAmbiguousName = false
+        do {
+            _ = try manager.performAction(
+                matching: "Duplicate action name",
+                panelID: panel.id
+            )
+        } catch {
+            rejectedAmbiguousName = true
+        }
+        #expect(rejectedAmbiguousName)
+        #expect(performCount.withLock { $0 } == 0)
+
+        let exactContext = try #require(manager.loadedContexts.first)
+        let payload = try manager.performAction(
+            matching: exactContext.uniqueIdentifier,
+            panelID: panel.id
+        )
+        #expect(payload["extension_id"] as? String == exactContext.uniqueIdentifier)
+        #expect(performCount.withLock { $0 } == 1)
+    }
+
+    @available(macOS 15.4, *)
     @Test func mv2BackgroundPageMessagesContentScriptOnFirstLoadAndReload() async throws {
         try await Self.assertBackgroundMessagingFixture(manifestVersion: 2)
     }
@@ -5071,6 +5343,74 @@ struct BrowserWebExtensionsManagerTests {
         #expect(grantedURLs.isEmpty)
         #expect(grantedPatterns.isEmpty)
         #expect(promptCount.withLock { $0 } == 0)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func permissionDecisionFromReplacedContextCannotMutateReplacement() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        var manifest = Self.minimalManifest
+        manifest["optional_permissions"] = ["cookies"]
+        let source = try Self.writeExtension(
+            named: "permission-generation",
+            in: sourceRoot,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let promptGate = PermissionPromptGate()
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository,
+            permissionPromptPresenter: { _, _ in
+                await promptGate.present()
+            }
+        )
+        _ = try await manager.installExtension(from: source)
+        let oldContext = try #require(manager.loadedContexts.first)
+        let permissionTask = Task { @MainActor in
+            await withCheckedContinuation { continuation in
+                manager.webExtensionController(
+                    manager.controller,
+                    promptForPermissions: [.cookies],
+                    in: nil,
+                    for: oldContext
+                ) { allowed, _ in
+                    continuation.resume(returning: allowed)
+                }
+            }
+        }
+        await promptGate.waitUntilEntered()
+
+        let replacementPreview = try await manager.prepareInstall(from: source)
+        #expect(replacementPreview.isUpdate)
+        _ = try await manager.confirmPreparedInstall(id: replacementPreview.id)
+        await promptGate.resolve(.grant)
+        let allowed = await permissionTask.value
+
+        #expect(allowed.isEmpty)
+        let replacementContext = try #require(manager.loadedContexts.first)
+        #expect(replacementContext !== oldContext)
+        let managementID = try #require(
+            try await repository.managementLedger(in: managedRoot).records.keys.first
+        )
+        let replacementRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        #expect(
+            replacementRecord.grantedPermissions[
+                WKWebExtension.Permission.cookies.rawValue
+            ] == nil
+        )
     }
 
     @available(macOS 15.4, *)

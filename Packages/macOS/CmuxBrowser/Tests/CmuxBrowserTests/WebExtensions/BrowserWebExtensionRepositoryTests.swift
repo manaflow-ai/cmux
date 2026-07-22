@@ -17,6 +17,20 @@ struct BrowserWebExtensionRepositoryTests {
         }
     }
 
+    @Test func renamedArchiveRegularFileIsRejectedBeforePackageResolution() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let disguisedArchive = root.appendingPathComponent("disguised-extension.data")
+        try makeStoredArchive().write(to: disguisedArchive)
+        let repository = BrowserWebExtensionDirectoryRepository()
+
+        await #expect(
+            throws: BrowserWebExtensionInstallError.invalidPackage("disguised-extension.data")
+        ) {
+            _ = try await repository.resolveInstallSource(at: disguisedArchive)
+        }
+    }
+
     @Test func exactDigestCatalogArchiveIsAcceptedAndMismatchFailsClosed() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
