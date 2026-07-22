@@ -1,16 +1,21 @@
 name: cmux-tui artifacts
 
-# Publishes raw cmux-tui (the Rust TUI multiplexer) binaries to the
-# cmux-binaries R2 bucket (public at https://files.cmux.com/cmux-tui/...) so cloud
-# VM snapshot builders and install scripts can curl a binary directly, without
-# npm or PyPI. Binary building is shared with the npm/uvx distribution lane
-# (cmux-tui-build-package.yml); this workflow only adds the R2 raw-binary publish.
+# Publishes raw cmux-tui (the Rust TUI multiplexer) and cmux-relay binaries to the
+# cmux-binaries R2 bucket (public under https://files.cmux.com/cmux-tui/... and
+# https://files.cmux.com/cmux-relay/...) so cloud VM snapshot builders and install
+# scripts can curl a binary directly, without npm or PyPI. Binary building is
+# shared with the npm/uvx distribution lane (cmux-tui-build-package.yml); this
+# workflow only adds the R2 raw-binary publish.
 #
 # Layout in R2:
 #   cmux-tui/<commit-sha>/cmux-tui-<rust-target>   immutable, commit-addressed
 #   cmux-tui/<commit-sha>/manifest.json
 #   cmux-tui/latest/cmux-tui-<rust-target>         rolling, manual publishes only
 #   cmux-tui/latest/manifest.json
+#   cmux-relay/<commit-sha>/cmux-relay-<rust-target> immutable, commit-addressed
+#   cmux-relay/<commit-sha>/manifest.json
+#   cmux-relay/latest/cmux-relay-<rust-target>       rolling, manual publishes only
+#   cmux-relay/latest/manifest.json
 
 on:
   # Temporarily manual-only beginning 2026-07-13 to pause automatic CI/CD.
@@ -28,8 +33,9 @@ jobs:
       contents: read
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      # Binaries only; the version input is unused when packaging is off.
-      version: "0.0.0"
+      # Raw R2 artifacts are not npm releases and must never claim that an
+      # older published package can reproduce their source contents.
+      version: 0.0.0-r2.${{ github.sha }}
       package_npm: false
       package_pypi: false
 
@@ -48,21 +54,37 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - name: Download cmux-tui binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: cmux-tui-*
-          path: assets
+          path: assets/cmux-tui
+          merge-multiple: true
+
+      - name: Download cmux-relay binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-relay-*
+          path: assets/cmux-relay
           merge-multiple: true
 
       - name: Build manifest and checksums
         run: |
-          cd assets
-          chmod 0755 cmux-tui-*
-          sha256sum cmux-tui-* > cmux-tui-checksums.txt
-          python3 - "$GITHUB_SHA" <<'PY'
+          build_manifest() {
+            local directory="$1"
+            local binary_prefix="$2"
+            local checksums="$3"
+            (
+              cd "$directory"
+              chmod 0755 "${binary_prefix}"*
+              sha256sum "${binary_prefix}"* > "$checksums"
+              python3 - "$GITHUB_SHA" "$binary_prefix" <<'PY'
           import hashlib, json, os, sys
           from datetime import datetime, timezone
-          files = sorted(f for f in os.listdir(".") if f.startswith("cmux-tui-") and not f.endswith(".txt"))
+          files = sorted(
+              f for f in os.listdir(".")
+              if f.startswith(sys.argv[2]) and not f.endswith(".txt")
+          )
           manifest = {
               "commit": sys.argv[1],
               "builtAt": datetime.now(timezone.utc).isoformat(),
@@ -74,6 +96,10 @@ jobs:
               json.dump(manifest, out, indent=2)
           print(json.dumps(manifest, indent=2))
           PY
+            )
+          }
+          build_manifest assets/cmux-tui cmux-tui- cmux-tui-checksums.txt
+          build_manifest assets/cmux-relay cmux-relay- cmux-relay-checksums.txt
 
       - name: Upload to R2
         env:
@@ -84,9 +110,10 @@ jobs:
         run: |
           set -euo pipefail
           publish_prefix() {
-            local prefix="$1"
-            local cache="$2"
-            for file in assets/cmux-tui-* assets/manifest.json; do
+            local directory="$1"
+            local prefix="$2"
+            local cache="$3"
+            for file in "$directory"/*; do
               python3 scripts/ci/upload-r2-object.py \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
@@ -95,11 +122,14 @@ jobs:
                 --cache-control "$cache"
             done
           }
-          publish_prefix "cmux-tui/$GITHUB_SHA" "public, max-age=31536000, immutable"
+          publish_prefix assets/cmux-tui "cmux-tui/$GITHUB_SHA" "public, max-age=31536000, immutable"
+          publish_prefix assets/cmux-relay "cmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable"
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            publish_prefix "cmux-tui/latest" "no-cache, no-store, must-revalidate"
+            publish_prefix assets/cmux-tui "cmux-tui/latest" "no-cache, no-store, must-revalidate"
+            publish_prefix assets/cmux-relay "cmux-relay/latest" "no-cache, no-store, must-revalidate"
           fi
           echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json"
+          echo "Published: https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json"
 
           # Transitional double-publish under the pre-rename prefix and binary
           # names: out-of-repo consumers (cmux-cloud bootstrap/install-mux.sh
@@ -108,10 +138,10 @@ jobs:
           # (https://github.com/manaflow-ai/cmux-cloud/pull/2).
           legacy_assets="assets-legacy"
           mkdir -p "$legacy_assets"
-          for file in assets/cmux-tui-*; do
+          for file in assets/cmux-tui/cmux-tui-*; do
             cp "$file" "$legacy_assets/$(basename "$file" | sed 's/^cmux-tui-/cmux-mux-/')"
           done
-          cp assets/manifest.json "$legacy_assets/manifest.json"
+          cp assets/cmux-tui/manifest.json "$legacy_assets/manifest.json"
           publish_legacy_prefix() {
             local prefix="$1"
             local cache="$2"

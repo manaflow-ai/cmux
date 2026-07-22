@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = ["."]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[package]
+name = "cmux-cloudflare-relay"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Cloudflare Durable Object relay for cmux remote sessions"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+base64 = "0.22"
+cmux-remote-protocol = { path = "../../crates/cmux-remote-protocol" }
+hmac = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+worker = "=0.8.5"
+# The Durable Object macro emits derives that resolve this crate directly.
+# Pin the version used by the workers-rs 0.8.5 release workspace.
+wasm-bindgen = "=0.2.125"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+uninlined_format_args = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_clone = "warn"
