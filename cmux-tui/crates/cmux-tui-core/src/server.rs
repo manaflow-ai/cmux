@@ -1815,6 +1815,15 @@ fn authorize_provider_workspace_command(mux: &Mux, mut authority: String) -> any
     result
 }
 
+fn with_provider_workspace_authority<T>(
+    mut authority: String,
+    operation: impl FnOnce(&str) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let result = operation(&authority);
+    zeroize_string(&mut authority);
+    result
+}
+
 fn zeroize_string(value: &mut str) {
     // NUL remains valid UTF-8, so decoded control frames can be cleared in
     // place immediately after dispatch.
@@ -3348,8 +3357,10 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::CloseProviderManagedWorkspace { workspace, key, authority } => {
-            authorize_provider_workspace_command(mux, authority)?;
-            let Some(revision) = mux.close_provider_managed_workspace(workspace, &key)? else {
+            let Some(revision) = with_provider_workspace_authority(authority, |authority| {
+                mux.close_provider_managed_workspace_authorized(workspace, &key, authority)
+            })?
+            else {
                 anyhow::bail!("unknown provider-managed workspace selector");
             };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
@@ -3385,8 +3396,9 @@ fn handle_command(
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
-            authorize_provider_workspace_command(mux, authority)?;
-            let Some(revision) = mux.rename_provider_managed_workspace(workspace, &key, name)?
+            let Some(revision) = with_provider_workspace_authority(authority, |authority| {
+                mux.rename_provider_managed_workspace_authorized(workspace, &key, name, authority)
+            })?
             else {
                 anyhow::bail!("unknown provider-managed workspace selector");
             };
