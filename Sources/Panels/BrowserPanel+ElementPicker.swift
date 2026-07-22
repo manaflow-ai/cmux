@@ -33,15 +33,14 @@ extension BrowserPanel {
     }
 
     private func deactivateReactGrabForDesignMode(reason: String) async -> Bool {
-        guard isReactGrabActive else { return true }
-        do {
-            _ = try await evaluateJavaScript("window.__REACT_GRAB__?.deactivate(); true")
-            isReactGrabActive = false
-            clearReactGrabRoundTrip(reason: "\(reason).deactivateReactGrab")
-            return true
-        } catch {
+        guard reactGrabActivationIntent else { return true }
+        let confirmed = await requestReactGrabActiveAndWait(
+            false,
+            reason: "\(reason).deactivateReactGrab"
+        )
+        if !confirmed {
 #if DEBUG
-            cmuxDebugLog("browser.picker.deactivateReactGrab.failed error=\(String(reflecting: error))")
+            cmuxDebugLog("browser.picker.deactivateReactGrab.failed")
 #endif
             designModeController.presentError(
                 String(
@@ -51,5 +50,6 @@ extension BrowserPanel {
             )
             return false
         }
+        return true
     }
 }

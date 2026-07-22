@@ -3012,6 +3012,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var requestedReactGrabActive: Bool?
     var reactGrabStateReconciliationTask: Task<Void, Never>?
     var reactGrabStateReconciliationGeneration: UInt64 = 0
+    var reactGrabStateConfirmation: ReactGrabStateConfirmation?
     lazy var designModeController = BrowserDesignModeController(
         surfaceID: id,
         script: BrowserDesignModeScript(),
@@ -3107,6 +3108,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
     let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+    let reactGrabBridgeActivationUpdaterName = "__cmuxReactGrabActivation_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
     var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .detached
     var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
@@ -5431,6 +5433,8 @@ final class BrowserPanel: Panel, ObservableObject {
         reactGrabStateReconciliationGeneration &+= 1
         reactGrabStateReconciliationTask?.cancel()
         reactGrabStateReconciliationTask = nil
+        reactGrabStateConfirmation?.cancel()
+        reactGrabStateConfirmation = nil
         requestedReactGrabActive = nil
         refreshWebViewLifecycleState()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
