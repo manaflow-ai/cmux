@@ -135,6 +135,7 @@ jobs:
         if: ${{ !inputs.skip_unit_tests }}
         env:
           CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "300"
+          CMUX_SKIP_ZIG_BUILD: "1"
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
