@@ -39,7 +39,6 @@ extension Workspace {
         observation: RestorableAgentSessionIndex.Entry
     ) {
         guard observation.lifecycle == .idle,
-              !observation.processIDs.union(observation.agentProcessIDs).isEmpty,
               Date().timeIntervalSince1970 - observation.updatedAt >= Self.agentRunningStatusReconciliationDelay,
               let statusKey = agentLifecycleStatusKey(for: observation.snapshot.kind),
               agentLifecycleStatesByPanelId[panelId]?[statusKey] == .running else {
