@@ -14,6 +14,7 @@ struct TaskComposerSheet: View {
     @Bindable var store: CMUXMobileShellStore
 
     @State var prompt = ""
+    @State var workspaceName = ""
     @State private var templates: [MobileTaskTemplate]
     @State var selectedTemplateID: MobileTaskTemplate.ID?
     @State var selectedMacDeviceID: String
@@ -22,12 +23,14 @@ struct TaskComposerSheet: View {
     @State var submissionPhase: TaskComposerSubmissionPhase = .idle
     @State var submitTask: Task<Void, Never>?
     @State var failureText: String?
+    @State var failureTitleStyle: TaskComposerFailureTitleStyle = .launchFailed
     @State private var isEditorPresented = false
     @State var isDirectoryPickerPresented = false
     @State var shouldPersistDraftOnDisappear = true
     @State var submissionIdentity: MobileTaskSubmissionIdentity
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
     @State var completedOperationRecovery: TaskComposerCompletedOperationRecovery?
+    @State var recoveryRequestReconciliationTask: Task<Void, Never>? = nil
     @State var isStartAgainConfirmationPresented = false
 
     let sessionGeneration: Int
@@ -124,6 +127,7 @@ struct TaskComposerSheet: View {
                 && canRestoreDraftDirectory
         ) ? draft?.operationID : nil
         let initialPrompt = draft?.prompt ?? ""
+        let initialWorkspaceName = draft?.workspaceName ?? ""
         let initialOperationID = restoredOperationID ?? UUID()
         let initialRequest = selectedTemplate.map {
             MobileTaskSubmissionSnapshot(
@@ -131,6 +135,7 @@ struct TaskComposerSheet: View {
                 prompt: initialPrompt,
                 macDeviceID: selectedMacID,
                 directory: initialDirectory,
+                workspaceName: initialWorkspaceName,
                 didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
                 operationID: initialOperationID
             )
@@ -145,6 +150,7 @@ struct TaskComposerSheet: View {
                 initialRequest?.withOperationID(operationID)
             }
         _prompt = State(initialValue: initialPrompt)
+        _workspaceName = State(initialValue: initialWorkspaceName)
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
@@ -163,6 +169,9 @@ struct TaskComposerSheet: View {
             initialValue: initialCompletedOperationRecovery == nil
                 ? nil
                 : Self.failureMessage(.alreadyCompleted(hostDisplayName: nil))
+        )
+        _failureTitleStyle = State(
+            initialValue: initialCompletedOperationRecovery == nil ? .launchFailed : .taskAccepted
         )
     }
 
@@ -198,6 +207,7 @@ struct TaskComposerSheet: View {
                         )
 
                         TaskComposerContextSection(
+                            workspaceName: workspaceNameBinding,
                             machines: machines,
                             selectedMacDeviceID: selectedMacDeviceID,
                             directory: directory,
@@ -223,8 +233,9 @@ struct TaskComposerSheet: View {
                     actionTitle: primaryActionTitle,
                     progressTitle: primaryActionProgressTitle,
                     caption: primaryActionCaption,
+                    failureTitle: failureTitleStyle.title(templateName: selectedTemplate?.name),
                     failureText: failureText,
-                    completedOperationRecovery: completedOperationRecovery,
+                    completedOperationRecovery: blockingCompletedOperationRecovery,
                     action: startSubmission,
                     refreshCompletedOperation: startCompletedOperationReconciliation,
                     requestStartAgain: { isStartAgainConfirmationPresented = true }
@@ -289,6 +300,7 @@ struct TaskComposerSheet: View {
             .onDisappear {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
+                recoveryRequestReconciliationTask?.cancel()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
                 }
@@ -437,7 +449,18 @@ struct TaskComposerSheet: View {
                 updateSubmissionRequest {
                     prompt = newValue
                 }
-                failureText = nil
+            }
+        )
+    }
+
+    private var workspaceNameBinding: Binding<String> {
+        Binding(
+            get: { workspaceName },
+            set: { newValue in
+                guard !submissionPhase.disablesRequestEditing else { return }
+                updateSubmissionRequest {
+                    workspaceName = newValue
+                }
             }
         )
     }
@@ -447,7 +470,6 @@ struct TaskComposerSheet: View {
               let template = templates.first(where: { $0.id == id }) else { return }
         withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.2)) {
             selectTemplate(template)
-            failureText = nil
         }
     }
 
@@ -463,13 +485,17 @@ struct TaskComposerSheet: View {
             selectedMacDeviceID = macDeviceID
             syncSuggestedDirectory()
         }
-        failureText = nil
     }
 
     func startSubmission() {
         guard submitTask == nil,
-              completedOperationRecovery == nil,
+              blockingCompletedOperationRecovery == nil,
               submissionPhase.allowsSubmission else { return }
+        // Once the user sends a genuinely different request, the prior
+        // recovery anchor can no longer become relevant through further edits.
+        recoveryRequestReconciliationTask?.cancel()
+        recoveryRequestReconciliationTask = nil
+        completedOperationRecovery = nil
         if submissionPhase.offersRetry {
             failureText = nil
         }
@@ -486,6 +512,7 @@ struct TaskComposerSheet: View {
             snapshot.draft,
             ifSessionGeneration: sessionGeneration
         ) else {
+            failureTitleStyle = .launchFailed
             let message = Self.draftPersistenceFailureMessage
             failureText = message
             announceFailure(message)
@@ -527,6 +554,7 @@ struct TaskComposerSheet: View {
                 )
                 submissionPhase = .retryReady
             }
+            failureTitleStyle = .forFailure(failure)
             let message = Self.failureMessage(failure)
             failureText = message
             announceFailure(message)
@@ -563,7 +591,6 @@ struct TaskComposerSheet: View {
             // Sync template edits unless the user typed the directory.
             syncSuggestedDirectory()
         }
-        failureText = nil
     }
 
     private func validateMacSelection() {
@@ -573,7 +600,6 @@ struct TaskComposerSheet: View {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""
             syncSuggestedDirectory()
         }
-        failureText = nil
     }
 
     private func persistDraft() {

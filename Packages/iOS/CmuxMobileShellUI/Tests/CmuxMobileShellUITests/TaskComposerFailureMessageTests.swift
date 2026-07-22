@@ -50,6 +50,46 @@ import Testing
         #expect(recovery.submittedSnapshot == snapshot)
     }
 
+    @Test func completedOperationRecoveryTracksEffectiveRequestAcrossHarmlessEdits() {
+        let operationID = UUID()
+        let submitted = Self.snapshot(operationID: operationID)
+        var recovery = TaskComposerCompletedOperationRecovery(submittedSnapshot: submitted)
+
+        recovery.markCurrentRequestUnresolved()
+        #expect(recovery.isRequestResolutionPending)
+        #expect(recovery.blocksSubmission)
+        #expect(!recovery.allowsStartAgain)
+
+        recovery.reconcileCurrentRequest(
+            Self.snapshot(operationID: operationID, workspaceName: "   ")
+        )
+        #expect(recovery.appliesToCurrentRequest)
+        #expect(recovery.blocksSubmission)
+
+        recovery.reconcileCurrentRequest(
+            Self.snapshot(operationID: operationID, workspaceName: "Different workspace")
+        )
+        #expect(!recovery.appliesToCurrentRequest)
+        #expect(!recovery.blocksSubmission)
+
+        recovery.reconcileCurrentRequest(
+            Self.snapshot(operationID: operationID, workspaceName: "\n")
+        )
+        #expect(recovery.appliesToCurrentRequest)
+    }
+
+    @Test func failureTitlesDistinguishRejectedAcceptedAndUnconfirmedRequests() {
+        #expect(TaskComposerFailureTitleStyle.launchFailed.title(templateName: "Claude") == "Couldn’t start Claude")
+        #expect(TaskComposerFailureTitleStyle.taskAccepted.title(templateName: "Claude") == "Task already accepted")
+        #expect(TaskComposerFailureTitleStyle.statusUnconfirmed.title(templateName: "Claude") == "Task status unconfirmed")
+        #expect(
+            TaskComposerFailureTitleStyle.forFailure(.alreadyCompleted(hostDisplayName: nil)) == .taskAccepted
+        )
+        #expect(
+            TaskComposerFailureTitleStyle.forFailure(.requestTimedOut(hostDisplayName: nil)) == .statusUnconfirmed
+        )
+    }
+
     @Test func startAgainUsesAFreshOperationIdentityWithoutChangingTheDraft() throws {
         let snapshot = Self.snapshot(operationID: UUID())
         var identity = MobileTaskSubmissionIdentity(
@@ -66,7 +106,10 @@ import Testing
         #expect(retried.directory == snapshot.directory)
     }
 
-    private static func snapshot(operationID: UUID) -> MobileTaskSubmissionSnapshot {
+    private static func snapshot(
+        operationID: UUID,
+        workspaceName: String = ""
+    ) -> MobileTaskSubmissionSnapshot {
         MobileTaskSubmissionSnapshot(
             template: MobileTaskTemplate(
                 name: "Codex",
@@ -76,6 +119,7 @@ import Testing
             prompt: "Fix the flaky test",
             macDeviceID: "mac-1",
             directory: "~/Dev/cmux",
+            workspaceName: workspaceName,
             didEditDirectory: true,
             operationID: operationID
         )

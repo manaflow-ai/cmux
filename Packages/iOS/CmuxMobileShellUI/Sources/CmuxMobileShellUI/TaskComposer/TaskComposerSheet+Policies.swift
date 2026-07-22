@@ -36,15 +36,91 @@ struct TaskComposerCompletedOperationRecovery: Equatable {
         case startAgainAvailable
     }
 
+    enum RequestRelation: Equatable {
+        case equivalent
+        case unresolved
+        case different
+    }
+
     let submittedSnapshot: MobileTaskSubmissionSnapshot
     private(set) var phase: Phase = .refreshRequired
+    private(set) var requestRelation: RequestRelation = .equivalent
+
+    var appliesToCurrentRequest: Bool {
+        requestRelation == .equivalent
+    }
+
+    var blocksSubmission: Bool {
+        requestRelation != .different
+    }
+
+    var isRequestResolutionPending: Bool {
+        requestRelation == .unresolved
+    }
 
     var allowsStartAgain: Bool {
-        phase == .startAgainAvailable
+        appliesToCurrentRequest && phase == .startAgainAvailable
     }
 
     mutating func recordReconciliationStillMissing() {
         phase = .startAgainAvailable
+    }
+
+    mutating func markCurrentRequestUnresolved() {
+        requestRelation = .unresolved
+    }
+
+    mutating func reconcileCurrentRequest(_ currentSnapshot: MobileTaskSubmissionSnapshot?) {
+        requestRelation = currentSnapshot?.isRequestEquivalent(to: submittedSnapshot) == true
+            ? .equivalent
+            : .different
+    }
+}
+
+enum TaskComposerFailureTitleStyle: Equatable {
+    case launchFailed
+    case statusUnconfirmed
+    case taskAccepted
+
+    func title(templateName: String?) -> String {
+        switch self {
+        case .statusUnconfirmed:
+            return L10n.string(
+                "mobile.taskComposer.failure.title.statusUnconfirmed",
+                defaultValue: "Task status unconfirmed"
+            )
+        case .taskAccepted:
+            return L10n.string(
+                "mobile.taskComposer.failure.title.taskAccepted",
+                defaultValue: "Task already accepted"
+            )
+        case .launchFailed:
+            guard let templateName = templateName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !templateName.isEmpty else {
+                return L10n.string(
+                    "mobile.taskComposer.failure.title",
+                    defaultValue: "Couldn’t start this task"
+                )
+            }
+            return String.localizedStringWithFormat(
+                L10n.string(
+                    "mobile.taskComposer.failure.titleFormat",
+                    defaultValue: "Couldn’t start %@"
+                ),
+                templateName
+            )
+        }
+    }
+
+    static func forFailure(_ failure: MobileWorkspaceMutationFailure) -> Self {
+        switch failure {
+        case .alreadyCompleted:
+            .taskAccepted
+        case .notConnected, .requestTimedOut:
+            .statusUnconfirmed
+        default:
+            .launchFailed
+        }
     }
 }
 
@@ -118,8 +194,8 @@ extension TaskComposerSheet {
     }
 
     /// The directory the composer pre-fills: the template default, then the
-    /// last successful directory for the selected Mac, an open directory on
-    /// that Mac, then home.
+    /// active or most recently used terminal directory on the selected Mac,
+    /// the last successful task directory for that Mac, then home.
     static func suggestedDirectory(
         template: MobileTaskTemplate?,
         macDeviceID: String,
@@ -130,13 +206,13 @@ extension TaskComposerSheet {
            !defaultDirectory.isEmpty {
             return defaultDirectory
         }
-        if let lastDirectory = templateStore?.lastDirectory(macDeviceID: macDeviceID)?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !lastDirectory.isEmpty {
-            return lastDirectory
-        }
         if let openDirectory = openDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
            !openDirectory.isEmpty {
             return openDirectory
+        }
+        if let lastDirectory = templateStore?.lastDirectory(macDeviceID: macDeviceID)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !lastDirectory.isEmpty {
+            return lastDirectory
         }
         return "~"
     }

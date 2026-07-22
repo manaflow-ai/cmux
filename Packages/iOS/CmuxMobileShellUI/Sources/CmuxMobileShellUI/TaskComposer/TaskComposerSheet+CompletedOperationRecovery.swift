@@ -12,7 +12,7 @@ extension TaskComposerSheet {
     }
 
     func startCompletedOperationReconciliation() {
-        guard submitTask == nil, let recovery = completedOperationRecovery else { return }
+        guard submitTask == nil, let recovery = activeCompletedOperationRecovery else { return }
         submitTask = Task { @MainActor in
             await reconcileCompletedOperation(recovery.submittedSnapshot)
             submitTask = nil
@@ -40,13 +40,12 @@ extension TaskComposerSheet {
             completeSubmission(snapshot)
         case .failure(.alreadyCompleted):
             completedOperationRecovery?.recordReconciliationStillMissing()
-            let message = L10n.string(
-                "mobile.taskComposer.recovery.stillMissing",
-                defaultValue: "The task is still missing. Refresh again or start it as a new task."
-            )
+            failureTitleStyle = .taskAccepted
+            let message = Self.recoveryFailureMessage(for: .startAgainAvailable)
             failureText = message
             announceFailure(message)
         case .failure(let failure):
+            failureTitleStyle = .statusUnconfirmed
             let message = Self.failureMessage(failure)
             failureText = message
             announceFailure(message)
@@ -54,9 +53,12 @@ extension TaskComposerSheet {
     }
 
     func confirmStartAgain() {
-        guard completedOperationRecovery?.allowsStartAgain == true else { return }
+        guard activeCompletedOperationRecovery?.allowsStartAgain == true else { return }
+        recoveryRequestReconciliationTask?.cancel()
+        recoveryRequestReconciliationTask = nil
         completedOperationRecovery = nil
         failureText = nil
+        failureTitleStyle = .launchFailed
         startSubmission()
     }
 
@@ -68,6 +70,8 @@ extension TaskComposerSheet {
         // Remote success is authoritative. A stale signed-in session may stop
         // local defaults from being saved, but it must not leave a launchable
         // sheet open and invite the user to submit the same task twice.
+        recoveryRequestReconciliationTask?.cancel()
+        recoveryRequestReconciliationTask = nil
         completedOperationRecovery = nil
         shouldPersistDraftOnDisappear = false
         dismiss()
@@ -77,12 +81,24 @@ extension TaskComposerSheet {
         for snapshot: MobileTaskSubmissionSnapshot
     ) -> MobileWorkspaceCreateSpec {
         MobileWorkspaceCreateSpec(
-            title: snapshot.composition.title,
+            title: snapshot.workspaceTitle,
             workingDirectory: snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
             initialCommand: snapshot.composition.initialCommand,
             initialEnv: snapshot.composition.initialEnv.isEmpty ? nil : snapshot.composition.initialEnv,
             operationID: snapshot.operationID
         )
+    }
+
+    static func recoveryFailureMessage(for phase: TaskComposerCompletedOperationRecovery.Phase) -> String {
+        switch phase {
+        case .refreshRequired:
+            failureMessage(.alreadyCompleted(hostDisplayName: nil))
+        case .startAgainAvailable:
+            L10n.string(
+                "mobile.taskComposer.recovery.stillMissing",
+                defaultValue: "The task is still missing. Refresh again or start it as a new task."
+            )
+        }
     }
 }
 
