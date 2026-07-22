@@ -550,6 +550,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
         var commandPaletteControlHandler: ((CommandPaletteControlRequest) -> Void)?
+        var proPricingWorkspaceId: UUID?
+        var proWelcomeWorkspaceId: UUID?
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
@@ -1036,12 +1038,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
-    /// Window-scoped pricing workspace reuse, owned here so window teardown
-    /// can remove entries without retaining closed window identifiers.
-    var proPricingWorkspaceReuseState = ProUpgradeWorkspaceReuseState()
-    /// Window-scoped Pro welcome workspace reuse, separate from pricing so
-    /// each destination can reuse its own workspace in the same window.
-    var proWelcomeWorkspaceReuseState = ProUpgradeWorkspaceReuseState()
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -4508,15 +4504,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mobileWorkspaceListObservers.removeValue(forKey: ObjectIdentifier(tabManager))
     }
 
-    private enum SocketListenerActivationMode {
-        case start
-        case ensureHealthy
-    }
-
     private func activateSocketListener(
         for tabManager: TabManager,
         source: String,
-        mode: SocketListenerActivationMode
+        action: (TabManager, String) -> Void
     ) {
 #if DEBUG
         if let override = debugSocketListenerActivationOverrideForTesting {
@@ -4524,12 +4515,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 #endif
-        switch mode {
-        case .start:
-            startSocketListenerIfEnabled(tabManager: tabManager, source: source)
-        case .ensureHealthy:
-            ensureSocketListenerIfEnabled(tabManager: tabManager, source: source)
-        }
+        action(tabManager, source)
     }
 
     /// Register a terminal window with the AppDelegate so menu commands and socket control
@@ -4642,9 +4628,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isCommandPaletteControlReady {
             activateSocketListener(
                 for: tabManager,
-                source: "mainWindow.register",
-                mode: .ensureHealthy
-            )
+                source: "mainWindow.register"
+            ) { manager, source in
+                ensureSocketListenerIfEnabled(tabManager: manager, source: source)
+            }
         }
         ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
@@ -5938,8 +5925,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        proPricingWorkspaceReuseState.clear(scope: .window(removed.windowId))
-        proWelcomeWorkspaceReuseState.clear(scope: .window(removed.windowId))
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -5955,8 +5940,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        proPricingWorkspaceReuseState.clear(scope: .window(context.windowId))
-        proWelcomeWorkspaceReuseState.clear(scope: .window(context.windowId))
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
@@ -7176,9 +7159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if initialContext?.commandPaletteControlHandler != nil {
                 activateSocketListener(
                     for: manager,
-                    source: "bootstrapInitialMainWindow.\(debugSource)",
-                    mode: .start
-                )
+                    source: "bootstrapInitialMainWindow.\(debugSource)"
+                ) { manager, source in
+                    startSocketListenerIfEnabled(
+                        tabManager: manager,
+                        source: source
+                    )
+                }
             }
             MobileHostService.shared.start()
         }
@@ -7293,6 +7280,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard didCreate, let createdWorkspace else { return nil }
         focusInitialBrowserWebView(in: createdWorkspace)
         return createdWorkspace
+    }
+
+    func proUpgradeWorkspaceReuseContext(
+        tabManager preferredTabManager: TabManager?,
+        debugSource: String
+    ) -> MainWindowContext? {
+        if let preferredTabManager {
+            return liveMainWindowContextForAction(tabManager: preferredTabManager)
+        }
+        return preferredMainWindowContextForWorkspaceCreation(
+            event: nil,
+            debugSource: debugSource
+        )
     }
 
     func proUpgradeWorkspaceExists(
@@ -14366,8 +14366,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panelId: UUID,
         tabManager preferredTabManager: TabManager? = nil
     ) -> Bool {
-        guard let targetTabManager = preferredTabManager ?? tabManager,
-              let workspace = targetTabManager.selectedWorkspace,
+        guard let target = preferredTabManager ?? tabManager,
+              let workspace = target.selectedWorkspace,
               let panel = workspace.browserPanel(for: panelId) else {
 #if DEBUG
             cmuxDebugLog(
@@ -14411,19 +14411,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        let targetTabManager: TabManager?
+        let target: TabManager?
         if let preferredTabManager {
             guard liveMainWindowContextForAction(tabManager: preferredTabManager) != nil else {
                 return nil
             }
-            targetTabManager = preferredTabManager
+            target = preferredTabManager
         } else {
-            targetTabManager = tabManager
+            target = tabManager
         }
         let preferredProfileID =
-            targetTabManager?.focusedBrowserPanel?.profileID
-            ?? targetTabManager?.selectedWorkspace?.preferredBrowserProfileID
-        guard let panelId = targetTabManager?.openBrowser(
+            target?.focusedBrowserPanel?.profileID
+            ?? target?.selectedWorkspace?.preferredBrowserProfileID
+        guard let panelId = target?.openBrowser(
             url: url,
             preferredProfileID: preferredProfileID,
             insertAtEnd: insertAtEnd
@@ -14443,13 +14443,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 #if DEBUG
-        let didFocus = focusBrowserAddressBar(panelId: panelId, tabManager: targetTabManager)
+        let didFocus = focusBrowserAddressBar(panelId: panelId, tabManager: target)
         cmuxDebugLog(
             "browser.focus.openAndFocus result=focus_request panel=\(panelId.uuidString.prefix(5)) " +
             "focused=\(didFocus ? 1 : 0) \(browserFocusStateSnapshot())"
         )
 #else
-        _ = focusBrowserAddressBar(panelId: panelId, tabManager: targetTabManager)
+        _ = focusBrowserAddressBar(panelId: panelId, tabManager: target)
 #endif
         return panelId
     }

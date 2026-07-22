@@ -82,40 +82,44 @@ extension ProUpgradePresenter {
         tabManager: TabManager?
     ) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
-        let reuseScope: ProUpgradeWorkspaceReuseScope = tabManager?.windowId
-            .map(ProUpgradeWorkspaceReuseScope.window) ?? .global
-        if let workspaceId = appDelegate.proWelcomeWorkspaceReuseState.reusableWorkspaceID(
-            scope: reuseScope,
-            exists: {
-                appDelegate.proUpgradeWorkspaceExists(
-                    workspaceId: $0,
-                    tabManager: tabManager
-                )
-            }
-        ) {
+        let reuseContext = appDelegate.proUpgradeWorkspaceReuseContext(
+            tabManager: tabManager,
+            debugSource: "proWelcomeChecklist.reuse"
+        )
+        let targetManager = reuseContext?.tabManager ?? tabManager
+        if let reuseContext,
+           let workspaceId = reusableProWorkspaceID(
+               &reuseContext.proWelcomeWorkspaceId,
+               exists: {
+                   appDelegate.proUpgradeWorkspaceExists(
+                       workspaceId: $0,
+                       tabManager: reuseContext.tabManager
+                   )
+               }
+           ) {
             if appDelegate.focusProUpgradeWorkspace(
                 workspaceId: workspaceId,
                 url: url,
-                tabManager: tabManager
+                tabManager: reuseContext.tabManager
             ) {
                 return true
             }
-            appDelegate.proWelcomeWorkspaceReuseState.clear(scope: reuseScope)
+            reuseContext.proWelcomeWorkspaceId = nil
         }
 
         let title = String(localized: "proWelcome.workspace.title", defaultValue: "Welcome to cmux Pro")
         guard let workspace = appDelegate.performProUpgradeWorkspaceAction(
             title: title,
             url: url,
-            tabManager: tabManager,
+            tabManager: targetManager,
             debugSource: "proWelcomeChecklist"
         ) else {
             return false
         }
-        appDelegate.proWelcomeWorkspaceReuseState.recordCreatedWorkspace(
-            id: workspace.id,
-            scope: reuseScope
-        )
+        if let ownerManager = workspace.owningTabManager,
+           let ownerContext = appDelegate.mainWindowContext(for: ownerManager) {
+            ownerContext.proWelcomeWorkspaceId = workspace.id
+        }
         return true
     }
 

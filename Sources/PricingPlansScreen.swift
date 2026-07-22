@@ -3,18 +3,24 @@ import Bonsplit
 import Foundation
 import SwiftUI
 
+func reusableProWorkspaceID(
+    _ workspaceId: inout UUID?,
+    exists: (UUID) -> Bool
+) -> UUID? {
+    guard let candidate = workspaceId else { return nil }
+    guard exists(candidate) else {
+        workspaceId = nil
+        return nil
+    }
+    return candidate
+}
+
 /// Shared entrypoint for every "Upgrade to cmux Pro" surface (sidebar badge,
 /// titlebar badge, Settings Account card, command palette, Help menu). Opens
 /// the app-specific pricing page in a dedicated browser workspace in the
 /// current window, falling back through the older in-window browser paths if
 /// workspace creation is unavailable.
 enum ProUpgradePresenter {
-    @MainActor
-    private static func workspaceReuseScope(for tabManager: TabManager?) -> ProUpgradeWorkspaceReuseScope {
-        guard let windowId = tabManager?.windowId else { return .global }
-        return .window(windowId)
-    }
-
     @MainActor
     static func present(tabManager: TabManager? = nil) {
         presentAppPricingWeb(tabManager: tabManager)
@@ -29,8 +35,19 @@ enum ProUpgradePresenter {
         // When an upgrade workspace already exists, present() refocuses it and
         // navigates its existing panel, so a prewarmed webview would go unused.
         if let appDelegate = AppDelegate.shared,
-           let workspaceId = appDelegate.proPricingWorkspaceReuseState.workspaceId,
-           appDelegate.proUpgradeWorkspaceExists(workspaceId: workspaceId) {
+           let context = appDelegate.proUpgradeWorkspaceReuseContext(
+               tabManager: nil,
+               debugSource: "proUpgradePresenter.prefetch"
+           ),
+           reusableProWorkspaceID(
+               &context.proPricingWorkspaceId,
+               exists: {
+                   appDelegate.proUpgradeWorkspaceExists(
+                       workspaceId: $0,
+                       tabManager: context.tabManager
+                   )
+               }
+           ) != nil {
             return
         }
         BrowserPrewarmedWebViewPool.shared.prewarm(
@@ -77,36 +94,44 @@ enum ProUpgradePresenter {
         tabManager: TabManager?
     ) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
-        let reuseScope = workspaceReuseScope(for: tabManager)
-        if let workspaceId = appDelegate.proPricingWorkspaceReuseState.reusableWorkspaceID(
-            scope: reuseScope,
-            exists: {
-                appDelegate.proUpgradeWorkspaceExists(
-                    workspaceId: $0,
-                    tabManager: tabManager
-                )
-            }
-        ) {
+        let reuseContext = appDelegate.proUpgradeWorkspaceReuseContext(
+            tabManager: tabManager,
+            debugSource: "proUpgradePresenter.reuse"
+        )
+        let targetManager = reuseContext?.tabManager ?? tabManager
+        if let reuseContext,
+           let workspaceId = reusableProWorkspaceID(
+               &reuseContext.proPricingWorkspaceId,
+               exists: {
+                   appDelegate.proUpgradeWorkspaceExists(
+                       workspaceId: $0,
+                       tabManager: reuseContext.tabManager
+                   )
+               }
+           ) {
             if appDelegate.focusProUpgradeWorkspace(
                 workspaceId: workspaceId,
                 url: url,
-                tabManager: tabManager
+                tabManager: reuseContext.tabManager
             ) {
                 return true
             }
-            appDelegate.proPricingWorkspaceReuseState.clear(scope: reuseScope)
+            reuseContext.proPricingWorkspaceId = nil
         }
 
         let title = String(localized: "pricing.pro.workspace.title", defaultValue: "cmux Pro")
         guard let workspace = appDelegate.performProUpgradeWorkspaceAction(
             title: title,
             url: url,
-            tabManager: tabManager,
+            tabManager: targetManager,
             debugSource: "proUpgradePresenter"
         ) else {
             return false
         }
-        appDelegate.proPricingWorkspaceReuseState.recordCreatedWorkspace(id: workspace.id, scope: reuseScope)
+        if let ownerManager = workspace.owningTabManager,
+           let ownerContext = appDelegate.mainWindowContext(for: ownerManager) {
+            ownerContext.proPricingWorkspaceId = workspace.id
+        }
         return true
     }
 
@@ -149,42 +174,6 @@ enum ProUpgradePresenter {
     @MainActor
     private static func appPricingURLForCurrentAppearance() -> URL {
         decoratedAppWebURL(AuthEnvironment.appPricingURL)
-    }
-}
-
-enum ProUpgradeWorkspaceReuseScope: Hashable {
-    case global
-    case window(UUID)
-}
-
-struct ProUpgradeWorkspaceReuseState {
-    private var workspaceIdsByScope: [ProUpgradeWorkspaceReuseScope: UUID] = [:]
-
-    var workspaceId: UUID? {
-        workspaceIdsByScope[.global]
-    }
-
-    mutating func recordCreatedWorkspace(
-        id: UUID,
-        scope: ProUpgradeWorkspaceReuseScope = .global
-    ) {
-        workspaceIdsByScope[scope] = id
-    }
-
-    mutating func reusableWorkspaceID(
-        scope: ProUpgradeWorkspaceReuseScope = .global,
-        exists: (UUID) -> Bool
-    ) -> UUID? {
-        guard let workspaceId = workspaceIdsByScope[scope] else { return nil }
-        guard exists(workspaceId) else {
-            workspaceIdsByScope[scope] = nil
-            return nil
-        }
-        return workspaceId
-    }
-
-    mutating func clear(scope: ProUpgradeWorkspaceReuseScope = .global) {
-        workspaceIdsByScope[scope] = nil
     }
 }
 
