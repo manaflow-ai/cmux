@@ -97,3 +97,49 @@ import Testing
         #expect(activity[1].sessionCount == 1)
     }
 }
+
+@Suite struct HeadroomOrderingTests {
+    private func account(id: String, usedPercents: [Double]) -> SubrouterAccountUsageStatus {
+        SubrouterAccountUsageStatus(
+            id: id,
+            provider: .codex,
+            authChecked: true,
+            authValid: true,
+            windows: usedPercents.enumerated().map { index, used in
+                SubrouterUsageWindow(
+                    name: "w\(index)",
+                    usedPercent: used,
+                    limitWindowSeconds: 18_000,
+                    resetAfterSeconds: 3600,
+                    feature: ""
+                )
+            }
+        )
+    }
+
+    @Test func constrainingWindowIsMostConsumed() {
+        let status = account(id: "a", usedPercents: [12, 88, 40])
+        #expect(status.constrainingWindow?.name == "w1")
+        #expect(account(id: "b", usedPercents: []).constrainingWindow == nil)
+    }
+
+    @Test func sortsMostHeadroomFirstWithNoDataLast() {
+        let sorted = SubrouterAccountUsageStatus.sortedByHeadroom([
+            account(id: "hot", usedPercents: [10, 90]),
+            account(id: "unknown", usedPercents: []),
+            account(id: "cool", usedPercents: [15]),
+            account(id: "warm", usedPercents: [55, 20]),
+        ])
+        #expect(sorted.map(\.id) == ["cool", "warm", "hot", "unknown"])
+    }
+
+    @Test func breaksTiesByIDForStableOrder() {
+        let sorted = SubrouterAccountUsageStatus.sortedByHeadroom([
+            account(id: "b", usedPercents: [50]),
+            account(id: "a", usedPercents: [50]),
+            account(id: "d", usedPercents: []),
+            account(id: "c", usedPercents: []),
+        ])
+        #expect(sorted.map(\.id) == ["a", "b", "c", "d"])
+    }
+}

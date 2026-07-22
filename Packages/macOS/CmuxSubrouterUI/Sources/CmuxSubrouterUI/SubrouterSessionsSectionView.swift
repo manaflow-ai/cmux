@@ -70,6 +70,10 @@ public struct SubrouterSessionsSectionView: View {
     static let recencyWindow: TimeInterval = 48 * 3600
 
     private let sessions: [SubrouterSessionAssignment]
+    /// Session pins are diagnostic detail (which account each agent session
+    /// was routed to), not day-to-day signal — the activity chart carries
+    /// that. Collapsed by default; local UI state only.
+    @State private var isExpanded = false
 
     /// Creates the section.
     /// - Parameter sessions: The session snapshots, in daemon order.
@@ -83,19 +87,37 @@ public struct SubrouterSessionsSectionView: View {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(localized: "subrouter.sessions.header", defaultValue: "Sessions"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                ForEach(recent) { session in
-                    SubrouterSessionRowView(session: session)
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                        Text(String(localized: "subrouter.sessions.header", defaultValue: "Sessions"))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("\(recent.count)")
+                            .font(.system(size: 9, weight: .medium).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
+                    }
                 }
-                if sessions.count > recent.count {
-                    Text(String(
-                        localized: "subrouter.sessions.older",
-                        defaultValue: "and \(sessions.count - recent.count) older"
-                    ))
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                .buttonStyle(.plain)
+                if isExpanded {
+                    ForEach(recent) { session in
+                        SubrouterSessionRowView(session: session)
+                    }
+                    if sessions.count > recent.count {
+                        Text(String(
+                            localized: "subrouter.sessions.older",
+                            defaultValue: "and \(sessions.count - recent.count) older"
+                        ))
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                    }
                 }
             }
         }

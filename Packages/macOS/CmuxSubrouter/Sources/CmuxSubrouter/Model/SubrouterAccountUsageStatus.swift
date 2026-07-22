@@ -140,4 +140,31 @@ extension SubrouterAccountUsageStatus {
         if authChecked && !authValid { return true }
         return false
     }
+
+    /// The most consumed quota window — the one that will limit the account
+    /// first — or `nil` when no usage data is available.
+    public var constrainingWindow: SubrouterUsageWindow? {
+        windows.max { $0.usedPercent < $1.usedPercent }
+    }
+
+    /// Orders switch candidates most-headroom-first: ascending by the
+    /// constraining window's used percentage, accounts without usage data
+    /// last, ties broken by id for stability across refreshes.
+    public static func sortedByHeadroom(
+        _ accounts: [SubrouterAccountUsageStatus]
+    ) -> [SubrouterAccountUsageStatus] {
+        accounts.sorted { lhs, rhs in
+            switch (lhs.constrainingWindow?.usedPercent, rhs.constrainingWindow?.usedPercent) {
+            case (nil, nil):
+                return lhs.id < rhs.id
+            case (nil, _):
+                return false
+            case (_, nil):
+                return true
+            case (let l?, let r?):
+                if l != r { return l < r }
+                return lhs.id < rhs.id
+            }
+        }
+    }
 }

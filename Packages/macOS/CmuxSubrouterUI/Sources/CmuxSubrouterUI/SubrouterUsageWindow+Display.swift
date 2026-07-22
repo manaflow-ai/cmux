@@ -54,6 +54,12 @@ extension SubrouterUsageWindow {
     }
 
     private var shortSpanText: String {
+        // Multi-day "short" windows (some daemons report a 168h primary)
+        // read better as days than as a three-digit hour count.
+        if limitWindowSeconds >= 48 * 3600 {
+            let days = max(1, Int((Double(limitWindowSeconds) / 86_400).rounded()))
+            return String(localized: "subrouter.window.dayLimit", defaultValue: "\(days)d limit")
+        }
         let hours = max(1, Int((Double(limitWindowSeconds) / 3600).rounded()))
         return String(localized: "subrouter.window.hourLimit", defaultValue: "\(hours)h limit")
     }

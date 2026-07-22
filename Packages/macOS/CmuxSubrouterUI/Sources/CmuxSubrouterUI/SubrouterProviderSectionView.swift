@@ -1,8 +1,8 @@
 public import SwiftUI
 public import CmuxSubrouter
 
-/// One provider's section: header, optional switch side-effect note, and
-/// account rows. Receives value snapshots plus an action closure only.
+/// One provider's section: header and account rows. Receives value
+/// snapshots plus an action closure only.
 public struct SubrouterProviderSectionView: View {
     private let provider: SubrouterProvider
     private let accounts: [SubrouterAccountUsageStatus]
@@ -48,17 +48,13 @@ public struct SubrouterProviderSectionView: View {
                     .background(Color.primary.opacity(0.08), in: Capsule())
                 Spacer(minLength: 0)
             }
-            if onSwitch != nil, let note = provider.switchSideEffectNote {
-                Text(note)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-            }
             ForEach(usableAccounts) { account in
                 SubrouterAccountRowView(
                     account: account,
                     usageHistory: usageHistory,
                     isSwitchPending: pendingSwitchAccountID == account.id,
-                    onSwitch: switchAction(for: account)
+                    onSwitch: switchAction(for: account),
+                    switchNote: provider.switchSideEffectNote
                 )
             }
             if !signedOutAccounts.isEmpty {
@@ -84,7 +80,8 @@ public struct SubrouterProviderSectionView: View {
                             account: account,
                             usageHistory: usageHistory,
                             isSwitchPending: pendingSwitchAccountID == account.id,
-                            onSwitch: switchAction(for: account)
+                            onSwitch: switchAction(for: account),
+                            switchNote: provider.switchSideEffectNote
                         )
                     }
                 }
@@ -104,12 +101,13 @@ public struct SubrouterProviderSectionView: View {
     }
 
     /// The rows shown by default: the active account first, then switchable
-    /// healthy accounts, each group keeping the daemon's order. The active
-    /// account always stays visible even when its sign-in expired.
+    /// healthy accounts ordered most-headroom-first so the best switch
+    /// target sits directly under the active row. The active account always
+    /// stays visible even when its sign-in expired.
     private var usableAccounts: [SubrouterAccountUsageStatus] {
         let active = accounts.filter(\.isActive)
         let healthy = accounts.filter { !$0.isActive && !($0.authChecked && !$0.authValid) }
-        return active + healthy
+        return active + SubrouterAccountUsageStatus.sortedByHeadroom(healthy)
     }
 
     /// Non-active accounts whose auth check failed; collapsed by default.
