@@ -7,6 +7,8 @@ import WebKit
 /// through window, workspace, and panel owners.
 @MainActor
 final class BrowserServices {
+    typealias ExtensionDirectoryRemover = @Sendable (URL) -> Void
+
     private struct PendingWebExtensionNavigation {
         let ownerID: UUID
         let profileID: UUID
@@ -14,6 +16,7 @@ final class BrowserServices {
     }
 
     private let extensionDirectory: URL
+    private let extensionDirectoryRemover: ExtensionDirectoryRemover
     private var webExtensionsManagerStorage: [UUID: AnyObject] = [:]
     private var pendingWebExtensionNavigations: [UUID: PendingWebExtensionNavigation] = [:]
     private var pendingWebExtensionNavigationIDsByOwner: [UUID: UUID] = [:]
@@ -22,8 +25,14 @@ final class BrowserServices {
 
     var registeredBrowserPanelCount: Int { registeredPanelProfileIDs.count }
 
-    init(extensionDirectory: URL? = nil) {
+    init(
+        extensionDirectory: URL? = nil,
+        extensionDirectoryRemover: @escaping ExtensionDirectoryRemover = { directory in
+            try? FileManager.default.removeItem(at: directory)
+        }
+    ) {
         self.extensionDirectory = extensionDirectory ?? Self.defaultExtensionDirectory
+        self.extensionDirectoryRemover = extensionDirectoryRemover
         profileDeletionObserver = NotificationCenter.default.addObserver(
             forName: BrowserProfileStore.profileDidDeleteNotification,
             object: BrowserProfileStore.shared,
@@ -182,7 +191,7 @@ final class BrowserServices {
             manager.profileRuntime.setNavigationUpdateHandler(nil)
             await manager.shutdownAndRemoveDirectory()
         } else {
-            try? FileManager.default.removeItem(at: directory)
+            extensionDirectoryRemover(directory)
         }
     }
 

@@ -2881,6 +2881,36 @@ struct BrowserWebExtensionsManagerTests {
         #expect(weakManager == nil)
     }
 
+    @Test func deletingUnloadedProfileRemovesExtensionDirectoryOffMain() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Extension cleanup \(UUID().uuidString.prefix(6))"
+        ))
+        let removalState = OSAllocatedUnfairLock(
+            initialState: (didRun: false, ranOnMainThread: false)
+        )
+        let services = BrowserServices(
+            extensionDirectory: root,
+            extensionDirectoryRemover: { _ in
+                removalState.withLock { state in
+                    state = (didRun: true, ranOnMainThread: Thread.isMainThread)
+                }
+            }
+        )
+
+        #expect(BrowserProfileStore.shared.deleteProfile(id: profile.id) != nil)
+        for _ in 0..<64 {
+            if removalState.withLock({ $0.didRun }) { break }
+            await Task.yield()
+        }
+
+        let result = removalState.withLock { $0 }
+        #expect(result.didRun)
+        #expect(!result.ranOnMainThread)
+        withExtendedLifetime(services) {}
+    }
+
     @available(macOS 15.4, *)
     @Test func shutdownIsTerminalForExtensionLoadingAndInstallation() async throws {
         let root = try Self.makeExtensionsRoot()
