@@ -3011,6 +3011,21 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "tests/class_scope_before_sleep.py",
+            "import time\n"
+            "class Fixture:\n"
+            "    time = TestClock()\n"
+            "time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/multiple_sleep_calls.py",
+            "fake.sleep(); time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/aliased_trio_sleep.py",
             "import trio as trio_runtime\n"
             "await trio_runtime.sleep(0.3)\n"
@@ -4000,6 +4015,31 @@ def _self_test() -> int:
         failures.append(
             "POSITIVE cross-file real clock member: missing "
             f"{RULE_SLEEP_THEN_ASSERT!r} (got {sorted(cross_file_rules)})"
+        )
+
+    cross_file_chain_sources = [
+        (
+            "Tests/Support/Fixture.swift",
+            "struct Fixture {\n"
+            "    let clock: ContinuousClock\n"
+            "}\n",
+        ),
+        (
+            "Tests/FixtureClockTests.swift",
+            "func verify(fixture: Fixture) async {\n"
+            "    try await fixture.clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+        ),
+    ]
+    cross_file_chain_rules = {
+        finding.rule for finding in scan_sources(cross_file_chain_sources)
+    }
+    if RULE_SLEEP_THEN_ASSERT not in cross_file_chain_rules:
+        failures.append(
+            "POSITIVE cross-file chained real clock member: missing "
+            f"{RULE_SLEEP_THEN_ASSERT!r} "
+            f"(got {sorted(cross_file_chain_rules)})"
         )
 
     cross_target_sources = [
