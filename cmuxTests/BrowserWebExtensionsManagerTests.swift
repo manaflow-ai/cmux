@@ -2708,6 +2708,14 @@ struct BrowserWebExtensionsManagerTests {
             index: 0,
             orderedPanelIDs: []
         ) == .fallbackEnd)
+        #expect(BrowserWebExtensionTabInsertionPlan.reorderDestinationIndex(
+            currentIndex: 0,
+            finalIndex: 2
+        ) == 3)
+        #expect(BrowserWebExtensionTabInsertionPlan.reorderDestinationIndex(
+            currentIndex: 2,
+            finalIndex: 0
+        ) == 0)
     }
 
     @available(macOS 15.4, *)

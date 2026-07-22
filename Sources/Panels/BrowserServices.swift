@@ -31,6 +31,10 @@ enum BrowserWebExtensionTabInsertionPlan: Equatable {
         case .fallbackEnd: referenceIndex
         }
     }
+
+    static func reorderDestinationIndex(currentIndex: Int, finalIndex: Int) -> Int {
+        finalIndex > currentIndex ? finalIndex + 1 : finalIndex
+    }
 }
 
 /// Process-wide browser services owned by the app composition root and injected
@@ -586,11 +590,15 @@ final class BrowserServices {
                 ) else { return nil }
                 if let localInsertionIndex,
                    let newSurfaceID = workspace.surfaceIdFromPanelId(newPanel.id),
-                   workspace.bonsplitController.tabs(inPane: paneID)
-                    .firstIndex(where: { $0.id == newSurfaceID }) != localInsertionIndex {
+                   let currentIndex = workspace.bonsplitController.tabs(inPane: paneID)
+                    .firstIndex(where: { $0.id == newSurfaceID }),
+                   currentIndex != localInsertionIndex {
                     _ = workspace.reorderSurface(
                         panelId: newPanel.id,
-                        toIndex: localInsertionIndex,
+                        toIndex: BrowserWebExtensionTabInsertionPlan.reorderDestinationIndex(
+                            currentIndex: currentIndex,
+                            finalIndex: localInsertionIndex
+                        ),
                         focus: shouldBeActive
                     )
                 }
@@ -671,9 +679,16 @@ final class BrowserServices {
                       let newPanel = dock.browserPanel(for: newPanelID) else { return nil }
                 if let localInsertionIndex,
                    let tabID = dock.surfaceId(forPanelId: newPanelID),
-                   dock.bonsplitController.tabs(inPane: paneID)
-                    .firstIndex(where: { $0.id == tabID }) != localInsertionIndex {
-                    _ = dock.bonsplitController.reorderTab(tabID, toIndex: localInsertionIndex)
+                   let currentIndex = dock.bonsplitController.tabs(inPane: paneID)
+                    .firstIndex(where: { $0.id == tabID }),
+                   currentIndex != localInsertionIndex {
+                    _ = dock.bonsplitController.reorderTab(
+                        tabID,
+                        toIndex: BrowserWebExtensionTabInsertionPlan.reorderDestinationIndex(
+                            currentIndex: currentIndex,
+                            finalIndex: localInsertionIndex
+                        )
+                    )
                 }
                 if !shouldFocus {
                     dock.restoreDockPaneSelection(previousSelection)
