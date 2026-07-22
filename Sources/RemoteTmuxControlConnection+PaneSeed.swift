@@ -112,6 +112,7 @@ extension RemoteTmuxControlConnection {
         let seedID: UUID
         switch kind {
         case let .paneOutputReset(id, token),
+             let .paneOutputContinue(id, token),
              let .capturePane(id, token),
              let .paneState(id, token):
             paneId = id
@@ -119,6 +120,16 @@ extension RemoteTmuxControlConnection {
         case .paneAltScreen:
             return
         default:
+            return
+        }
+        // `.paneState` completes and removes the local seed before tmux executes
+        // the final `continue` command in the same queue. A failed continue must
+        // therefore reconnect even when there is no pending seed left to find:
+        // this control client's pane-output cursor is still paused and cannot be
+        // repaired by replaying any locally buffered bytes.
+        if case .paneOutputContinue = kind {
+            record("pane-seed-boundary-error %\(paneId)")
+            beginReconnecting()
             return
         }
         guard var seeds = pendingPaneSeeds[paneId], seeds.first?.id == seedID else { return }

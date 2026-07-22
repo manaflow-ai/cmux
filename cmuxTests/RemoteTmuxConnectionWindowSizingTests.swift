@@ -457,6 +457,7 @@ import Testing
         ["list-panes", "-t", "sizing:@0", "-F", "#{pane_width} #{pane_top}"],
         ["list-windows", "-t", "sizing", "-F", "#{window_id} #{window_name}"],
         ["display-message", "-p", "-t", "sizing:@0", "#{window_width}x#{window_height}"],
+        ["start-ruler", "-t", "%1"],
     ])
     func uiTestTmuxPolicyAllowsOnlyHarnessCommands(_ arguments: [String]) {
         #expect(TerminalController.isAllowedRemoteTmuxTestCommand(arguments))

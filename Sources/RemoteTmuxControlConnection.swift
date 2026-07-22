@@ -604,6 +604,27 @@ final class RemoteTmuxControlConnection {
         return true
     }
 
+    /// Enqueues one tmux command queue while retaining one FIFO correlation
+    /// entry for each semicolon-delimited command result.
+    @discardableResult
+    func sendCommandQueueInternal(_ commands: [String], kinds: [CommandKind]) -> Bool {
+        guard !commands.isEmpty,
+              commands.count == kinds.count,
+              commands.allSatisfy({ !$0.contains("\n") }) else { return false }
+        guard connectionState == .connected, let stdinWriter else { return false }
+        guard let data = (commands.joined(separator: " ; ") + "\n").data(using: .utf8)
+        else { return false }
+        let pendingStart = pendingCommands.count
+        pendingCommands.append(contentsOf: kinds)
+        guard stdinWriter.enqueue(data) else {
+            pendingCommands.removeSubrange(pendingStart...)
+            record("stdin-write-backpressure")
+            beginReconnecting()
+            return false
+        }
+        return true
+    }
+
     private func handleStdinWriteFailure() {
         guard connectionState == .connected || connectionState == .connecting else { return }
         // The control pipe is dead (broken pipe or a closed SSH child). Keep the

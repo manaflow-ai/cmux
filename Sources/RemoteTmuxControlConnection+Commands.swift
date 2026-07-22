@@ -161,14 +161,12 @@ extension RemoteTmuxControlConnection {
             clearScrollback: clearScrollback,
             kind: .fullHistory
         ) else { return nil }
-        // Reset this control client's pane-output cursor before reading the
-        // authoritative grid. tmux applies both -A transitions synchronously in
-        // one command: `pause` discards queued control-output blocks and
-        // `continue` resumes at the pane's current offset, without a
-        // transport-visible gap where live bytes can be lost.
-        // Buffering already started above, so output concurrent with the reset is
-        // reconciled by the capture boundary regardless of SSH chunking/latency.
-        let outputResetCommand = Self.paneOutputCursorResetCommand(paneId: paneId)
+        // Keep this control client's pane output paused across the capture and
+        // cursor-state query. The five commands are one tmux command queue, so
+        // pane PTY reads cannot interleave between the authoritative snapshot,
+        // its boundary cursor, and the continue edge. Transport chunking may
+        // split the replies but cannot change their order.
+        let outputPauseCommand = Self.paneOutputPauseCommand(paneId: paneId)
         // Match the remote pane's screen (primary vs alternate) BEFORE seeding the
         // captured rows. An alt-screen TUI (e.g. claude) must render on the mirror's
         // alternate screen so resize matches the remote (the alternate screen does
@@ -195,18 +193,20 @@ extension RemoteTmuxControlConnection {
         // after capture-pane so it applies on top of the painted rows (the seed
         // escapes are built in `paneStateSeedSequence`). See the doc comment for why
         // restoring this matters.
-        guard sendBatchInternal(
+        guard sendCommandQueueInternal(
             [
-                outputResetCommand,
+                outputPauseCommand,
                 altScreenCommand,
                 captureCommand,
                 Self.paneStateQueryCommand(paneId: paneId),
+                Self.paneOutputContinueCommand(paneId: paneId),
             ],
             kinds: [
                 .paneOutputReset(paneId, seedID),
                 .paneAltScreen(paneId, seedID),
                 .capturePane(paneId, seedID),
                 .paneState(paneId, seedID),
+                .paneOutputContinue(paneId, seedID),
             ]
         ) else {
             cancelPaneSeed(paneId: paneId, seedID: seedID)
@@ -255,18 +255,20 @@ extension RemoteTmuxControlConnection {
         ) else {
             return nil
         }
-        guard sendBatchInternal(
+        guard sendCommandQueueInternal(
             [
-                Self.paneOutputCursorResetCommand(paneId: paneId),
+                Self.paneOutputPauseCommand(paneId: paneId),
                 Self.paneAltScreenQueryCommand(paneId: paneId),
                 "capture-pane -p -e -t %\(paneId)",
                 Self.paneStateQueryCommand(paneId: paneId),
+                Self.paneOutputContinueCommand(paneId: paneId),
             ],
             kinds: [
                 .paneOutputReset(paneId, seedID),
                 .paneAltScreen(paneId, seedID),
                 .capturePane(paneId, seedID),
                 .paneState(paneId, seedID),
+                .paneOutputContinue(paneId, seedID),
             ]
         ) else {
             cancelPaneSeed(paneId: paneId, seedID: seedID)
@@ -277,12 +279,15 @@ extension RemoteTmuxControlConnection {
         return seedID
     }
 
-    /// Builds the atomic pane-output cursor reset accepted by tmux's command parser.
-    static func paneOutputCursorResetCommand(paneId: Int) -> String {
+    /// Pauses and discards queued output for one pane on this control client.
+    static func paneOutputPauseCommand(paneId: Int) -> String {
         // tmux parses an unquoted `%pane:state` token as syntax, before -A sees it.
-        // `pause` is load-bearing on tmux 3.2–3.6: unlike `off`, it discards
-        // already-queued control-output blocks before `continue` resets offsets.
-        "refresh-client -A \"%\(paneId):pause\" -A \"%\(paneId):continue\""
+        "refresh-client -A \"%\(paneId):pause\""
+    }
+
+    /// Resumes pane output after the same command queue captured screen and state.
+    static func paneOutputContinueCommand(paneId: Int) -> String {
+        "refresh-client -A \"%\(paneId):continue\""
     }
 
     /// The `display-message` line that reads whether a pane uses the alternate screen.
@@ -309,11 +314,11 @@ extension RemoteTmuxControlConnection {
     /// classification FIRST (the one-shot query — always works — then the live
     /// subscription for re-classification, e.g. bash → node), then the content
     /// capture, then cwd tracking (initial value + live `cd`). Classification is
-    /// queued before the four-command capture because it only matters at the next
+    /// queued before the five-command capture because it only matters at the next
     /// resize — the earlier it lands, the smaller the window in which a resize
     /// hits the conservative no-reflow default on a slow link.
     @discardableResult
-    func seedPane(paneId: Int, clearScrollback: Bool = false) -> UUID? {
+    func seedPane(paneId: Int, clearScrollback: Bool = true) -> UUID? {
         requestPaneReflow(paneId: paneId)
         let seedID = capturePane(paneId: paneId, clearScrollback: clearScrollback)
         requestPanePath(paneId: paneId)

@@ -21,11 +21,11 @@ extension RemoteTmuxSessionMirror {
 
         var snapshotFilter = RemoteTmuxScreenTitleFilter()
         var renderedBytes = snapshotFilter.filter(seed.snapshot)
+        renderedBytes.append(seed.state)
         for data in seed.catchUpOutput {
             renderedBytes.append(liveFilter.filter(data))
         }
         titleFilters[paneId] = liveFilter
-        renderedBytes.append(seed.state)
 
         guard let target = authoritativeGrid(forPane: paneId) else {
             if seed.kind == .fullHistory { deferredFullPaneReseeds.remove(paneId) }

@@ -16,7 +16,7 @@ import Testing
 /// order. These tests therefore feed the real control parser in deliberately
 /// uneven chunks and assert at the connection observer boundary: output already
 /// represented by `capture-pane` must not escape ahead of the seed, while output
-/// after the capture block must be replayed exactly once before pane state.
+/// after the capture block must be replayed exactly once after pane state.
 @MainActor
 @Suite struct RemoteTmuxPaneSeedTransportTests {
     @Test func laggingControlOutputCursorCannotReplayCapturedReconnectOutput() throws {
@@ -38,19 +38,17 @@ import Testing
         // record while the client's cursor still owes its `%output`. Without a
         // server-side cursor reset, transport latency can deliver that stale
         // notification after capture even though capture already painted it.
-        let resetOutputCursor = commands.contains(
-            "refresh-client -A \"%7:pause\" -A \"%7:continue\""
+        let pauseRange = try #require(
+            commands.range(of: "refresh-client -A \"%7:pause\"")
         )
-        let commandLines = commands.split(separator: "\n").map(String.init)
-        let resetIndex = try #require(
-            commandLines.firstIndex(
-                of: "refresh-client -A \"%7:pause\" -A \"%7:continue\""
-            )
+        let captureRange = try #require(commands.range(of: "capture-pane "))
+        let stateRange = try #require(commands.range(of: "cursor_x=#{cursor_x}"))
+        let continueRange = try #require(
+            commands.range(of: "refresh-client -A \"%7:continue\"")
         )
-        let captureIndex = try #require(
-            commandLines.firstIndex { $0.hasPrefix("capture-pane ") }
-        )
-        #expect(resetIndex < captureIndex)
+        #expect(pauseRange.lowerBound < captureRange.lowerBound)
+        #expect(captureRange.lowerBound < stateRange.lowerBound)
+        #expect(stateRange.lowerBound < continueRange.lowerBound)
         #expect(!commands.contains("refresh-client -A \"%7:off\" -A \"%7:on\""))
         let marker = "AUTORECONNECT_STREAM_29"
         var stream = Data()
@@ -69,9 +67,6 @@ import Testing
             }
             stream.append(Self.commandResultBlock(number: commandNumber, lines: lines))
             commandNumber += 1
-            if case .capturePane = kind, !resetOutputCursor {
-                stream.append(Data("%output %7 \\015\\012\(marker)\r\n".utf8))
-            }
         }
         deliverRechunked(stream, to: fixture.connection)
 
@@ -702,6 +697,36 @@ import Testing
         #expect(rendered.isEmpty)
     }
 
+    @Test func outputContinueFailureReconnectsAfterSeedCompletion() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        fixture.connection.capturePane(paneId: 7)
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 41, lines: [], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 42, lines: ["0"], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 43, lines: ["authoritative"], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(
+                commandNumber: 44,
+                lines: [Self.paneStateLine(cursorX: 3, cursorY: 1)],
+                isError: false
+            )
+        )
+        #expect(fixture.connection.pendingPaneSeeds.isEmpty)
+
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 45, lines: ["continue failed"], isError: true)
+        )
+
+        #expect(fixture.connection.connectionState == .reconnecting)
+    }
+
     @Test func captureFailureForExitedPaneCancelsSeedWithoutReconnect() {
         let fixture = attachedConnection()
         defer { fixture.close() }
@@ -761,10 +786,10 @@ import Testing
 
         var expected = RemoteTmuxControlConnection.altScreenExitSequence
         expected.append(Data("\u{1b}[H\u{1b}[2Jprompt\r\n❯ hostname".utf8))
-        expected.append(Data("\r\nnuc-14-pro".utf8))
         expected.append(
             RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: paneState)
         )
+        expected.append(Data("\r\nnuc-14-pro".utf8))
 
         #expect(writes == [expected])
     }
@@ -800,10 +825,10 @@ import Testing
 
         var unfilteredSeed = RemoteTmuxControlConnection.altScreenExitSequence
         unfilteredSeed.append(Data("\u{1b}[H\u{1b}[2Jdir git:main\r\n❯".utf8))
-        unfilteredSeed.append(Data("\u{1b}\\x".utf8))
         unfilteredSeed.append(
             RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: paneState)
         )
+        unfilteredSeed.append(Data("\u{1b}\\x".utf8))
         var cleanBoundaryFilter = RemoteTmuxScreenTitleFilter()
         let expected = cleanBoundaryFilter.filter(unfilteredSeed)
 
@@ -1320,6 +1345,8 @@ import Testing
             + "%begin 1700000000 13 0\r\n"
             + paneState + "\r\n"
             + "%end 1700000000 13 0\r\n"
+            + "%begin 1700000000 14 0\r\n"
+            + "%end 1700000000 14 0\r\n"
         return Data(text.utf8)
     }
 

@@ -7,6 +7,7 @@ enum RemoteTmuxControlCommandKind: Equatable {
     /// An order-only snapshot used to verify a successful swap batch cheaply.
     case listWindowOrder(reorderGeneration: UInt64)
     case paneOutputReset(Int, UUID)
+    case paneOutputContinue(Int, UUID)
     case capturePane(Int, UUID)
     case paneState(Int, UUID)
     case panePath(Int)
