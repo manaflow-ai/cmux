@@ -62,7 +62,7 @@ struct BrowserPortalRemoteNavigationRevealTests {
         )
     }
 
-    @Test func hiddenHTTPSNavigationRevealsWithoutTransientGeometryNudge() async throws {
+    @Test func hiddenHTTPSNavigationCompletesTransientGeometryNudgeBeforeNextTurn() async throws {
         let fixture = makeWindowFixture()
         defer {
             fixture.window.orderOut(nil)
@@ -80,15 +80,21 @@ struct BrowserPortalRemoteNavigationRevealTests {
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: fixture.anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(fixture.anchor)
-        await waitForNextMainTurn()
 
         let slot = try #require(webView.superview as? WindowBrowserSlotView)
         let revealedSize = slot.bounds.size
         let nudgedSize = NSSize(width: revealedSize.width, height: max(1, revealedSize.height - 1))
 
-        #expect(!webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
+        #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
+        #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: revealedSize) })
         #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
         #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
+
+        let frameSizeCallCountAfterReveal = webView.frameSizeCalls.count
+        await waitForNextMainTurn()
+
+        #expect(webView.frameSizeCalls.count == frameSizeCallCountAfterReveal)
+        #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
     }
 
     @Test func hiddenLoopbackDiffViewerNavigationStillAppliesTransientGeometryNudge() async throws {

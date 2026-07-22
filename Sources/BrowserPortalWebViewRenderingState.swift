@@ -16,6 +16,7 @@ private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsFirstSizedRevealNudgeKey: UInt8 = 0
 private var cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey: UInt8 = 0
 private var cmuxBrowserPortalAllowsFirstSizedRevealGeometryNudgeKey: UInt8 = 0
+private var cmuxBrowserPortalRestoresFirstSizedRevealGeometryNudgeSynchronouslyKey: UInt8 = 0
 
 #if DEBUG
 private func browserPortalRenderingStateDebugToken(_ view: NSView?) -> String {
@@ -117,14 +118,34 @@ extension WKWebView {
         }
     }
 
+    private var browserPortalRestoresFirstSizedRevealGeometryNudgeSynchronously: Bool {
+        get {
+            (objc_getAssociatedObject(
+                self,
+                &cmuxBrowserPortalRestoresFirstSizedRevealGeometryNudgeSynchronouslyKey
+            ) as? NSNumber)?
+                .boolValue ?? false
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &cmuxBrowserPortalRestoresFirstSizedRevealGeometryNudgeSynchronouslyKey,
+                NSNumber(value: newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
     var browserPortalRequiresRenderingStateReattach: Bool {
         browserPortalNeedsRenderingStateReattach
     }
 
     func browserPortalConfigureFirstSizedRevealGeometryNudge(forNavigationURL url: URL) {
         let scheme = url.scheme?.lowercased()
+        let isDiffViewerURL = CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: url) != nil
+        let isRemoteWebOrigin = scheme == "http" || scheme == "https" || scheme == "blob"
         let allowsNudge: Bool
-        if CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: url) != nil {
+        if isDiffViewerURL || isRemoteWebOrigin {
             allowsNudge = true
         } else {
             switch scheme {
@@ -135,13 +156,15 @@ extension WKWebView {
             }
         }
         browserPortalAllowsFirstSizedRevealGeometryNudge = allowsNudge
+        browserPortalRestoresFirstSizedRevealGeometryNudgeSynchronously = allowsNudge && isRemoteWebOrigin && !isDiffViewerURL
         if !allowsNudge {
             browserPortalNeedsFirstSizedRevealNudge = false
         }
 #if DEBUG
         cmuxDebugLog(
             "browser.portal.webview.firstSizedReveal.policy web=\(browserPortalRenderingStateDebugToken(self)) " +
-            "scheme=\(scheme ?? "none") allow=\(allowsNudge ? 1 : 0)"
+            "scheme=\(scheme ?? "none") allow=\(allowsNudge ? 1 : 0) " +
+            "syncRestore=\(browserPortalRestoresFirstSizedRevealGeometryNudgeSynchronously ? 1 : 0)"
         )
 #endif
     }
@@ -337,6 +360,20 @@ extension WKWebView {
         needsLayout = true
         layoutSubtreeIfNeeded()
         enclosingScrollView?.layoutSubtreeIfNeeded()
+        if browserPortalRestoresFirstSizedRevealGeometryNudgeSynchronously {
+            setFrameSize(originalSize)
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            enclosingScrollView?.layoutSubtreeIfNeeded()
+            displayIfNeeded()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.restore web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) mode=sync frame=\(browserPortalRenderingStateDebugFrame(frame))"
+            )
+#endif
+            return true
+        }
         displayIfNeeded()
 
         Task { @MainActor [weak self] in
