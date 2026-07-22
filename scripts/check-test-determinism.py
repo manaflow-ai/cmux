@@ -693,6 +693,18 @@ def _receiver_declaration_kind(
     return bool(_REAL_CLOCK_TYPE.search(probe) or _REAL_CLOCK_INIT.search(probe))
 
 
+def _receiver_declaration_inherits_kind(declaration: str, receiver: str) -> bool:
+    stripped = declaration.strip()
+    if not stripped or stripped == "else":
+        return True
+    return bool(
+        re.fullmatch(
+            rf"=\s*(?:self\s*\.\s*)?{re.escape(receiver)}[?!]?\s*(?:else)?",
+            stripped,
+        )
+    )
+
+
 @dataclass
 class _CompilationScopeFrame:
     base_scopes: list[dict[str, bool]]
@@ -880,7 +892,7 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
                     scopes.pop()
                     scope_kinds.pop()
             elif declaration is not None:
-                if pending_conditional is not None and not declaration.strip():
+                if _receiver_declaration_inherits_kind(declaration, receiver):
                     inherited_kind = _nearest_receiver_kind(scopes, receiver)
                     kind = inherited_kind if inherited_kind is not None else False
                 else:
