@@ -1002,6 +1002,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var activeSaveGeneration: Int?
     var fileChangeWatcher: FileWatcher?
     var fileChangeTask: Task<Void, Never>?
+    var fileChangeReloadTask: Task<Void, Never>?
     var lastObservedFileState: FilePreviewFileState?
     var isClosed = false
     weak var textView: NSTextView?
@@ -1165,7 +1166,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
         return Task { [weak self, fileURL, generation] in
             let resolvedMode = await FilePreviewKindResolver.resolveMode(url: fileURL)
-            guard let self,
+            guard !Task.isCancelled,
+                  let self,
                   !self.isClosed,
                   self.previewModeGeneration == generation else { return }
 
@@ -2357,9 +2359,8 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var drawsPreviewBackground = true
     private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
-    private static let documentLoadQueue = DispatchQueue(
-        label: "com.cmux.file-preview.pdf-document-load",
-        qos: .userInitiated
+    private let documentLoader = FilePreviewLatestLoadCoordinator<FilePreviewPDFLoadResult>(
+        name: "com.cmux.file-preview.pdf-document-load"
     )
 
     private struct PDFScrollBackgroundAppearance {
@@ -2436,6 +2437,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         currentURL = nil
         currentRevision = nil
         loadGeneration &+= 1
+        documentLoader.cancel()
         pendingReloadViewport = nil
         pendingReloadWasAutoScaled = nil
         pendingReloadScale = nil
@@ -2492,14 +2494,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         refreshPDFSmartFitWithoutViewportRestore()
 
         let loadURL = url
-        Self.documentLoadQueue.async { [weak self] in
-            let document = PDFDocument(url: loadURL)
-            DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      self.currentURL == loadURL,
-                      self.loadGeneration == generation else { return }
-                self.applyLoadedPDFDocument(document, for: loadURL)
-            }
+        documentLoader.submit(load: { FilePreviewPDFLoadResult(url: loadURL) }) { [weak self] result in
+            guard let self,
+                  self.currentURL == loadURL,
+                  self.loadGeneration == generation else { return }
+            self.applyLoadedPDFDocument(result.document, for: loadURL)
         }
     }
 
@@ -3635,9 +3634,8 @@ final class FilePreviewImageContainerView: NSView {
     private var rotationAccumulator: CGFloat = 0
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
-    private static let imageLoadQueue = DispatchQueue(
-        label: "com.cmux.file-preview.image-load",
-        qos: .userInitiated
+    private let imageLoader = FilePreviewLatestLoadCoordinator<FilePreviewImageLoadResult>(
+        name: "com.cmux.file-preview.image-load"
     )
 
     override init(frame frameRect: NSRect) {
@@ -3690,6 +3688,7 @@ final class FilePreviewImageContainerView: NSView {
         currentURL = nil
         currentRevision = nil
         loadGeneration &+= 1
+        imageLoader.cancel()
         clearPendingReloadState()
         panel = nil
     }
@@ -3723,14 +3722,11 @@ final class FilePreviewImageContainerView: NSView {
         }
 
         let loadURL = url
-        Self.imageLoadQueue.async { [weak self] in
-            let image = NSImage(contentsOf: loadURL)
-            DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      self.currentURL == loadURL,
-                      self.loadGeneration == generation else { return }
-                self.applyLoadedImage(image)
-            }
+        imageLoader.submit(load: { FilePreviewImageLoadResult(url: loadURL) }) { [weak self] result in
+            guard let self,
+                  self.currentURL == loadURL,
+                  self.loadGeneration == generation else { return }
+            self.applyLoadedImage(result.image)
         }
     }
 

@@ -1,5 +1,14 @@
 import AppKit
 
+/// Immutable ownership transfer from the background decoder to the main actor.
+struct FilePreviewImageLoadResult: @unchecked Sendable {
+    let image: NSImage?
+
+    init(url: URL) {
+        image = NSImage(contentsOf: url)
+    }
+}
+
 @MainActor
 final class FilePreviewImageSession {
     private let viewSession = PanelOwnedNativeViewSession(

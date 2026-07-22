@@ -1,4 +1,14 @@
 import AppKit
+import PDFKit
+
+/// Immutable ownership transfer from the background parser to the main actor.
+struct FilePreviewPDFLoadResult: @unchecked Sendable {
+    let document: PDFDocument?
+
+    init(url: URL) {
+        document = PDFDocument(url: url)
+    }
+}
 
 @MainActor
 final class FilePreviewPDFSession {
