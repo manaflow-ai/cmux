@@ -152,7 +152,15 @@ extension Workspace {
         panelId: UUID,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> Bool {
+        // `RestorableAgentSessionIndex` / `SharedLiveAgentIndex` are built by
+        // scanning LOCAL processes (pid/sysctl-based). A `.persistentSSH`
+        // agent-hook binding's process runs on the remote host and can never
+        // appear in that local scan, so treating it as this function's kind
+        // of "stale" would prune every live remote agent-hook binding on the
+        // very next reconciliation. Only judge local-launch bindings here;
+        // remote bindings are left to whatever governs their own lifecycle.
         guard binding.isAgentHookBinding,
+              binding.launchFlavor == .local,
               let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !checkpointId.isEmpty,
               let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
