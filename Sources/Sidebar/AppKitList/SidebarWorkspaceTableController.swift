@@ -502,6 +502,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// final drop can re-arm the drag instead of silently no-oping.
     private var reorderDragPayloadWorkspaceId: UUID?
 
+    /// True while a reorder drop session is hovering the table (between an
+    /// accepted validateDrop and drop/exit/end). Gates the table's refusal of
+    /// AppKit's built-in drag autoscroll to drop sessions only.
+    var isReorderDropSessionActive: Bool {
+        reorderDragWindowPoint != nil || reorderIndicatorPainter != nil
+    }
+
     func tableView(
         _ tableView: NSTableView,
         validateDrop info: any NSDraggingInfo,
