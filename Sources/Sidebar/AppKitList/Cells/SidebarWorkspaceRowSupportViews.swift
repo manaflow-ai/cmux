@@ -40,6 +40,181 @@ struct SidebarRowPalette {
     }
 }
 
+/// One-line attributed metadata label whose individual Markdown links route
+/// through the sidebar's existing workspace-selection and URL action path.
+/// The delegate consumes link clicks so AppKit never opens a destination on
+/// its own.
+@MainActor
+final class SidebarRowMarkdownTextView: NSTextView, NSTextViewDelegate {
+    private var onOpenURL: ((URL) -> Void)?
+    private var lineHeight: CGFloat = 0
+
+    init() {
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(
+            containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        )
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(textContainer)
+        super.init(frame: .zero, textContainer: textContainer)
+
+        drawsBackground = false
+        isEditable = false
+        isSelectable = true
+        isRichText = true
+        importsGraphics = false
+        textContainerInset = .zero
+        textContainer.lineFragmentPadding = 0
+        textContainer.maximumNumberOfLines = 1
+        textContainer.lineBreakMode = .byTruncatingTail
+        textContainer.widthTracksTextView = true
+        textContainer.heightTracksTextView = false
+        isHorizontallyResizable = false
+        isVerticallyResizable = false
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        markdown: String,
+        font: NSFont,
+        color: NSColor,
+        explicitURL: URL? = nil,
+        onOpenURL: @escaping (URL) -> Void
+    ) {
+        reset()
+        self.onOpenURL = onOpenURL
+        delegate = self
+        lineHeight = ceil(layoutManager?.defaultLineHeight(for: font) ?? font.pointSize)
+        linkTextAttributes = [
+            .foregroundColor: color,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+        ]
+
+        let mutable: NSMutableAttributedString
+        if let rendered = SidebarMarkdownRenderer(markdown: markdown).workspaceDescription {
+            mutable = NSMutableAttributedString(attributedString: NSAttributedString(rendered))
+        } else {
+            mutable = NSMutableAttributedString(string: markdown)
+        }
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        mutable.addAttributes(
+            [
+                .font: font,
+                .foregroundColor: color,
+            ],
+            range: fullRange
+        )
+        if let explicitURL {
+            mutable.removeAttribute(.link, range: fullRange)
+            mutable.removeAttribute(.underlineStyle, range: fullRange)
+            if Self.isAllowedMetadataURL(explicitURL), fullRange.length > 0 {
+                mutable.addAttribute(.link, value: explicitURL, range: fullRange)
+                mutable.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: fullRange)
+                toolTip = explicitURL.absoluteString
+            }
+            textStorage?.setAttributedString(mutable)
+            return
+        }
+        var links: [(value: Any?, range: NSRange)] = []
+        mutable.enumerateAttribute(.link, in: fullRange) { value, range, _ in
+            guard value != nil else { return }
+            links.append((value, range))
+        }
+        for link in links {
+            guard let url = Self.url(from: link.value), Self.isAllowedMetadataURL(url) else {
+                mutable.removeAttribute(.link, range: link.range)
+                mutable.removeAttribute(.underlineStyle, range: link.range)
+                continue
+            }
+            mutable.addAttribute(.link, value: url, range: link.range)
+            mutable.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: link.range)
+        }
+        textStorage?.setAttributedString(mutable)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, frame.contains(point) else { return nil }
+        let localPoint = convert(point, from: superview)
+        return link(at: localPoint) == nil ? nil : self
+    }
+
+    func reset() {
+        delegate = nil
+        onOpenURL = nil
+        lineHeight = 0
+        toolTip = nil
+        textStorage?.setAttributedString(NSAttributedString(string: ""))
+    }
+
+    func measuredHeight(width _: CGFloat) -> CGFloat {
+        guard !isHidden else { return 0 }
+        return lineHeight
+    }
+
+    func textView(
+        _ textView: NSTextView,
+        clickedOnLink link: Any,
+        at charIndex: Int
+    ) -> Bool {
+        guard textView === self,
+              let url = Self.url(from: link),
+              Self.isAllowedMetadataURL(url),
+              charIndex >= 0,
+              charIndex < (textStorage?.length ?? 0),
+              textStorage?.attribute(.link, at: charIndex, effectiveRange: nil) != nil,
+              let onOpenURL else {
+            return false
+        }
+        onOpenURL(url)
+        return true
+    }
+
+    private func link(at localPoint: NSPoint) -> URL? {
+        guard let layoutManager, let textContainer, let textStorage else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        let containerPoint = NSPoint(
+            x: localPoint.x - textContainerOrigin.x,
+            y: localPoint.y - textContainerOrigin.y
+        )
+        guard containerPoint.x >= 0, containerPoint.y >= 0 else { return nil }
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+        let glyphRange = NSRange(location: glyphIndex, length: 1)
+        guard layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer).contains(containerPoint) else {
+            return nil
+        }
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard characterIndex < textStorage.length,
+              let url = Self.url(from: textStorage.attribute(.link, at: characterIndex, effectiveRange: nil)),
+              Self.isAllowedMetadataURL(url) else {
+            return nil
+        }
+        return url
+    }
+
+    private static func url(from value: Any?) -> URL? {
+        if let url = value as? URL {
+            return url
+        }
+        if let value = value as? String {
+            return URL(string: value)
+        }
+        return nil
+    }
+
+    /// Matches the control-socket metadata URL contract in
+    /// `upsertSidebarMetadata`: only HTTP(S) metadata destinations are accepted.
+    private static func isAllowedMetadataURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+}
+
 /// One "small icon + text" line (metadata entry, log line, branch/dir line).
 @MainActor
 final class SidebarRowIconTextLine: NSView {
@@ -53,6 +228,7 @@ final class SidebarRowIconTextLine: NSView {
     private let iconLabel = NSTextField(labelWithString: "")
     private let textView = SidebarRowTextView(lines: 1)
     private let metadataButton = SidebarRowLinkButton()
+    private let markdownTextView = SidebarRowMarkdownTextView()
     private let secondTextView = SidebarRowTextView(lines: 1)
     private var iconSize: CGFloat = 0
     private var stacked = false
@@ -68,6 +244,8 @@ final class SidebarRowIconTextLine: NSView {
         metadataButton.alignment = .left
         metadataButton.isHidden = true
         addSubview(metadataButton)
+        markdownTextView.isHidden = true
+        addSubview(markdownTextView)
         secondTextView.isHidden = true
         addSubview(secondTextView)
     }
@@ -82,6 +260,7 @@ final class SidebarRowIconTextLine: NSView {
         color: NSColor,
         onOpenURL: @escaping (URL) -> Void
     ) {
+        resetPrimaryContent()
         stacked = false
         secondTextView.isHidden = true
         iconLabel.isHidden = true
@@ -112,7 +291,16 @@ final class SidebarRowIconTextLine: NSView {
             }
         }
         let font = NSFont.systemFont(ofSize: model.scaled(10))
-        if let url = entry.url {
+        if entry.format == .markdown {
+            markdownTextView.isHidden = false
+            markdownTextView.configure(
+                markdown: entry.sidebarDisplayText,
+                font: font,
+                color: color,
+                explicitURL: entry.url,
+                onOpenURL: onOpenURL
+            )
+        } else if let url = entry.url {
             textView.isHidden = true
             metadataButton.isHidden = false
             metadataButton.configure(
@@ -138,8 +326,8 @@ final class SidebarRowIconTextLine: NSView {
         model: SidebarWorkspaceRowModel,
         palette: SidebarRowPalette
     ) {
+        resetPrimaryContent()
         stacked = false
-        metadataButton.isHidden = true
         textView.isHidden = false
         secondTextView.isHidden = true
         iconLabel.isHidden = true
@@ -186,7 +374,7 @@ final class SidebarRowIconTextLine: NSView {
         model: SidebarWorkspaceRowModel,
         palette: SidebarRowPalette
     ) {
-        metadataButton.isHidden = true
+        resetPrimaryContent()
         textView.isHidden = false
         iconView.isHidden = true
         iconLabel.isHidden = true
@@ -232,11 +420,36 @@ final class SidebarRowIconTextLine: NSView {
 
     func measuredHeight(width: CGFloat) -> CGFloat {
         resolveCandidates(width: width)
-        let first = metadataButton.isHidden
-            ? textView.measuredHeight(width: max(10, width - iconSize))
-            : ceil(metadataButton.intrinsicContentSize.height)
+        let first = primaryMeasuredHeight(width: max(10, width - iconSize))
         let second = secondTextView.isHidden ? 0 : secondTextView.measuredHeight(width: max(10, width - iconSize)) + 1
         return first + second
+    }
+
+    private func resetPrimaryContent() {
+        textView.isHidden = true
+        textView.stringValue = ""
+        textView.attributedStringValue = NSAttributedString(string: "")
+        metadataButton.isHidden = true
+        metadataButton.reset()
+        markdownTextView.isHidden = true
+        markdownTextView.reset()
+    }
+
+    private func primaryMeasuredHeight(width: CGFloat) -> CGFloat {
+        if !markdownTextView.isHidden {
+            return markdownTextView.measuredHeight(width: width)
+        }
+        if !metadataButton.isHidden {
+            return ceil(metadataButton.intrinsicContentSize.height)
+        }
+        return textView.measuredHeight(width: width)
+    }
+
+    private var primaryView: NSView {
+        if !markdownTextView.isHidden {
+            return markdownTextView
+        }
+        return metadataButton.isHidden ? textView : metadataButton
     }
 
     private func resolveCandidates(width: CGFloat) {
@@ -268,11 +481,9 @@ final class SidebarRowIconTextLine: NSView {
             x = side + 4
         }
         let availableWidth = max(10, bounds.width - x)
-        let firstHeight = metadataButton.isHidden
-            ? textView.measuredHeight(width: availableWidth)
-            : ceil(metadataButton.intrinsicContentSize.height)
-        let primaryView: NSView = metadataButton.isHidden ? textView : metadataButton
-        primaryView.frame = NSRect(x: x, y: 0, width: availableWidth, height: firstHeight)
+        let firstHeight = primaryMeasuredHeight(width: availableWidth)
+        let activePrimaryView = primaryView
+        activePrimaryView.frame = NSRect(x: x, y: 0, width: availableWidth, height: firstHeight)
         if !secondTextView.isHidden {
             let secondHeight = secondTextView.measuredHeight(width: max(10, bounds.width - x))
             secondTextView.frame = NSRect(x: x, y: firstHeight + 1, width: max(10, bounds.width - x), height: secondHeight)
@@ -413,8 +624,13 @@ final class SidebarRowLinkButton: NSButton {
         self.onClick = onClick
     }
 
+    func reset() {
+        attributedTitle = NSAttributedString(string: "")
+        toolTip = nil
+        onClick = nil
+    }
+
     @objc private func execute() {
         onClick?()
     }
 }
-
