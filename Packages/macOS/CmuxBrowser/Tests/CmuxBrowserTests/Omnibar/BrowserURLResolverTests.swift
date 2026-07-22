@@ -82,6 +82,7 @@ import Testing
 
         #expect(resolver.textForPaste(input) == input)
         #expect(resolver.navigableURL(from: input) == nil)
+        #expect(resolver.navigableURL(from: input.replacingOccurrences(of: "\n", with: " ")) == nil)
     }
 
     @Test func preservesExistingNavigationAndSearchBoundaries() throws {

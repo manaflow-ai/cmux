@@ -76,6 +76,10 @@ import Testing
         let input = "https://trusted.example\n@evil.example/path"
 
         #expect(BrowserURLResolver.resolve(input)?.host == "duckduckgo.com")
+        #expect(
+            BrowserURLResolver.resolve(input.replacingOccurrences(of: "\n", with: " "))?.host ==
+                "duckduckgo.com"
+        )
     }
 
     @Test func httpSchemeIsPreserved() {

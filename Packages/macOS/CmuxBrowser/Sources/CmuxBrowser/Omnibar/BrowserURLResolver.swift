@@ -33,6 +33,7 @@ public struct BrowserURLResolver: Sendable {
             input.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.contains(where: { $0.isNewline || $0 == "\t" }) else { return nil }
         if let url = webURL(from: trimmed) {
             return url
         }
@@ -41,7 +42,7 @@ public struct BrowserURLResolver: Sendable {
         let lower = trimmed.lowercased()
         let bareHost = bareHostCandidate(lower)
         if bareHost == "localhost" ||
-            bareHost == "127.0.0.1" ||
+            isIPv4Loopback(bareHost) ||
             bareHost == "::1" ||
             (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
             return URL(string: "http://\(trimmed)")
@@ -75,10 +76,25 @@ public struct BrowserURLResolver: Sendable {
     private func isWhitespaceCompactionSafe(_ compacted: String, original: String) -> Bool {
         guard !compacted.isEmpty else { return false }
         if isWebURL(compacted) {
-            return true
+            return hasCompleteWebAuthorityBeforeFirstCompactedCharacter(in: original)
         }
         guard hasSchemeLessURLEvidenceBeforeFirstLineBreak(in: original) else { return false }
         return isSchemeLessHostWithStructure(compacted)
+    }
+
+    /// Allows wrap removal only after the explicit URL's authority is complete.
+    private func hasCompleteWebAuthorityBeforeFirstCompactedCharacter(in input: String) -> Bool {
+        guard let compactedCharacter = input.firstIndex(where: { $0.isNewline || $0 == "\t" }),
+              let schemeSeparator = input.range(of: "://"),
+              schemeSeparator.upperBound < compactedCharacter else {
+            return false
+        }
+        guard let authorityEnd = input[schemeSeparator.upperBound...].firstIndex(where: { character in
+            character == "/" || character == "?" || character == "#"
+        }) else {
+            return false
+        }
+        return authorityEnd < compactedCharacter
     }
 
     /// Rejects free text whose first URL-like token starts only after a line break.
@@ -95,7 +111,8 @@ public struct BrowserURLResolver: Sendable {
     }
 
     private func webURL(from input: String) -> URL? {
-        guard let components = URLComponents(string: input),
+        guard hasWhitespaceFreeAuthority(in: input),
+              let components = URLComponents(string: input),
               let scheme = components.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let host = components.host,
@@ -103,6 +120,15 @@ public struct BrowserURLResolver: Sendable {
             return nil
         }
         return components.url
+    }
+
+    /// Rejects whitespace that Foundation would otherwise encode inside URL userinfo.
+    private func hasWhitespaceFreeAuthority(in input: String) -> Bool {
+        guard let schemeSeparator = input.range(of: "://") else { return false }
+        let authority = input[schemeSeparator.upperBound...].prefix { character in
+            character != "/" && character != "?" && character != "#"
+        }
+        return !authority.isEmpty && !authority.contains(where: \.isWhitespace)
     }
 
     private func isSchemeLessHostWithStructure(_ input: String) -> Bool {
@@ -134,6 +160,13 @@ public struct BrowserURLResolver: Sendable {
             character == ":" || character == "/" || character == "?" || character == "#"
         } ?? lowercasedInput.endIndex
         return String(lowercasedInput[..<end])
+    }
+
+    /// Recognizes IPv4 loopback addresses without accepting dotted-host lookalikes.
+    private func isIPv4Loopback(_ host: String) -> Bool {
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4, octets.allSatisfy({ UInt8($0) != nil }) else { return false }
+        return octets[0] == "127"
     }
 
     private func isDottedHostWithPort(_ input: String, schemeCandidate: String) -> Bool {

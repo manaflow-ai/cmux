@@ -52,6 +52,9 @@ public struct BrowserURLResolver: Sendable {
         let searchText = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmed = canonicalNavigationText(searchText)
         guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.contains(where: { $0.isNewline || $0 == "\t" }) else {
+            return searchURL(for: searchText)
+        }
 
         if let schemed = schemedURL(from: trimmed) {
             return schemed
@@ -85,10 +88,25 @@ public struct BrowserURLResolver: Sendable {
     private func isWhitespaceCompactionSafe(_ compacted: String, original: String) -> Bool {
         guard !compacted.isEmpty else { return false }
         if isWebURL(compacted) {
-            return true
+            return hasCompleteWebAuthorityBeforeFirstCompactedCharacter(in: original)
         }
         guard hasSchemeLessURLEvidenceBeforeFirstLineBreak(in: original) else { return false }
         return isSchemeLessHostWithStructure(compacted)
+    }
+
+    /// Allows wrap removal only after the explicit URL's authority is complete.
+    private func hasCompleteWebAuthorityBeforeFirstCompactedCharacter(in input: String) -> Bool {
+        guard let compactedCharacter = input.firstIndex(where: { $0.isNewline || $0 == "\t" }),
+              let schemeSeparator = input.range(of: "://"),
+              schemeSeparator.upperBound < compactedCharacter else {
+            return false
+        }
+        guard let authorityEnd = input[schemeSeparator.upperBound...].firstIndex(where: { character in
+            character == "/" || character == "?" || character == "#"
+        }) else {
+            return false
+        }
+        return authorityEnd < compactedCharacter
     }
 
     /// Rejects free text whose first URL-like token starts only after a line break.
@@ -101,7 +119,8 @@ public struct BrowserURLResolver: Sendable {
     }
 
     private func isWebURL(_ input: String) -> Bool {
-        guard let components = URLComponents(string: input),
+        guard hasWhitespaceFreeAuthority(in: input),
+              let components = URLComponents(string: input),
               let scheme = components.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let host = components.host,
@@ -109,6 +128,15 @@ public struct BrowserURLResolver: Sendable {
             return false
         }
         return true
+    }
+
+    /// Rejects whitespace that Foundation would otherwise encode inside URL userinfo.
+    private func hasWhitespaceFreeAuthority(in input: String) -> Bool {
+        guard let schemeSeparator = input.range(of: "://") else { return false }
+        let authority = input[schemeSeparator.upperBound...].prefix { character in
+            character != "/" && character != "?" && character != "#"
+        }
+        return !authority.isEmpty && !authority.contains(where: \.isWhitespace)
     }
 
     private func isSchemeLessHostWithStructure(_ input: String) -> Bool {
@@ -179,7 +207,8 @@ public struct BrowserURLResolver: Sendable {
     /// usable scheme. Schemes other than `http`/`https` are rejected so a typed
     /// `file:` or `javascript:` cannot be loaded from the address bar.
     private func schemedURL(from input: String) -> URL? {
-        guard let components = URLComponents(string: input),
+        guard hasWhitespaceFreeAuthority(in: input),
+              let components = URLComponents(string: input),
               let scheme = components.scheme?.lowercased() else {
             return nil
         }
