@@ -1,6 +1,5 @@
 #if os(iOS)
 import CmuxMobileShell
-import CmuxMobileShellModel
 import CmuxMobileSupport
 
 enum TaskComposerSubmissionPhase: Equatable {
@@ -27,100 +26,6 @@ enum TaskComposerSubmissionPhase: Equatable {
 
     var locksDismissal: Bool {
         self == .committed
-    }
-}
-
-struct TaskComposerCompletedOperationRecovery: Equatable {
-    enum Phase: Equatable {
-        case refreshRequired
-        case startAgainAvailable
-    }
-
-    enum RequestRelation: Equatable {
-        case equivalent
-        case different
-    }
-
-    let submittedSnapshot: MobileTaskSubmissionSnapshot
-    private(set) var phase: Phase = .refreshRequired
-    private(set) var requestRelation: RequestRelation = .equivalent
-
-    var appliesToCurrentRequest: Bool {
-        requestRelation == .equivalent
-    }
-
-    var blocksSubmission: Bool {
-        appliesToCurrentRequest
-    }
-
-    var allowsStartAgain: Bool {
-        appliesToCurrentRequest && phase == .startAgainAvailable
-    }
-
-    mutating func recordReconciliationStillMissing() {
-        phase = .startAgainAvailable
-    }
-
-    mutating func markCurrentRequestDifferent() {
-        requestRelation = .different
-    }
-
-    /// Returns whether an edit detached this recovery and the effective request
-    /// has now returned to it, so the standard recovery banner should return.
-    @discardableResult
-    mutating func reconcileCurrentRequest(_ currentSnapshot: MobileTaskSubmissionSnapshot?) -> Bool {
-        let wasDetachedByEdit = requestRelation == .different
-        requestRelation = currentSnapshot?.isRequestEquivalent(to: submittedSnapshot) == true
-            ? .equivalent
-            : .different
-        return wasDetachedByEdit && requestRelation == .equivalent
-    }
-}
-
-enum TaskComposerFailureTitleStyle: Equatable {
-    case launchFailed
-    case statusUnconfirmed
-    case taskAccepted
-
-    func title(templateName: String?) -> String {
-        switch self {
-        case .statusUnconfirmed:
-            return L10n.string(
-                "mobile.taskComposer.failure.title.statusUnconfirmed",
-                defaultValue: "Task status unconfirmed"
-            )
-        case .taskAccepted:
-            return L10n.string(
-                "mobile.taskComposer.failure.title.taskAccepted",
-                defaultValue: "Task already accepted"
-            )
-        case .launchFailed:
-            guard let templateName = templateName?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !templateName.isEmpty else {
-                return L10n.string(
-                    "mobile.taskComposer.failure.title",
-                    defaultValue: "Couldn’t start this task"
-                )
-            }
-            return String.localizedStringWithFormat(
-                L10n.string(
-                    "mobile.taskComposer.failure.titleFormat",
-                    defaultValue: "Couldn’t start %@"
-                ),
-                templateName
-            )
-        }
-    }
-
-    static func forFailure(_ failure: MobileWorkspaceMutationFailure) -> Self {
-        switch failure {
-        case .alreadyCompleted:
-            .taskAccepted
-        case .notConnected, .requestTimedOut:
-            .statusUnconfirmed
-        default:
-            .launchFailed
-        }
     }
 }
 
