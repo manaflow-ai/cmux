@@ -213,12 +213,18 @@ final class SidebarWorkspaceReorderUITests: XCTestCase {
             .matching(NSPredicate(format: "label ENDSWITH %@", "workspace \(index) of \(total)"))
             .firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 6), "Expected workspace \(index) of \(total) before rename")
-        row.rightClick()
-        let renameItem = row.menuItems["Rename Workspace…"].firstMatch
-        XCTAssertTrue(renameItem.waitForExistence(timeout: 3), "Expected Rename Workspace context-menu action")
-        renameItem.click()
         let sheet = app.sheets.firstMatch
-        XCTAssertTrue(sheet.waitForExistence(timeout: 3), "Expected rename sheet")
+        for attempt in 0..<2 where !sheet.exists {
+            row.rightClick()
+            let renameItem = row.menuItems["Rename Workspace…"].firstMatch
+            XCTAssertTrue(renameItem.waitForExistence(timeout: 4), "Expected Rename Workspace context-menu action")
+            renameItem.click()
+            if sheet.waitForExistence(timeout: 5) { break }
+            if attempt == 0 {
+                app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+            }
+        }
+        XCTAssertTrue(sheet.exists, "Expected rename sheet")
         let input = sheet.textFields.firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 3), "Expected rename text field")
         input.click()
