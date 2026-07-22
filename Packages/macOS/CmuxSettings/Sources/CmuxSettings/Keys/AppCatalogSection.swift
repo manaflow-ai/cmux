@@ -70,6 +70,12 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "paneFirstClickFocus.enabled"
     )
 
+    public let focusHistoryIncludesPanesAndTabs = DefaultsKey<Bool>(
+        id: "app.focusHistoryIncludesPanesAndTabs",
+        defaultValue: true,
+        userDefaultsKey: "focusHistoryIncludesPanesAndTabs"
+    )
+
     public let preferredEditor = DefaultsKey<String>(
         id: "app.preferredEditor",
         defaultValue: "",

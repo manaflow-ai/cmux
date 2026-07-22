@@ -1,6 +1,7 @@
 import CmuxWorkspaces
 import Darwin
 import CmuxCore
+import CmuxSettings
 import XCTest
 import CmuxTerminal
 
@@ -78,6 +79,31 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
         XCTAssertTrue(manager.canNavigateForward)
+    }
+
+    func testFocusHistoryWorkspacesOnlySettingSkipsPanelsInCurrentWorkspace() throws {
+        let suiteName = "TabManagerSessionSnapshotTests.focusHistory.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(false, for: SettingCatalog().app.focusHistoryIncludesPanesAndTabs)
+        let manager = TabManager(settings: settings)
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
+        let firstPanelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
+        let secondPanelId = try XCTUnwrap(firstWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        firstWorkspace.focusPanel(firstPanelId)
+        firstWorkspace.focusPanel(secondPanelId)
+
+        XCTAssertFalse(manager.canNavigateBack)
+        XCTAssertFalse(manager.navigateBack())
+
+        let secondWorkspace = manager.addWorkspace(select: true)
+        XCTAssertTrue(manager.navigateBack())
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertTrue(manager.navigateForward())
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
     func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {

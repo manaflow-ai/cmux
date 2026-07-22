@@ -92,6 +92,35 @@ struct FocusHistoryModelTests {
         return (model, host)
     }
 
+    @Test func workspacesOnlyScopeSkipsPaneAndTabEntriesInTheCurrentWorkspace() {
+        let host = FakeFocusHistoryHost()
+        let model = FocusHistoryModel(navigationScope: { .workspacesOnly })
+        model.attach(host: host)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA1: "a1", panelA2: "a2"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+
+        host.selectedWorkspaceId = wsA
+        host.workspaces[wsA]?.rememberedFocusedPanelId = panelA1
+        model.recordFocusInHistory(workspaceId: wsA, panelId: panelA1, preservingForwardBranch: false)
+        host.workspaces[wsA]?.rememberedFocusedPanelId = panelA2
+        model.recordFocusInHistory(workspaceId: wsA, panelId: panelA2, preservingForwardBranch: false)
+
+        #expect(!model.canNavigateBack)
+        #expect(model.focusHistoryMenuSnapshot(direction: .back).items.isEmpty)
+
+        host.selectedWorkspaceId = wsB
+        host.workspaces[wsB]?.rememberedFocusedPanelId = panelB
+        model.recordFocusInHistory(workspaceId: wsB, panelId: panelB, preservingForwardBranch: false)
+
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA2)
+        #expect(!model.canNavigateBack)
+    }
+
     @Test func recordAndNavigateBackForwardAcrossWorkspaces() {
         let (model, host) = makeModel()
         let panelA = UUID()

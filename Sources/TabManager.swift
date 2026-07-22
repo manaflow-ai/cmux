@@ -404,7 +404,7 @@ class TabManager: ObservableObject {
     // (CmuxWorkspaceNavigation); this window is its host via
     // FocusHistoryHosting and republishes its revision bumps through
     // `focusHistoryRevision` above.
-    let focusHistoryNavigation: any FocusHistoryNavigating = FocusHistoryModel()
+    let focusHistoryNavigation: any FocusHistoryNavigating
     // Stateless split-geometry application (equalize/resize divider moves);
     // the pure planning lives in CmuxPanes' ExternalTreeNode extensions.
     let paneLayout = PaneLayoutService()
@@ -479,6 +479,10 @@ class TabManager: ObservableObject {
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
+        self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
+            settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
+        })
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -960,6 +964,7 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )

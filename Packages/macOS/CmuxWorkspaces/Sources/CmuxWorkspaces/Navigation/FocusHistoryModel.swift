@@ -28,11 +28,21 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
     private var focusHistoryRecordingSuppressionDepth = 0
     private var focusHistorySuppressedSelectionSideEffectGenerations: Set<UInt64> = []
     private let maxHistorySize: Int
+    private let navigationScope: @MainActor () -> FocusHistoryNavigationScope
 
     /// Creates a detached model; call ``attach(host:)`` before use.
-    /// `maxHistorySize` is the legacy stack cap (50).
-    public init(maxHistorySize: Int = 50) {
+    ///
+    /// - Parameters:
+    ///   - maxHistorySize: The legacy stack cap (50).
+    ///   - navigationScope: Supplies the current navigation scope. The model
+    ///     reads it for each operation so a settings change applies without
+    ///     rebuilding or clearing the recorded history.
+    public init(
+        maxHistorySize: Int = 50,
+        navigationScope: @escaping @MainActor () -> FocusHistoryNavigationScope = { .panesAndTabs }
+    ) {
         self.maxHistorySize = maxHistorySize
+        self.navigationScope = navigationScope
     }
 
     public func attach(host: any FocusHistoryHosting) {
@@ -245,6 +255,10 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
 
     private func focusHistoryEntryIsNavigable(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
         guard resolvedFocusHistoryEntry(for: entry) != nil else { return false }
+        if navigationScope() == .workspacesOnly,
+           entry.workspaceId == currentEntry?.workspaceId {
+            return false
+        }
         if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) { return false }
         return true
     }
@@ -376,7 +390,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
                 host?.focusHistoryRevisionDidChange()
                 continue
             }
-            if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) {
+            if !focusHistoryEntryIsNavigable(entry, currentEntry: currentEntry) {
                 targetIndex -= 1
                 continue
             }
@@ -404,7 +418,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
                 host?.focusHistoryRevisionDidChange()
                 continue
             }
-            if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) {
+            if !focusHistoryEntryIsNavigable(entry, currentEntry: currentEntry) {
                 targetIndex += 1
                 continue
             }
