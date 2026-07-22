@@ -1598,6 +1598,7 @@ private let agentHookWrapperProcessNames: Set<String> = [
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
 private let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
+private let agentHookRelayOriginEnvironmentKey = "CMUX_AGENT_HOOK_RELAY_ORIGIN"
 private let codexTeamsThreadEnvironmentKey = "CMUX_CODEX_TEAMS_THREAD_ID"
 private let codexTeamsParentThreadEnvironmentKey = "CMUX_CODEX_TEAMS_PARENT_THREAD_ID"
 private let codexTeamsDepthEnvironmentKey = "CMUX_CODEX_TEAMS_DEPTH"
@@ -10805,11 +10806,11 @@ struct CMUXCLI {
     }
 
     private static func writeStderr(_ text: String) {
-        FileHandle.standardError.write(Data(text.utf8))
+        cliWriteStderr(text)
     }
 
     private static func writeStderrLine(_ text: String) {
-        FileHandle.standardError.write(Data((text + "\n").utf8))
+        cliWriteStderr(text + "\n")
     }
 
     private func bootstrapFreestyleZshEnvironmentIfPossible(
@@ -23754,7 +23755,10 @@ struct CMUXCLI {
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
-        let relayOrigin = ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1"
+        let relayOrigin = ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] == "1"
+        let hookAgentPID = relayOrigin
+            ? nil
+            : claudeAgentPID(from: ProcessInfo.processInfo.environment)
         var callerTTYBindingCache: CallerTerminalBinding?
         var didResolveCallerTTYBinding = false
         func callerTTYBinding() -> CallerTerminalBinding? {
@@ -23770,7 +23774,7 @@ struct CMUXCLI {
                     callerTTYBindingCache = ttyBinding
                 } else {
                     let processBinding = resolveAgentProcessTerminalBinding(
-                        pid: claudeAgentPID(from: ProcessInfo.processInfo.environment),
+                        pid: hookAgentPID,
                         socketPath: client.socketPath,
                         socketPassword: socketPassword
                     )
@@ -23793,12 +23797,17 @@ struct CMUXCLI {
             surfaceFlagIsExplicit: hookSurfaceFlag != nil,
             preferCallerTTYRouting: preferCallerTTYRouting,
             callerTerminalBinding: callerTTYBindingProvider,
-            agentPid: claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            agentPid: hookAgentPID
         )
         hookRouting.allowsPidProbe = !relayOrigin
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
+        let hookCwd = relayOrigin ? nil : parsedInput.cwd
+        let hookTranscriptPath = relayOrigin ? nil : parsedInput.transcriptPath
         let sessionStore = ClaudeHookSessionStore()
+        func localClaudePID(mapped: ClaudeHookSessionRecord?) -> Int? {
+            relayOrigin ? nil : (mapped?.pid ?? hookAgentPID)
+        }
         // Record the hook-observed permission mode (shift+tab auto-accept, plan
         // mode, bypass toggle): it is runtime state that never appears in the
         // captured launch argv, and session restore re-applies it as
@@ -23858,7 +23867,7 @@ struct CMUXCLI {
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let claudePid = hookAgentPID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
@@ -23867,7 +23876,7 @@ struct CMUXCLI {
                 ProcessInfo.processInfo.environment,
                 fallbackPID: claudePid,
                 fallbackKind: "claude",
-                cwd: parsedInput.cwd
+                cwd: hookCwd
             )
             // `claude --resume <parent> --fork-session` fires SessionStart with the
             // PARENT session id — the forked session id is only minted at the first
@@ -23897,8 +23906,8 @@ struct CMUXCLI {
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
+                    cwd: hookCwd,
+                    transcriptPath: hookTranscriptPath,
                     pid: claudePid,
                     launchCommand: launchCommand,
                     isRestorable: false,
@@ -23914,7 +23923,7 @@ struct CMUXCLI {
                         kind: "claude",
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
-                        cwd: parsedInput.cwd,
+                        cwd: hookCwd,
                         launchCommand: launchCommand,
                         observedPermissionMode: observedHookPermissionMode
                     )
@@ -23940,7 +23949,7 @@ struct CMUXCLI {
                         surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                         telemetry: telemetry
                     )
-            if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
+            if !relayOrigin, shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -23986,7 +23995,7 @@ struct CMUXCLI {
                 let workspaceId = resolvedTarget.workspaceId
                 let resolvedSurface = resolvedTarget
                 let surfaceId = resolvedSurface.surfaceId
-                let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let claudePid = localClaudePID(mapped: mappedSession)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
@@ -24020,15 +24029,16 @@ struct CMUXCLI {
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
                     parsedInput: parsedInput,
-                    sessionRecord: mappedSession
+                    sessionRecord: mappedSession,
+                    allowLocalFilesystemContext: !relayOrigin
                 )
                 if let sessionId = parsedInput.sessionId {
                     try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: parsedInput.cwd,
-                        transcriptPath: parsedInput.transcriptPath,
+                        cwd: hookCwd,
+                        transcriptPath: hookTranscriptPath,
                         isRestorable: true,
                         // Pending background work keeps the pane out of the
                         // hibernatable .idle state so the planner cannot SIGTERM
@@ -24047,7 +24057,7 @@ struct CMUXCLI {
                         kind: "claude",
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
-                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                        cwd: hookCwd ?? mappedSession?.cwd,
                         launchCommand: mappedSession?.launchCommand,
                         observedPermissionMode: observedHookPermissionMode
                             ?? mappedSession?.lastPermissionMode
@@ -24123,7 +24133,7 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let claudePid = localClaudePID(mapped: mappedSession)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
@@ -24166,15 +24176,15 @@ struct CMUXCLI {
                         ProcessInfo.processInfo.environment,
                         fallbackPID: claudePid,
                         fallbackKind: "claude",
-                        cwd: parsedInput.cwd
+                        cwd: hookCwd
                     )
                     : nil
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
+                    cwd: hookCwd,
+                    transcriptPath: hookTranscriptPath,
                     pid: mappedSession == nil ? claudePid : nil,
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
@@ -24189,7 +24199,7 @@ struct CMUXCLI {
                     kind: "claude",
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
-                    cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                    cwd: hookCwd ?? mappedSession?.cwd,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
                     observedPermissionMode: observedHookPermissionMode
                         ?? mappedSession?.lastPermissionMode
@@ -24275,7 +24285,7 @@ struct CMUXCLI {
                 return
             }
             let workspaceId = resolvedTarget.workspaceId
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let claudePid = localClaudePID(mapped: mappedSession)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
@@ -24376,8 +24386,8 @@ struct CMUXCLI {
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
+                    cwd: hookCwd,
+                    transcriptPath: hookTranscriptPath,
                     agentLifecycle: .needsInput,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
@@ -24417,7 +24427,7 @@ struct CMUXCLI {
                !reportedSessionId.isEmpty,
                let forkParentSessionId = claudeForkSessionParentId(
                    env: ProcessInfo.processInfo.environment,
-                   fallbackPID: claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                   fallbackPID: hookAgentPID
                ),
                reportedSessionId == forkParentSessionId {
                 telemetry.breadcrumb("claude-hook.session-end.fork-parent-skipped")
@@ -24425,7 +24435,7 @@ struct CMUXCLI {
                 // that the fork SessionStart registered for this pane, but leave
                 // the parent record, its resume binding, and the workspace's
                 // notifications alone.
-                let forkClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let forkClaudePid = hookAgentPID
                 let suppressForkVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: forkClaudePid,
                     env: ProcessInfo.processInfo.environment
@@ -24521,7 +24531,7 @@ struct CMUXCLI {
                     surfaceId: cleanupSurfaceId,
                     telemetry: telemetry
                 )
-                let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let claudePid = relayOrigin ? nil : (consumedSession.pid ?? hookAgentPID)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
@@ -24580,7 +24590,7 @@ struct CMUXCLI {
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let claudePid = localClaudePID(mapped: mappedSession)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
@@ -24645,8 +24655,8 @@ struct CMUXCLI {
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
+                    cwd: hookCwd,
+                    transcriptPath: hookTranscriptPath,
                     agentLifecycle: .needsInput,
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
@@ -24710,8 +24720,8 @@ struct CMUXCLI {
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
+                    cwd: hookCwd,
+                    transcriptPath: hookTranscriptPath,
                     agentLifecycle: .running
                 )
             }
@@ -24800,7 +24810,8 @@ struct CMUXCLI {
         pid: Int? = nil
     ) throws {
         var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-        if let pid {
+        if let pid,
+           ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" {
             cmd += " --pid=\(pid)"
         }
         _ = try client.send(command: cmd)
@@ -25443,10 +25454,11 @@ struct CMUXCLI {
 
     private func summarizeClaudeHookStop(
         parsedInput: ClaudeHookParsedInput,
-        sessionRecord: ClaudeHookSessionRecord?
+        sessionRecord: ClaudeHookSessionRecord?,
+        allowLocalFilesystemContext: Bool = true
     ) -> (subtitle: String, body: String)? {
-        let cwd = parsedInput.cwd ?? sessionRecord?.cwd
-        let transcriptPath = parsedInput.transcriptPath
+        let cwd = allowLocalFilesystemContext ? (parsedInput.cwd ?? sessionRecord?.cwd) : nil
+        let transcriptPath = allowLocalFilesystemContext ? parsedInput.transcriptPath : nil
 
         let projectName: String? = {
             guard let cwd = cwd, !cwd.isEmpty else { return nil }
@@ -25583,6 +25595,22 @@ struct CMUXCLI {
         }
 
         let payloadHasAssistantMessage = codexHookStopPayloadHasAssistantMessage(parsedInput.object)
+        if env[agentHookRelayOriginEnvironmentKey] == "1" {
+            if payloadHasAssistantMessage {
+                return nil
+            }
+            if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
+                return summarizeCodexHookFailureCandidate(
+                    CodexHookFailureCandidate(
+                        message: fallback,
+                        codexErrorInfo: nil,
+                        additionalDetails: nil,
+                        isStreamError: false
+                    )
+                )
+            }
+            return nil
+        }
         let providedTranscriptPath = normalizedHookValue(parsedInput.transcriptPath)
         var checkedTranscriptPaths: Set<String> = []
         let readTranscriptFailure: (String) -> CodexTranscriptFailureReadResult = { path in
@@ -26844,7 +26872,8 @@ struct CMUXCLI {
         sessionId: String?,
         matchesMessage: (String) -> Bool
     ) -> AgentHookNotificationSummary? {
-        guard def.name == "grok",
+        guard env[agentHookRelayOriginEnvironmentKey] != "1",
+              def.name == "grok",
               matchesMessage(message),
               let body = latestGrokAssistantMessage(
                 cwd: cwd,
@@ -27186,19 +27215,7 @@ struct CMUXCLI {
     // MARK: - Agent PID inference
 
     private func agentPIDFromHookEnvironment(agentName: String, env: [String: String]) -> Int? {
-        let envKey: String
-        switch agentName {
-        case "claude": envKey = "CMUX_CLAUDE_PID"
-        case "codex": envKey = "CMUX_CODEX_PID"
-        case "cursor": envKey = "CMUX_CURSOR_PID"
-        case "gemini": envKey = "CMUX_GEMINI_PID"
-        case "antigravity": envKey = "CMUX_ANTIGRAVITY_PID"
-        case "rovodev": envKey = "CMUX_ROVODEV_PID"
-        case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
-        case "copilot": envKey = "CMUX_COPILOT_PID"
-        case "kiro": envKey = "CMUX_KIRO_PID"
-        default: return nil
-        }
+        let envKey = Self.agentHookPIDEnvironmentVariable(agentName: agentName)
         guard let raw = env[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
               let pid = Int(raw),
               pid > 0 else {
@@ -27260,6 +27277,12 @@ struct CMUXCLI {
 
         if transcriptSubagentSession {
             return true
+        }
+
+        // Relay delivery preserves explicit remote subagent signals above, but
+        // a remote pid must never be walked through the Mac's local process tree.
+        guard env[agentHookRelayOriginEnvironmentKey] != "1" else {
+            return false
         }
 
         guard let currentAgentPID, currentAgentPID > 1 else {
@@ -27475,7 +27498,9 @@ struct CMUXCLI {
 
     private func claudeRawLaunchArguments(env: [String: String], fallbackPID: Int?) -> [String]? {
         decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
-            ?? fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+            ?? (env[agentHookRelayOriginEnvironmentKey] == "1"
+                ? nil
+                : fallbackPID.flatMap { self.processArguments(for: pid_t($0)) })
     }
 
     private func agentLaunchCommandFromEnvironment(
@@ -27497,16 +27522,18 @@ struct CMUXCLI {
         let envArguments = envCaptureIsTrusted
             ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
             : nil
-        var processArguments = fallbackPID.flatMap { fallbackPID -> [String]? in
-            let pid = pid_t(fallbackPID)
-            let candidate = self.processArguments(for: pid)
-            guard AgentLaunchCaptureTrust.nativeProcessDescribesKind(
-                processName: processName(for: pid),
-                arguments: candidate,
-                kind: fallbackKind
-            ) else { return nil }
-            return candidate
-        }
+        var processArguments: [String]? = env[agentHookRelayOriginEnvironmentKey] == "1"
+            ? nil
+            : fallbackPID.flatMap { fallbackPID -> [String]? in
+                let pid = pid_t(fallbackPID)
+                let candidate = self.processArguments(for: pid)
+                guard AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                    processName: processName(for: pid),
+                    arguments: candidate,
+                    kind: fallbackKind
+                ) else { return nil }
+                return candidate
+            }
         if let candidate = processArguments,
            AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(candidate) {
             // The PID fallback resolved to a shell dispatcher (e.g. the hook's own
@@ -27584,6 +27611,9 @@ struct CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?,
         observedPermissionMode: String? = nil
     ) {
+        guard ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" else {
+            return
+        }
         if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
             clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
             return
@@ -28240,10 +28270,10 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   if (context) payload.context = context;
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["hooks", "opencode", subcommand], {
+    spawnSync(cmux, ["hooks", "enqueue", "opencode", subcommand], {
       input: JSON.stringify(payload),
       encoding: "utf8",
-      env: hookEnvironment(cwd),
+      env: { ...hookEnvironment(cwd), CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" },
       stdio: ["pipe", "ignore", "ignore"],
       timeout: 5000,
     });
@@ -30043,7 +30073,10 @@ export default CMUXSessionRestore;
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
-        let inferredPID = agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
+        let relayOrigin = env[agentHookRelayOriginEnvironmentKey] == "1"
+        let inferredPID = relayOrigin
+            ? nil
+            : (agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
@@ -30081,7 +30114,7 @@ export default CMUXSessionRestore;
         var processBindingCache: CallerTerminalBinding?
         var didResolveProcessBinding = false
         func processBinding() -> CallerTerminalBinding? {
-            guard env["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else { return nil }
+            guard !relayOrigin else { return nil }
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
                 // Always resolve the agent process's own terminal binding (TTY first, then PID), even
@@ -30127,9 +30160,19 @@ export default CMUXSessionRestore;
             )
         )
 
-        let hookCwd = input.cwd
-            ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
-            ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
+        let hookCwd = relayOrigin
+            ? nil
+            : input.cwd
+                ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
+                ?? normalizedHookValue(env["PWD"])
+                ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
+        let hookTranscriptPath = relayOrigin ? nil : input.transcriptPath
+        func localAgentPID(mapped: ClaudeHookSessionRecord?) -> Int? {
+            relayOrigin ? nil : (mapped?.pid ?? inferredPID)
+        }
+        func localTranscriptPath(mapped: ClaudeHookSessionRecord?) -> String? {
+            relayOrigin ? nil : (hookTranscriptPath ?? mapped?.transcriptPath)
+        }
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
 #if DEBUG
@@ -30147,7 +30190,10 @@ export default CMUXSessionRestore;
         func performAgentSessionTeardown() {
             guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
             sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: localAgentPID(mapped: mapped),
+                env: env
+            )
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
@@ -30191,7 +30237,7 @@ export default CMUXSessionRestore;
                 surfaceId: surfaceId,
                 excludingSessionId: sessionId,
                 onlyNewerThanExcludedSession: true,
-                requireLiveProcess: true
+                requireLiveProcess: !relayOrigin
             )) == true
         }
         func hasOtherRunningSession(workspaceId: String) -> Bool {
@@ -30199,7 +30245,7 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: nil,
                 excludingSessionId: sessionId,
-                requireLiveProcess: true
+                requireLiveProcess: !relayOrigin
             )) == true
         }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
@@ -30411,7 +30457,7 @@ export default CMUXSessionRestore;
             )
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
-                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
+                transcriptPath: localTranscriptPath(mapped: mapped), currentPID: pid
             )
             func codexSessionStartWentStaleAfterAccept() -> Bool {
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
@@ -30428,7 +30474,7 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        transcriptPath: localTranscriptPath(mapped: mapped),
                         pid: pid,
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
@@ -30441,7 +30487,7 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        transcriptPath: localTranscriptPath(mapped: mapped),
                         pid: pid,
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
@@ -30464,7 +30510,7 @@ export default CMUXSessionRestore;
                 return
             }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            if !suppressVisibleMutations {
+            if !relayOrigin, !suppressVisibleMutations {
                 if codexSessionStartWentStaleAfterAccept() {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                     didSendFeedTelemetry = true
@@ -30513,7 +30559,7 @@ export default CMUXSessionRestore;
                 print("{}")
                 return
             }
-            if let pid, !suppressVisibleMutations {
+            if !relayOrigin, let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -30536,9 +30582,9 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = mapped?.pid ?? inferredPID
+            let pid = localAgentPID(mapped: mapped)
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd)
-            let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
+            let transcriptPathForStore = localTranscriptPath(mapped: mapped)
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
                 transcriptPath: transcriptPathForStore, currentPID: inferredPID
@@ -30651,7 +30697,8 @@ export default CMUXSessionRestore;
             }
             let terminalActivePromptTurnIds: Set<String>
             let previousActivePromptTurnIsTerminal: Bool
-            if def.name == "codex",
+            if !relayOrigin,
+               def.name == "codex",
                let incomingTurnId,
                let activeTurnId = activePromptTurnId,
                activeTurnId != incomingTurnId,
@@ -30706,7 +30753,7 @@ export default CMUXSessionRestore;
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
-            if !suppressVisibleMutations && !incomingCodexTurnIsTerminal {
+            if !relayOrigin, !suppressVisibleMutations, !incomingCodexTurnIsTerminal {
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
                     return
@@ -30736,7 +30783,7 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        transcriptPath: localTranscriptPath(mapped: mapped),
                         turnId: input.turnId,
                         pid: pid,
                         launchCommand: resumeLaunchCommand
@@ -30747,7 +30794,7 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        transcriptPath: localTranscriptPath(mapped: mapped),
                         pid: pid,
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .running,
@@ -30780,7 +30827,7 @@ export default CMUXSessionRestore;
                 stopStaleCodexPromptSubmit()
                 return
             }
-            if let pid, !suppressVisibleMutations {
+            if !relayOrigin, let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -30822,7 +30869,7 @@ export default CMUXSessionRestore;
             } else {
                 telemetry.breadcrumb("\(def.name)-hook.prompt-submit.nested-suppressed")
             }
-            if def.name == "codex", !sessionId.isEmpty, !suppressVisibleMutations {
+            if !relayOrigin, def.name == "codex", !sessionId.isEmpty, !suppressVisibleMutations {
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
                     return
@@ -30850,7 +30897,7 @@ export default CMUXSessionRestore;
                 startCodexTranscriptMonitor(
                     sessionId: sessionId,
                     turnId: input.turnId,
-                    transcriptPath: normalizedHookValue(input.transcriptPath),
+                    transcriptPath: normalizedHookValue(hookTranscriptPath),
                     cwd: hookCwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -30861,7 +30908,7 @@ export default CMUXSessionRestore;
             }
 
         case .stop:
-            if def.name == "codex", !sessionId.isEmpty {
+            if !relayOrigin, def.name == "codex", !sessionId.isEmpty {
                 let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !stopTurnId.isEmpty {
                     retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
@@ -30876,13 +30923,14 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = localAgentPID(mapped: mapped)
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
                 codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
-                if subagentNotificationSuppressionEnabled(env: env),
-                   let transcriptPath = normalizedHookValue(input.transcriptPath)
+                if !relayOrigin,
+                   subagentNotificationSuppressionEnabled(env: env),
+                   let transcriptPath = normalizedHookValue(hookTranscriptPath)
                     ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
                     codexSubagentSignals = readCodexTranscriptSubagentSignals(
                         path: transcriptPath,
@@ -30913,10 +30961,10 @@ export default CMUXSessionRestore;
             let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
-                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
+                transcriptPath: localTranscriptPath(mapped: mapped), currentPID: inferredPID
             )
             let grokAssistantMessage: String? = {
-                guard def.name == "grok" else { return nil }
+                guard !relayOrigin, def.name == "grok" else { return nil }
                 return latestGrokAssistantMessage(
                     cwd: cwd,
                     sessionId: input.sessionId ?? sessionId,
@@ -30966,7 +31014,8 @@ export default CMUXSessionRestore;
             let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             let terminalActivePromptTurnIdsForStop: Set<String>
-            if !staleIdleStopHasNewerRunningSession,
+            if !relayOrigin,
+               !staleIdleStopHasNewerRunningSession,
                def.name == "codex",
                let incomingTurnId = normalizedHookValue(input.turnId) {
                 let activePromptTurnStack = mapped?.activePromptTurnIds?
@@ -30977,7 +31026,7 @@ export default CMUXSessionRestore;
                     : activePromptTurnStack
                 let activeTurnIdsToCheck = activeTurnIds.filter { $0 != incomingTurnId }
                 if !activeTurnIdsToCheck.isEmpty,
-                   let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
+                   let transcriptPath = normalizedHookValue(localTranscriptPath(mapped: mapped))
                        ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
                     terminalActivePromptTurnIdsForStop = codexTranscriptTerminalTurnIds(
                         path: transcriptPath,
@@ -30996,7 +31045,7 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: cwd,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    transcriptPath: localTranscriptPath(mapped: mapped),
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
@@ -31025,7 +31074,7 @@ export default CMUXSessionRestore;
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
-                                  transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                                  transcriptPath: localTranscriptPath(mapped: mapped),
                                   pid: pid,
                                   launchCommand: resumeLaunchCommand,
                                   agentLifecycle: lifecycleAfterStop,
@@ -31046,7 +31095,7 @@ export default CMUXSessionRestore;
                     launchCommand: resumeLaunchCommand
                 )
             }
-            if let pid, !suppressVisibleMutations {
+            if !relayOrigin, let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -31186,7 +31235,10 @@ export default CMUXSessionRestore;
             // Gate the fork on the live setting (one cheap socket probe) so a
             // disabled feature spawns nothing extra on turn end; the detached
             // process re-probes to honor a toggle that lands mid-pass.
-            if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
+            if !relayOrigin,
+               autoNamingSource(for: def) != nil,
+               !suppressVisibleMutations,
+               !sessionId.isEmpty,
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
                    params: ["probe": true, "workspace_id": workspaceId]
@@ -31198,7 +31250,7 @@ export default CMUXSessionRestore;
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
+                    transcriptPath: normalizedHookValue(localTranscriptPath(mapped: mapped)),
                     cwd: cwd,
                     env: env,
                     telemetry: telemetry
@@ -31215,7 +31267,7 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = localAgentPID(mapped: mapped)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -31224,7 +31276,7 @@ export default CMUXSessionRestore;
             )
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
-                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
+                transcriptPath: localTranscriptPath(mapped: mapped), currentPID: inferredPID
             )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             if !sessionId.isEmpty, !suppressVisibleMutations {
@@ -31233,7 +31285,7 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    transcriptPath: localTranscriptPath(mapped: mapped),
                     pid: pid,
                     launchCommand: resumeLaunchCommand,
                     agentLifecycle: .running,
@@ -31250,7 +31302,7 @@ export default CMUXSessionRestore;
                     launchCommand: resumeLaunchCommand
                 )
             }
-            if let pid, !suppressVisibleMutations {
+            if !relayOrigin, let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -31287,7 +31339,7 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
 
-            let notificationCwd = hookCwd ?? mapped?.cwd
+            let notificationCwd = relayOrigin ? nil : (hookCwd ?? mapped?.cwd)
 #if DEBUG
             agentHookDebugLog(
                 "agentHook.notification.target agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1) hasCwd=\(notificationCwd == nil ? 0 : 1)",
@@ -31411,13 +31463,15 @@ export default CMUXSessionRestore;
             }
 
             if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
-                let launchCommand = agentLaunchCommandFromEnvironment(
-                    env,
-                    fallbackPID: pid,
-                    fallbackKind: def.name,
-                    cwd: hookCwd ?? mapped?.cwd
-                )
+                let pid = localAgentPID(mapped: mapped)
+                let launchCommand = relayOrigin
+                    ? nil
+                    : agentLaunchCommandFromEnvironment(
+                        env,
+                        fallbackPID: pid,
+                        fallbackKind: def.name,
+                        cwd: notificationCwd
+                    )
                 let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
                 let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
@@ -31429,7 +31483,7 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: notificationCwd,
-                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        transcriptPath: localTranscriptPath(mapped: mapped),
                         pid: pid,
                         launchCommand: launchCommand,
                         agentLifecycle: lifecycle,
@@ -31452,7 +31506,7 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: notificationCwd,
-                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        transcriptPath: localTranscriptPath(mapped: mapped),
                         pid: pid,
                         launchCommand: launchCommand,
                         agentLifecycle: lifecycle,
@@ -31577,7 +31631,7 @@ export default CMUXSessionRestore;
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
 
         case .sessionEnd:
-            if def.name == "codex", !sessionId.isEmpty {
+            if !relayOrigin, def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
             if def.sessionEndIsTurnBoundary {
@@ -31587,10 +31641,10 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: mapped.workspaceId,
                         surfaceId: mapped.surfaceId,
-                        cwd: hookCwd ?? mapped.cwd,
-                        transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
-                        pid: mapped.pid,
-                        launchCommand: mapped.launchCommand,
+                        cwd: relayOrigin ? nil : (hookCwd ?? mapped.cwd),
+                        transcriptPath: localTranscriptPath(mapped: mapped),
+                        pid: localAgentPID(mapped: mapped),
+                        launchCommand: relayOrigin ? nil : mapped.launchCommand,
                         lastSubtitle: nil,
                         lastBody: nil,
                         autoNameMessages: autoNamingMessages(

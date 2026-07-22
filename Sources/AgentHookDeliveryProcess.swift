@@ -53,7 +53,8 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         process.executableURL = executableURL
         process.arguments = ["--socket", event.socketPath] + event.deliveryArguments
         process.environment = deliveryEnvironment(event: event, executableURL: executableURL)
-        if let workingDirectory = event.environment["PWD"],
+        if !event.relayBacked,
+           let workingDirectory = event.environment["PWD"],
            FileManager.default.fileExists(atPath: workingDirectory) {
             process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
         }
@@ -110,7 +111,26 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         for key in ambientKeys {
             environment[key] = ambientEnvironment[key]
         }
-        environment.merge(event.environment, uniquingKeysWith: { _, eventValue in eventValue })
+        let deliveredEventEnvironment: [String: String]
+        if event.relayBacked {
+            // Remote paths, launch argv, proxy configuration, and PIDs describe
+            // the remote host. Replaying them through the local Mac CLI can
+            // probe an unrelated local process, write a same-named local path,
+            // or persist an unlaunchable local resume command. Preserve only
+            // routing that the relay has alias-rewritten plus explicit
+            // notification/subagent policy bits.
+            let relayDeliveryKeys: Set<String> = [
+                "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
+                "CMUX_AGENT_MANAGED_SUBAGENT",
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
+                "CMUX_SURFACE_ID",
+                "CMUX_WORKSPACE_ID",
+            ]
+            deliveredEventEnvironment = event.environment.filter { relayDeliveryKeys.contains($0.key) }
+        } else {
+            deliveredEventEnvironment = event.environment
+        }
+        environment.merge(deliveredEventEnvironment, uniquingKeysWith: { _, eventValue in eventValue })
         environment["CMUX_SOCKET_PATH"] = event.socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = executableURL.path
         environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"

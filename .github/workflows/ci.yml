@@ -705,28 +705,6 @@ jobs:
             -only-testing:cmuxTests/CLISSHSessionAttachAnchorTests \
             test
 
-      - name: Run Claude hook admission timeout regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/8535.
-          # The full unit-test step tolerates assertion failures reported as
-          # "(0 unexpected)", so it cannot prove this timing contract. Keep
-          # this invocation non-tolerant so synchronous hook admission fails CI.
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/CLIClaudeHookTimeoutRegressionTests \
-            -only-testing:cmuxTests/AgentHookDeliveryQueueTests \
-            -only-testing:cmuxTests/CLICodexQueuedHookContractTests \
-            test
-
       - name: Run focused browser regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |

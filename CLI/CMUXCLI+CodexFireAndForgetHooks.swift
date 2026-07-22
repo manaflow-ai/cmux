@@ -8,13 +8,18 @@ extension CMUXCLI {
     /// time to approve. This is the single source of
     /// truth for `cmux-codex-wrapper`'s injection, mirrored from the historic
     /// hand-rolled `cmux_codex_add_hook` calls in the wrapper.
-    static let codexWrapperInjectionEvents: [(agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)] = [
-        ("SessionStart", "session-start", agentHookDeclaredTimeoutMilliseconds),
-        ("UserPromptSubmit", "prompt-submit", agentHookDeclaredTimeoutMilliseconds),
-        ("Stop", "stop", agentHookDeclaredTimeoutMilliseconds),
-        ("PreToolUse", "pre-tool-use", 120000),
-        ("PostToolUse", "post-tool-use", agentHookDeclaredTimeoutMilliseconds),
-        ("PermissionRequest", "notification", 120000),
+    static let codexWrapperInjectionEvents: [(
+        agentEvent: String,
+        cmuxSubcommand: String,
+        timeoutMs: Int,
+        delivery: AgentHookDef.HookDelivery
+    )] = [
+        ("SessionStart", "session-start", agentHookDeclaredTimeoutMilliseconds, .queued),
+        ("UserPromptSubmit", "prompt-submit", agentHookDeclaredTimeoutMilliseconds, .queued),
+        ("Stop", "stop", agentHookDeclaredTimeoutMilliseconds, .queued),
+        ("PreToolUse", "pre-tool-use", 120000, .direct),
+        ("PostToolUse", "post-tool-use", agentHookDeclaredTimeoutMilliseconds, .queued),
+        ("PermissionRequest", "notification", 120000, .direct),
     ]
 
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
@@ -44,7 +49,8 @@ extension CMUXCLI {
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in Self.codexWrapperInjectionEvents {
             let body: String
-            if Self.codexHookCanRunQueued(event.cmuxSubcommand) {
+            if event.delivery == .queued,
+               Self.agentHookCanRunQueued(agent: codexDef.name, subcommand: event.cmuxSubcommand) {
                 body = Self.queuedAgentHookShellCommand(
                     agent: codexDef.name,
                     subcommand: event.cmuxSubcommand,
@@ -82,7 +88,7 @@ extension CMUXCLI {
             out.append(Data(arg.utf8))
             out.append(0)
         }
-        FileHandle.standardOutput.write(out)
+        cliWriteStdout(out)
     }
 
     /// The cmux-owned directory holding the generated codex hook scripts.

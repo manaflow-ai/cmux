@@ -72,7 +72,7 @@ extension CMUXCLI {
             withJSONObject: settings,
             options: [.sortedKeys, .withoutEscapingSlashes]
         )
-        try FileHandle.standardOutput.write(contentsOf: data)
+        cliWriteStdout(data)
     }
 
     private static func claudeQueuedHookGroup(

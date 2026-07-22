@@ -1,4 +1,10 @@
 import Foundation
+import OSLog
+
+nonisolated private let agentHookDeliveryQueueLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "AgentHookDelivery"
+)
 
 /// Owns ordered, bounded delivery lanes for admitted non-decision hooks.
 actor AgentHookDeliveryQueue {
@@ -6,7 +12,7 @@ actor AgentHookDeliveryQueue {
 
     private enum AdmissionClass: Sendable {
         case lifecycle
-        case replaceableTool
+        case bestEffortTool
     }
 
     nonisolated private let lifecycleAdmissionContinuation: AsyncStream<AgentHookDeliveryEvent>.Continuation
@@ -25,16 +31,16 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    /// Builds a queue whose defaults retain at most eight validated events:
-    /// four actor-resident events and four events in synchronous ingress.
-    /// Ingress reserves one slot for replaceable tool activity and the rest for
-    /// lifecycle events so a tool burst cannot evict a state transition.
+    /// Builds a queue whose defaults retain at most sixteen compact validated
+    /// events: eight actor-resident events and eight events in synchronous ingress.
+    /// Ingress reserves one slot for best-effort Codex PostToolUse telemetry;
+    /// lifecycle, needs-input, and notification events use the remaining slots.
     /// The event validator's payload and environment limits therefore also
     /// place a finite byte bound on the complete accepted backlog.
     init(
         maximumConcurrentDeliveries: Int = 4,
-        maximumResidentEvents: Int = 4,
-        maximumIngressEvents: Int = 4,
+        maximumResidentEvents: Int = 8,
+        maximumIngressEvents: Int = 8,
         delivery: @escaping Delivery
     ) {
         precondition(maximumConcurrentDeliveries > 0)
@@ -86,7 +92,7 @@ actor AgentHookDeliveryQueue {
                 switch admissionClass {
                 case .lifecycle:
                     event = await lifecycleAdmissionIterator.next()
-                case .replaceableTool:
+                case .bestEffortTool:
                     event = await toolAdmissionIterator.next()
                 }
                 // Reserve actor capacity before removing an event from bounded ingress.
@@ -108,11 +114,10 @@ actor AgentHookDeliveryQueue {
     nonisolated func enqueue(_ event: AgentHookDeliveryEvent) -> Bool {
         let admissionClass: AdmissionClass
         let result: AsyncStream<AgentHookDeliveryEvent>.Continuation.YieldResult
-        switch event.subcommand {
-        case "pre-tool-use", "post-tool-use", "push-notification":
-            admissionClass = .replaceableTool
+        if event.isBestEffortTelemetry {
+            admissionClass = .bestEffortTool
             result = toolAdmissionContinuation.yield(event)
-        default:
+        } else {
             admissionClass = .lifecycle
             result = lifecycleAdmissionContinuation.yield(event)
         }
@@ -131,7 +136,12 @@ actor AgentHookDeliveryQueue {
             @unknown default:
                 return false
             }
-        case .dropped, .terminated:
+        case .dropped:
+            agentHookDeliveryQueueLogger.error(
+                "Hook admission dropped agent=\(event.agent, privacy: .public) subcommand=\(event.subcommand, privacy: .public)"
+            )
+            return false
+        case .terminated:
             return false
         @unknown default:
             return false

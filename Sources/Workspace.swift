@@ -5626,6 +5626,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private nonisolated static let remoteRelayWorkspaceIDKeys: Set<String> = [
+        "CMUX_WORKSPACE_ID",
         "workspace_id",
         "preferred_workspace_id",
         "selected_workspace_id",
@@ -5636,6 +5637,7 @@ final class Workspace: Identifiable, ObservableObject {
     ]
 
     private nonisolated static let remoteRelaySurfaceIDKeys: Set<String> = [
+        "CMUX_SURFACE_ID",
         "panel_id",
         "surface_id",
         "preferred_panel_id",
@@ -5741,8 +5743,7 @@ final class Workspace: Identifiable, ObservableObject {
         workspaceAliases: [UUID: UUID],
         surfaceAliases: [UUID: UUID]
     ) -> Data {
-        guard !workspaceAliases.isEmpty || !surfaceAliases.isEmpty,
-              let line = String(data: commandLine, encoding: .utf8) else {
+        guard let line = String(data: commandLine, encoding: .utf8) else {
             return commandLine
         }
         let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5753,14 +5754,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         var didRewrite = false
-        if let params = request["params"] as? [String: Any] {
-            request["params"] = Self.remappedRemoteRelayValue(
+        if let params = request["params"] as? [String: Any],
+           var rewrittenParams = Self.remappedRemoteRelayValue(
                 params,
                 key: nil,
                 workspaceAliases: workspaceAliases,
                 surfaceAliases: surfaceAliases,
                 didRewrite: &didRewrite
-            )
+           ) as? [String: Any] {
+            if request["method"] as? String == "agent.hook.enqueue",
+               rewrittenParams["relay_backed"] as? Bool != true {
+                rewrittenParams["relay_backed"] = true
+                didRewrite = true
+            }
+            request["params"] = rewrittenParams
         }
 
         guard didRewrite,
