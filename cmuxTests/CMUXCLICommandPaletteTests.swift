@@ -265,6 +265,34 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["path"] as? String == directoryURL.standardizedFileURL.path)
     }
 
+    @Test func vscodeDoubleDashAllowsPathThatLooksLikeWorkspaceOption() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-vscode-dash-\(UUID().uuidString.prefix(8)).sock"
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("--workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"path\":\"\(directoryURL.path)\"}}"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "vscode", "--", "--workspace"],
+            environment: commandPaletteCLIEnvironment(),
+            currentDirectoryURL: FileManager.default.temporaryDirectory,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        #expect(request["method"] as? String == "vscode.open")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["path"] as? String == directoryURL.standardizedFileURL.path)
+        #expect(params["workspace_id"] == nil)
+    }
+
     @Test func vscodeOutputSanitizesTerminalControlsWithoutChangingJSON() throws {
         let cliPath = try bundledCLIPath()
         let path = "/tmp/project\u{001B}[31mred\u{009B}2J\u{001B}]0;owned\u{0007}"
