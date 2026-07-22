@@ -71,7 +71,9 @@ public actor CmxIrohRelayPolicyService {
         )
         return RefreshOutcome(
             effective: effective,
-            relayCredential: bootstrap.relayToken
+            // The resolution-validated credential, not the raw response: a
+            // rejected bootstrap must never displace a valid cached one.
+            relayCredential: effective.relayBootstrap
         )
     }
 

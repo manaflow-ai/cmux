@@ -580,9 +580,13 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private func recordBrokerCooldown(for error: any Error, accountID: String) {
-        guard let retryAfterSeconds = CmxIrohBrokerCooldown.directiveSeconds(
-            for: error
-        ) else { return }
+        // The gate's own synthesized error echoes the remaining floor; treating
+        // it as a fresh directive would slide the deadline forward on every
+        // sub-second attempt.
+        guard !(error is CmxIrohBrokerCooldownError),
+              let retryAfterSeconds = CmxIrohBrokerCooldown.directiveSeconds(
+                  for: error
+              ) else { return }
         brokerCooldown.record(
             accountID: accountID,
             retryAfterSeconds: retryAfterSeconds,
@@ -1385,6 +1389,10 @@ public final class MobileIrohRuntimeComposition:
         let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
             Set(relay.relayFleet) == managedRelayURLs ? relay : nil
         }
+        let relayCredentialMintNotBefore = brokerCooldown.remainingSeconds(
+            accountID: accountID,
+            now: now()
+        ).map { now().addingTimeInterval(TimeInterval($0)) }
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -1395,7 +1403,8 @@ public final class MobileIrohRuntimeComposition:
             capabilities: Self.capabilities,
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay
+            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
+            relayCredentialMintNotBefore: relayCredentialMintNotBefore
         )
         let credentialRepository = brokerCredentials
         let routeCatalog = routeCatalog
@@ -1410,6 +1419,13 @@ public final class MobileIrohRuntimeComposition:
             factory: endpointFactoryProvider(transportVerificationMode),
             broker: broker,
             configuration: configuration,
+            handleRelayRateLimit: { @MainActor [weak self] seconds in
+                self?.brokerCooldown.record(
+                    accountID: accountID,
+                    retryAfterSeconds: seconds,
+                    now: self?.now() ?? Date()
+                )
+            },
             pendingRevocations: pendingRevocations,
             protocolConfiguration: Self.protocolConfiguration(
                 for: transportVerificationMode
@@ -1550,7 +1566,14 @@ public final class MobileIrohRuntimeComposition:
         }
         self.runtime = runtime
         activeAccountID = accountID
-        brokerCooldown.clear(accountID: accountID)
+        // The floor survives a successful direct-only activation: live dials
+        // bypass the gate through the active runtime, while a torn-down
+        // runtime must not reach the rate-limited broker before Retry-After
+        // expires. It also seeds the policy refresh scheduler below.
+        let pendingRelayRetryAfterSeconds = brokerCooldown.remainingSeconds(
+            accountID: accountID,
+            now: now()
+        )
         diagnosticLog?.record(DiagnosticEvent(.endpointActive, a: DiagnosticTransportKind.iroh.rawValue))
         relayPolicyService = resolvedPolicyService
         relayPolicyEffective = resolvedEffectivePolicy
@@ -1571,7 +1594,8 @@ public final class MobileIrohRuntimeComposition:
             accountID: accountID,
             endpointID: endpointID,
             trustRoot: relayPolicyTrustRoot,
-            revision: revision
+            revision: revision,
+            initialRetryAfterSeconds: pendingRelayRetryAfterSeconds
         )
         publishIrohSettingsUpdate()
     }
@@ -2180,15 +2204,24 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         accountID: String,
         endpointID: CmxIrohPeerIdentity,
         trustRoot: CmxIrohRelayPolicyTrustRoot?,
-        revision: UInt64
+        revision: UInt64,
+        initialRetryAfterSeconds: Int? = nil
     ) {
         relayPolicyRefreshTask?.cancel()
         guard let service, let trustRoot else {
             relayPolicyRefreshTask = nil
             return
         }
+        // A Retry-After from the activation-time bootstrap failure seeds the
+        // first attempt so the scheduler's default cadence cannot retry the
+        // rate-limited endpoint early. The credential coordinator owns the
+        // floor-expiry mint; this refresh follows staggered so the two
+        // consumers of the same endpoint never wake together.
+        let initialRetryAt = initialRetryAfterSeconds.map {
+            now().addingTimeInterval(TimeInterval($0) + 30)
+        }
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
-            var retryAt: Date?
+            var retryAt: Date? = initialRetryAt
             var failureCount = 0
             var relayAuthorityExpired = false
             while !Task.isCancelled {

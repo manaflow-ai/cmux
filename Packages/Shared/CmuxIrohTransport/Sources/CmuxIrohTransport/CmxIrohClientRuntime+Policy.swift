@@ -4,7 +4,8 @@ public import Foundation
 extension CmxIrohClientRuntime {
     func resolvePolicy(
         expectedEndpointID: CmxIrohPeerIdentity,
-        revision: UInt64
+        revision: UInt64,
+        allowRegistrationDiscoveryFallback: Bool = false
     ) async throws -> ResolvedPolicy {
         try await pendingRevocations.revokePending(
             accountID: configuration.accountID,
@@ -68,6 +69,32 @@ extension CmxIrohClientRuntime {
         do {
             registration = try await broker.register(prepared: prepared, signer: signer)
         } catch {
+            if allowRegistrationDiscoveryFallback,
+               Self.canResolveRegistrationFromDiscovery(error) {
+                let discovery = try await broker.discover()
+                try requireCurrent(revision)
+                guard discovery.routeContractVersion == payload.routeContractVersion else {
+                    throw CmxIrohClientRuntimeError.routeContractMismatch
+                }
+                try validateRelayFleet(discovery.relayFleet)
+                let localMatches = discovery.bindings.filter(expectation.matches)
+                guard localMatches.count == 1,
+                      let discovered = localMatches.first else {
+                    throw CmxIrohClientRuntimeError.localBindingMissingFromDiscovery
+                }
+                return ResolvedPolicy(
+                    registration: CmxIrohRegistrationResponse(
+                        binding: discovered,
+                        relay: .unavailable
+                    ),
+                    discovery: discovery,
+                    binding: discovered,
+                    expectation: expectation,
+                    offlineExpectation: offlineExpectation,
+                    cachedTargetBindings: [],
+                    cachedLANRendezvous: nil
+                )
+            }
             guard Self.isConnectivity(error),
                   let cached = try await offlineBootstrap(
                       expectation: offlineExpectation,
@@ -126,6 +153,25 @@ extension CmxIrohClientRuntime {
             cachedTargetBindings: [],
             cachedLANRendezvous: nil
         )
+    }
+
+    private static func canResolveRegistrationFromDiscovery(_ error: any Error) -> Bool {
+        guard let brokerError = error as? CmxIrohTrustBrokerClientError else {
+            return false
+        }
+        switch brokerError {
+        case .rateLimited:
+            return true
+        case let .rejected(statusCode, _):
+            return statusCode == 429
+        case .connectivity,
+             .invalidBaseURL,
+             .missingAuthentication,
+             .invalidAuthentication,
+             .nonHTTPResponse,
+             .invalidResponse:
+            return false
+        }
     }
 
     func offlineBootstrap(
@@ -204,7 +250,8 @@ extension CmxIrohClientRuntime {
                 automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
                 credentialDidInstall: { [handleRelayCredential] response in
                     await handleRelayCredential(response, policy.binding)
-                }
+                },
+                rateLimitedDirective: handleRelayRateLimit
             )
             relayCoordinator = coordinator
         }
@@ -218,7 +265,8 @@ extension CmxIrohClientRuntime {
                     bindingID: policy.binding.bindingID,
                     endpointIdentity: policy.binding.endpointID,
                     bootstrap: bootstrap,
-                    waitForInitialCredential: requiresRelayReadiness
+                    waitForInitialCredential: requiresRelayReadiness,
+                    mintNotBefore: configuration.relayCredentialMintNotBefore
                 )
             } catch {
                 if requiresRelayReadiness { throw error }

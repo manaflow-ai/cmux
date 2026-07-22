@@ -1,4 +1,5 @@
 internal import CMUXMobileCore
+public import Foundation
 
 /// Stable, account-and-build-scoped inputs for one iOS Iroh lifecycle.
 public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
@@ -33,6 +34,9 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
 
     /// A previously validated endpoint-scoped relay credential, when available.
     public let cachedRelayCredential: CmxIrohRelayTokenResponse?
+    /// Earliest time the credential coordinator may mint against the broker,
+    /// carried from a rate-limited bootstrap on the same activation.
+    public let relayCredentialMintNotBefore: Date?
 
     /// Creates an immutable iOS client lifecycle configuration.
     ///
@@ -59,7 +63,8 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         capabilities: [String],
         managedRelayURLs: Set<String>,
         endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
-        cachedRelayCredential: CmxIrohRelayTokenResponse? = nil
+        cachedRelayCredential: CmxIrohRelayTokenResponse? = nil,
+        relayCredentialMintNotBefore: Date? = nil
     ) {
         self.accountID = accountID
         self.deviceID = cmxCanonicalDeviceID(deviceID)
@@ -71,5 +76,6 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         self.managedRelayURLs = managedRelayURLs
         self.endpointRelayProfile = endpointRelayProfile
         self.cachedRelayCredential = cachedRelayCredential
+        self.relayCredentialMintNotBefore = relayCredentialMintNotBefore
     }
 }
