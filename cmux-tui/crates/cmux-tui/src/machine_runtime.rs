@@ -474,6 +474,7 @@ mod tests {
             "BatchMode=yes",
             "StrictHostKeyChecking=yes",
             "ForwardAgent=no",
+            "ForwardX11=no",
             "ClearAllForwardings=yes",
         ] {
             assert!(arguments.windows(2).any(|pair| pair == ["-o", option]), "{arguments:?}");
