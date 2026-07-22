@@ -1,16 +1,25 @@
-/// One lazily rendered row of the diff body: a hunk header or a code line.
+/// One lazily rendered row of the diff body: an expander, hunk header, or code line.
 ///
 /// The diff body's lazy container iterates these flat rows instead of whole
 /// hunks so a single enormous hunk (for example a truncated multi-thousand
 /// line rewrite) never becomes one eagerly laid-out child, which froze
 /// scrolling on large diffs.
 struct DiffRowSnapshot: Identifiable, Equatable {
-    let id: Int
-    let line: DiffLine
-    let hunkCopyText: String
+    let id: String
+    let content: DiffRowContent
     /// Whether this row is the header of a hunk after the first and should
     /// carry the inter-hunk gap above it.
     let leadingHunkGap: Bool
+
+    var line: DiffLine? {
+        guard case .line(let line, _) = content else { return nil }
+        return line
+    }
+
+    var hunkCopyText: String {
+        guard case .line(_, let copyText) = content else { return "" }
+        return copyText
+    }
 
     static func rows(for document: FileDiffDocument) -> [DiffRowSnapshot] {
         var rows: [DiffRowSnapshot] = []
@@ -18,20 +27,127 @@ struct DiffRowSnapshot: Identifiable, Equatable {
         for (hunkIndex, hunk) in document.hunks.enumerated() {
             let copyText = hunk.copyText
             rows.append(DiffRowSnapshot(
-                id: rows.count,
-                line: hunk.header,
-                hunkCopyText: copyText,
+                id: "h:\(hunkIndex)",
+                content: .line(hunk.header, hunkCopyText: copyText),
                 leadingHunkGap: hunkIndex > 0
             ))
-            for line in hunk.lines {
+            for (lineIndex, line) in hunk.lines.enumerated() {
                 rows.append(DiffRowSnapshot(
-                    id: rows.count,
-                    line: line,
-                    hunkCopyText: copyText,
+                    id: "l:\(hunkIndex):\(lineIndex)",
+                    content: .line(line, hunkCopyText: copyText),
                     leadingHunkGap: false
                 ))
             }
         }
         return rows
+    }
+
+    static func rows(
+        for document: FileDiffDocument,
+        expansionState: DiffExpansionState,
+        currentFileLines: [String]?,
+        fileKind: FileChangeKind
+    ) -> [DiffRowSnapshot] {
+        guard fileKind != .deleted, !document.isBinary else {
+            return rows(for: document)
+        }
+
+        let gaps = DiffGap.gaps(
+            for: document,
+            currentFileLineCount: currentFileLines?.count
+        )
+        let gapsByID = Dictionary(uniqueKeysWithValues: gaps.map { ($0.id, $0) })
+        var rows: [DiffRowSnapshot] = []
+        rows.reserveCapacity(document.lines.count + document.hunks.count + 1)
+
+        for (hunkIndex, hunk) in document.hunks.enumerated() {
+            let precedingGap = gapsByID[hunkIndex]
+            if let precedingGap {
+                append(
+                    gap: precedingGap,
+                    expansionState: expansionState,
+                    currentFileLines: currentFileLines,
+                    to: &rows
+                )
+            }
+            let copyText = hunk.copyText
+            rows.append(DiffRowSnapshot(
+                id: "h:\(hunkIndex)",
+                content: .line(hunk.header, hunkCopyText: copyText),
+                leadingHunkGap: hunkIndex > 0 && precedingGap == nil
+            ))
+            for (lineIndex, line) in hunk.lines.enumerated() {
+                rows.append(DiffRowSnapshot(
+                    id: "l:\(hunkIndex):\(lineIndex)",
+                    content: .line(line, hunkCopyText: copyText),
+                    leadingHunkGap: false
+                ))
+            }
+        }
+        if let trailingGap = gapsByID[document.hunks.count] {
+            append(
+                gap: trailingGap,
+                expansionState: expansionState,
+                currentFileLines: currentFileLines,
+                to: &rows
+            )
+        }
+        return rows
+    }
+
+    private static func append(
+        gap: DiffGap,
+        expansionState: DiffExpansionState,
+        currentFileLines: [String]?,
+        to rows: inout [DiffRowSnapshot]
+    ) {
+        guard let gapRange = gap.newLineRange else {
+            rows.append(DiffRowSnapshot(
+                id: "g:\(gap.id):unknown",
+                content: .expander(DiffExpanderSnapshot(
+                    gap: gap,
+                    hiddenNewLineRange: nil
+                )),
+                leadingHunkGap: false
+            ))
+            return
+        }
+
+        let revealedRanges = expansionState.revealedRanges(for: gap.id)
+        let hiddenRanges = expansionState.hiddenRanges(in: gap)
+        var cursor = gapRange.lowerBound
+        while cursor < gapRange.upperBound {
+            if let hidden = hiddenRanges.first(where: { $0.contains(cursor) }) {
+                rows.append(DiffRowSnapshot(
+                    id: "g:\(gap.id):\(hidden.lowerBound):\(hidden.upperBound)",
+                    content: .expander(DiffExpanderSnapshot(
+                        gap: gap,
+                        hiddenNewLineRange: hidden
+                    )),
+                    leadingHunkGap: false
+                ))
+                cursor = hidden.upperBound
+                continue
+            }
+            guard revealedRanges.contains(where: { $0.contains(cursor) }) else {
+                cursor += 1
+                continue
+            }
+            let textIndex = cursor - 1
+            let text = currentFileLines.flatMap { lines in
+                lines.indices.contains(textIndex) ? lines[textIndex] : nil
+            } ?? ""
+            rows.append(DiffRowSnapshot(
+                id: "c:\(gap.id):\(cursor)",
+                content: .line(DiffLine(
+                    kind: .context,
+                    text: text,
+                    oldNumber: gap.oldLineNumber(forNewLine: cursor),
+                    newNumber: cursor
+                ), hunkCopyText: ""),
+                leadingHunkGap: false
+            ))
+            cursor += 1
+        }
     }
 }

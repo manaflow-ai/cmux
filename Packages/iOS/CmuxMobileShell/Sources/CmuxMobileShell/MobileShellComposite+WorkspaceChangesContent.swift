@@ -1,9 +1,13 @@
 public import CmuxAgentChat
+internal import CmuxMobileChanges
 internal import CmuxMobileDiagnostics
 public import Foundation
 internal import CmuxMobileRPC
 
 extension MobileShellComposite {
+    /// Maximum current-file size accepted by the unchanged-line expander.
+    private static let workspaceChangesExpansionByteLimit: Int64 = 5 * 1_024 * 1_024
+
     /// Reads artifact-compatible metadata for a changed file revision.
     ///
     /// - Parameters:
@@ -75,6 +79,37 @@ extension MobileShellComposite {
             progress: progress,
             onChunk: { _ in }
         )
+    }
+
+    /// Creates a path-scoped loader for current working-tree text lines.
+    ///
+    /// The returned value performs an authorized stat before using the existing
+    /// chunked content fetcher and refuses files larger than 5 MiB.
+    ///
+    /// - Parameter workspaceID: Mac-local workspace identifier.
+    /// - Returns: A closure that fetches and splits one current file.
+    public func workspaceChangesCurrentFileLinesLoader(
+        workspaceID: String
+    ) -> @MainActor @Sendable (String) async throws -> [String] {
+        { path in
+            let stat = try await self.workspaceChangesFileStat(
+                workspaceID: workspaceID,
+                path: path,
+                revision: .current
+            )
+            guard stat.size <= Self.workspaceChangesExpansionByteLimit else {
+                throw DiffExpansionContentError.tooLarge
+            }
+            let data = try await self.workspaceChangesFileData(
+                workspaceID: workspaceID,
+                path: path,
+                revision: .current
+            )
+            guard data.count <= Self.workspaceChangesExpansionByteLimit else {
+                throw DiffExpansionContentError.tooLarge
+            }
+            return Self.workspaceChangesLines(from: data)
+        }
     }
 
     /// Streams changed-file chunks in order without accumulating a second copy.
@@ -170,5 +205,16 @@ extension MobileShellComposite {
         default:
             return .macUnreachable
         }
+    }
+
+    private nonisolated static func workspaceChangesLines(from data: Data) -> [String] {
+        guard !data.isEmpty else { return [] }
+        let text = String(data: data, encoding: .utf8)
+            ?? String(decoding: data, as: UTF8.self)
+        var lines = text.components(separatedBy: "\n")
+        if text.hasSuffix("\n") {
+            lines.removeLast()
+        }
+        return lines
     }
 }

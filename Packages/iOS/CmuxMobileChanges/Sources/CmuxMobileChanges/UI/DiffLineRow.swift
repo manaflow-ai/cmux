@@ -58,8 +58,10 @@ struct DiffLineRow: View {
                 Button(String(localized: "changes.copy.line", defaultValue: "Copy Line", bundle: .module)) {
                     onCopy(line.text)
                 }
-                Button(String(localized: "changes.copy.hunk", defaultValue: "Copy Hunk", bundle: .module)) {
-                    onCopy(hunkCopyText)
+                if !hunkCopyText.isEmpty {
+                    Button(String(localized: "changes.copy.hunk", defaultValue: "Copy Hunk", bundle: .module)) {
+                        onCopy(hunkCopyText)
+                    }
                 }
             }
         }

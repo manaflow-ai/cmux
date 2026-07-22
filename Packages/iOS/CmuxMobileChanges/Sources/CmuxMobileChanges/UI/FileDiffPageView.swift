@@ -9,11 +9,19 @@ public struct FileDiffPageView: View {
     private let onFontSizeChanged: @MainActor @Sendable (Double) -> Void
     private let onPersistFontSize: @MainActor @Sendable (Double) -> Void
     private let onLoad: @MainActor @Sendable (String, Bool) async throws -> FileDiffDocument
+    private let onLoadCurrentLines: @MainActor @Sendable (String) async throws -> [String]
     private let onCopy: @MainActor @Sendable (String) -> Void
     private let inlinePreview: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> AnyView)?
     @State private var loadState: FileDiffLoadState
     @State private var magnificationStart: Double?
     @State private var previewRevision: FileDiffPreviewRevision
+    @State private var expansionState = DiffExpansionState()
+    @State private var currentFileLines: [String]?
+    @State private var pendingExpansionGapID: Int?
+    @State private var pendingExpansionDirection: DiffExpansionDirection?
+    @State private var failedExpansionGapID: Int?
+    @State private var failedExpansionDirection: DiffExpansionDirection?
+    @State private var expansionContentTooLarge = false
     @Environment(\.colorScheme) private var colorScheme
 
     /// Creates one value-driven diff page.
@@ -25,6 +33,7 @@ public struct FileDiffPageView: View {
     ///   - onFontSizeChanged: Live pinch callback.
     ///   - onPersistFontSize: End-of-pinch persistence callback.
     ///   - onLoad: Parsed document loader with a force-refresh flag.
+    ///   - onLoadCurrentLines: Fetch-once loader for the current working-tree text.
     ///   - onCopy: Clipboard seam.
     ///   - inlinePreview: Optional binary-preview builder supplied by the composition layer.
     public init(
@@ -35,6 +44,7 @@ public struct FileDiffPageView: View {
         onFontSizeChanged: @escaping @MainActor @Sendable (Double) -> Void,
         onPersistFontSize: @escaping @MainActor @Sendable (Double) -> Void,
         onLoad: @escaping @MainActor @Sendable (String, Bool) async throws -> FileDiffDocument,
+        onLoadCurrentLines: @escaping @MainActor @Sendable (String) async throws -> [String],
         onCopy: @escaping @MainActor @Sendable (String) -> Void,
         inlinePreview: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> AnyView)? = nil
     ) {
@@ -44,6 +54,7 @@ public struct FileDiffPageView: View {
         self.onFontSizeChanged = onFontSizeChanged
         self.onPersistFontSize = onPersistFontSize
         self.onLoad = onLoad
+        self.onLoadCurrentLines = onLoadCurrentLines
         self.onCopy = onCopy
         self.inlinePreview = inlinePreview
         _loadState = State(initialValue: initialDocument.map(FileDiffLoadState.loaded) ?? .loading)
@@ -111,18 +122,16 @@ public struct FileDiffPageView: View {
             binaryView
         } else {
             ScrollView {
-                let gutterWidth = gutterWidth(for: document)
+                let rows = DiffRowSnapshot.rows(
+                    for: document,
+                    expansionState: expansionState,
+                    currentFileLines: currentFileLines,
+                    fileKind: file.kind
+                )
+                let gutterWidth = gutterWidth(for: rows)
                 LazyVStack(spacing: 0) {
-                    ForEach(DiffRowSnapshot.rows(for: document)) { row in
-                        DiffLineRow(
-                            line: row.line,
-                            hunkCopyText: row.hunkCopyText,
-                            gutterWidth: gutterWidth,
-                            fontSize: fontSize,
-                            theme: theme,
-                            onCopy: onCopy
-                        )
-                        .padding(.top, row.leadingHunkGap ? theme.hunkSpacing : 0)
+                    ForEach(rows) { row in
+                        diffRow(row, gutterWidth: gutterWidth)
                     }
                     if document.truncated {
                         truncatedFooter(lineCount: document.lines.count)
@@ -131,6 +140,30 @@ public struct FileDiffPageView: View {
             }
             .refreshable { await load(forceRefresh: true) }
             .simultaneousGesture(magnifyGesture)
+        }
+    }
+
+    @ViewBuilder
+    private func diffRow(_ row: DiffRowSnapshot, gutterWidth: CGFloat) -> some View {
+        switch row.content {
+        case .line(let line, let hunkCopyText):
+            DiffLineRow(
+                line: line,
+                hunkCopyText: hunkCopyText,
+                gutterWidth: gutterWidth,
+                fontSize: fontSize,
+                theme: theme,
+                onCopy: onCopy
+            )
+            .padding(.top, row.leadingHunkGap ? theme.hunkSpacing : 0)
+        case .expander(let snapshot):
+            DiffExpanderRow(
+                snapshot: snapshot,
+                status: expansionRowStatus(for: snapshot),
+                interactionDisabled: pendingExpansionGapID != nil,
+                theme: theme,
+                onExpand: expand
+            )
         }
     }
 
@@ -217,12 +250,115 @@ public struct FileDiffPageView: View {
     private var theme: ChangesTheme {
         ChangesTheme(colorScheme: colorScheme)
     }
-
-    private func gutterWidth(for document: FileDiffDocument) -> CGFloat {
-        let maximum = document.lines.reduce(0) { current, line in
-            max(current, max(line.oldNumber ?? 0, line.newNumber ?? 0))
+    private func gutterWidth(for rows: [DiffRowSnapshot]) -> CGFloat {
+        let maximum = rows.reduce(0) { current, row in
+            guard case .line(let line, _) = row.content else { return current }
+            return max(current, max(line.oldNumber ?? 0, line.newNumber ?? 0))
         }
         return DiffGutterLayout(maximumLineNumber: maximum).measuredWidth(fontSize: fontSize)
+    }
+
+    private func expansionRowStatus(for snapshot: DiffExpanderSnapshot) -> DiffExpansionRowStatus {
+        if expansionContentTooLarge { return .tooLarge }
+        if pendingExpansionGapID == snapshot.gap.id,
+           let pendingExpansionDirection {
+            return .loading(pendingExpansionDirection)
+        }
+        if failedExpansionGapID == snapshot.gap.id,
+           let failedExpansionDirection {
+            return .failed(failedExpansionDirection)
+        }
+        return .ready
+    }
+
+    @MainActor
+    private func expand(
+        _ snapshot: DiffExpanderSnapshot,
+        direction: DiffExpansionDirection
+    ) {
+        guard pendingExpansionGapID == nil, !expansionContentTooLarge else { return }
+        if let currentFileLines {
+            reveal(
+                snapshot: snapshot,
+                direction: direction,
+                currentFileLineCount: currentFileLines.count
+            )
+            return
+        }
+        pendingExpansionGapID = snapshot.gap.id
+        pendingExpansionDirection = direction
+        failedExpansionGapID = nil
+        failedExpansionDirection = nil
+        Task {
+            await loadCurrentLinesAndExpand(snapshot: snapshot, direction: direction)
+        }
+    }
+
+    @MainActor
+    private func loadCurrentLinesAndExpand(
+        snapshot: DiffExpanderSnapshot,
+        direction: DiffExpansionDirection
+    ) async {
+        do {
+            let lines = try await onLoadCurrentLines(file.path)
+            guard !Task.isCancelled else { return }
+            currentFileLines = lines
+            pendingExpansionGapID = nil
+            pendingExpansionDirection = nil
+            reveal(
+                snapshot: snapshot,
+                direction: direction,
+                currentFileLineCount: lines.count
+            )
+        } catch is CancellationError {
+            guard !Task.isCancelled else { return }
+            pendingExpansionGapID = nil
+            pendingExpansionDirection = nil
+            failedExpansionGapID = snapshot.gap.id
+            failedExpansionDirection = direction
+        } catch DiffExpansionContentError.tooLarge {
+            guard !Task.isCancelled else { return }
+            pendingExpansionGapID = nil
+            pendingExpansionDirection = nil
+            expansionContentTooLarge = true
+        } catch {
+            guard !Task.isCancelled else { return }
+            pendingExpansionGapID = nil
+            pendingExpansionDirection = nil
+            failedExpansionGapID = snapshot.gap.id
+            failedExpansionDirection = direction
+        }
+    }
+
+    @MainActor
+    private func reveal(
+        snapshot: DiffExpanderSnapshot,
+        direction: DiffExpansionDirection,
+        currentFileLineCount: Int
+    ) {
+        guard case .loaded(let document) = loadState,
+              let gap = DiffGap.gaps(
+                for: document,
+                currentFileLineCount: currentFileLineCount
+              ).first(where: { $0.id == snapshot.gap.id }) else { return }
+        expansionState.reveal(
+            in: gap,
+            direction: direction,
+            preferredHiddenRange: snapshot.hiddenNewLineRange
+        )
+        failedExpansionGapID = nil
+        failedExpansionDirection = nil
+    }
+
+    @MainActor
+    private func resetExpansion() {
+        expansionState = DiffExpansionState()
+        currentFileLines = nil
+        pendingExpansionGapID = nil
+        pendingExpansionDirection = nil
+        failedExpansionGapID = nil
+        failedExpansionDirection = nil
+        expansionContentTooLarge = false
     }
 
     private var magnifyGesture: some Gesture {
@@ -251,6 +387,7 @@ public struct FileDiffPageView: View {
         do {
             let document = try await onLoad(file.path, forceRefresh)
             guard !Task.isCancelled else { return }
+            resetExpansion()
             loadState = .loaded(document)
         } catch is CancellationError {
             return

@@ -104,6 +104,9 @@ public struct ChangesPreviewView: View {
                 cachedDocuments[path] = document
                 return document
             },
+            onLoadCurrentLines: { _ in
+                (1...80).map { "preview line \($0)" }
+            },
             onPersistFontSize: { pointSize in
                 fontSize = pointSize
                 fontPreference.pointSize = pointSize

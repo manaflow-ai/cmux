@@ -80,6 +80,7 @@ public struct WorkspaceFileDiffPagerView: View {
                     onFontSizeChanged: { fontSize = $0 },
                     onPersistFontSize: actions.onPersistFontSize,
                     onLoad: actions.onLoad,
+                    onLoadCurrentLines: actions.onLoadCurrentLines,
                     onCopy: actions.onCopy,
                     inlinePreview: index == selection ? actions.inlinePreview : nil
                 )

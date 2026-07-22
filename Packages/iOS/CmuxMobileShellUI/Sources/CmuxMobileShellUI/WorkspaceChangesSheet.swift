@@ -71,10 +71,13 @@ public struct WorkspaceChangesSheet: View {
     }
 
     private var pagerActions: WorkspaceFileDiffPagerActions {
-        WorkspaceFileDiffPagerActions(
+        let loadCurrentLines: @MainActor @Sendable (String) async throws -> [String] =
+            store.workspaceChangesCurrentFileLinesLoader(workspaceID: workspaceID)
+        return WorkspaceFileDiffPagerActions(
             onLoad: { path, forceRefresh in
                 try await loadDocument(path: path, forceRefresh: forceRefresh)
             },
+            onLoadCurrentLines: loadCurrentLines,
             onPersistFontSize: { pointSize in
                 fontSize = pointSize
                 fontPreference.pointSize = pointSize
