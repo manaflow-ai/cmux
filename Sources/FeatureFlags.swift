@@ -173,6 +173,10 @@ final class CmuxFeatureFlags {
         ]
     }()
 
+    static var appKitSidebarListFlag: CmuxFeatureFlagDefinition {
+        allFlags[6]
+    }
+
     var isProUpgradeUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[0])
     }
@@ -198,7 +202,7 @@ final class CmuxFeatureFlags {
     }
 
     var isAppKitSidebarListEnabled: Bool {
-        effectiveValue(for: Self.allFlags[6])
+        effectiveValue(for: Self.appKitSidebarListFlag)
     }
 
     @ObservationIgnored

@@ -278,10 +278,11 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
 
-        let appKitSidebarFlag = CmuxFeatureFlags.allFlags[6]
-        let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: appKitSidebarFlag)
-        CmuxFeatureFlags.shared.setOverride(true, for: appKitSidebarFlag)
-        defer { CmuxFeatureFlags.shared.setOverride(previousOverride, for: appKitSidebarFlag) }
+        let featureFlags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil }
+        )
+        featureFlags.setOverride(true, for: CmuxFeatureFlags.appKitSidebarListFlag)
 
         let tabManager = TabManager()
         for _ in 0..<3 {
@@ -289,8 +290,11 @@ final class WorkspaceContentViewVisibilityTests {
         }
         let sidebarState = SidebarState()
         let notificationStore = TerminalNotificationStore.shared
-        let counts = AppKitSidebarMountProbeCounts()
-        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            windowId: UUID(),
+            featureFlags: featureFlags
+        )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)
@@ -298,12 +302,6 @@ final class WorkspaceContentViewVisibilityTests {
             .environmentObject(SidebarSelectionState())
             .environmentObject(FileExplorerState())
             .environmentObject(CmuxConfigStore())
-            .environment(
-                \.sidebarLazyContractProbe,
-                SidebarLazyContractProbe(
-                    tableContainerMake: { counts.tableContainerMakes += 1 }
-                )
-            )
             .defaultAppStorage(defaults)
 
         let window = NSWindow(
@@ -319,17 +317,48 @@ final class WorkspaceContentViewVisibilityTests {
         }
 
         await Self.drainMainRunLoop(for: window)
-        #expect(counts.tableContainerMakes == 1)
+        let initialContainer = try #require(
+            Self.firstDescendant(
+                of: SidebarWorkspaceTableContainerView.self,
+                in: window.contentView
+            )
+        )
 
         sidebarState.toggle()
         await Self.drainMainRunLoop(for: window)
+        #expect(
+            Self.firstDescendant(
+                of: SidebarWorkspaceTableContainerView.self,
+                in: window.contentView
+            ) === initialContainer,
+            "Hiding the sidebar must preserve the existing AppKit table container."
+        )
+
         sidebarState.toggle()
         await Self.drainMainRunLoop(for: window)
 
         #expect(
-            counts.tableContainerMakes == 1,
-            "Sidebar visibility changes must preserve the existing AppKit table container."
+            Self.firstDescendant(
+                of: SidebarWorkspaceTableContainerView.self,
+                in: window.contentView
+            ) === initialContainer,
+            "Reopening the sidebar must reuse the existing AppKit table container."
         )
+    }
+
+    @MainActor
+    private static func firstDescendant<View: NSView>(
+        of type: View.Type,
+        in root: NSView?
+    ) -> View? {
+        guard let root else { return nil }
+        if let match = root as? View { return match }
+        for subview in root.subviews {
+            if let match = firstDescendant(of: type, in: subview) {
+                return match
+            }
+        }
+        return nil
     }
 
     @MainActor

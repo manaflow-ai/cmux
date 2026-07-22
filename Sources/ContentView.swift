@@ -808,6 +808,18 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
+    let featureFlags: CmuxFeatureFlags
+
+    init(
+        updateViewModel: UpdateStateModel,
+        windowId: UUID,
+        featureFlags: CmuxFeatureFlags = .shared
+    ) {
+        self.updateViewModel = updateViewModel
+        self.windowId = windowId
+        self.featureFlags = featureFlags
+    }
+
     @EnvironmentObject var tabManager: TabManager
     // ContentView observes the coalesced unread projection, NOT the notification
     // store. Reading `notificationStore` directly here would re-render the entire
@@ -1509,7 +1521,7 @@ struct ContentView: View {
         accessibilityIdentifier: String? = nil
     ) -> some View {
         let base = sidebarResizerHandleBase(handle, width: width)
-        if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+        if featureFlags.isAppKitSidebarListEnabled {
             base
                 .overlay(
                     // Native divider tracking (NSSplitView's technique): a
@@ -1669,6 +1681,7 @@ struct ContentView: View {
         let sidebar = VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
+            featureFlags: featureFlags,
             windowId: windowId,
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
@@ -1683,7 +1696,7 @@ struct ContentView: View {
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
         return Group {
-            if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+            if featureFlags.isAppKitSidebarListEnabled {
                 // FLAG(sidebar-appkit-list-experiment): parent-driven
                 // re-evaluations (divider width ticks, unrelated ContentView
                 // state churn) skip the sidebar subtree; all sidebar content
@@ -2465,11 +2478,31 @@ struct ContentView: View {
 
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
         let layout: AnyView
-        // When matching terminal background, use HStack so both sidebar and terminal
-        // sit directly on the window background with no intermediate layers.
+        // The legacy SwiftUI path uses HStack while matching so both sidebar
+        // and terminal sit directly on the window background.
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
-        if useWithinWindow {
+        if featureFlags.isAppKitSidebarListEnabled {
+            // Native sidebar identity is independent of presentation. Keep its
+            // full-width subtree mounted behind a zero-width clipping shell so
+            // hide/show and backdrop changes cannot cold-start the table.
+            layout = AnyView(
+                ZStack(alignment: .leading) {
+                    terminalContentWithRightSidebarPanel(appearance: appearance)
+                        .modifier(SidebarWidthLeadingPaddingModifier(
+                            layout: sidebarLayout,
+                            enabled: sidebarState.isVisible
+                        ))
+                    SidebarWidthReader(layout: sidebarLayout) { width in
+                        sidebarPanelWithBackdrop(appearance: appearance)
+                            .frame(width: sidebarState.isVisible ? width : 0, alignment: .leading)
+                            .clipped()
+                            .allowsHitTesting(sidebarState.isVisible)
+                            .accessibilityHidden(!sidebarState.isVisible)
+                    }
+                }
+            )
+        } else if useWithinWindow {
             // Overlay mode keeps the left sidebar on top, but the right
             // sidebar stays in an HStack so terminal rows are clipped before
             // the sidebar backdrop samples the window.
@@ -10395,10 +10428,12 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.observedWindowReference.window === rhs.observedWindowReference.window
             && lhs.updateViewModel === rhs.updateViewModel
             && lhs.fileExplorerState === rhs.fileExplorerState
+            && lhs.featureFlags === rhs.featureFlags
     }
 
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
+    let featureFlags: CmuxFeatureFlags
     let windowId: UUID
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
@@ -10994,7 +11029,7 @@ struct VerticalTabsSidebar: View, Equatable {
         // The AppKit NSTableView sidebar is opt-in while it soaks; default stays
         // on the SwiftUI list. The flag key is declared only in FeatureFlags.swift.
         Group {
-            if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+            if featureFlags.isAppKitSidebarListEnabled {
                 AnyView(
                     appKitWorkspaceScrollArea(renderContext: renderContext)
                         // Push the flag value into the portal from its single
