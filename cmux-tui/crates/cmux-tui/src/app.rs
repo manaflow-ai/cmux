@@ -14754,6 +14754,38 @@ mod tests {
         )
     }
 
+    struct BlockingMachineController {
+        release: Receiver<()>,
+    }
+
+    impl MachineController for BlockingMachineController {
+        fn perform(&mut self, _request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+            self.release.recv().expect("release blocked machine action");
+            Ok(MachineActionResult::ui(provider_machine_ui()))
+        }
+    }
+
+    #[test]
+    fn blocked_machine_action_does_not_block_the_app_event_loop() {
+        let mux = Mux::new("machine-action-responsive", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let (release, blocked) = std::sync::mpsc::channel();
+        app.machine_controller = Some(Box::new(BlockingMachineController { release: blocked }));
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(41)));
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            release.send(()).unwrap();
+        });
+
+        let started = Instant::now();
+        let action = app.process_machine_requests();
+
+        assert!(started.elapsed() < Duration::from_millis(50));
+        assert_eq!(action, RenderAction::None);
+        releaser.join().unwrap();
+    }
+
     #[test]
     fn in_place_machine_switch_preserves_rail_view_focus_and_widths() {
         let first = Mux::new("machine-switch-first", SurfaceOptions::default());
