@@ -265,6 +265,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // sending input never activates or reselects anything.
         "surface.send_text",
         "surface.send_key",
+        // Directory expansion and filesystem validation run on the socket
+        // worker. Only routing and queueing the inline editor cross to main.
+        // The async serve-web request is acknowledged as queued, so this verb
+        // never waits for a main-actor completion.
+        "vscode.open",
     ]
 
     /// Socket-worker methods that are also safe to invoke from the main

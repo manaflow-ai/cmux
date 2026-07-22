@@ -233,13 +233,7 @@ enum WorkspaceTodoPaletteCommands {
             guard WorkspaceTodoFeature.isEnabled,
                   let workspace = tabManager.selectedWorkspace else {
                 NSSound.beep()
-                return .failed(
-                    code: "target_unavailable",
-                    message: String(
-                        localized: "action.error.targetUnavailable",
-                        defaultValue: "The action target is no longer available."
-                    )
-                )
+                return .targetUnavailable
             }
             if let text = invocation.string("text") {
                 WorkspaceTodoActions.addChecklistItem(text: text, to: workspace)

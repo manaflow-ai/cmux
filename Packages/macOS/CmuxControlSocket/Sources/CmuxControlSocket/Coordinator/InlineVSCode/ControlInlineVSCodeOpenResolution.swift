@@ -1,6 +1,6 @@
 public import Foundation
 
-/// The app-side outcome of starting an inline VS Code open request.
+/// The app-side outcome of queueing an inline VS Code open request.
 public enum ControlInlineVSCodeOpenResolution: Sendable, Equatable {
     /// No tab manager matched the routing selectors.
     case tabManagerUnavailable
@@ -10,6 +10,6 @@ public enum ControlInlineVSCodeOpenResolution: Sendable, Equatable {
     case vscodeUnavailable
     /// The inline server/open request could not be started.
     case openFailed
-    /// The asynchronous inline server/open request was accepted.
+    /// The asynchronous inline server/open request was queued successfully.
     case accepted(windowID: UUID?, workspaceID: UUID)
 }

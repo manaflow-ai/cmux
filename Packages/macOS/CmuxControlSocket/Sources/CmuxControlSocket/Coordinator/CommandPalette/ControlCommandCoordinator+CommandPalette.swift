@@ -21,6 +21,7 @@ extension ControlCommandCoordinator {
 
     /// `palette.list` — list the exact live actions exposed by Cmd+Shift+P.
     func commandPaletteList(_ params: [String: JSONValue]) -> ControlCallResult {
+        let strings = commandPaletteStrings
         let resolution = commandPaletteContext?.controlCommandPaletteList(
             routing: routingSelectors(params)
         ) ?? .windowNotFound
@@ -28,11 +29,7 @@ extension ControlCommandCoordinator {
         case .windowNotFound:
             return .err(
                 code: "not_found",
-                message: String(
-                    localized: "socket.palette.error.windowNotFound",
-                    defaultValue: "Command palette window not found",
-                    bundle: .main
-                ),
+                message: strings.windowNotFound,
                 data: nil
             )
         case .listed(let windowID, let commands):
@@ -46,14 +43,11 @@ extension ControlCommandCoordinator {
 
     /// `palette.run` — invoke the live handler for one stable action id.
     func commandPaletteRun(_ params: [String: JSONValue]) -> ControlCallResult {
+        let strings = commandPaletteStrings
         guard let commandID = string(params, "command_id") else {
             return .err(
                 code: "invalid_params",
-                message: String(
-                    localized: "socket.palette.error.missingCommandID",
-                    defaultValue: "Missing 'command_id' parameter",
-                    bundle: .main
-                ),
+                message: strings.missingCommandID,
                 data: nil
             )
         }
@@ -62,11 +56,7 @@ extension ControlCommandCoordinator {
             guard case .object(let object) = rawArguments else {
                 return .err(
                     code: "invalid_params",
-                    message: String(
-                        localized: "socket.palette.error.argumentsObject",
-                        defaultValue: "'arguments' must be an object of string values",
-                        bundle: .main
-                    ),
+                    message: strings.argumentsMustBeStringObject,
                     data: nil
                 )
             }
@@ -76,11 +66,7 @@ extension ControlCommandCoordinator {
                 guard case .string(let stringValue) = value else {
                     return .err(
                         code: "invalid_params",
-                        message: String(
-                            localized: "socket.palette.error.argumentsObject",
-                            defaultValue: "'arguments' must be an object of string values",
-                            bundle: .main
-                        ),
+                        message: strings.argumentsMustBeStringObject,
                         data: .object(["argument": .string(name)])
                     )
                 }
@@ -100,21 +86,13 @@ extension ControlCommandCoordinator {
         case .windowNotFound:
             return .err(
                 code: "not_found",
-                message: String(
-                    localized: "socket.palette.error.windowNotFound",
-                    defaultValue: "Command palette window not found",
-                    bundle: .main
-                ),
+                message: strings.windowNotFound,
                 data: nil
             )
         case .commandNotFound:
             return .err(
                 code: "not_found",
-                message: String(
-                    localized: "socket.palette.error.commandNotFound",
-                    defaultValue: "Command palette action not found in the current context",
-                    bundle: .main
-                ),
+                message: strings.commandNotFound,
                 data: .object(["command_id": .string(commandID)])
             )
         case .completed(let windowID, let command):
@@ -122,6 +100,12 @@ extension ControlCommandCoordinator {
                 "window_id": .string(windowID.uuidString),
                 "command": commandPalettePayload(command),
                 "status": .string("completed"),
+            ]))
+        case .dispatched(let windowID, let command):
+            return .ok(.object([
+                "window_id": .string(windowID.uuidString),
+                "command": commandPalettePayload(command),
+                "status": .string("dispatched"),
             ]))
         case .presented(let windowID, let command):
             return .ok(.object([
@@ -133,11 +117,7 @@ extension ControlCommandCoordinator {
             return .err(
                 code: "invalid_params",
                 message: String(
-                    format: String(
-                        localized: "socket.palette.error.missingArguments",
-                        defaultValue: "Missing required action arguments: %@",
-                        bundle: .main
-                    ),
+                    format: strings.missingArgumentsFormat,
                     arguments.map(\.name).joined(separator: ", ")
                 ),
                 data: .object([
@@ -150,11 +130,7 @@ extension ControlCommandCoordinator {
             return .err(
                 code: "invalid_params",
                 message: String(
-                    format: String(
-                        localized: "socket.palette.error.unknownArguments",
-                        defaultValue: "Unknown action arguments: %@",
-                        bundle: .main
-                    ),
+                    format: strings.unknownArgumentsFormat,
                     names.joined(separator: ", ")
                 ),
                 data: .object([
@@ -167,11 +143,7 @@ extension ControlCommandCoordinator {
             return .err(
                 code: "invalid_params",
                 message: String(
-                    format: String(
-                        localized: "socket.palette.error.invalidArgumentValues",
-                        defaultValue: "Invalid values for action arguments: %@",
-                        bundle: .main
-                    ),
+                    format: strings.invalidArgumentValuesFormat,
                     names.joined(separator: ", ")
                 ),
                 data: .object([
@@ -190,6 +162,20 @@ extension ControlCommandCoordinator {
                 ])
             )
         }
+    }
+
+    /// Uses app-resolved strings in production and stable English fallbacks
+    /// when a partial test context omits the palette domain.
+    private var commandPaletteStrings: ControlCommandPaletteStrings {
+        commandPaletteContext?.controlCommandPaletteStrings() ?? ControlCommandPaletteStrings(
+            windowNotFound: "Command palette window not found",
+            missingCommandID: "Missing 'command_id' parameter",
+            argumentsMustBeStringObject: "'arguments' must be an object of string values",
+            commandNotFound: "Command palette action not found in the current context",
+            missingArgumentsFormat: "Missing required action arguments: %@",
+            unknownArgumentsFormat: "Unknown action arguments: %@",
+            invalidArgumentValuesFormat: "Invalid values for action arguments: %@"
+        )
     }
 
     /// Encodes one action description for both list and run responses.

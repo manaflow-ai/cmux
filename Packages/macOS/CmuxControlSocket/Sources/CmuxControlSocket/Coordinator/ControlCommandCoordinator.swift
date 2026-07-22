@@ -42,17 +42,23 @@ public final class ControlCommandCoordinator {
     @ObservationIgnored
     public var handles: ControlHandleRegistry
 
+    /// Filesystem access used by the worker-lane inline VS Code command.
+    public nonisolated let inlineVSCodeFileSystem: ControlInlineVSCodeFileSystem
+
     /// Creates a coordinator.
     ///
     /// - Parameters:
     ///   - context: The app-state seam. May be set after init (see ``context``).
     ///   - handles: The handle registry to adopt. Defaults to a fresh one.
+    ///   - inlineVSCodeFileSystem: Filesystem access for inline editor paths.
     public init(
         context: (any ControlCommandContext)? = nil,
-        handles: ControlHandleRegistry = ControlHandleRegistry()
+        handles: ControlHandleRegistry = ControlHandleRegistry(),
+        inlineVSCodeFileSystem: ControlInlineVSCodeFileSystem = ControlInlineVSCodeFileSystem()
     ) {
         self.context = context
         self.handles = handles
+        self.inlineVSCodeFileSystem = inlineVSCodeFileSystem
     }
 
     // MARK: - Dispatch
@@ -82,7 +88,6 @@ public final class ControlCommandCoordinator {
         if let result = handleSystem(request) { return result }
         if let result = handleProject(request) { return result }
         if let result = handleCommandPalette(request) { return result }
-        if let result = handleInlineVSCode(request) { return result }
         if let result = handleDebug(request) { return result }
         // The v2 browser.* domain stays app-side: PR 5778 moved its
         // JS-evaluating methods onto the socket-worker lane (nonisolated
@@ -145,6 +150,8 @@ public final class ControlCommandCoordinator {
             return surfaceSendText(request.params, context: context)
         case "surface.send_key":
             return surfaceSendKey(request.params, context: context)
+        case "vscode.open":
+            return inlineVSCodeOpen(request.params, context: context)
         default:
             return nil
         }

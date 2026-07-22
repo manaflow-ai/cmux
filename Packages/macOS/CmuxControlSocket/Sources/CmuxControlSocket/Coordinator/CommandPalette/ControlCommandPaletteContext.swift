@@ -5,6 +5,9 @@
 /// parallel action list.
 @MainActor
 public protocol ControlCommandPaletteContext: AnyObject {
+    /// Returns messages resolved from the app's localization catalog.
+    func controlCommandPaletteStrings() -> ControlCommandPaletteStrings
+
     /// Lists the palette actions available in the routed window's current UI
     /// context.
     func controlCommandPaletteList(

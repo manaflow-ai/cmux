@@ -220,10 +220,6 @@ extension ContentView {
     }
 }
 
-private enum SavedLayoutActionError: Error {
-    case targetUnavailable
-}
-
 extension Notification.Name {
     static let savedLayoutSaveRequested = Notification.Name("cmux.savedLayoutSaveRequested")
 }

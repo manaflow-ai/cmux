@@ -55,6 +55,74 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["command_id"] as? String == "palette.demo")
     }
 
+    @Test func paletteListSanitizesTerminalControlsWithoutChangingJSON() throws {
+        let cliPath = try bundledCLIPath()
+        let response = #"""
+        {
+          "ok": true,
+          "result": {
+            "count": 1,
+            "commands": [{
+              "id": "custom.\u001b[31mred",
+              "title": "\u001b]0;owned\u0007Danger",
+              "subtitle": "Test",
+              "shortcut_hint": "\u009b2J⌘D",
+              "keywords": [],
+              "dismiss_on_run": true,
+              "arguments": [{
+                "name": "pa\u001b[2Jth",
+                "type": "path",
+                "required": true,
+                "allows_empty": false
+              }]
+            }]
+          }
+        }
+        """#
+
+        let textSocketPath = "/tmp/cmux-palsafe-\(UUID().uuidString.prefix(8)).sock"
+        let textResponder = try UnixSocketResponder(path: textSocketPath, response: response)
+        defer { textResponder.stop() }
+        let textResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", textSocketPath, "palette", "list"],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!textResult.timedOut)
+        #expect(textResult.status == 0)
+        #expect(
+            textResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "custom.�[31mred <pa�[2Jth>\t�]0;owned�Danger\t�2J⌘D"
+        )
+        #expect(!textResult.stdout.contains("\u{001B}"))
+        #expect(!textResult.stdout.contains("\u{009B}"))
+        #expect(!textResult.stdout.contains("\u{0007}"))
+
+        let jsonSocketPath = "/tmp/cmux-paljson-\(UUID().uuidString.prefix(8)).sock"
+        let jsonResponder = try UnixSocketResponder(path: jsonSocketPath, response: response)
+        defer { jsonResponder.stop() }
+        let jsonResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", jsonSocketPath, "--json", "palette", "list"],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!jsonResult.timedOut)
+        #expect(jsonResult.status == 0)
+        let jsonData = try #require(jsonResult.stdout.data(using: .utf8))
+        let jsonObject = try #require(JSONSerialization.jsonObject(with: jsonData) as? [String: Any])
+        let commands = try #require(jsonObject["commands"] as? [[String: Any]])
+        let command = try #require(commands.first)
+        #expect(command["id"] as? String == "custom.\u{001B}[31mred")
+        #expect(command["title"] as? String == "\u{001B}]0;owned\u{0007}Danger")
+        #expect(command["shortcut_hint"] as? String == "\u{009B}2J⌘D")
+        let arguments = try #require(command["arguments"] as? [[String: Any]])
+        #expect(arguments.first?["name"] as? String == "pa\u{001B}[2Jth")
+    }
+
     @Test func paletteRunForwardsNamedArgumentsWithoutActionSpecificParserCode() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-palargs-\(UUID().uuidString.prefix(8)).sock"
@@ -83,6 +151,36 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect((params["arguments"] as? [String: String]) == ["name": "api=worker"])
     }
 
+    @Test func paletteRunUsesTheProcessCurrentDirectoryInsteadOfPWD() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-palcwd-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"status":"completed","command":{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":null,"keywords":[],"dismiss_on_run":true}}}"#
+        )
+        defer { responder.stop() }
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-palette-cwd-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        var environment = commandPaletteCLIEnvironment()
+        environment["PWD"] = "/tmp/cmux-stale-pwd-\(UUID().uuidString)"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "palette", "run", "palette.demo"],
+            environment: environment,
+            currentDirectoryURL: directoryURL,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["cwd"] as? String == directoryURL.standardizedFileURL.path)
+    }
+
     @Test func vscodeShorthandDefaultsToTheCurrentDirectory() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-vscode-\(UUID().uuidString.prefix(8)).sock"
@@ -96,7 +194,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["--socket", socketPath, "vscode", "."],
+            arguments: ["--socket", socketPath, "vscode"],
             environment: commandPaletteCLIEnvironment(),
             currentDirectoryURL: directoryURL,
             timeout: 5

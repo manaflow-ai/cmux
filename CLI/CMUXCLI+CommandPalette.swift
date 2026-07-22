@@ -35,8 +35,12 @@ extension CMUXCLI {
             for command in commands {
                 guard let id = command["id"] as? String,
                       let title = command["title"] as? String else { continue }
-                let shortcut = (command["shortcut_hint"] as? String).map { "\t\($0)" } ?? ""
-                print("\(id)\(paletteActionSignature(command))\t\(title)\(shortcut)")
+                let safeID = Self.sanitizeForTerminal(id)
+                let safeSignature = Self.sanitizeForTerminal(paletteActionSignature(command))
+                let safeTitle = Self.sanitizeForTerminal(title)
+                let shortcut = (command["shortcut_hint"] as? String)
+                    .map { "\t\(Self.sanitizeForTerminal($0))" } ?? ""
+                print("\(safeID)\(safeSignature)\t\(safeTitle)\(shortcut)")
             }
 
         case "run":
@@ -118,8 +122,8 @@ extension CMUXCLI {
             return
         }
         let prefix = String(
-            localized: "cli.vscode.openAccepted",
-            defaultValue: "Opening in VS Code (Inline):"
+            localized: "cli.vscode.openQueued",
+            defaultValue: "Queued for VS Code (Inline):"
         )
         print("\(prefix) \((payload["path"] as? String) ?? absolutePath)")
     }
@@ -134,8 +138,7 @@ extension CMUXCLI {
     ) throws {
         var params = baseParams
         params["command_id"] = commandID
-        params["cwd"] = ProcessInfo.processInfo.environment["PWD"]
-            ?? FileManager.default.currentDirectoryPath
+        params["cwd"] = FileManager.default.currentDirectoryPath
         if !arguments.isEmpty {
             params["arguments"] = arguments
         }

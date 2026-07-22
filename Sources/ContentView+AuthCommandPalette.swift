@@ -151,13 +151,7 @@ extension ContentView {
         }
         registry.register(commandId: Self.commandPaletteCloudRestoreCommandId) { invocation in
             guard let appDelegate = AppDelegate.shared else {
-                return .failed(
-                    code: "target_unavailable",
-                    message: String(
-                        localized: "action.error.targetUnavailable",
-                        defaultValue: "The action target is no longer available."
-                    )
-                )
+                return .targetUnavailable
             }
             let snapshotId = invocation.string("snapshot_id")
             let didStart = appDelegate.performCloudVMRestoreCommand(

@@ -133,6 +133,56 @@ struct CmuxActionRegistryTests {
         #expect(result == .completed)
     }
 
+    @Test func legacyVoidHandlerReportsDispatchWithoutClaimingCompletion() {
+        var didRun = false
+        var registry = CommandPaletteHandlerRegistry()
+        registry.register(commandId: "palette.test") {
+            didRun = true
+        }
+
+        let result = registry.handler(for: "palette.test")?(
+            CmuxActionInvocation(source: .automation)
+        )
+
+        #expect(didRun)
+        #expect(result == .dispatched)
+    }
+
+    @Test func legacyCommandInitializerReportsDispatchWithoutClaimingCompletion() {
+        var didRun = false
+        let command = CommandPaletteCommand(
+            id: "palette.test",
+            rank: 0,
+            title: "Test",
+            subtitle: "Tests",
+            shortcutHint: nil,
+            kindLabel: nil,
+            keywords: [],
+            dismissOnRun: true,
+            action: { didRun = true }
+        )
+
+        let result = command.execute(CmuxActionInvocation(source: .automation))
+
+        #expect(didRun)
+        #expect(result == .dispatched)
+    }
+
+    @Test func typedHandlersPreserveReportedOutcomes() {
+        let expectedResults: [CmuxActionExecutionResult] = [
+            .completed,
+            .presented,
+            .failed(code: "unavailable", message: "Unavailable"),
+        ]
+
+        for expectedResult in expectedResults {
+            let command = makeCommand { _ in expectedResult }
+            #expect(
+                command.execute(CmuxActionInvocation(source: .automation)) == expectedResult
+            )
+        }
+    }
+
     private func makeCommand(
         id: String = "palette.test",
         arguments: [CmuxActionArgumentDefinition] = [],

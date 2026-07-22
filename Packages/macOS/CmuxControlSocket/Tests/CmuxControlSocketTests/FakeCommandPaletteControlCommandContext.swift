@@ -3,6 +3,15 @@ import Foundation
 
 @MainActor
 final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
+    var paletteStrings = ControlCommandPaletteStrings(
+        windowNotFound: "palette window unavailable",
+        missingCommandID: "missing palette command id",
+        argumentsMustBeStringObject: "palette arguments must be strings",
+        commandNotFound: "palette command unavailable",
+        missingArgumentsFormat: "missing: %@",
+        unknownArgumentsFormat: "unknown: %@",
+        invalidArgumentValuesFormat: "invalid: %@"
+    )
     var listResolution: ControlCommandPaletteListResolution = .windowNotFound
     var runResolution: ControlCommandPaletteRunResolution = .windowNotFound
     var inlineVSCodeResolution: ControlInlineVSCodeOpenResolution = .tabManagerUnavailable
@@ -15,6 +24,10 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
         workingDirectory: String?
     )?
     private(set) var inlineVSCodeCall: (routing: ControlRoutingSelectors, directoryPath: String)?
+
+    func controlCommandPaletteStrings() -> ControlCommandPaletteStrings {
+        paletteStrings
+    }
 
     func controlCommandPaletteList(
         routing: ControlRoutingSelectors
@@ -31,6 +44,18 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
     ) -> ControlCommandPaletteRunResolution {
         runCall = (routing, commandID, arguments, workingDirectory)
         return runResolution
+    }
+
+    nonisolated func controlInlineVSCodeStrings() -> ControlInlineVSCodeStrings {
+        ControlInlineVSCodeStrings(
+            missingPath: "missing inline path",
+            directoryNotFound: "inline directory not found",
+            notDirectory: "inline path is not a directory",
+            tabManagerUnavailable: "inline editor unavailable",
+            workspaceNotFound: "inline workspace not found",
+            vscodeUnavailable: "inline VS Code unavailable",
+            openFailed: "inline open failed"
+        )
     }
 
     func controlInlineVSCodeOpen(

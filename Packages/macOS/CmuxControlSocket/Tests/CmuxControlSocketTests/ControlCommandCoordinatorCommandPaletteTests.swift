@@ -94,16 +94,100 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(payload["status"] == .string("completed"))
     }
 
+    @Test func runDistinguishesDispatchedAndPresentedActions() throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        let windowID = UUID()
+        let command = testCommand()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let cases: [(ControlCommandPaletteRunResolution, String)] = [
+            (.dispatched(windowID: windowID, command: command), "dispatched"),
+            (.presented(windowID: windowID, command: command), "presented"),
+        ]
+
+        for (resolution, expectedStatus) in cases {
+            context.runResolution = resolution
+            let result = try #require(coordinator.handle(request(
+                method: "palette.run",
+                params: ["command_id": .string(command.id)]
+            )))
+            guard case .ok(.object(let payload)) = result else {
+                Issue.record("expected successful palette.run payload")
+                continue
+            }
+            #expect(payload["status"] == .string(expectedStatus))
+        }
+    }
+
+    @Test func runMapsAllTypedValidationAndFailureResults() throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        let windowID = UUID()
+        let command = testCommand()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        context.runResolution = .invalidArguments(
+            windowID: windowID,
+            command: command,
+            names: ["extra"]
+        )
+        let unknown = try #require(coordinator.handle(request(
+            method: "palette.run",
+            params: ["command_id": .string(command.id)]
+        )))
+        guard case .err(let unknownCode, let unknownMessage, .object(let unknownData)?) = unknown else {
+            Issue.record("expected unknown-arguments error")
+            return
+        }
+        #expect(unknownCode == "invalid_params")
+        #expect(unknownMessage == "unknown: extra")
+        #expect(unknownData["unknown_arguments"] == .array([.string("extra")]))
+
+        context.runResolution = .invalidArgumentValues(
+            windowID: windowID,
+            command: command,
+            names: ["overwrite"]
+        )
+        let invalid = try #require(coordinator.handle(request(
+            method: "palette.run",
+            params: ["command_id": .string(command.id)]
+        )))
+        guard case .err(let invalidCode, let invalidMessage, .object(let invalidData)?) = invalid else {
+            Issue.record("expected invalid-value error")
+            return
+        }
+        #expect(invalidCode == "invalid_params")
+        #expect(invalidMessage == "invalid: overwrite")
+        #expect(invalidData["invalid_arguments"] == .array([.string("overwrite")]))
+
+        context.runResolution = .failed(
+            windowID: windowID,
+            command: command,
+            code: "action_failed",
+            message: "Action failed to start"
+        )
+        let failed = try #require(coordinator.handle(request(
+            method: "palette.run",
+            params: ["command_id": .string(command.id)]
+        )))
+        guard case .err(let failedCode, let failedMessage, .object(let failedData)?) = failed else {
+            Issue.record("expected action failure")
+            return
+        }
+        #expect(failedCode == "action_failed")
+        #expect(failedMessage == "Action failed to start")
+        #expect(failedData["window_id"] == .string(windowID.uuidString))
+    }
+
     @Test func runRejectsMissingAndUnavailableActionIDs() throws {
         let context = FakeCommandPaletteControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
 
         let missing = try #require(coordinator.handle(request(method: "palette.run")))
-        guard case .err(let missingCode, _, _) = missing else {
+        guard case .err(let missingCode, let missingMessage, _) = missing else {
             Issue.record("expected missing-id error")
             return
         }
         #expect(missingCode == "invalid_params")
+        #expect(missingMessage == context.paletteStrings.missingCommandID)
         #expect(context.runCall == nil)
 
         context.runResolution = .commandNotFound
@@ -111,11 +195,12 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             method: "palette.run",
             params: ["command_id": .string("palette.hidden")]
         )))
-        guard case .err(let unavailableCode, _, let data) = unavailable else {
+        guard case .err(let unavailableCode, let unavailableMessage, let data) = unavailable else {
             Issue.record("expected unavailable-action error")
             return
         }
         #expect(unavailableCode == "not_found")
+        #expect(unavailableMessage == context.paletteStrings.commandNotFound)
         #expect(data == .object(["command_id": .string("palette.hidden")]))
     }
 
@@ -149,11 +234,12 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             params: ["command_id": .string(command.id)]
         )))
 
-        guard case .err(let code, _, .object(let data)?) = result else {
+        guard case .err(let code, let message, .object(let data)?) = result else {
             Issue.record("expected missing-arguments error")
             return
         }
         #expect(code == "invalid_params")
+        #expect(message == "missing: name")
         #expect(data["required_arguments"] == .array([.object([
             "name": .string("name"),
             "type": .string("string"),
@@ -174,11 +260,12 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             ]
         )))
 
-        guard case .err(let code, _, _) = result else {
+        guard case .err(let code, let message, _) = result else {
             Issue.record("expected invalid-arguments error")
             return
         }
         #expect(code == "invalid_params")
+        #expect(message == context.paletteStrings.argumentsMustBeStringObject)
         #expect(context.runCall == nil)
     }
 
@@ -187,5 +274,16 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         params: [String: JSONValue] = [:]
     ) -> ControlRequest {
         ControlRequest(id: .int(1), method: method, params: params)
+    }
+
+    private func testCommand() -> ControlCommandPaletteItem {
+        ControlCommandPaletteItem(
+            id: "palette.demo",
+            title: "Demo",
+            subtitle: "Workspace",
+            shortcutHint: nil,
+            keywords: [],
+            dismissOnRun: true
+        )
     }
 }

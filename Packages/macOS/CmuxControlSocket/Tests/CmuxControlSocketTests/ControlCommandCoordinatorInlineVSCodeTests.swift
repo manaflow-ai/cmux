@@ -5,56 +5,81 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator inline VS Code")
 struct ControlCommandCoordinatorInlineVSCodeTests {
-    @Test func openValidatesDirectoryBeforeCrossingTheAppSeam() throws {
+    @Test func openIsWorkerOnlyAndValidatesDirectoryBeforeCrossingTheAppSeam() throws {
         let context = FakeCommandPaletteControlCommandContext()
-        let coordinator = ControlCommandCoordinator(context: context)
+        let coordinator = ControlCommandCoordinator(
+            context: context,
+            inlineVSCodeFileSystem: ControlInlineVSCodeFileSystem(
+                currentDirectoryPath: { "/fixture" },
+                inspectPath: { path in
+                    (exists: path == "/fixture/file", isDirectory: false)
+                }
+            )
+        )
 
-        let missing = try #require(coordinator.handle(request(params: [:])))
-        guard case .err(let missingCode, _, _) = missing else {
+        #expect(coordinator.handle(request(params: [:])) == nil)
+
+        let missing = try #require(workerResult(coordinator, context: context, params: [:]))
+        guard case .err(let missingCode, let missingMessage, _) = missing else {
             Issue.record("expected missing-path error")
             return
         }
         #expect(missingCode == "invalid_params")
+        #expect(missingMessage == "missing inline path")
 
-        let absentPath = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .path
-        let absent = try #require(coordinator.handle(request(params: ["path": .string(absentPath)])))
-        guard case .err(let absentCode, _, _) = absent else {
+        let whitespaceOnly = try #require(workerResult(
+            coordinator,
+            context: context,
+            params: ["path": .string("  \n\t  ")]
+        ))
+        guard case .err(let whitespaceCode, _, _) = whitespaceOnly else {
+            Issue.record("expected whitespace-only path error")
+            return
+        }
+        #expect(whitespaceCode == "invalid_params")
+
+        let absent = try #require(workerResult(
+            coordinator,
+            context: context,
+            params: ["path": .string("absent")]
+        ))
+        guard case .err(let absentCode, let absentMessage, _) = absent else {
             Issue.record("expected not-found error")
             return
         }
         #expect(absentCode == "not_found")
+        #expect(absentMessage == "inline directory not found")
         #expect(context.inlineVSCodeCall == nil)
 
-        let fileURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-vscode-file-\(UUID().uuidString)", isDirectory: false)
-        try Data().write(to: fileURL)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-        let fileResult = try #require(coordinator.handle(request(params: ["path": .string(fileURL.path)])))
-        guard case .err(let fileCode, _, _) = fileResult else {
+        let fileResult = try #require(workerResult(
+            coordinator,
+            context: context,
+            params: ["path": .string("file")]
+        ))
+        guard case .err(let fileCode, let fileMessage, _) = fileResult else {
             Issue.record("expected non-directory error")
             return
         }
         #expect(fileCode == "invalid_params")
+        #expect(fileMessage == "inline path is not a directory")
         #expect(context.inlineVSCodeCall == nil)
     }
 
-    @Test func openForwardsAnAbsoluteDirectoryAndReturnsAcceptedRoute() throws {
+    @Test func openPreservesPathWhitespaceAndReturnsExplicitQueuedStatus() throws {
         let context = FakeCommandPaletteControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
         let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-vscode-dir-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("  cmux-vscode-dir-\(UUID().uuidString)  ", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let windowID = UUID()
         let workspaceID = UUID()
         context.inlineVSCodeResolution = .accepted(windowID: windowID, workspaceID: workspaceID)
 
-        let result = try #require(coordinator.handle(request(params: [
+        let result = try #require(workerResult(coordinator, context: context, params: [
             "path": .string(directoryURL.path),
             "workspace_id": .string(workspaceID.uuidString),
-        ])))
+        ]))
 
         #expect(context.inlineVSCodeCall?.directoryPath == directoryURL.path)
         #expect(context.inlineVSCodeCall?.routing.workspaceID == workspaceID)
@@ -63,9 +88,56 @@ struct ControlCommandCoordinatorInlineVSCodeTests {
             return
         }
         #expect(payload["accepted"] == .bool(true))
+        #expect(payload["status"] == .string("queued"))
         #expect(payload["window_id"] == .string(windowID.uuidString))
         #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
         #expect(payload["path"] == .string(directoryURL.path))
+    }
+
+    @Test func unresolvedExplicitPaneFailsClosedBeforeCrossingTheAppSeam() throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let directoryURL = FileManager.default.temporaryDirectory
+
+        let result = try #require(workerResult(coordinator, context: context, params: [
+            "path": .string(directoryURL.path),
+            "pane_id": .string("pane:999999"),
+        ]))
+
+        guard case .err(let code, let message, _) = result else {
+            Issue.record("expected unresolved-pane error")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(message == "inline workspace not found")
+        #expect(context.inlineVSCodeCall == nil)
+    }
+
+    @Test func appSideQueueFailureDoesNotReturnAcceptedPayload() throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        context.inlineVSCodeResolution = .openFailed
+
+        let result = try #require(workerResult(
+            coordinator,
+            context: context,
+            params: ["path": .string(FileManager.default.temporaryDirectory.path)]
+        ))
+
+        guard case .err(let code, let message, _) = result else {
+            Issue.record("expected queue failure")
+            return
+        }
+        #expect(code == "internal_error")
+        #expect(message == "inline open failed")
+    }
+
+    private func workerResult(
+        _ coordinator: ControlCommandCoordinator,
+        context: FakeCommandPaletteControlCommandContext,
+        params: [String: JSONValue]
+    ) -> ControlCallResult? {
+        coordinator.handleSocketWorkerV2(request(params: params), context: context)
     }
 
     private func request(params: [String: JSONValue]) -> ControlRequest {

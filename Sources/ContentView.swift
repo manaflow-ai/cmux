@@ -2914,19 +2914,6 @@ struct ContentView: View {
             openCommandPaletteCommands()
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteControlRequested)) { notification in
-            let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
-                observedWindow: observedWindow,
-                requestedWindow: requestedWindow,
-                keyWindow: NSApp.keyWindow,
-                mainWindow: NSApp.mainWindow
-            ),
-            let request = notification.userInfo?[CommandPaletteControlRequest.notificationUserInfoKey]
-                as? CommandPaletteControlRequest else { return }
-            handleCommandPaletteControlRequest(request)
-        })
-
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
             if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
                 presentSavedLayoutSavePrompt()
@@ -3331,7 +3318,10 @@ struct ContentView: View {
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState,
             fileExplorerState: fileExplorerState,
-            cmuxConfigStore: cmuxConfigStore
+            cmuxConfigStore: cmuxConfigStore,
+            commandPaletteControlHandler: { request in
+                handleCommandPaletteControlRequest(request)
+            }
         )
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
     }
@@ -8220,7 +8210,7 @@ struct ContentView: View {
                 return .completed
             }
             // Defer so the command palette dismisses before the modal sheet appears.
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 let panel = NSOpenPanel()
                 panel.canChooseFiles = false
                 panel.canChooseDirectories = true
@@ -8252,7 +8242,7 @@ struct ContentView: View {
                 }
                 return .completed
             }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
             }
             return .presented
@@ -9965,13 +9955,7 @@ struct ContentView: View {
     }
 
     private func commandPaletteTargetUnavailableResult() -> CmuxActionExecutionResult {
-        .failed(
-            code: "target_unavailable",
-            message: String(
-                localized: "action.error.targetUnavailable",
-                defaultValue: "The action target is no longer available."
-            )
-        )
+        .targetUnavailable
     }
 
     private func beginWorkspaceDescriptionFlow() {

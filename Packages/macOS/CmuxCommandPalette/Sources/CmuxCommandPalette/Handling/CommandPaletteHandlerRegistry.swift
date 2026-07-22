@@ -9,7 +9,9 @@ public struct CommandPaletteHandlerRegistry {
     /// Creates an empty registry.
     public init() {}
 
-    /// Registers `handler` for `commandId`; the first definition owns the ID.
+    /// Registers a compatibility handler for `commandId`; the first definition
+    /// owns the ID. Execution reports ``CmuxActionExecutionResult/dispatched``
+    /// because a `Void` handler cannot prove a more specific outcome.
     public mutating func register(
         commandId: String,
         handler: @escaping @MainActor () -> Void
@@ -17,7 +19,7 @@ public struct CommandPaletteHandlerRegistry {
         guard handlers[commandId] == nil else { return }
         handlers[commandId] = { _ in
             handler()
-            return .completed
+            return .dispatched
         }
     }
 

@@ -71,7 +71,7 @@ Environment:
 | `open` | Open files, directories, or URLs in cmux. |
 | `palette list` | List the exact Cmd+Shift+P actions available in the target window's current context, including stable string IDs and static argument schemas. Supports `--json`. |
 | `palette run <action-id>`, `palette <action-id>` | Invoke the same live action handler used by Cmd+Shift+P. Pass declared arguments with repeated `--arg name=value`. Actions hidden or disabled in the current context are rejected. Custom actions loaded from cmux.json use the same string-ID path. |
-| `vscode open [path]`, `vscode [path]` | Open a directory in a cmux VS Code (Inline) browser pane. The path defaults to the current directory and supports workspace and window targeting. |
+| `vscode open [path]`, `vscode [path]` | Queue a directory for a cmux VS Code (Inline) browser pane. The path defaults to the current directory and supports workspace and window targeting. The socket response uses `status: "queued"` because serve-web startup and pane creation finish asynchronously. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
 | `feed` | Open the keyboard-first Feed TUI or manage persisted Feed workstream history. |
 | `themes` | List, set, clear, or interactively pick Ghostty themes. |

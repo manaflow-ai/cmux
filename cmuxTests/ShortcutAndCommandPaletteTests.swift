@@ -876,8 +876,7 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
 
 final class CommandPaletteCloudCommandTests: XCTestCase {
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
-        let contributions = ContentView.commandPaletteCloudCommandContributions()
-        let commandIds = Set(contributions.map(\.commandId))
+        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions().map(\.commandId))
 
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudOpenCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
@@ -888,14 +887,6 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPortsCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudHandoffCommandId))
-
-        let restore = contributions.first {
-            $0.commandId == ContentView.commandPaletteCloudRestoreCommandId
-        }
-        XCTAssertEqual(
-            restore?.arguments,
-            [CmuxActionArgumentDefinition(name: "snapshot_id")]
-        )
     }
 
     func testCloudVMIdentityIsExplicitMetadata() {

@@ -49,7 +49,9 @@ public struct CommandPaletteCommand: Identifiable {
         self.handler = handler
     }
 
-    /// Compatibility initializer for zero-argument palette commands.
+    /// Compatibility initializer for zero-argument palette commands. Execution
+    /// reports ``CmuxActionExecutionResult/dispatched`` because `action` cannot
+    /// prove a more specific outcome.
     public init(
         id: String,
         rank: Int,
@@ -72,7 +74,7 @@ public struct CommandPaletteCommand: Identifiable {
             dismissOnRun: dismissOnRun,
             handler: { _ in
                 action()
-                return .completed
+                return .dispatched
             }
         )
     }

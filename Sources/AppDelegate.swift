@@ -549,6 +549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
+        var commandPaletteControlHandler: ((CommandPaletteControlRequest) -> Void)?
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
@@ -561,6 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState: SidebarSelectionState,
             fileExplorerState: FileExplorerState?,
             cmuxConfigStore: CmuxConfigStore?,
+            commandPaletteControlHandler: ((CommandPaletteControlRequest) -> Void)? = nil,
             window: NSWindow?
         ) {
             self.windowId = windowId
@@ -569,6 +571,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.sidebarSelectionState = sidebarSelectionState
             self.fileExplorerState = fileExplorerState
             self.cmuxConfigStore = cmuxConfigStore
+            self.commandPaletteControlHandler = commandPaletteControlHandler
             self.window = window
             self.keyboardFocusCoordinator = MainWindowFocusController(
                 windowId: windowId,
@@ -4500,6 +4503,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Register a terminal window with the AppDelegate so menu commands and socket control
     /// can target whichever window is currently active.
+    ///
+    /// - Returns: Whether the window's command-palette handler was ready and
+    ///   the socket listener was therefore safe to publish or reconcile.
+    @discardableResult
     func registerMainWindow(
         _ window: NSWindow,
         windowId: UUID,
@@ -4507,8 +4514,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState,
         fileExplorerState: FileExplorerState? = nil,
-        cmuxConfigStore: CmuxConfigStore? = nil
-    ) {
+        cmuxConfigStore: CmuxConfigStore? = nil,
+        commandPaletteControlHandler: ((CommandPaletteControlRequest) -> Void)? = nil
+    ) -> Bool {
         let key = ObjectIdentifier(window)
         forgetRecoverableMainWindowRoute(windowId: windowId)
         #if DEBUG
@@ -4530,6 +4538,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let cmuxConfigStore {
                 existing.cmuxConfigStore = cmuxConfigStore
             }
+            if let commandPaletteControlHandler {
+                existing.commandPaletteControlHandler = commandPaletteControlHandler
+            }
             existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             if let existingWindow = existing.window,
@@ -4550,7 +4561,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 window.orderOut(nil)
                 window.close()
-                return
+                return false
             }
             tabManager.window = window
             tabManager.windowId = windowId
@@ -4567,6 +4578,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let cmuxConfigStore {
                 existing.cmuxConfigStore = cmuxConfigStore
             }
+            if let commandPaletteControlHandler {
+                existing.commandPaletteControlHandler = commandPaletteControlHandler
+            }
             reindexMainWindowContextIfNeeded(existing, for: window)
             existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else {
@@ -4579,6 +4593,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sidebarSelectionState: sidebarSelectionState,
                 fileExplorerState: fileExplorerState,
                 cmuxConfigStore: cmuxConfigStore,
+                commandPaletteControlHandler: commandPaletteControlHandler,
                 window: window
             )
             mainWindowContexts[key] = context
@@ -4591,7 +4606,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "mainWindow.register windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} manager=\(debugManagerToken(tabManager)) priorActiveMgr=\(priorManagerToken) \(debugShortcutRouteSnapshot())"
         )
 #endif
-        ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
+        let isCommandPaletteControlReady = mainWindowContext(for: tabManager)?
+            .commandPaletteControlHandler != nil
+        if isCommandPaletteControlReady {
+            ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
+        }
         ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
         if window.isKeyWindow {
@@ -4606,6 +4625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
+        return isCommandPaletteControlReady
     }
 
 #if DEBUG
@@ -7858,22 +7878,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let targetTabManager = preferredTabManager
+        let targetTabs = preferredTabManager
             ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineVSCode.open.target")?.tabManager
-        guard let targetTabManager else {
+        guard let targetTabs else {
             return false
         }
 
         let targetWorkspaceId: UUID
         if let preferredWorkspaceID {
-            guard targetTabManager.tabs.contains(where: { $0.id == preferredWorkspaceID }) else {
+            guard targetTabs.tabs.contains(where: { $0.id == preferredWorkspaceID }) else {
                 return false
             }
             targetWorkspaceId = preferredWorkspaceID
         } else {
-            targetWorkspaceId = targetTabManager.selectedWorkspace?.id
-                ?? targetTabManager.tabs.first?.id
-                ?? targetTabManager.addWorkspace(select: true).id
+            targetWorkspaceId = targetTabs.selectedWorkspace?.id
+                ?? targetTabs.tabs.first?.id
+                ?? targetTabs.addWorkspace(select: true).id
         }
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
@@ -7887,7 +7907,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            guard targetTabManager.openBrowser(
+            guard targetTabs.openBrowser(
                 inWorkspace: targetWorkspaceId,
                 url: openFolderURL,
                 preferSplitRight: true

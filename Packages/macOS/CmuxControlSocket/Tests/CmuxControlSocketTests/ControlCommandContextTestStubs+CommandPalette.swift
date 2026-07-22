@@ -3,6 +3,18 @@ import Foundation
 
 // Benign defaults for the command-palette and inline-VS-Code seams.
 extension ControlCommandPaletteContext {
+    func controlCommandPaletteStrings() -> ControlCommandPaletteStrings {
+        ControlCommandPaletteStrings(
+            windowNotFound: "Command palette window not found",
+            missingCommandID: "Missing 'command_id' parameter",
+            argumentsMustBeStringObject: "'arguments' must be an object of string values",
+            commandNotFound: "Command palette action not found in the current context",
+            missingArgumentsFormat: "Missing required action arguments: %@",
+            unknownArgumentsFormat: "Unknown action arguments: %@",
+            invalidArgumentValuesFormat: "Invalid values for action arguments: %@"
+        )
+    }
+
     func controlCommandPaletteList(
         routing: ControlRoutingSelectors
     ) -> ControlCommandPaletteListResolution { .windowNotFound }
@@ -16,6 +28,18 @@ extension ControlCommandPaletteContext {
 }
 
 extension ControlInlineVSCodeContext {
+    nonisolated func controlInlineVSCodeStrings() -> ControlInlineVSCodeStrings {
+        ControlInlineVSCodeStrings(
+            missingPath: "Missing 'path' parameter",
+            directoryNotFound: "Directory not found",
+            notDirectory: "Path is not a directory",
+            tabManagerUnavailable: "The inline editor is unavailable",
+            workspaceNotFound: "Workspace not found",
+            vscodeUnavailable: "VS Code Inline is unavailable",
+            openFailed: "Failed to open VS Code Inline"
+        )
+    }
+
     func controlInlineVSCodeOpen(
         routing: ControlRoutingSelectors,
         directoryPath: String

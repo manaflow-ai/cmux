@@ -1,35 +1,26 @@
 import CmuxCommandPalette
 import Foundation
 
+extension CmuxActionExecutionResult {
+    /// The shared failure for an action whose captured UI target disappeared.
+    static var targetUnavailable: Self {
+        .failed(
+            code: "target_unavailable",
+            message: String(
+                localized: "action.error.targetUnavailable",
+                defaultValue: "The action target is no longer available."
+            )
+        )
+    }
+}
+
 /// A synchronous, window-targeted bridge from the control socket to the live
 /// SwiftUI command-palette contribution and handler registry.
 @MainActor
 final class CommandPaletteControlRequest {
-    /// The operation requested by the control socket.
-    enum Operation {
-        case list
-        case run(commandID: String, arguments: [String: String], workingDirectory: String?)
-    }
-
-    /// A closure-free snapshot of one live palette action.
-    struct Item {
-        let id: String
-        let title: String
-        let subtitle: String
-        let shortcutHint: String?
-        let keywords: [String]
-        let dismissOnRun: Bool
-        let arguments: [CmuxActionArgumentDefinition]
-    }
-
-    /// The result completed synchronously by the targeted `ContentView`.
-    enum Result {
-        case listed([Item])
-        case ran(Item, result: CmuxActionExecutionResult)
-        case commandNotFound
-    }
-
-    static let notificationUserInfoKey = "request"
+    typealias Operation = CommandPaletteControlRequestOperation
+    typealias Item = CommandPaletteControlRequestItem
+    typealias Result = CommandPaletteControlRequestResult
 
     let operation: Operation
     private(set) var result: Result?
@@ -44,8 +35,4 @@ final class CommandPaletteControlRequest {
         guard self.result == nil else { return }
         self.result = result
     }
-}
-
-extension Notification.Name {
-    static let commandPaletteControlRequested = Notification.Name("cmux.commandPaletteControlRequested")
 }

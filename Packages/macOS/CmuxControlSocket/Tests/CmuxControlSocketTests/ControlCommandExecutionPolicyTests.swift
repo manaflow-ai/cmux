@@ -153,6 +153,17 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func inlineVSCodeOpenRunsOnlyOnTheSocketWorker() {
+        // Path expansion and filesystem validation must not occupy AppKit's
+        // main actor. The worker body crosses to main only to resolve routing
+        // and queue the UI mutation, so main-thread in-process callers are
+        // rejected by the dispatcher.
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "vscode.open")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func v1PingRunsOnTheWorkerAndIsMainThreadCallable() {
         // `ping` is the dispatcher's former hard-coded worker fast path; it is
         // a pure probe, so in-process main-thread callers may run it inline.
