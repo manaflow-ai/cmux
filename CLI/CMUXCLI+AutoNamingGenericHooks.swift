@@ -45,6 +45,39 @@ extension CMUXCLI {
         return engine.extractHookMessages(fromPayloadObjects: [object])
     }
 
+    /// Starts a detached naming pass when the live workspace still permits generated titles.
+    func spawnDetachedAgentAutoNameIfEnabled(
+        def: AgentHookDef,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        transcriptPath: String?,
+        cwd: String?,
+        env: [String: String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard autoNamingSource(for: def) != nil, !sessionId.isEmpty,
+              let probe = try? client.sendV2(
+                  method: "workspace.set_auto_title",
+                  params: ["probe": true, "workspace_id": workspaceId]
+              ),
+              probe["enabled"] as? Bool == true,
+              probe["workspace_user_owned"] as? Bool != true else {
+            return
+        }
+        spawnDetachedAgentAutoName(
+            def: def,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            transcriptPath: transcriptPath,
+            cwd: cwd,
+            env: env,
+            telemetry: telemetry
+        )
+    }
+
     /// Detached naming pass for non-Codex generic agents.
     func runGenericAgentAutoNameHook(
         def: AgentHookDef,
