@@ -70,8 +70,12 @@ struct ArtifactPathResolver: Sendable {
         reservedPaths: Set<String> = []
     ) -> URL {
         let proposed = directory.appendingPathComponent(source.lastPathComponent, isDirectory: false)
+        let sessionMarkerPath = directory
+            .appendingPathComponent(Self.sessionMarkerName, isDirectory: false)
+            .standardizedFileURL.path
         guard fileManager.fileExists(atPath: proposed.path)
-                || reservedPaths.contains(proposed.standardizedFileURL.path) else {
+                || reservedPaths.contains(proposed.standardizedFileURL.path)
+                || proposed.standardizedFileURL.path == sessionMarkerPath else {
             return proposed
         }
         let basename = source.deletingPathExtension().lastPathComponent
@@ -81,7 +85,8 @@ struct ArtifactPathResolver: Sendable {
             if !pathExtension.isEmpty { name += ".\(pathExtension)" }
             let candidate = directory.appendingPathComponent(name, isDirectory: false)
             if !fileManager.fileExists(atPath: candidate.path),
-               !reservedPaths.contains(candidate.standardizedFileURL.path) {
+               !reservedPaths.contains(candidate.standardizedFileURL.path),
+               candidate.standardizedFileURL.path != sessionMarkerPath {
                 return candidate
             }
         }
