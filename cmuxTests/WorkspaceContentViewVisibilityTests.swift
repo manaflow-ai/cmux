@@ -364,6 +364,50 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    @Test
+    @MainActor
+    func appKitSidebarPersistenceIsScopedToDefaultProvider() throws {
+        #expect(
+            ContentView.retainsDefaultAppKitSidebar(
+                appKitListEnabled: true,
+                effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
+            )
+        )
+        #expect(
+            !ContentView.retainsDefaultAppKitSidebar(
+                appKitListEnabled: true,
+                effectiveProviderId: CmuxExtensionSidebarSelection.hostedExtensionsProviderId
+            )
+        )
+        let bundledProviderId = try #require(CmuxExtensionSidebarSelection.providers.first?.descriptor.id)
+        #expect(
+            !ContentView.retainsDefaultAppKitSidebar(
+                appKitListEnabled: true,
+                effectiveProviderId: bundledProviderId
+            )
+        )
+        let customSidebarsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-visibility-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: customSidebarsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: customSidebarsDirectory) }
+        let customProviderId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + "lifecycle-test"
+        try Data().write(to: customSidebarsDirectory.appendingPathComponent("lifecycle-test.swift"))
+        CmuxExtensionSidebarSelection.withCustomSidebarsDirectoryForTesting(customSidebarsDirectory) {
+            #expect(
+                !ContentView.retainsDefaultAppKitSidebar(
+                    appKitListEnabled: true,
+                    effectiveProviderId: customProviderId
+                )
+            )
+        }
+        #expect(
+            !ContentView.retainsDefaultAppKitSidebar(
+                appKitListEnabled: false,
+                effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
+            )
+        )
+    }
+
     @MainActor
     private static func descendants<View: NSView>(
         of type: View.Type,

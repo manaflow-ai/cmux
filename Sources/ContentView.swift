@@ -845,6 +845,10 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @AppStorage(PaneChromeSettings.activePaneBorderColorKey) private var activePaneBorderColorHex = PaneChromeSettings.defaultColorHex
+    @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
+    private var selectedLeftSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
+    @LiveSetting(\.betaFeatures.extensions) private var leftSidebarExtensionsExperimentalEnabled
+    @LiveSetting(\.betaFeatures.customSidebars) private var leftSidebarCustomSidebarsExperimentalEnabled
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     /// Canonical sidebar width, deliberately NOT observed by ContentView:
@@ -2476,13 +2480,42 @@ struct ContentView: View {
         return tab.presentedCurrentDirectory
     }
 
+    private var effectiveLeftSidebarProviderId: String {
+        // Keep this parent layout decision reactive to Settings while using
+        // the synchronous custom-sidebar value that avoids a one-frame remount
+        // mismatch when @LiveSetting initializes.
+        _ = leftSidebarCustomSidebarsExperimentalEnabled
+        return CmuxExtensionSidebarSelection.effectiveProviderId(
+            selectedLeftSidebarProviderId,
+            extensionsEnabled: leftSidebarExtensionsExperimentalEnabled,
+            customSidebarsEnabled: CmuxExtensionSidebarSelection.customSidebarsEnabled
+        )
+    }
+
+    private var retainsDefaultAppKitSidebarWhenHidden: Bool {
+        Self.retainsDefaultAppKitSidebar(
+            appKitListEnabled: featureFlags.isAppKitSidebarListEnabled,
+            effectiveProviderId: effectiveLeftSidebarProviderId
+        )
+    }
+
+    static func retainsDefaultAppKitSidebar(
+        appKitListEnabled: Bool,
+        effectiveProviderId: String
+    ) -> Bool {
+        appKitListEnabled
+            && CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                effectiveProviderId: effectiveProviderId
+            )
+    }
+
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
         let layout: AnyView
         // The legacy SwiftUI path uses HStack while matching so both sidebar
         // and terminal sit directly on the window background.
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
-        if featureFlags.isAppKitSidebarListEnabled {
+        if retainsDefaultAppKitSidebarWhenHidden {
             // Native sidebar identity is independent of presentation. Keep its
             // full-width subtree mounted behind a zero-width clipping shell so
             // hide/show and backdrop changes cannot cold-start the table.
@@ -2553,10 +2586,25 @@ struct ContentView: View {
     }
 
     private func restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded() {
-        guard featureFlags.isAppKitSidebarListEnabled,
+        guard retainsDefaultAppKitSidebarWhenHidden,
+              !isCommandPalettePresented,
               let window = observedWindow,
               let responder = window.firstResponder,
-              Self.appKitSidebarContainer(owning: responder) != nil else {
+              let responderView = Self.sidebarHideResponderView(responder),
+              responderView.window === window,
+              let workspace = tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.panels[panelId] else {
+            return
+        }
+
+        // Preserve legitimate input owners outside the left sidebar. Anything
+        // else in the main window (table, footer/header control, field editor)
+        // yields to the selected panel when the persistent sidebar is hidden.
+        if panel.ownedFocusIntent(for: responder, in: window) != nil {
+            return
+        }
+        if AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true {
             return
         }
 
@@ -2564,11 +2612,6 @@ struct ContentView: View {
         // the same way unmounting did before the sidebar became persistent.
         _ = window.makeFirstResponder(nil)
 
-        guard let workspace = tabManager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let panel = workspace.panels[panelId] else {
-            return
-        }
         AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
             workspaceId: workspace.id,
             panelId: panelId,
@@ -2577,23 +2620,12 @@ struct ContentView: View {
         workspace.focusPanel(panelId, focusIntent: panel.preferredFocusIntentForActivation())
     }
 
-    private static func appKitSidebarContainer(
-        owning responder: NSResponder
-    ) -> SidebarWorkspaceTableContainerView? {
-        var view: NSView?
+    private static func sidebarHideResponderView(_ responder: NSResponder) -> NSView? {
         if let editor = responder as? NSTextView,
            let delegateView = editor.delegate as? NSView {
-            view = delegateView
-        } else {
-            view = responder as? NSView
+            return delegateView
         }
-        while let current = view {
-            if let container = current as? SidebarWorkspaceTableContainerView {
-                return container
-            }
-            view = current.superview
-        }
-        return nil
+        return responder as? NSView
     }
 
     var body: some View {
@@ -10309,6 +10341,20 @@ enum CmuxExtensionSidebarSelection {
         return persistedProviderId
     }
 
+    static func effectiveProviderId(
+        _ persistedProviderId: String,
+        extensionsEnabled: Bool,
+        customSidebarsEnabled: Bool
+    ) -> String {
+        if persistedProviderId.hasPrefix(customSidebarProviderPrefix), !customSidebarsEnabled {
+            return defaultProviderId
+        }
+        return effectiveProviderId(
+            persistedProviderId,
+            extensionsEnabled: extensionsEnabled
+        )
+    }
+
     static func localizedTitle(for descriptor: CmuxSidebarProviderDescriptor) -> String {
         localizedText(descriptor.title)
     }
@@ -10604,20 +10650,16 @@ struct VerticalTabsSidebar: View, Equatable {
     // reactive to the flag toggling.
     private var effectiveExtensionSidebarProviderId: String {
         let selected = selectedExtensionSidebarProviderId
-        if selected.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix) {
-            // Touch the @LiveSetting so toggling the flag in Settings still
-            // re-renders, but decide with the synchronous UserDefaults read:
-            // on a sidebar remount @LiveSetting's initial value lags one tick,
-            // which would otherwise flash the default sidebar for a frame
-            // before swapping to the custom one.
-            _ = customSidebarsExperimentalEnabled
-            return CmuxExtensionSidebarSelection.customSidebarsEnabled
-                ? selected
-                : CmuxExtensionSidebarSelection.defaultProviderId
-        }
+        // Touch the @LiveSetting so toggling the flag in Settings still
+        // re-renders, but decide with the synchronous UserDefaults read:
+        // on a sidebar remount @LiveSetting's initial value lags one tick,
+        // which would otherwise flash the default sidebar for a frame
+        // before swapping to the custom one.
+        _ = customSidebarsExperimentalEnabled
         return CmuxExtensionSidebarSelection.effectiveProviderId(
-            selectedExtensionSidebarProviderId,
-            extensionsEnabled: extensionsExperimentalEnabled
+            selected,
+            extensionsEnabled: extensionsExperimentalEnabled,
+            customSidebarsEnabled: CmuxExtensionSidebarSelection.customSidebarsEnabled
         )
     }
 
