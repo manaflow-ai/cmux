@@ -17,6 +17,9 @@ public protocol TerminalEngineHosting: AnyObject {
     /// (`"detect"`, `"none"`, or an explicit shell).
     var userGhosttyShellIntegrationMode: String { get }
 
+    /// Whether Ghostty's app configuration supplies the default surface command.
+    var hasUserGhosttyCommand: Bool { get }
+
     /// The executable user shell resolved before Ghostty config finalization.
     var resolvedUserShell: String? { get }
 }

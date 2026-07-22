@@ -32,28 +32,31 @@ extension GhosttyApp {
         )
 #endif
 
-        // Returning false lets Ghostty render its detailed abnormal-exit text
-        // and, by Ghostty's contract, retain the dead surface for inspection.
-        if keepSurfaceVisible {
-            return false
-        }
-
-        guard let runtimeSurface else { return true }
-        // Avoid re-entrant close/deinit while Ghostty dispatches this callback.
-        DispatchQueue.main.async {
-            guard let app = AppDelegate.shared else { return }
-            guard GhosttyApp.terminalSurfaceRegistry.surface(id: runtimeSurface.id) === runtimeSurface else { return }
-            if let surfaceId, app.closeWindowDockRuntimeSurface(surfaceId: surfaceId, force: true) { return }
-            if let tabId, let surfaceId,
-               let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager {
-                manager.closePanelAfterChildExited(
-                    tabId: tabId,
-                    surfaceId: surfaceId,
-                    runtimeSurface: runtimeSurface
-                )
+        if let runtimeSurface {
+            // Avoid re-entrant close/deinit while Ghostty dispatches this callback.
+            DispatchQueue.main.async {
+                guard let app = AppDelegate.shared else { return }
+                guard GhosttyApp.terminalSurfaceRegistry.surface(id: runtimeSurface.id) === runtimeSurface else { return }
+                if !keepSurfaceVisible,
+                   let surfaceId,
+                   app.closeWindowDockRuntimeSurface(surfaceId: surfaceId, force: true) {
+                    return
+                }
+                if let tabId, let surfaceId,
+                   let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager {
+                    manager.closePanelAfterChildExited(
+                        tabId: tabId,
+                        surfaceId: surfaceId,
+                        runtimeSurface: runtimeSurface,
+                        keepSurfaceVisible: keepSurfaceVisible
+                    )
+                }
             }
         }
-        return true
+
+        // Returning false lets Ghostty render its detailed abnormal-exit text
+        // and, by Ghostty's contract, retain the dead surface for inspection.
+        return !keepSurfaceVisible
     }
 
     private func abnormalCommandExitRuntimeMilliseconds() -> UInt32 {

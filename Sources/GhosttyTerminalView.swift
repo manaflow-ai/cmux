@@ -449,6 +449,7 @@ class GhosttyApp {
     private var reloadConfigurationDepth = 0
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
+    private(set) var hasUserGhosttyCommand = false
     private(set) var resolvedUserShell: String?
 
     static func retainTickNotifications() -> () -> Void {
@@ -973,6 +974,7 @@ class GhosttyApp {
             // If the user config is invalid, prefer a minimal fallback configuration so
             // cmux still launches with working terminals.
             ghostty_config_free(primaryConfig)
+            hasUserGhosttyCommand = false
 
             guard let fallbackConfig = ghostty_config_new() else {
                 #if DEBUG
@@ -1195,6 +1197,10 @@ class GhosttyApp {
         if appearanceSummary.shouldApplyDefaultAppearance, !appearanceSummary.hasExplicitTerminalColorDirective {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
+        hasUserGhosttyCommand = GhosttyConfig.load(
+            preferredColorScheme: preferredColorScheme,
+            useCache: false
+        ).command != nil
     }
 
     func loadDefaultConfigFilesWithLegacyFallback(
@@ -1202,6 +1208,7 @@ class GhosttyApp {
         preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
         conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
+        hasUserGhosttyCommand = false
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme

@@ -18,7 +18,7 @@ extension TerminalSurface {
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
         claudeShim: ClaudeCommandShim?
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
-        var baseConfig = runtimeCreationConfigTemplate()
+        let baseConfig = runtimeCreationConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
         let magnificationPercent = globalFontMagnificationPercent()
         surfaceConfig.font_size = CmuxSurfaceConfigTemplate.runtimeFontSize(
@@ -202,6 +202,7 @@ extension TerminalSurface {
             )
         }
 
+        var managedShellCommand: String?
         if spawnPolicy.shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
            Self.shellIntegrationDirectoryExists(integrationDir) {
@@ -214,15 +215,14 @@ extension TerminalSurface {
                 protectedKeys: &protectedStartupEnvironmentKeys
             )
 
-            if let shell = engine.resolvedUserShell,
-               let command = Self.applyManagedShellSpecificStartupEnvironment(
-                shell: shell,
-                integrationDir: integrationDir,
-                userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
-                to: &env,
-                protectedKeys: &protectedStartupEnvironmentKeys
-            ) {
-                if baseConfig.command?.isEmpty != false { baseConfig.command = command }
+            if let shell = engine.resolvedUserShell {
+                managedShellCommand = Self.applyManagedShellSpecificStartupEnvironment(
+                    shell: shell,
+                    integrationDir: integrationDir,
+                    userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
+                    to: &env,
+                    protectedKeys: &protectedStartupEnvironmentKeys
+                )
             }
         }
         env = Self.mergedStartupEnvironment(
@@ -253,12 +253,13 @@ extension TerminalSurface {
             }
             return baseConfig.workingDirectory
         }()
-        let resolvedCommand: String? = {
-            if let initialCommand, !initialCommand.isEmpty {
-                return initialCommand
-            }
-            return baseConfig.command
-        }()
+        let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: initialCommand,
+            surfaceCommand: baseConfig.command,
+            hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
+            managedShellCommand: managedShellCommand,
+            resolvedShell: engine.resolvedUserShell
+        )
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {
             if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
