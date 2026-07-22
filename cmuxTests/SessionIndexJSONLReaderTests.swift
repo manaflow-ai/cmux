@@ -10,6 +10,31 @@ import Testing
 @Suite
 struct SessionIndexJSONLReaderTests {
     @Test
+    func startReaderParsesCompleteRecordEndingAtByteCap() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-start-boundary-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let record = #"{"sessionId":"exact-cap"}"#
+        try Data(record.utf8).write(to: url)
+
+        var visitedSessionIDs: [String] = []
+        let metrics = SessionIndexJSONLReader().fromStart(
+            url: url,
+            maxBytes: Data(record.utf8).count
+        ) { object in
+            if let sessionID = object["sessionId"] as? String {
+                visitedSessionIDs.append(sessionID)
+            }
+            return false
+        }
+
+        #expect(visitedSessionIDs == ["exact-cap"])
+        #expect(metrics.bytesRead == Data(record.utf8).count)
+        #expect(metrics.recordsVisited == 1)
+    }
+
+    @Test
     func tailReaderReturnsNewestRecordsWithoutReadingTheWholeHistory() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-vault-history-\(UUID().uuidString).jsonl")

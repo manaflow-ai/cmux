@@ -85,6 +85,25 @@ struct SessionIndexTableViewportTests {
 
     @MainActor
     @Test
+    func tableDocumentViewTracksSidebarViewportWidth() throws {
+        let controller = SessionIndexTableController()
+        let container = controller.makeContainerView()
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 300)
+        container.layoutSubtreeIfNeeded()
+
+        let table = container.tableView
+        let clipView = try #require(table.superview as? NSClipView)
+        let column = try #require(table.tableColumns.first)
+        #expect(abs(table.frame.width - clipView.bounds.width) < 0.5)
+
+        container.frame.size.width = 480
+        container.layoutSubtreeIfNeeded()
+        #expect(abs(table.frame.width - clipView.bounds.width) < 0.5)
+        #expect(abs(column.width - table.bounds.width) < 0.5)
+    }
+
+    @MainActor
+    @Test
     func unrelatedPreviewDoesNotInvalidateASectionRow() {
         let section = IndexSection(
             key: .directory("/tmp/vault-scale"),
