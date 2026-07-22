@@ -2,6 +2,238 @@ import Foundation
 import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func agentsListIncludesRestoreAuthorityRecordsByDefault() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-restore-authority-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "restorable-session": [
+                    "sessionId": "restorable-session",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-root",
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": ["surface-root"],
+        ])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "list", "--agent", "codex", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try #require(payload["sessions"] as? [[String: Any]])
+        #expect(sessions.map { $0["session_id"] as? String } == ["restorable-session"])
+    }
+
+    @Test func agentsTreeResolvesClaudeWorkflowSessionBeforeFiltering() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-claude-workflow-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        let repository = root.appendingPathComponent("repo", isDirectory: true)
+        let claudeConfig = root.appendingPathComponent("claude-config", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workflowSessionID = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
+        let transcriptSessionID = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+        let projectDirectoryName = repository.path
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
+        let projectDirectory = claudeConfig
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(projectDirectoryName, isDirectory: true)
+        let workflowContainer = projectDirectory
+            .appendingPathComponent(workflowSessionID, isDirectory: true)
+        try FileManager.default.createDirectory(at: workflowContainer, withIntermediateDirectories: true)
+        try "{}\n".write(
+            to: projectDirectory.appendingPathComponent("\(transcriptSessionID).jsonl"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                workflowSessionID: [
+                    "sessionId": workflowSessionID,
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-root",
+                    "cwd": repository.path,
+                    "transcriptPath": workflowContainer.path,
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                    "launchCommand": [
+                        "launcher": "claude",
+                        "executablePath": "/usr/local/bin/claude",
+                        "arguments": ["/usr/local/bin/claude"],
+                        "workingDirectory": repository.path,
+                        "environment": ["CLAUDE_CONFIG_DIR": claudeConfig.path],
+                        "source": "environment",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": ["surface-root"],
+        ])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", responder.path,
+                "agents", "tree", "--agent", "claude", "--session", transcriptSessionID, "--json",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let nodes = try #require(payload["nodes"] as? [[String: Any]])
+        let node = try #require(nodes.first)
+        #expect(nodes.count == 1)
+        #expect(node["session_id"] as? String == transcriptSessionID)
+        #expect(node["hook_session_id"] as? String == workflowSessionID)
+    }
+
+    @Test func agentsTreePreservesHiddenAncestorsAndRejectsConflictingParents() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-tree-parent-integrity-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "hidden-parent": [
+                    "sessionId": "hidden-parent",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-parent",
+                    "runId": "hidden-parent-run",
+                    "restoreAuthority": false,
+                    "startedAt": 100.0,
+                    "updatedAt": 100.0,
+                ],
+                "visible-child": [
+                    "sessionId": "visible-child",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-child",
+                    "runId": "visible-child-run",
+                    "parentRunId": "hidden-parent-run",
+                    "restoreAuthority": true,
+                    "startedAt": 110.0,
+                    "updatedAt": 110.0,
+                ],
+                "other-parent": [
+                    "sessionId": "other-parent",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-other",
+                    "runId": "other-parent-run",
+                    "restoreAuthority": true,
+                    "startedAt": 120.0,
+                    "updatedAt": 120.0,
+                ],
+                "conflicting-child": [
+                    "sessionId": "conflicting-child",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-conflict",
+                    "runId": "conflicting-child-run",
+                    "parentSessionId": "hidden-parent",
+                    "parentRunId": "other-parent-run",
+                    "restoreAuthority": true,
+                    "startedAt": 130.0,
+                    "updatedAt": 130.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": ["surface-parent", "surface-child", "surface-other", "surface-conflict"],
+        ])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "tree", "--agent", "codex", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let nodes = try #require(payload["nodes"] as? [[String: Any]])
+        let edges = try #require(payload["edges"] as? [[String: Any]])
+        #expect(nodes.contains { $0["session_id"] as? String == "hidden-parent" })
+        #expect(edges.contains {
+            $0["from_session_id"] as? String == "hidden-parent"
+                && $0["to_session_id"] as? String == "visible-child"
+        })
+        #expect(!edges.contains { $0["to_session_id"] as? String == "conflicting-child" })
+    }
+
+    @Test func agentsTreeRejectsBlankAgentValues() throws {
+        let cliPath = try bundledCLIPath()
+        let responder = try agentsInstanceResponder(workspaces: [:])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "tree", "--agent=  ", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status != 0)
+        #expect(result.stdout.contains("--agent requires a value"), Comment(rawValue: result.stdout))
+    }
+
     @Test func agentsListExcludesSessionsOwnedByAnotherCmuxInstance() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
