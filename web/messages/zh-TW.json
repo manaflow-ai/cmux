@@ -745,6 +745,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "如需在網路之間漫遊，請使用 cmux mosh-tmux。它會開啟一個連接到具名 tmux 工作階段的完整 Mosh 終端；不會取代 SSH tmux 控制模式提供的原生工作區、分頁與分割鏡像。"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "入門指南",
@@ -1493,10 +1496,16 @@
       "flagName": "旗幟",
       "flagDesc": "描述",
       "flagNameVal": "設定工作區標題",
+      "flagCommand": "在 shell 啟動後於初始遠端終端機中執行一次命令文字",
       "flagPort": "SSH 連接埠（預設 22）",
       "flagIdentity": "身分檔案的路徑",
       "flagSshOption": "傳遞任意 SSH 選項（例如 -o StrictHostKeyChecking=no）",
+      "flagTransport": "互動式終端傳輸方式：ssh（預設）或 mosh",
       "flagNoFocus": "建立工作區而不切換到它",
+      "moshTitle": "Mosh 終端傳輸",
+      "moshDesc": "如果互動式終端需要在切換 Wi-Fi、VPN、熱點或睡眠與喚醒後保持連線，請使用 cmux ssh user@remote --transport mosh。Mosh 只承載終端 PTY；SSH 仍負責遠端中繼資料、cmux 服務的設定與控制、瀏覽器代理、上傳與重新連線。",
+      "moshFallback": "cmux 要求本機安裝 Mosh 1.4 或更新版本，並在啟動前檢查遠端 mosh-server。如果用戶端缺少或不相容、伺服器缺少，或遠端檢查失敗，cmux 會說明原因並繼續使用 SSH。",
+      "moshTmux": "建立 Mosh 工作區，用來建立或附加具名 tmux 工作階段（預設：main）。tmux 設定會在重新連線與 App 工作階段還原後保留。這是可漫遊的 tmux 終端，而不是 cmux ssh-tmux 的原生鏡像。--session <name> 選擇工作階段；其他選項與 cmux mosh 相同。沒有 Mosh 時，同一設定會透過 SSH 執行。",
       "deepLinksTitle": "SSH 深層鏈接",
       "deepLinksDesc": "當網站或工具想要提供「在 cmux 中開啟」按鈕時，請使用 cmux SSH 深層連結。該連結將開啟 cmux，顯示確認提示，然後在使用者確認後執行等效的 cmux ssh 命令。",
       "deepLinksWebFallbackDesc": "使用網站按鈕的 cmux.com 後備 URL。如果未安裝 cmux，它將開啟本機連結並顯示下載。",

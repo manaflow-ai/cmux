@@ -94,6 +94,32 @@ import Testing
 }
 
 @MainActor
+@Test func verifiedReplayCapableHostUsesRenderGridOnlySubscription() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.render_grid.verified_replay.v1",
+        "terminal.replay.v1"
+    ])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.connectionState == .connected)
+    #expect(store.terminalOutputTransport == .renderGrid)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must request the server-side subscription")
+    let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
+    #expect(topics.contains("terminal.render_grid"))
+    #expect(
+        topics.contains("terminal.bytes") == false,
+        "verified replay must exclude raw bytes so primary-screen updates cannot bypass render-grid verification"
+    )
+}
+
+@MainActor
 @Test func renderGridOnlyHostKeepsPrimaryRenderGridDelivery() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
@@ -473,25 +499,23 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
-    try await Task.sleep(for: .milliseconds(300))
-
+    // The second independent probe succeeds and resets the liveness window.
+    // Reconnecting makes `.connected` prove that its response was applied.
+    store.markMacConnectionReconnecting()
+    let followUpSucceeded = try await pollUntil {
+        store.debugRunRenderGridLivenessCheckForTesting()
+        return await router.count(of: "mobile.events.subscribe") >= 3
+            && store.macConnectionStatus == .connected
+    }
+    #expect(followUpSucceeded, "the follow-up probe must complete successfully")
     #expect(store.remoteClient === originalClient)
     #expect(store.connectionGeneration == originalGeneration)
     #expect(store.connectionState == .connected)
+    #expect(store.macConnectionStatus == .connected)
     #expect(
         await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
         "one transient probe miss must not restart the event listener"
     )
-
-    // The second independent probe succeeds and resets the liveness window.
-    store.debugRunRenderGridLivenessCheckForTesting()
-    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 3))
-    try await Task.sleep(for: .milliseconds(50))
-
-    #expect(store.remoteClient === originalClient)
-    #expect(store.connectionGeneration == originalGeneration)
-    #expect(store.macConnectionStatus == .connected)
-    #expect(await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure)
 }
 
 /// A successful probe that REPAIRED a lost registration (the host reports
@@ -586,13 +610,15 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
-    try await Task.sleep(for: .milliseconds(300))
+    let secondProbeStarted = try await pollUntil {
+        store.debugRunRenderGridLivenessCheckForTesting()
+        return await router.count(of: "mobile.events.subscribe") >= 3
+    }
+    #expect(secondProbeStarted, "the first failure must permit a confirmation probe")
     #expect(
         await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
         "the first ambiguous probe failure must preserve the current listener"
     )
-
-    store.debugRunRenderGridLivenessCheckForTesting()
 
     // Recovery restarts the listener, which re-resolves capabilities. A new
     // mobile.host.status request is the teardown-and-restart proof.

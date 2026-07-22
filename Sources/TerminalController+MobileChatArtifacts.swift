@@ -111,7 +111,10 @@ extension TerminalController {
         }
     }
 
-    func v2MobileChatArtifactFetch(params: [String: Any]) async -> V2CallResult {
+    func v2MobileChatArtifactFetch(
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> V2CallResult {
         let resolution = await mobileChatArtifactResolution(params: params, operation: .file)
         guard case .success(let resolved) = resolution else {
             return resolution.failureResult
@@ -120,10 +123,44 @@ extension TerminalController {
         let length = ChatArtifactTransferPolicy.defaultPolicy
             .clampedChunkLength(v2Int(params, "length"))
         do {
+            if v2RawString(params, "transport") == "iroh_artifact_v1" {
+                guard let executionContext else {
+                    return .err(
+                        code: "unsupported_transport",
+                        message: String(
+                            localized: "mobile.chat.artifact.error.irohTransportUnavailable",
+                            defaultValue: "Artifact transfer requires an authenticated session."
+                        ),
+                        data: nil
+                    )
+                }
+                return .ok(ChatArtifactWire.payload(
+                    try await executionContext.issueArtifactTransfer(
+                        canonicalPath: resolved.canonicalPath
+                    )
+                ) ?? [:])
+            }
             let chunk = try await Task.detached {
                 try ArtifactByteReader().fetch(path: resolved.canonicalPath, offset: offset, length: length)
             }.value
             return .ok(ChatArtifactWire.payload(chunk) ?? [:])
+        } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
+            switch error.issueFailure {
+            case .fileNotFound:
+                debugLogMobileChatArtifactDenial(
+                    code: "file_not_found",
+                    reason: "descriptor-file-invalid",
+                    path: resolved.requestedPath
+                )
+                return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
+            case .unavailable:
+                debugLogMobileChatArtifactDenial(
+                    code: "unavailable",
+                    reason: "descriptor-issue-failed",
+                    path: resolved.requestedPath
+                )
+                return mobileChatArtifactError(.unavailable, path: resolved.requestedPath)
+            }
         } catch ArtifactByteReader.Error.fileNotFound {
             debugLogMobileChatArtifactDenial(
                 code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
@@ -301,6 +338,7 @@ extension TerminalController {
         case forbidden
         case fileNotFound
         case unsupportedMedia
+        case unavailable
     }
 
     private func mobileChatArtifactError(
@@ -343,6 +381,15 @@ extension TerminalController {
                     defaultValue: "This file type cannot be previewed."
                 ),
                 data: ["path": path]
+            )
+        case .unavailable:
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "mobile.chat.artifact.error.transferUnavailable",
+                    defaultValue: "Artifact transfer is temporarily unavailable."
+                ),
+                data: nil
             )
         }
     }

@@ -256,6 +256,7 @@ final class MobileTerminalRenderObserver {
 
     private func emitRenderGrid(surfaceID: UUID, forceIncludeTheme: Bool) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
+        let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               surface.surface != nil else {
             clearRenderGridCache(surfaceID: surfaceID)
@@ -272,6 +273,8 @@ final class MobileTerminalRenderObserver {
             || didReplaceRuntimeSurface
         guard let snapshot = surface.mobileRenderGridFrame(
                 stateSeq: stateSeq,
+                renderEpoch: renderCapture.epoch,
+                renderRevision: renderCapture.revision,
                 full: true,
                 includeTheme: includeTheme
               ) else {
@@ -315,7 +318,8 @@ final class MobileTerminalRenderObserver {
         #if DEBUG
         cmuxDebugLog(
             "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(frame.full) " +
-                "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
+                "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) " +
+                "seq=\(frame.stateSeq) revision=\(frame.renderRevision)"
         )
         #endif
     }
