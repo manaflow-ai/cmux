@@ -11,6 +11,10 @@ public struct AgentsPanelView: View {
     private let store: SubrouterStore
     private let isPanelVisible: Bool
     private let onVisibilityChange: (Bool) -> Void
+    /// Opens a terminal for an `sr` maintenance command (add account,
+    /// re-login, remove). `nil` hides those actions entirely — hosts that
+    /// cannot create workspaces (previews, tests) pass nothing.
+    private let onOpenTerminal: ((SubrouterTerminalRequest) -> Void)?
     @State private var isRegisteredVisible = false
 
     /// Creates the panel.
@@ -28,11 +32,13 @@ public struct AgentsPanelView: View {
     public init(
         store: SubrouterStore,
         isPanelVisible: Bool = true,
-        onVisibilityChange: @escaping (Bool) -> Void
+        onVisibilityChange: @escaping (Bool) -> Void,
+        onOpenTerminal: ((SubrouterTerminalRequest) -> Void)? = nil
     ) {
         self.store = store
         self.isPanelVisible = isPanelVisible
         self.onVisibilityChange = onVisibilityChange
+        self.onOpenTerminal = onOpenTerminal
     }
 
     public var body: some View {
@@ -57,20 +63,16 @@ public struct AgentsPanelView: View {
                         accounts: snapshot.accounts(for: provider),
                         usageHistory: store.usageHistory,
                         pendingSwitchAccountID: store.pendingSwitchAccountID,
-                        // Remote servers assign accounts per session; there
-                        // is no global switch to offer.
-                        onSwitch: configuration.isRemoteEndpoint ? nil : { account in
-                            switchAccount(account)
-                        }
+                        actionsForAccount: { account in
+                            rowActions(account: account, configuration: configuration)
+                        },
+                        onAddAccount: terminalAction(
+                            configuration.isRemoteEndpoint ? nil : .addAccount(provider: provider)
+                        )
                     )
                 }
                 if snapshot.daemonState.isHealthy && snapshot.usageStatuses.isEmpty {
-                    Text(String(
-                        localized: "subrouter.panel.noAccounts",
-                        defaultValue: "No accounts configured. Add accounts with the sr CLI."
-                    ))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    emptyAccountsState(configuration: configuration)
                 }
                 SubrouterActivityChartView(
                     activity: SubrouterSessionStats.accountActivity(
@@ -109,6 +111,65 @@ public struct AgentsPanelView: View {
         Task { @MainActor in
             // Errors surface through store.lastSwitchError, rendered above.
             try? await store.switchAccount(provider: account.provider, accountID: account.id)
+        }
+    }
+
+    /// The action bundle for one account row. Switching stays local-only
+    /// (remote servers assign accounts per session); sign-in and remove
+    /// manage the local `sr` store, so they follow the same gate — and all
+    /// terminal-backed verbs also require a terminal-capable host.
+    private func rowActions(
+        account: SubrouterAccountUsageStatus,
+        configuration: SubrouterConfiguration
+    ) -> SubrouterAccountRowActions {
+        guard !configuration.isRemoteEndpoint else {
+            return SubrouterAccountRowActions()
+        }
+        let canSwitch = !account.isActive
+            && account.provider.supportsSwitching
+            && store.pendingSwitchAccountID == nil
+        return SubrouterAccountRowActions(
+            onSwitch: canSwitch ? { switchAccount(account) } : nil,
+            onSignIn: terminalAction(.signIn(account: account)),
+            onRemove: terminalAction(.removeAccount(account: account))
+        )
+    }
+
+    /// Wraps a terminal request in a closure for the host, or `nil` when
+    /// the request is unsupported or no terminal host is wired.
+    private func terminalAction(_ request: SubrouterTerminalRequest?) -> (() -> Void)? {
+        guard let onOpenTerminal, let request else { return nil }
+        return { onOpenTerminal(request) }
+    }
+
+    /// The zero-accounts state: explanatory text, plus one-click add
+    /// buttons when the host can open terminals against the local `sr`.
+    @ViewBuilder
+    private func emptyAccountsState(configuration: SubrouterConfiguration) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(
+                localized: "subrouter.panel.noAccounts",
+                defaultValue: "No accounts configured. Add accounts with the sr CLI."
+            ))
+            .font(.system(size: 10))
+            .foregroundStyle(.tertiary)
+            if !configuration.isRemoteEndpoint {
+                HStack(spacing: 6) {
+                    ForEach([SubrouterProvider.codex, .claude], id: \.rawValue) { provider in
+                        if let action = terminalAction(.addAccount(provider: provider)) {
+                            Button(action: action) {
+                                Text(String(
+                                    localized: "subrouter.provider.addAccount",
+                                    defaultValue: "Add \(provider.displayName) account"
+                                ))
+                                .font(.system(size: 10))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -1,15 +1,20 @@
 public import SwiftUI
 public import CmuxSubrouter
 
-/// One provider's section: header and account rows. Receives value
-/// snapshots plus an action closure only.
+/// One provider's section: header (with an add-account button when the
+/// host can open terminals), account rows, and a signed-out disclosure.
+/// Receives value snapshots plus action closures only.
 public struct SubrouterProviderSectionView: View {
     private let provider: SubrouterProvider
     private let accounts: [SubrouterAccountUsageStatus]
     private let usageHistory: SubrouterUsageHistory
     private let pendingSwitchAccountID: String?
-    /// `nil` disables switching entirely (remote-server mode).
-    private let onSwitch: ((SubrouterAccountUsageStatus) -> Void)?
+    /// Builds the action bundle for one account; the panel owns the
+    /// store/terminal wiring so this section stays snapshot-only.
+    private let actionsForAccount: (SubrouterAccountUsageStatus) -> SubrouterAccountRowActions
+    /// Opens a terminal running the provider's add-account login, or `nil`
+    /// when adding is unavailable (remote server mode, unknown provider).
+    private let onAddAccount: (() -> Void)?
     /// Signed-out accounts collapse behind a disclosure so a pile of stale
     /// logins (the common long-lived daemon state) never buries the usable
     /// rows. Local UI state only; resets with the panel, which is fine.
@@ -20,19 +25,22 @@ public struct SubrouterProviderSectionView: View {
     ///   - provider: The provider being rendered.
     ///   - accounts: The provider's account snapshots, in daemon order.
     ///   - pendingSwitchAccountID: The account id of an in-flight switch.
-    ///   - onSwitch: Called with the account the user asked to switch to.
+    ///   - actionsForAccount: Action-bundle factory for each account row.
+    ///   - onAddAccount: The add-account action, or `nil` when unavailable.
     public init(
         provider: SubrouterProvider,
         accounts: [SubrouterAccountUsageStatus],
         usageHistory: SubrouterUsageHistory = SubrouterUsageHistory(),
         pendingSwitchAccountID: String?,
-        onSwitch: ((SubrouterAccountUsageStatus) -> Void)?
+        actionsForAccount: @escaping (SubrouterAccountUsageStatus) -> SubrouterAccountRowActions,
+        onAddAccount: (() -> Void)?
     ) {
         self.provider = provider
         self.accounts = accounts
         self.usageHistory = usageHistory
         self.pendingSwitchAccountID = pendingSwitchAccountID
-        self.onSwitch = onSwitch
+        self.actionsForAccount = actionsForAccount
+        self.onAddAccount = onAddAccount
     }
 
     public var body: some View {
@@ -47,13 +55,29 @@ public struct SubrouterProviderSectionView: View {
                     .padding(.vertical, 1)
                     .background(Color.primary.opacity(0.08), in: Capsule())
                 Spacer(minLength: 0)
+                if let onAddAccount {
+                    Button(action: onAddAccount) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(
+                        localized: "subrouter.provider.addAccount",
+                        defaultValue: "Add \(provider.displayName) account"
+                    ))
+                    .accessibilityLabel(String(
+                        localized: "subrouter.provider.addAccount",
+                        defaultValue: "Add \(provider.displayName) account"
+                    ))
+                }
             }
             ForEach(usableAccounts) { account in
                 SubrouterAccountRowView(
                     account: account,
                     usageHistory: usageHistory,
                     isSwitchPending: pendingSwitchAccountID == account.id,
-                    onSwitch: switchAction(for: account),
+                    actions: actionsForAccount(account),
                     switchNote: provider.switchSideEffectNote
                 )
             }
@@ -80,7 +104,7 @@ public struct SubrouterProviderSectionView: View {
                             account: account,
                             usageHistory: usageHistory,
                             isSwitchPending: pendingSwitchAccountID == account.id,
-                            onSwitch: switchAction(for: account),
+                            actions: actionsForAccount(account),
                             switchNote: provider.switchSideEffectNote
                         )
                     }
@@ -113,15 +137,5 @@ public struct SubrouterProviderSectionView: View {
     /// Non-active accounts whose auth check failed; collapsed by default.
     private var signedOutAccounts: [SubrouterAccountUsageStatus] {
         accounts.filter { !$0.isActive && $0.authChecked && !$0.authValid }
-    }
-
-    private func switchAction(for account: SubrouterAccountUsageStatus) -> (() -> Void)? {
-        guard let onSwitch,
-              !account.isActive,
-              provider.supportsSwitching,
-              pendingSwitchAccountID == nil else {
-            return nil
-        }
-        return { onSwitch(account) }
     }
 }
