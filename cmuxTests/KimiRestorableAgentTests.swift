@@ -31,6 +31,34 @@ struct KimiRestorableAgentTests {
         #expect(registration.resumeCommand == "{{executable}} --resume {{sessionId}}")
     }
 
+    @Test("Built-in Kimi registry resume preserves safe launch options")
+    func builtInRegistryResumeUsesKimiSanitizer() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("kimi"),
+            sessionId: "kimi-session",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "kimi",
+                executablePath: "/opt/kimi/bin/kimi",
+                arguments: [
+                    "/opt/kimi/bin/kimi",
+                    "--model", "kimi-k2",
+                    "--config-file", "/tmp/kimi.toml",
+                    "--yolo",
+                ],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: 123,
+                source: "test"
+            ),
+            registration: .builtInKimi
+        )
+
+        #expect(
+            snapshot.resumeCommand == "'/opt/kimi/bin/kimi' '--resume' 'kimi-session' '--model' 'kimi-k2' '--config-file' '/tmp/kimi.toml'"
+        )
+    }
+
     @Test("Kimi's OS process title remains detectable")
     func processTitleDetection() {
         let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
