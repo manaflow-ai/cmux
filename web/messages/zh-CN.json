@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "在终端中继续",
+    "returnBody": "请返回运行 ssh cmux.cloud 的终端以继续。",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "付款已完成",
+        "body": "你的订阅已确认。新限额可能需要片刻才会显示。"
+      },
+      "checkoutCanceled": {
+        "title": "付款已取消",
+        "body": "付款流程已关闭，你的套餐未发生变化。"
+      },
+      "portalReturn": {
+        "title": "已从账单门户返回",
+        "body": "账单门户中的更改可能需要片刻才会显示。"
+      },
+      "default": {
+        "title": "账单流程已完成",
+        "body": "你的账单流程已结束。"
+      }
+    }
+  },
   "meta": {
     "title": "cmux — 专为多任务打造的终端",
     "description": "基于 Ghostty 构建的免费开源原生 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直标签页、通知环、分割面板和 socket API。",
