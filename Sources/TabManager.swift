@@ -980,6 +980,25 @@ class TabManager: ObservableObject {
         )
     }
 
+    func makeWorkspaceForDetachedSurface(
+        title: String,
+        workingDirectory: String?,
+        portOrdinal: Int,
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        detachedSurface: DetachedSurfaceTransfer
+    ) -> Workspace {
+        Workspace(
+            title: title,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            configTemplate: configTemplate,
+            settings: settings,
+            closeTabWarningDefaults: closeTabWarningDefaults,
+            initialDetachedSurface: detachedSurface,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
+        )
+    }
+
     func applyCreationChromeInheritance(
         to newWorkspace: Workspace,
         from sourceWorkspace: Workspace?

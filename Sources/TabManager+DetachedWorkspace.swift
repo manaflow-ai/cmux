@@ -63,14 +63,12 @@ extension TabManager {
             )
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let newWorkspace = Workspace(
+            let newWorkspace = makeWorkspaceForDetachedSurface(
                 title: title ?? detached.title,
                 workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
-                settings: settings,
-                initialDetachedSurface: detached,
-                nativeSSHConnectionBroker: nativeSSHConnectionBroker
+                detachedSurface: detached
             )
             guard newWorkspace.panels[detached.panelId] != nil,
                   newWorkspace.paneId(forPanelId: detached.panelId) != nil else {
