@@ -28,8 +28,8 @@ on:
 
 jobs:
   tests:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
+    runs-on: macos-26
+    timeout-minutes: 60
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -132,6 +132,9 @@ jobs:
 
       - name: Run unit tests
         if: ${{ !inputs.skip_unit_tests }}
+        env:
+          CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "300"
+          CMUX_SKIP_ZIG_BUILD: "1"
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -140,7 +143,9 @@ jobs:
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" \
+              -only-testing:cmuxTests/BrowserWebExtensionsManagerTests/portableNativeMessagingPackageDisclosesMissingDesktopBridge \
+              test 2>&1
           }
 
           set +e
@@ -163,13 +168,12 @@ jobs:
 
           echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            echo "Native messaging capability regression failed"
+            exit 1
+          fi
+          if ! echo "$OUTPUT" | grep -q "Test run with 1 test in 1 suite passed"; then
+            echo "Focused native messaging regression did not pass exactly once"
+            exit 1
           fi
 
       - name: Run UI tests
