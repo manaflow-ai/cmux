@@ -96,7 +96,8 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
     Regex work runs outside the terminal lock and stale snapshots are
     revalidated before results are applied.
   - Keeps the public surface config at 120 bytes and registers each surface's
-    callback through a one-shot post-construction setter. Callback state is
+    callback through the one-shot post-construction
+    `ghostty_surface_set_render_presented_callback` setter. Callback state is
     never inherited, and its userdata remains valid until surface destruction.
   - Carries presentation tokens through every backend. Metal uses exact
     in-flight slot ownership plus ref-counted renderer generations, so stalled,
