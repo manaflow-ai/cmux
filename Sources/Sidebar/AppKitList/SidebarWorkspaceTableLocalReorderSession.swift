@@ -2,8 +2,9 @@ import AppKit
 import CmuxFoundation
 
 /// What the local-reorder session needs from the table controller: row state,
-/// animated permutation, plan resolution/commit (both route through the same
-/// resolver the drop path has always used), and lifecycle notifications.
+/// synchronous preview permutation, plan resolution/commit (both route
+/// through the same resolver the drop path has always used), and lifecycle
+/// notifications.
 @MainActor
 protocol SidebarWorkspaceTableLocalReorderDelegate: AnyObject {
     var localReorderContainerView: SidebarWorkspaceTableContainerView? { get }
@@ -26,10 +27,10 @@ protocol SidebarWorkspaceTableLocalReorderDelegate: AnyObject {
 
 /// Chrome-style live reorder for drags that originate in this table: the
 /// dragged row (or whole group block) floats under the pointer while sibling
-/// rows animate apart around the moving slot. The system drag session stays
-/// alive underneath — its image is hidden while the drag is over this
-/// sidebar, so cross-window drops keep today's behavior — and the model is
-/// only mutated once, on drop, from the same resolved plan the preview shows.
+/// rows open a gap around the moving slot. The table's direct pointer tracker
+/// is the primary owner. AppKit's system drag is used only after an explicit
+/// cross-window handoff, and remains supported here for legacy source paths.
+/// The model is mutated once, on drop, from the plan the preview shows.
 @MainActor
 final class SidebarWorkspaceTableLocalReorderController {
     /// Immutable pickup-time row data. Live table rows are animated preview
@@ -109,27 +110,53 @@ final class SidebarWorkspaceTableLocalReorderController {
 
     // MARK: - Session lifecycle (driven by the table controller)
 
-    /// Starts a local session when the system drag begins. `screenPoint` is
-    /// the drag origin used to compute the pointer's grab offset inside the
-    /// dragged block.
+    /// Starts a local session when the system drag begins. This is the legacy
+    /// and modifier-drag path; ordinary row drags use `directSessionWillBegin`.
     func sessionWillBegin(
         _ draggingSession: NSDraggingSession,
         draggedWorkspaceId: UUID,
         at screenPoint: NSPoint
     ) {
+        _ = beginSession(
+            draggingSession: draggingSession,
+            draggedWorkspaceId: draggedWorkspaceId,
+            at: screenPoint
+        )
+    }
+
+    /// Starts the direct pointer-owned path without creating an
+    /// `NSDraggingSession`. Returns false when pickup geometry is unavailable.
+    @discardableResult
+    func directSessionWillBegin(
+        draggedWorkspaceId: UUID,
+        at screenPoint: NSPoint
+    ) -> Bool {
+        beginSession(
+            draggingSession: nil,
+            draggedWorkspaceId: draggedWorkspaceId,
+            at: screenPoint
+        )
+    }
+
+    @discardableResult
+    private func beginSession(
+        draggingSession: NSDraggingSession?,
+        draggedWorkspaceId: UUID,
+        at screenPoint: NSPoint
+    ) -> Bool {
         guard case .idle = phase,
               let delegate,
-              let container = delegate.localReorderContainerView else { return }
+              let container = delegate.localReorderContainerView else { return false }
         let rows = delegate.localReorderRows
         guard let block = Self.blockRowIndices(rows: rows, draggedWorkspaceId: draggedWorkspaceId),
-              !block.isEmpty else { return }
+              !block.isEmpty else { return false }
 
         let overlay = container.reorderDropView
         let table = container.tableView
         let blockRect = block.reduce(CGRect.null) { partial, row in
             partial.union(table.convert(table.rect(ofRow: row), to: overlay))
         }
-        guard !blockRect.isNull, blockRect.height > 0 else { return }
+        guard !blockRect.isNull, blockRect.height > 0 else { return false }
 
         let floating = SidebarWorkspaceReorderFloatingRowView(
             snapshots: Self.blockSnapshots(table: table, rowIndexes: block),
@@ -161,10 +188,9 @@ final class SidebarWorkspaceTableLocalReorderController {
             previewOrder: originalOrder,
             grabOffsetY: min(max(pointerY - blockRect.minY, 0), blockRect.height),
             blockHeight: blockRect.height,
-            sourceDragImageProviders: sourceDragImageProviders(
-                in: draggingSession,
-                relativeTo: overlay
-            )
+            sourceDragImageProviders: draggingSession.map {
+                sourceDragImageProviders(in: $0, relativeTo: overlay)
+            } ?? []
         )
         next.floatingView = floating
         session = next
@@ -173,7 +199,9 @@ final class SidebarWorkspaceTableLocalReorderController {
         hiddenRowIds = Set(next.blockRowIds)
         delegate.localReorderSetCellsHidden(hiddenRowIds)
         overlay.addSubview(floating)
-        setSourceDragImage(hidden: true, in: draggingSession)
+        if let draggingSession {
+            setSourceDragImage(hidden: true, in: draggingSession)
+        }
 #if DEBUG
         cmuxDebugLog(
             "sidebar.localReorder.begin screen=(\(screenPoint.x),\(screenPoint.y)) " +
@@ -181,6 +209,48 @@ final class SidebarWorkspaceTableLocalReorderController {
             "corridor=\(Self.reorderCorridor(for: sidebarBand(in: overlay)))"
         )
 #endif
+        return true
+    }
+
+    /// Direct pointer update in screen coordinates. The pointer can be over
+    /// the terminal or another in-window view; X is clamped to the sidebar by
+    /// `hitTestPoint`, while Y continues to drive the reorder.
+    @discardableResult
+    func directSessionMoved(to screenPoint: NSPoint) -> Bool {
+        guard let point = overlayPoint(fromScreen: screenPoint),
+              let overlay = delegate?.localReorderContainerView?.reorderDropView else { return false }
+        return handleDragUpdate(point: point, targets: overlay.targets)
+    }
+
+    /// Commits from the exact final pointer position owned by the direct
+    /// tracker. No destination callback can race this transition.
+    @discardableResult
+    func directSessionEnded(at screenPoint: NSPoint) -> Bool {
+        guard let point = overlayPoint(fromScreen: screenPoint),
+              let overlay = delegate?.localReorderContainerView?.reorderDropView else {
+            cancelAndRestore()
+            return false
+        }
+        return handlePerformDrop(point: point, targets: overlay.targets)
+    }
+
+    func directSessionCancelled() {
+        cancelAndRestore()
+    }
+
+    /// Tears the local renderer down before the table starts the one-way
+    /// system-drag handoff. The system drag then becomes the sole owner.
+    func directSessionHandedOffToSystemDrag() {
+        guard let current = session, let delegate else {
+            finish(flushDeferredApply: false)
+            return
+        }
+        delegate.localReorderApplyOrder(
+            current.originalOrder,
+            movedRowIds: current.blockRowIds,
+            animated: false
+        )
+        finish(flushDeferredApply: false)
     }
 
     /// Destination-side image hiding: while the drag is over this sidebar the
@@ -222,7 +292,7 @@ final class SidebarWorkspaceTableLocalReorderController {
     }
 
     /// Continuous preview: resolve the same plan the drop would commit and
-    /// animate rows to the order that plan produces.
+    /// synchronously open the gap that plan produces.
     /// Returns false when this drag isn't a live local session (foreign drag
     /// or degraded session) so the caller falls back to the indicator path.
     func handleDragUpdate(
@@ -281,7 +351,7 @@ final class SidebarWorkspaceTableLocalReorderController {
         delegate.localReorderApplyOrder(
             current.originalOrder,
             movedRowIds: current.blockRowIds,
-            animated: true
+            animated: false
         )
         session?.lastPlan = nil
         session?.destinationGroupId = current.baseGroupId
@@ -536,9 +606,9 @@ final class SidebarWorkspaceTableLocalReorderController {
             delegate.localReorderApplyOrder(
                 current.originalOrder,
                 movedRowIds: current.blockRowIds,
-                animated: true
+                animated: false
             )
-            updateFloatingIndent(destinationGroupId: current.baseGroupId)
+            updateFloatingIndent(destinationGroupId: current.baseGroupId, animated: false)
             return
         }
         // The destination group comes from the commit action, not the
@@ -569,9 +639,9 @@ final class SidebarWorkspaceTableLocalReorderController {
             delegate.localReorderApplyOrder(
                 current.previewOrder,
                 movedRowIds: current.blockRowIds,
-                animated: true
+                animated: false
             )
-            updateFloatingIndent(destinationGroupId: preview.destinationGroupId)
+            updateFloatingIndent(destinationGroupId: preview.destinationGroupId, animated: false)
         } else {
             session = current
         }
@@ -635,7 +705,7 @@ final class SidebarWorkspaceTableLocalReorderController {
     /// top-level row joining a group indents by the member indent, a member
     /// row leaving its group un-indents, and returning to the source group
     /// (or staying top-level) sits at zero.
-    private func updateFloatingIndent(destinationGroupId: UUID?) {
+    private func updateFloatingIndent(destinationGroupId: UUID?, animated: Bool = true) {
         guard let current = session, !current.isGroupBlock,
               let floating = current.floatingView else { return }
         let destination: CGFloat = destinationGroupId != nil
@@ -644,7 +714,7 @@ final class SidebarWorkspaceTableLocalReorderController {
         let base: CGFloat = current.baseGroupId != nil
             ? SidebarWorkspaceGroupingMetrics.memberIndent
             : 0
-        floating.setIndent(destination - base, animationDuration: slideDuration)
+        floating.setIndent(destination - base, animationDuration: animated ? slideDuration : 0)
     }
 
     private func settleFloatingViewIntoSlot() {
@@ -677,7 +747,7 @@ final class SidebarWorkspaceTableLocalReorderController {
         delegate.localReorderApplyOrder(
             current.originalOrder,
             movedRowIds: current.blockRowIds,
-            animated: true
+            animated: false
         )
         guard let container = delegate.localReorderContainerView,
               let floating = current.floatingView,

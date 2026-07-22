@@ -338,6 +338,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     @objc private func didClickTableRow() {
         guard let table = containerView?.tableView else { return }
         let row = table.clickedRow
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        performPrimaryClick(row: row, modifiers: modifiers, hitView: nil)
+    }
+
+    /// Shared completed-click entrypoint for NSTableView's native tracking and
+    /// the direct reorder tracker. A press that never crosses the drag
+    /// threshold must be indistinguishable from the old table click path.
+    func performPrimaryClick(
+        row: Int,
+        modifiers: NSEvent.ModifierFlags,
+        hitView: NSView?
+    ) {
 #if DEBUG
         cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
 #endif
@@ -348,11 +360,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // ~100ms later, and the global NSEvent.modifierFlags reads
             // hardware state, which misses event-carried flags (synthetic
             // clicks, exotic input methods).
-            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
             // Down-then-up highlight: the optimistic paint bridges the model
             // round trip, applied here (action == completed click), never on
             // the press.
-            previewSelection(row: row, modifiers: modifiers, hitView: nil)
+            previewSelection(row: row, modifiers: modifiers, hitView: hitView)
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 // Multi-select mutations are order-dependent and extend the
                 // selection the user currently sees: flush (not drop) a
@@ -368,8 +379,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // Group headers focus their anchor workspace: same fast path as
             // workspace rows (burst coalescing; the completed click paints
             // the optimistic anchor-active treatment).
-            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-            previewSelection(row: row, modifiers: modifiers, hitView: nil)
+            previewSelection(row: row, modifiers: modifiers, hitView: hitView)
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 selectionCoalescer.flushNow()
                 headerActions.onFocusAnchor()
@@ -400,6 +410,114 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // selection before starting the edit.
         selectionCoalescer.cancel()
         cell.beginInlineRename()
+    }
+
+    /// Whether a plain press can be owned end-to-end by the direct reorder
+    /// tracker. Modifier selection and embedded controls keep AppKit's native
+    /// event path.
+    func shouldOwnDirectReorderMouseDown(
+        row: Int,
+        event: NSEvent,
+        hitView: NSView?
+    ) -> Bool {
+        guard rows.indices.contains(row), event.clickCount == 1 else { return false }
+        let selectionModifiers: NSEvent.ModifierFlags = [.command, .shift, .control, .option]
+        guard event.modifierFlags.intersection(selectionModifiers).isEmpty else { return false }
+        guard rows[row].appKitWorkspaceRowActions != nil || rows[row].appKitGroupHeaderActions != nil else {
+            return false
+        }
+        var candidate = hitView
+        while let view = candidate, view !== containerView?.tableView {
+            if view is NSButton || view is NSTextView {
+                return false
+            }
+            if let field = view as? NSTextField, field.isEditable || field.isSelectable {
+                return false
+            }
+            candidate = view.superview
+        }
+        if let hitView,
+           let table = containerView?.tableView {
+            switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+            case let cell as SidebarWorkspaceRowTableCellView:
+                if cell.selectionPreviewShouldIgnore(hitView) { return false }
+            case let cell as SidebarGroupHeaderTableCellView:
+                if cell.selectionPreviewShouldIgnore(hitView) { return false }
+            default:
+                break
+            }
+        }
+        return true
+    }
+
+    @discardableResult
+    func directReorderWillBegin(row: Int, at screenPoint: NSPoint) -> Bool {
+        guard rows.indices.contains(row), let actions else { return false }
+        activateRowForDirectDrag(row: row)
+        actions.beginWorkspaceDrag(rows[row].workspaceId)
+        workspaceDragSessionDidBegin()
+        guard localReorder.directSessionWillBegin(
+            draggedWorkspaceId: rows[row].workspaceId,
+            at: screenPoint
+        ) else {
+            actions.endWorkspaceDrag()
+            workspaceDragSessionDidEnd()
+            return false
+        }
+        return true
+    }
+
+    func directReorderMoved(to screenPoint: NSPoint) {
+        _ = localReorder.directSessionMoved(to: screenPoint)
+    }
+
+    func directReorderEnded(at screenPoint: NSPoint) {
+        _ = localReorder.directSessionEnded(at: screenPoint)
+        actions?.endWorkspaceDrag()
+        workspaceDragSessionDidEnd()
+    }
+
+    func directReorderCancelled() {
+        localReorder.directSessionCancelled()
+        actions?.endWorkspaceDrag()
+        workspaceDragSessionDidEnd()
+    }
+
+    func directReorderHandedOffToSystemDrag() {
+        localReorder.directSessionHandedOffToSystemDrag()
+    }
+
+    func systemDragHandoffDidEnd() {
+        actions?.endWorkspaceDrag()
+        workspaceDragSessionDidEnd()
+    }
+
+    func workspaceDragPasteboardItem(row: Int) -> NSPasteboardItem? {
+        guard rows.indices.contains(row) else { return nil }
+        let item = NSPasteboardItem()
+        item.setString(
+            "\(SidebarTabDragPayload.prefix)\(rows[row].workspaceId.uuidString)",
+            forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        )
+        return item
+    }
+
+    private func activateRowForDirectDrag(row: Int) {
+        guard rows.indices.contains(row) else { return }
+        if let model = rows[row].appKitWorkspaceRowModel,
+           let rowActions = rows[row].appKitWorkspaceRowActions {
+            // Preserve a multi-row selection as the drag block. A plain drag
+            // outside a multi-selection activates its pressed workspace as
+            // soon as the gesture becomes a drag.
+            guard !model.isMultiSelected else { return }
+            previewSelection(row: row, modifiers: [], hitView: nil)
+            selectionCoalescer.flushNow()
+            rowActions.commands.updateSelection(modifiers: [])
+        } else if let headerActions = rows[row].appKitGroupHeaderActions {
+            previewSelection(row: row, modifiers: [], hitView: nil)
+            selectionCoalescer.flushNow()
+            headerActions.onFocusAnchor()
+        }
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -459,15 +577,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // refuse anchors, and every non-sidebar surface ignores this payload
         // type — so a header drag moves the group as one unit.
         guard rows.indices.contains(row), let actions else { return nil }
-        let workspaceId = rows[row].workspaceId
-        actions.beginWorkspaceDrag(workspaceId)
+        actions.beginWorkspaceDrag(rows[row].workspaceId)
         workspaceDragSessionDidBegin()
-        let item = NSPasteboardItem()
-        item.setString(
-            "\(SidebarTabDragPayload.prefix)\(workspaceId.uuidString)",
-            forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-        )
-        return item
+        return workspaceDragPasteboardItem(row: row)
     }
 
     func tableView(
