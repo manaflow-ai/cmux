@@ -213,10 +213,95 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(secondRun.stdout == "{}\n")
         #expect(waitForFileLineCount(capturedAt, count: 2, timeout: 3))
 
+        let fallbackLock = root.appendingPathComponent("cmux-codex-hook-time.lock", isDirectory: true)
+        let fallbackLockOwner = root.appendingPathComponent("cmux-codex-hook-time.lock.owner", isDirectory: false)
+        let mkdirAttemptCount = root.appendingPathComponent("mkdir-attempt-count.txt", isDirectory: false)
+        let recoveryThresholdReached = root.appendingPathComponent("recovery-threshold-reached.txt", isDirectory: false)
+        let fallbackSleep = toolBin.appendingPathComponent("sleep", isDirectory: false)
+        try FileManager.default.removeItem(at: fallbackSleep)
+        try makeCodexHookExecutableShellFile(at: fallbackSleep, lines: [
+            "#!/bin/sh",
+            "exit 0",
+        ])
+        let fallbackMkdir = toolBin.appendingPathComponent("mkdir", isDirectory: false)
+        try FileManager.default.removeItem(at: fallbackMkdir)
+        try makeCodexHookExecutableShellFile(at: fallbackMkdir, lines: [
+            "#!/bin/sh",
+            "if [ \"$1\" = \"$CMUX_TEST_FALLBACK_LOCK\" ]; then",
+            "  count=0",
+            "  if IFS= read -r count 2>/dev/null <\"$CMUX_TEST_MKDIR_COUNT\"; then :; fi",
+            "  count=$((count + 1))",
+            "  printf '%s\\n' \"$count\" >\"$CMUX_TEST_MKDIR_COUNT\"",
+            "  if [ \"$count\" -ge 100 ]; then printf 'reached\\n' >\"$CMUX_TEST_LOCK_THRESHOLD\"; fi",
+            "fi",
+            "exec /bin/mkdir \"$@\"",
+        ])
+        let ownerReady = root.appendingPathComponent("lock-owner-ready.txt", isDirectory: false)
+        let lockPreserved = root.appendingPathComponent("lock-preserved.txt", isDirectory: false)
+        let lockOwner = Process()
+        lockOwner.executableURL = URL(fileURLWithPath: "/bin/sh")
+        lockOwner.arguments = [
+            "-c",
+            """
+            mkdir "$1"
+            printf '%s\n' "$$" >"$2"
+            printf 'ready\n' >"$3"
+            checks=0
+            while [ ! -f "$5" ] && [ "$checks" -lt 500 ]; do /bin/sleep 0.01; checks=$((checks + 1)); done
+            /bin/sleep 0.05
+            if [ -d "$1" ]; then printf 'preserved\n' >"$4"; else printf 'removed\n' >"$4"; fi
+            rm -f "$2"
+            rmdir "$1" 2>/dev/null || true
+            """,
+            "codex-fallback-lock-owner",
+            fallbackLock.path,
+            fallbackLockOwner.path,
+            ownerReady.path,
+            lockPreserved.path,
+            recoveryThresholdReached.path,
+        ]
+        lockOwner.standardOutput = FileHandle.nullDevice
+        lockOwner.standardError = FileHandle.nullDevice
+        try lockOwner.run()
+        defer {
+            if lockOwner.isRunning {
+                lockOwner.terminate()
+                lockOwner.waitUntilExit()
+            }
+        }
+        #expect(waitForFile(ownerReady, containing: "ready", timeout: 2))
+
+        let contendedRun = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": toolBin.path,
+                "TMPDIR": root.path,
+                "CMUX_AGENT_HOOK_DATE_BIN": fakeDate.path,
+                "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_TEST_CAPTURED_AT": capturedAt.path,
+                "CMUX_TEST_DONE": doneFile.path,
+                "CMUX_TEST_FALLBACK_LOCK": fallbackLock.path,
+                "CMUX_TEST_MKDIR_COUNT": mkdirAttemptCount.path,
+                "CMUX_TEST_LOCK_THRESHOLD": recoveryThresholdReached.path,
+            ],
+            standardInput: #"{"session_id":"codex-session","prompt":"contended fallback timestamp"}"#,
+            timeout: 4
+        )
+        lockOwner.waitUntilExit()
+        #expect(!contendedRun.timedOut, Comment(rawValue: contendedRun.stderr))
+        #expect(contendedRun.status == 0, Comment(rawValue: contendedRun.stderr))
+        #expect(contendedRun.stdout == "{}\n")
+        #expect(waitForFile(lockPreserved, containing: "preserved", timeout: 1))
+        #expect(waitForFileLineCount(capturedAt, count: 3, timeout: 3))
+
         let rawCapturedTimes = try String(contentsOf: capturedAt, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
             .map(String.init)
-        #expect(rawCapturedTimes.count == 2)
+        #expect(rawCapturedTimes.count == 3)
         let capturedTimes = try rawCapturedTimes.map { rawValue in
             let value = try #require(Double(rawValue))
             #expect(value.isFinite && value > 0, Comment(rawValue: rawValue))
