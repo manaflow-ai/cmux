@@ -95,6 +95,38 @@ struct ArtifactSearchEngineTests {
         #expect(uncapped.first?.matchedContent == true)
     }
 
+    @Test("Oversized queries use one bounded prefix for every candidate")
+    func boundsQueryBeforeScoring() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let query = String(repeating: "a", count: 4_096)
+        let node = ArtifactNode(
+            id: "large-name",
+            name: query + ".png",
+            relativePath: query + ".png",
+            absolutePath: root.appendingPathComponent("large-name.png").path,
+            isDirectory: false,
+            fileKind: .image,
+            size: 1,
+            modifiedAt: nil,
+            children: []
+        )
+        let snapshot = ArtifactSnapshot(
+            projectRoot: root,
+            artifactsRoot: root,
+            nodes: [node],
+            isTruncated: false
+        )
+        let engine = ArtifactSearchEngine(configuration: .defaultValue)
+
+        let oversizedScore = try #require(engine.results(snapshot: snapshot, query: query).first?.score)
+        let boundedScore = try #require(
+            engine.results(snapshot: snapshot, query: String(query.prefix(512))).first?.score
+        )
+
+        #expect(oversizedScore == boundedScore)
+    }
+
     private func node(url: URL) -> ArtifactNode {
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
         return ArtifactNode(

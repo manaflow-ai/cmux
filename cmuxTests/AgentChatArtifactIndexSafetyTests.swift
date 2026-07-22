@@ -19,8 +19,9 @@ struct AgentChatArtifactIndexSafetyTests {
         let secondArtifactPath = root.appendingPathComponent("second.md").path
         let prefix = Array(repeating: String(repeating: "x", count: 80), count: 20)
         let artifactLine = try codexArtifactLine(path: firstArtifactPath)
-        try (prefix + [artifactLine]).joined(separator: "\n")
-            .write(to: transcript, atomically: true, encoding: .utf8)
+        let initialTranscript = (prefix + [artifactLine]).joined(separator: "\n")
+        try initialTranscript.write(to: transcript, atomically: true, encoding: .utf8)
+        let firstArtifactOffset = (prefix.joined(separator: "\n") + "\n").utf8.count
         let index = AgentChatArtifactIndex()
 
         let firstSnapshot = try await index.snapshot(
@@ -32,11 +33,14 @@ struct AgentChatArtifactIndexSafetyTests {
         )
         let firstArtifact = try #require(firstSnapshot.artifacts.first)
         #expect(firstArtifact.path == firstArtifactPath)
-        #expect(firstArtifact.lastReferencedSeq == 20)
-        #expect(firstSnapshot.lineCount == 21)
+        #expect(firstArtifact.lastReferencedSeq == firstArtifactOffset)
 
-        let appendedLines = Array(repeating: String(repeating: "y", count: 80), count: 20)
-            + [try codexArtifactLine(path: secondArtifactPath)]
+        let appendedPrefix = Array(repeating: String(repeating: "y", count: 80), count: 20)
+        let appendedLines = appendedPrefix + [try codexArtifactLine(path: secondArtifactPath)]
+        let secondArtifactOffset = initialTranscript.utf8.count
+            + 1
+            + appendedPrefix.joined(separator: "\n").utf8.count
+            + 1
         let handle = try FileHandle(forWritingTo: transcript)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data(("\n" + appendedLines.joined(separator: "\n")).utf8))
@@ -52,9 +56,8 @@ struct AgentChatArtifactIndexSafetyTests {
         let artifacts = Dictionary(uniqueKeysWithValues: secondSnapshot.artifacts.map {
             ($0.path, $0.lastReferencedSeq)
         })
-        #expect(artifacts[firstArtifactPath] == 20)
-        #expect(artifacts[secondArtifactPath] == 41)
-        #expect(secondSnapshot.lineCount == 42)
+        #expect(artifacts[firstArtifactPath] == firstArtifactOffset)
+        #expect(artifacts[secondArtifactPath] == secondArtifactOffset)
     }
 
     @Test func canceledSnapshotStopsBeforeTranscriptParsing() async throws {
