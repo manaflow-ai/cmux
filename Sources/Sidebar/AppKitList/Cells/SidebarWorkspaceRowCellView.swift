@@ -311,6 +311,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
+        let requiresFullApply = self.actions == nil
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
@@ -324,7 +325,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
             lastStatusPopoverModel = nil
         }
-        guard previous != model || hoverChanged else { return }
+        guard requiresFullApply || previous != model || hoverChanged else { return }
         self.model = model
         applyModel(model)
         needsLayout = true
