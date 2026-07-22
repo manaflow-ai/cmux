@@ -3,7 +3,6 @@ import Foundation
 /// Pure priority and expiry rules for agent status evidence.
 struct AgentStatusReconciler: Sendable {
     static let runningSignalLifetime: TimeInterval = 90
-    static let needsInputSignalLifetime: TimeInterval = 300
     static let activityLifetime: TimeInterval = 20
     static let foregroundObservationLifetime: TimeInterval = 45
 
@@ -14,9 +13,10 @@ struct AgentStatusReconciler: Sendable {
         now: Date
     ) -> AgentStatusResolution? {
         guard hasLiveRuntime else { return nil }
-        if evidence.lifecycle == .needsInput,
-           let observedAt = evidence.lifecycleObservedAt,
-           age(of: observedAt, now: now) <= Self.needsInputSignalLifetime {
+        // Needs Input is an exact-runtime-generation state, not an activity
+        // estimate. Keep it until a counter-signal replaces it or that runtime
+        // exits; elapsed wall time alone cannot prove a prompt was resolved.
+        if evidence.lifecycle == .needsInput {
             return AgentStatusResolution(lifecycle: .needsInput, confidence: .confident)
         }
         if evidence.shellActivity == .promptIdle {

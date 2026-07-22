@@ -241,19 +241,32 @@ extension CMUXCLI {
         ))
     }
 
-    /// Resolves only a live, host-local PID target. Feed hooks use this same
-    /// authoritative seam as Claude delivery and omit ambient pane identity
-    /// whenever the app cannot validate the agent process.
-    func resolvedLiveAgentPIDDeliveryTarget(
+    /// Resolves the authoritative target for a Feed event that can mutate
+    /// lifecycle or user attention. Local hooks prove ownership by PID;
+    /// relay-backed hooks cannot share a PID namespace with the app, so they
+    /// re-home their cross-machine surface identity through the same
+    /// server-validated resolver.
+    func resolvedFeedDeliveryTarget(
         pid: Int?,
+        claimedWorkspaceId: String?,
+        claimedSurfaceId: String?,
+        pidNamespaceIsRemote: Bool,
         client: SocketClient,
         responseTimeout: TimeInterval = 2.0
     ) -> ClaudeHookDeliveryTarget? {
-        guard case .resolved(let target) = liveAgentPidDeliveryTarget(
-            pid: pid,
-            client: client,
-            responseTimeout: responseTimeout
-        ) else {
+        let result = pidNamespaceIsRemote
+            ? liveAgentSurfaceDeliveryTarget(
+                surfaceId: claimedSurfaceId,
+                claimedWorkspaceId: claimedWorkspaceId,
+                client: client,
+                responseTimeout: responseTimeout
+            )
+            : liveAgentPidDeliveryTarget(
+                pid: pid,
+                client: client,
+                responseTimeout: responseTimeout
+            )
+        guard case .resolved(let target) = result else {
             return nil
         }
         return target
@@ -263,8 +276,10 @@ extension CMUXCLI {
     /// shared client exists. Keep that probe on a short-lived connection so a
     /// timeout or delayed response cannot contaminate the subsequent
     /// `feed.push` response stream.
-    func resolvedLiveAgentPIDDeliveryTarget(
+    func resolvedFeedDeliveryTarget(
         pid: Int?,
+        claimedWorkspaceId: String?,
+        claimedSurfaceId: String?,
         socketPath: String,
         socketPassword: String?,
         responseTimeout: TimeInterval
@@ -282,8 +297,11 @@ extension CMUXCLI {
         } catch {
             return nil
         }
-        return resolvedLiveAgentPIDDeliveryTarget(
+        return resolvedFeedDeliveryTarget(
             pid: pid,
+            claimedWorkspaceId: claimedWorkspaceId,
+            claimedSurfaceId: claimedSurfaceId,
+            pidNamespaceIsRemote: probeClient.isRelayBacked,
             client: probeClient,
             responseTimeout: responseTimeout
         )
@@ -307,7 +325,8 @@ extension CMUXCLI {
     private func liveAgentSurfaceDeliveryTarget(
         surfaceId: String?,
         claimedWorkspaceId: String?,
-        client: SocketClient
+        client: SocketClient,
+        responseTimeout: TimeInterval = 2.0
     ) -> LiveAgentDeliveryTargetProbeResult {
         guard let surfaceId = nonEmptyClaudeHookIdentifier(surfaceId), isUUID(surfaceId) else {
             return .notAttempted
@@ -321,7 +340,7 @@ extension CMUXCLI {
             payload = try client.sendV2(
                 method: "agent.resolve_delivery_target",
                 params: params,
-                responseTimeout: 2.0
+                responseTimeout: responseTimeout
             )
         } catch let error as CLIError where error.v2Code == "method_not_found"
                 || error.v2Code == "unrecognized_method" {

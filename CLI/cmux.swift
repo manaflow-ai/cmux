@@ -33871,19 +33871,33 @@ export default CMUXSessionRestore;
         // Other agents fall back to getppid() which walks up one
         // level — close enough to catch most kill scenarios.
         let agentPid = agentPidForFeedSource(source, env: env)
+        let agentStatusSignal = FeedEventClassifier.agentStatusSignal(
+            source: source,
+            event: rawEvent
+        )
+        // Only events that can mutate lifecycle or user attention pay for an
+        // authoritative live-target probe. High-volume Pre/PostToolUse
+        // telemetry stays unscoped unless its payload carries a workspace;
+        // guessing from ambient pane variables would be less honest.
+        let shouldResolveLiveTarget = isActionable || agentStatusSignal != nil
         let liveTarget: ClaudeHookDeliveryTarget?
-        if let client {
-            liveTarget = resolvedLiveAgentPIDDeliveryTarget(
+        if shouldResolveLiveTarget, let client {
+            liveTarget = resolvedFeedDeliveryTarget(
                 pid: agentPid,
+                claimedWorkspaceId: env["CMUX_WORKSPACE_ID"],
+                claimedSurfaceId: env["CMUX_SURFACE_ID"],
+                pidNamespaceIsRemote: client.isRelayBacked,
                 client: client,
-                responseTimeout: isActionable ? 2.0 : 0.1
+                responseTimeout: 2.0
             )
-        } else if let socketPath {
-            liveTarget = resolvedLiveAgentPIDDeliveryTarget(
+        } else if shouldResolveLiveTarget, let socketPath {
+            liveTarget = resolvedFeedDeliveryTarget(
                 pid: agentPid,
+                claimedWorkspaceId: env["CMUX_WORKSPACE_ID"],
+                claimedSurfaceId: env["CMUX_SURFACE_ID"],
                 socketPath: socketPath,
                 socketPassword: socketPassword,
-                responseTimeout: isActionable ? 2.0 : 0.1
+                responseTimeout: 2.0
             )
         } else {
             liveTarget = nil
