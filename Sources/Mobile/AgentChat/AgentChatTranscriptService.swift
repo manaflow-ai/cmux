@@ -479,7 +479,7 @@ final class AgentChatTranscriptService {
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         proseStreamer.turnEnded(sessionID: record.sessionID)
-        artifactCaptureTasks.removeValue(forKey: record.sessionID)?.task?.cancel()
+        removeArtifactCaptureSession(sessionID: record.sessionID)
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
         }

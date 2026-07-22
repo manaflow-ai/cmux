@@ -135,6 +135,13 @@ actor AgentArtifactCaptureCoordinator {
         )
     }
 
+    /// Releases transcript progress when the owning chat session disappears.
+    func removeSession(sessionID: String) {
+        completedRevisionBySession.removeValue(forKey: sessionID)
+        inFlightRevisionBySession.removeValue(forKey: sessionID)
+        completedCheckpointBySession.removeValue(forKey: sessionID)
+    }
+
     private func projectRoot(for record: AgentChatSessionRecord) -> URL? {
         guard let workingDirectory = record.workingDirectory,
               !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

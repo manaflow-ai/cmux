@@ -17,7 +17,9 @@ struct TranscriptToolCompletion: Sendable {
 
     /// Whether the result proves the pending invocation completed successfully.
     var succeeded: Bool {
-        !isError && (exitCode ?? 0) == 0
+        guard !isError else { return false }
+        if let exitCode { return exitCode == 0 }
+        return !reportsFailureWithoutExitStatus
     }
 
     /// Creates a completion.
@@ -52,19 +54,18 @@ struct TranscriptToolCompletion: Sendable {
             let completed = ChatTerminalCapture(
                 command: capture.command,
                 output: output.map { budget.body($0) },
-                exitCode: exitCode ?? (isError ? 1 : 0),
+                exitCode: exitCode ?? (succeeded ? 0 : 1),
                 durationSeconds: durationSeconds,
                 isRunning: false
             )
             return message.replacingKind(.terminal(completed))
         case .toolUse(let toolUse):
-            let failed = isError || (exitCode ?? 0) != 0
             let completed = ChatToolUse(
                 toolName: toolUse.toolName,
                 summary: toolUse.summary,
                 inputDetail: toolUse.inputDetail,
                 output: output.map { budget.body($0) },
-                status: failed ? .failed : .succeeded,
+                status: succeeded ? .succeeded : .failed,
                 referencedPaths: toolUse.referencedPaths
             )
             return message.replacingKind(.toolUse(completed))
@@ -143,6 +144,19 @@ struct TranscriptToolCompletion: Sendable {
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let answers = root["answers"] as? [String: Any] else { return nil }
         return answers.compactMapValues { $0 as? [String: Any] }
+    }
+
+    /// Codex custom tools can report failure only in their text envelope.
+    private var reportsFailureWithoutExitStatus: Bool {
+        guard let output else { return false }
+        let prefix = output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(400)
+            .lowercased()
+        return prefix.hasPrefix("script failed")
+            || prefix.hasPrefix("tool failed")
+            || prefix.hasPrefix("apply_patch verification failed")
+            || prefix.hasPrefix("error:")
     }
 }
 

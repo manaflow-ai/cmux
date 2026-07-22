@@ -31,11 +31,13 @@ struct ArtifactGitIgnoreManager {
         try updated.write(to: excludeURL, atomically: true, encoding: .utf8)
     }
 
-    /// Verifies the effective Git view before automatic capture writes any file.
-    func permitsAutomaticCapture(
+    /// Verifies the effective Git view for every file automatic capture will write.
+    func permitsAutomaticWrites(
         projectRoot: URL,
+        destinations: [URL],
         commandRunner: any ArtifactGitCommandRunning
     ) -> Bool {
+        guard !destinations.isEmpty else { return false }
         guard let repository = locateGitRepository(startingAt: projectRoot) else {
             return !containsGitMarker(startingAt: projectRoot)
         }
@@ -46,12 +48,17 @@ struct ArtifactGitIgnoreManager {
         ) else {
             return false
         }
-        let probePath = relativeArtifactsPath + "/.__cmux_probe__"
-        guard let ignoreStatus = try? commandRunner.terminationStatus(arguments: [
-            "-C", repository.worktreeRoot.path,
-            "check-ignore", "--quiet", "--", probePath,
-        ]), ignoreStatus == 0 else {
-            return false
+        for destination in destinations {
+            guard let relativeDestination = ArtifactPathResolver().relativePath(
+                destination,
+                root: repository.worktreeRoot
+            ),
+            let ignoreStatus = try? commandRunner.terminationStatus(arguments: [
+                "-C", repository.worktreeRoot.path,
+                "check-ignore", "--quiet", "--", relativeDestination,
+            ]), ignoreStatus == 0 else {
+                return false
+            }
         }
         guard let trackedStatus = try? commandRunner.terminationStatus(arguments: [
             "-C", repository.worktreeRoot.path,
