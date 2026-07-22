@@ -67,7 +67,10 @@ const MAX_TRANSPORT_FRAME_BYTES: usize = 64 * 1024 * 1024;
 #[cfg(unix)]
 const PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(unix)]
-const PROVIDER_OPEN_TIMEOUT: Duration = Duration::from_secs(3 * 60);
+// A suspended cloud machine may spend up to two minutes resuming and another
+// two minutes waiting for its relay. Keep the client deadline above that
+// server-side bound so the control generation owns cancellation.
+const PROVIDER_OPEN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 #[cfg(unix)]
 const PROVIDER_EVENT_QUEUE_CAPACITY: usize = 64;
 

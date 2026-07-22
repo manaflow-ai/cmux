@@ -40,6 +40,7 @@ pub(crate) struct ProviderMachineRuntime {
     client: Arc<ProviderClient>,
     snapshot: protocol::SnapshotResult,
     keys: Arc<Mutex<KeyRegistry>>,
+    mutation_nonce: String,
     mutation_sequence: AtomicU64,
     open: Option<OpenConnection>,
     notice: Option<String>,
@@ -71,6 +72,7 @@ impl ProviderMachineRuntime {
                 by_key: HashMap::new(),
                 next: 1,
             })),
+            mutation_nonce: random_mutation_nonce()?,
             mutation_sequence: AtomicU64::new(1),
             open: None,
             notice: None,
@@ -383,7 +385,10 @@ impl ProviderMachineRuntime {
 
     fn next_mutation_id(&self) -> anyhow::Result<protocol::OpaqueId> {
         let sequence = self.mutation_sequence.fetch_add(1, Ordering::Relaxed);
-        Ok(protocol::OpaqueId::new(format!("cmux-{}-{sequence}", std::process::id()))?)
+        if sequence == u64::MAX {
+            anyhow::bail!("machine-provider mutation sequence is exhausted");
+        }
+        Ok(protocol::OpaqueId::new(format!("cmux-{}-{sequence}", self.mutation_nonce))?)
     }
 
     fn reconcile_keys(&mut self) {
@@ -400,19 +405,16 @@ impl ProviderMachineRuntime {
         });
         let mut ui = self.ui_state(session_available);
         ui.notice = self.notice.take();
-        if !session_available {
-            if let Some(selected) = self.snapshot.selected_machine_id.as_ref()
-                && self
-                    .snapshot
-                    .machines
-                    .iter()
-                    .any(|machine| &machine.id == selected && machine.connectable)
-                && let Some(key) = key_for_id(&self.keys, selected)
-            {
-                ui.request = Some(MachineRequest::Switch(key));
-            } else {
-                ui.request = Some(MachineRequest::ReconnectProvider);
-            }
+        if !session_available
+            && let Some(selected) = self.snapshot.selected_machine_id.as_ref()
+            && self
+                .snapshot
+                .machines
+                .iter()
+                .any(|machine| &machine.id == selected && machine.connectable)
+            && let Some(key) = key_for_id(&self.keys, selected)
+        {
+            ui.request = Some(MachineRequest::Switch(key));
         }
         ui
     }
@@ -422,6 +424,19 @@ impl ProviderMachineRuntime {
             self.notice = Some(notice.message);
         }
     }
+}
+
+fn random_mutation_nonce() -> anyhow::Result<String> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|_| anyhow::anyhow!("cryptographic randomness is unavailable"))?;
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in &bytes {
+        use std::fmt::Write as _;
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    bytes.fill(0);
+    Ok(encoded)
 }
 
 impl MachineController for ProviderMachineRuntime {
@@ -790,6 +805,39 @@ mod tests {
                 modes: vec![WorkspaceCreationMode::Host, WorkspaceCreationMode::Isolated],
             })
         );
+    }
+
+    #[test]
+    fn mutation_nonce_is_cryptographically_unique_and_pid_independent() {
+        let first = random_mutation_nonce().unwrap();
+        let second = random_mutation_nonce().unwrap();
+        assert_eq!(first.len(), 32);
+        assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+        assert!(!first.contains(&std::process::id().to_string()));
+    }
+
+    #[test]
+    fn healthy_provider_waits_for_a_selected_provisioning_machine() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (_stream, _reader) = serve_initial_snapshot(
+                &listener,
+                snapshot(1, "Provisioning", protocol::MachineStatus::Connecting),
+            );
+            finished.recv().unwrap();
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let ui = runtime.ui_state_for_open_connection();
+        assert!(!ui.session_available);
+        assert!(ui.request.is_none());
+
+        finish.send(()).unwrap();
+        drop(runtime);
+        server.join().unwrap();
     }
 
     #[test]

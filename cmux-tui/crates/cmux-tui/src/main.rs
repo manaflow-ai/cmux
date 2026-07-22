@@ -32,6 +32,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use cmux_tui_core::{Mux, SurfaceOptions};
+#[cfg(unix)]
+use cmux_tui_machine_protocol::BearerToken;
 use machine::{MachineActionResult, MachineController, MachineRequest, MachineUiState};
 #[cfg(unix)]
 use machine_provider_client::{
@@ -43,6 +45,8 @@ use machine_runtime::MachineRuntime;
 use session::{RemoteSession, Session};
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+#[cfg(unix)]
+const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 
 #[cfg(unix)]
 extern "C" fn handle_signal(_: libc::c_int) {
@@ -361,8 +365,21 @@ fn resolve_provider_launch(
 
 #[cfg(unix)]
 fn provider_connector(launch: ProviderLaunch) -> anyhow::Result<Arc<dyn MachineProviderConnector>> {
+    provider_connector_with_unix_token(launch, std::env::var_os(MACHINE_PROVIDER_TOKEN_ENV))
+}
+
+#[cfg(unix)]
+fn provider_connector_with_unix_token(
+    launch: ProviderLaunch,
+    unix_token: Option<OsString>,
+) -> anyhow::Result<Arc<dyn MachineProviderConnector>> {
     let connector: Arc<dyn MachineProviderConnector> = match launch {
-        ProviderLaunch::Unix(socket) => Arc::new(UnixProviderConnector::generated(socket)),
+        ProviderLaunch::Unix(socket) => match unix_token {
+            Some(token) => {
+                Arc::new(UnixProviderConnector::new(socket, parse_provider_token(token)?))
+            }
+            None => Arc::new(UnixProviderConnector::generated(socket)),
+        },
         ProviderLaunch::Command(command) => Arc::new(CommandProviderConnector::new(command)?),
         ProviderLaunch::Cloud(cloud) => Arc::new(SshProviderConnector::cloud(
             &cloud.host,
@@ -372,6 +389,14 @@ fn provider_connector(launch: ProviderLaunch) -> anyhow::Result<Arc<dyn MachineP
         )?),
     };
     Ok(connector)
+}
+
+#[cfg(unix)]
+fn parse_provider_token(value: OsString) -> anyhow::Result<BearerToken> {
+    let value = value
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("{MACHINE_PROVIDER_TOKEN_ENV} is not valid UTF-8"))?;
+    BearerToken::new(value).map_err(|_| anyhow::anyhow!("{MACHINE_PROVIDER_TOKEN_ENV} is invalid"))
 }
 
 fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
@@ -695,6 +720,42 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_provider_uses_the_edge_supplied_bearer() {
+        use std::os::unix::net::UnixListener;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-provider-token-{}-{suffix}.sock", std::process::id()));
+        let listener = UnixListener::bind(&socket).unwrap();
+        let connector = provider_connector_with_unix_token(
+            ProviderLaunch::Unix(socket.clone()),
+            Some(OsString::from("edge-fixed-token")),
+        )
+        .unwrap();
+
+        let connection = connector.connect().unwrap();
+        let (_server, _) = listener.accept().unwrap();
+        let (token, control, _) = connection.into_parts();
+        assert_eq!(token.expose(), "edge-fixed-token");
+
+        drop(control);
+        drop(listener);
+        std::fs::remove_file(socket).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provider_token_errors_never_echo_the_secret() {
+        let secret = "do-not-print\nthis-secret";
+        let error = parse_provider_token(OsString::from(secret)).unwrap_err().to_string();
+        assert!(error.contains(MACHINE_PROVIDER_TOKEN_ENV));
+        assert!(!error.contains(secret));
+        assert!(!error.contains("do-not-print"));
     }
 
     #[test]
