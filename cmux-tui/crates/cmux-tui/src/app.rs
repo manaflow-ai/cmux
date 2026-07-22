@@ -4301,13 +4301,14 @@ impl App {
                         let PreparedMachineAction { ui, session_mutation, session_label, session } =
                             pending.action;
                         self.install_prepared_machine_session(session);
-                        if let Some(mutation) = session_mutation {
-                            self.apply_managed_workspace_session_mutation(mutation);
-                        }
                         if let Some(label) = session_label {
                             self.session_label = label;
                         }
                         action = action.merge(self.apply_machine_ui_update(ui));
+                        // Provider notices apply before local mirror errors so they cannot mask them.
+                        if let Some(mutation) = session_mutation {
+                            self.apply_managed_workspace_session_mutation(mutation);
+                        }
                     }
                     Ok(false) => {
                         self.pending_machine_replacement.take();
