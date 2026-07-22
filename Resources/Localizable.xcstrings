@@ -239513,6 +239513,23 @@
           }
         }
       }
+    },
+    "hive.sidebar.status.noWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No open workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているワークスペースがありません"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

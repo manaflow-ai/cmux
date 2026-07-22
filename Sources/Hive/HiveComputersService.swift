@@ -110,6 +110,24 @@ final class HiveComputersService {
         await session.disconnect()
     }
 
+    /// The live connection phase for a device's embedded viewer session
+    /// (Settings Open, sidebar scope picker, or `hive.open`), if one has been
+    /// created. `nil` before any attach attempt — callers treat that as "never
+    /// tried" rather than "failed". `HiveRemoteMacSession` is `@Observable`,
+    /// so reading `.phase` from a SwiftUI `body` tracks it like any other
+    /// observable property; no polling needed.
+    func connectionPhase(deviceID: String) -> HiveRemoteMacSession.Phase? {
+        embeddedSessions[deviceID]?.phase
+    }
+
+    /// Forces a fresh connection attempt for a device's embedded viewer
+    /// session (sidebar "Retry" button). No-ops if no session exists yet —
+    /// that only happens before the first attach, which already retries on
+    /// its own.
+    func retryConnection(deviceID: String) {
+        embeddedSessions[deviceID]?.connect()
+    }
+
     /// Dev builds may pair over loopback so two instances on one machine can
     /// dogfood Mac-to-Mac viewing; release builds never dial themselves.
     private static var allowsLoopbackPairing: Bool {
