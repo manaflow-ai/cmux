@@ -245,6 +245,7 @@ struct SidebarWorkspaceTableTests {
     func mutationSchedulerCancelsHiddenWorkAndFlushesRevealOnce() async {
         var appliedInputs = 0
         var viewportFlushes = 0
+        var postUpdateActions = 0
         let scheduler = SidebarWorkspaceTableMutationScheduler(
             applyFlush: { _ in appliedInputs += 1 },
             viewportChangeFlush: { viewportFlushes += 1 }
@@ -267,9 +268,12 @@ struct SidebarWorkspaceTableTests {
 
         scheduler.stageApply(input)
         scheduler.stageViewportChange()
+        scheduler.stagePostUpdateActions([{ postUpdateActions += 1 }])
+        #expect(postUpdateActions == 0)
         await flushStagedTableMutations()
         #expect(appliedInputs == 1)
         #expect(viewportFlushes == 1)
+        #expect(postUpdateActions == 1)
     }
 
     @Test
