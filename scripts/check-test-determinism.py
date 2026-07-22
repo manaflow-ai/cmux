@@ -1800,6 +1800,14 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/ReassignedRealClockTests.swift",
+            "var clock: any Clock<Duration> = TestRelayClock()\n"
+            "clock = ContinuousClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/MultilineNamedClockTests.swift",
             "let clock =\n"
             "    ContinuousClock()\n"
@@ -2716,6 +2724,13 @@ def _self_test() -> int:
             "try await clock.sleep(until: deadline)\n"
             "#expect(await clockEvents.next() == expected)\n",
         ),
+        (
+            "Packages/CmuxClock/Tests/ReassignedVirtualClockTests.swift",
+            "var clock: any Clock<Duration> = ContinuousClock()\n"
+            "clock = TestRelayClock()\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
     ]
 
     failures: list[str] = []
@@ -2836,6 +2851,36 @@ def _self_test() -> int:
             f"{RULE_SLEEP_THEN_ASSERT!r} (got {sorted(inherited_member_rules)})"
         )
 
+    qualified_inherited_member_sources = [
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/BaseFixture.swift",
+            "enum Support {\n"
+            "    class BaseFixture {\n"
+            "        let clock = ContinuousClock()\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/QualifiedClockTests.swift",
+            "final class QualifiedClockTests: Support.BaseFixture {\n"
+            "    func verifyRefresh() async {\n"
+            "        try await self.clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+        ),
+    ]
+    qualified_inherited_member_rules = {
+        finding.rule
+        for finding in scan_sources(qualified_inherited_member_sources)
+    }
+    if RULE_SLEEP_THEN_ASSERT not in qualified_inherited_member_rules:
+        failures.append(
+            "POSITIVE qualified inherited real clock member: missing "
+            f"{RULE_SLEEP_THEN_ASSERT!r} "
+            f"(got {sorted(qualified_inherited_member_rules)})"
+        )
+
     cross_file_negatives = [
         (
             "Tests/SplitNestedRealFixture.swift",
@@ -2887,6 +2932,21 @@ def _self_test() -> int:
         (
             "Packages/CmuxClock/Tests/CmuxClockTests/InheritedVirtualClockTests.swift",
             "final class InheritedVirtualClockTests: VirtualBaseFixture {\n"
+            "    func verifyRefresh() async {\n"
+            "        try await self.clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/LocalBaseFixture.swift",
+            "class BaseFixture {\n"
+            "    let clock = ContinuousClock()\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/QualifiedVirtualClockTests.swift",
+            "final class QualifiedVirtualClockTests: Support.BaseFixture {\n"
             "    func verifyRefresh() async {\n"
             "        try await self.clock.sleep(until: deadline)\n"
             "        #expect(await events.next() == expected)\n"
