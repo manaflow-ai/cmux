@@ -429,7 +429,7 @@ extension FilePreviewPanel {
     func attachTextView(_ textView: NSTextView) {
         // The plain engine takes over saves and focus; tear down any code
         // editor webview left from a `fileEditor.engine` switch.
-        webEditorSaveHandler = nil
+        clearWebEditorSaveHandler()
         nativeViewSessions.codeEditorWeb.close()
         self.textView = textView
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)

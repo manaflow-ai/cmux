@@ -171,9 +171,9 @@ final class CodeEditorWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelega
 
     func bind(panel: FilePreviewPanel, theme: AgentSessionWebTheme, wordWrap: Bool, isFocused: Bool) {
         self.panel = panel
-        panel.webEditorSaveHandler = { [weak self] in
+        panel.setWebEditorSaveHandler({ [weak self] in
             self?.saveFromHost()
-        }
+        }, owner: self)
         isPanelFocused = isFocused
         if self.theme != theme {
             self.theme = theme
@@ -254,9 +254,9 @@ final class CodeEditorWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelega
     }
 
     func close() {
-        if let panel {
-            panel.webEditorSaveHandler = nil
-        }
+        // Ownership-guarded: this close may run from an async dirty-buffer
+        // salvage after a replacement coordinator has already bound.
+        panel?.clearWebEditorSaveHandler(ifOwnedBy: self)
         if let webView {
             webView.removeFromSuperview()
             webView.stopLoading()

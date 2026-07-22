@@ -1000,12 +1000,42 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     /// Set while the CodeMirror web renderer drives the text mode. Routes
     /// header/shortcut saves through the webview so the live buffer is
     /// pulled from JS before writing to disk.
-    var webEditorSaveHandler: (() -> Task<Void, Never>?)?
+    private(set) var webEditorSaveHandler: (() -> Task<Void, Never>?)?
+    /// Identity of whoever installed ``webEditorSaveHandler``. A coordinator
+    /// torn down asynchronously (dirty-buffer salvage) may finish after a
+    /// replacement coordinator has already bound; the owner check stops the
+    /// stale teardown from clearing the replacement's handler.
+    private weak var webEditorSaveHandlerOwner: AnyObject?
+
+    func setWebEditorSaveHandler(
+        _ handler: @escaping () -> Task<Void, Never>?,
+        owner: AnyObject
+    ) {
+        webEditorSaveHandler = handler
+        webEditorSaveHandlerOwner = owner
+    }
+
+    /// Clears the web save handler only when `owner` still owns it, so a
+    /// stale coordinator's async teardown cannot clobber a newer binding.
+    func clearWebEditorSaveHandler(ifOwnedBy owner: AnyObject) {
+        guard webEditorSaveHandlerOwner === owner else { return }
+        clearWebEditorSaveHandler()
+    }
+
+    /// Unconditional clear: the plain engine taking over or the panel closing.
+    func clearWebEditorSaveHandler() {
+        webEditorSaveHandler = nil
+        webEditorSaveHandlerOwner = nil
+    }
 
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
     private var previewModeGeneration = 0
     private var textLoadGeneration = 0
+    /// True while the newest text load carries replace-dirty intent (an
+    /// explicit revert). Superseding loads inherit it; see
+    /// ``loadTextContent(replacingDirtyContent:)``.
+    private var hasPendingReplacingTextLoad = false
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     private var fileWatcher: FileWatcher?
@@ -1060,7 +1090,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func close() {
         isClosed = true
         stopWatching()
-        webEditorSaveHandler = nil
+        clearWebEditorSaveHandler()
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
@@ -1237,15 +1267,23 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
         textLoadGeneration += 1
         let generation = textLoadGeneration
+        // Each load invalidates the previous one's generation. If a file
+        // watcher refresh supersedes a pending explicit revert
+        // (replacingDirtyContent: true), it must inherit the revert intent —
+        // otherwise the watcher load completes non-replacing and the edits
+        // the user asked to discard silently survive.
+        let replacing = replacingDirtyContent || hasPendingReplacingTextLoad
+        hasPendingReplacingTextLoad = replacing
         let fileURL = fileURL
         let textLoader = textLoader
 
-        return Task { [weak self, fileURL, generation, replacingDirtyContent, textLoader] in
+        return Task { [weak self, fileURL, generation, replacing, textLoader] in
             let result = await textLoader(fileURL)
             guard let self,
                   self.textLoadGeneration == generation,
                   self.previewMode == .text else { return }
-            self.applyTextLoadResult(result, replacingDirtyContent: replacingDirtyContent)
+            self.hasPendingReplacingTextLoad = false
+            self.applyTextLoadResult(result, replacingDirtyContent: replacing)
         }
     }
 

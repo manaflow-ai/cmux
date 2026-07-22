@@ -99,12 +99,74 @@ struct CodeEditorFilePreviewPanelTests {
         await panel.loadTextContent().value
 
         var handlerCalls = 0
-        panel.webEditorSaveHandler = {
+        let owner = NSObject()
+        panel.setWebEditorSaveHandler({
             handlerCalls += 1
             return nil
-        }
+        }, owner: owner)
         _ = panel.saveTextContent()
         #expect(handlerCalls == 1)
+    }
+
+    @Test("a stale owner's clear does not clobber a newer owner's save handler")
+    func staleOwnerClearKeepsNewerSaveHandler() async throws {
+        let fileURL = try makeTemporaryFile(contents: "x\n")
+        defer { removeTemporaryFile(fileURL) }
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        var savedBy = ""
+        let staleOwner = NSObject()
+        let activeOwner = NSObject()
+        panel.setWebEditorSaveHandler({
+            savedBy = "stale"
+            return nil
+        }, owner: staleOwner)
+        // A replacement coordinator binds before the stale one's async
+        // teardown finishes (quick code → plain → code engine switch).
+        panel.setWebEditorSaveHandler({
+            savedBy = "active"
+            return nil
+        }, owner: activeOwner)
+
+        panel.clearWebEditorSaveHandler(ifOwnedBy: staleOwner)
+        _ = panel.saveTextContent()
+        #expect(savedBy == "active")
+
+        panel.clearWebEditorSaveHandler(ifOwnedBy: activeOwner)
+        #expect(panel.webEditorSaveHandler == nil)
+    }
+
+    @Test("a watcher reload superseding a pending revert still discards dirty content")
+    func watcherReloadInheritsPendingRevertIntent() async throws {
+        let fileURL = try makeTemporaryFile(contents: "old\n")
+        defer { removeTemporaryFile(fileURL) }
+        let script = RevertRaceLoaderScript()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            textLoader: { _ in await script.nextResult() }
+        )
+        defer { panel.close() }
+        // Wait out the init-triggered load, then establish the baseline.
+        await panel.loadTextContent().value
+        #expect(await waitUntil { panel.textContent == "old\n" })
+
+        panel.updateTextContent("edited\n")
+        #expect(panel.isDirty)
+
+        // Explicit revert: its load blocks on the gate.
+        let revertLoad = panel.loadTextContent(replacingDirtyContent: true)
+        // Watcher-style refresh supersedes the pending revert.
+        let watcherLoad = panel.loadTextContent(replacingDirtyContent: false)
+        await script.openGate()
+        await revertLoad.value
+        await watcherLoad.value
+
+        #expect(panel.textContent == "new\n")
+        #expect(panel.isDirty == false)
+        #expect(panel.diskTextContent == "new\n")
     }
 
     @Test("external disk change while clean refreshes the buffer and bumps the sync token")
@@ -151,8 +213,35 @@ struct CodeEditorFilePreviewPanelTests {
         defer { panel.close() }
         await panel.loadTextContent().value
 
-        panel.webEditorSaveHandler = { nil }
+        panel.setWebEditorSaveHandler({ nil }, owner: NSObject())
         panel.attachTextView(NSTextView())
         #expect(panel.webEditorSaveHandler == nil)
+    }
+}
+
+/// Scripted loader for the revert/watcher supersession race: the first two
+/// loads (panel init + baseline) return "old" instantly, the third (the
+/// explicit revert) blocks on a gate so a fourth (watcher-style) load can
+/// supersede it, and every later load returns "new" instantly.
+private actor RevertRaceLoaderScript {
+    private var calls = 0
+    private var gate: CheckedContinuation<Void, Never>?
+    private var gateOpened = false
+
+    func nextResult() async -> FilePreviewTextLoader.Result {
+        calls += 1
+        let call = calls
+        if call == 3 && !gateOpened {
+            await withCheckedContinuation { continuation in
+                gate = continuation
+            }
+        }
+        return .loaded(content: call <= 2 ? "old\n" : "new\n", encoding: .utf8)
+    }
+
+    func openGate() {
+        gateOpened = true
+        gate?.resume()
+        gate = nil
     }
 }
