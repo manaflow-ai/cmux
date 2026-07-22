@@ -23,6 +23,24 @@ struct CommandPaletteCloudActionArgumentsTests {
         #expect(restore.arguments == [CmuxActionArgumentDefinition(name: "snapshot_id")])
     }
 
+    @Test func acceptedRestoreReportsQueuedInsteadOfCompleted() {
+        #expect(
+            ContentView.commandPaletteCloudRestoreResult(
+                hasSnapshotID: true,
+                didStart: true
+            ) == .queued
+        )
+    }
+
+    @Test func restoreWithoutAnIdentifierStillReportsPresented() {
+        #expect(
+            ContentView.commandPaletteCloudRestoreResult(
+                hasSnapshotID: false,
+                didStart: false
+            ) == .presented
+        )
+    }
+
     @Test func explicitCloudCommandTabManagerWinsOverTheActiveWindow() throws {
         let appDelegate = AppDelegate()
         let activeManager = TabManager(autoWelcomeIfNeeded: false)

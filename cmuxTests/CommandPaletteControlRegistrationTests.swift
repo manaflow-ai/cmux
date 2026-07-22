@@ -347,6 +347,28 @@ struct CommandPaletteControlRegistrationTests {
         #expect(tabManager.selectedWorkspace?.id == selectedWorkspace.id)
     }
 
+    @Test func groupSelectorTargetsItsAnchorInsteadOfTheVisibleWorkspace() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let selectedWorkspace = try #require(tabManager.tabs.first)
+        let groupedWorkspace = tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let group = try #require(tabManager.createWorkspaceGroup(
+            name: "Palette Group",
+            childWorkspaceIds: [groupedWorkspace.id]
+        ))
+        let anchorWorkspace = try #require(
+            tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })
+        )
+
+        let resolvedWorkspace = TerminalController.shared.controlInlineVSCodeWorkspace(
+            routing: routing(groupID: group.id),
+            tabManager: tabManager
+        )
+
+        #expect(resolvedWorkspace?.id == anchorWorkspace.id)
+        #expect(resolvedWorkspace?.groupId == group.id)
+        #expect(tabManager.selectedWorkspace?.id == selectedWorkspace.id)
+    }
+
     @Test func surfaceAndPaneSelectorsReachTheHandlerAsOneExactTarget() throws {
         let previousAppDelegate = AppDelegate.shared
         let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
