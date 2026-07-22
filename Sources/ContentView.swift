@@ -867,6 +867,7 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    @State private var sidebarResizerCursorReleaseGeneration: UInt64 = 0
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
@@ -1371,6 +1372,7 @@ struct ContentView: View {
     }
 
     private func activateSidebarResizerCursor() {
+        sidebarResizerCursorReleaseGeneration &+= 1
         isSidebarResizerCursorActive = true
         Self.fixedSidebarResizeCursor.set()
     }
@@ -1385,8 +1387,18 @@ struct ContentView: View {
         NSCursor.arrow.set()
     }
 
-    private func scheduleSidebarResizerCursorRelease(force: Bool = false) {
-        releaseSidebarResizerCursorIfNeeded(force: force)
+    private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: Duration = .zero) {
+        sidebarResizerCursorReleaseGeneration &+= 1
+        let generation = sidebarResizerCursorReleaseGeneration
+        guard delay > .zero else {
+            releaseSidebarResizerCursorIfNeeded(force: force)
+            return
+        }
+        Task { @MainActor [generation, delay, force] in
+            try? await ContinuousClock().sleep(for: delay)
+            guard sidebarResizerCursorReleaseGeneration == generation else { return }
+            releaseSidebarResizerCursorIfNeeded(force: force)
+        }
     }
 
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
@@ -1611,7 +1623,9 @@ struct ContentView: View {
                         // cursorUpdate events from overlapping views do not flash arrow.
                         activateSidebarResizerCursor()
                     } else {
-                        scheduleSidebarResizerCursorRelease()
+                        // Give mouse-down + drag-start callbacks time to establish state
+                        // before any cursor pop is attempted.
+                        scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))
                     }
                 }
                 updateSidebarResizerBandState()

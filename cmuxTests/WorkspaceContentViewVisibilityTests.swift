@@ -224,6 +224,15 @@ final class WorkspaceContentViewVisibilityTests {
             \(functionsConstructingGCDWork.joined(separator: "\n"))
             """
         )
+
+        #expect(
+            source.contains("scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))"),
+            """
+            Sidebar resizer hover exit must keep a short deferred cursor-release window so \
+            mouse-down and drag-start callbacks can establish resize state before the cursor \
+            can be reset.
+            """
+        )
     }
 
     @Test
