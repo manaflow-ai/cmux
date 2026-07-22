@@ -40,6 +40,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
     var structuralUpdateProbe: ((SidebarWorkspaceTableStructuralUpdate) -> Void)?
+    var tableAnimationContextProbe: ((TimeInterval, Bool) -> Void)?
     var dropTargetComputationProbe: (() -> Void)? {
         get { dropTargetGeometry.computationProbe }
         set { dropTargetGeometry.computationProbe = newValue }
@@ -258,13 +259,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // Multiset equality (not Set) so duplicate ids — corrupt state —
             // never masquerade as a pure reorder; and past the threshold the
             // move planner's rescans would go quadratic, so bulk permutations
-            // take the reload path (they gain nothing from animation).
+            // take the reload path.
             let mismatches = zip(previousIds, nextIds).reduce(into: 0) { count, pair in
                 if pair.0 != pair.1 { count += 1 }
             }
             if heightChanges.isEmpty,
                previousIds.count == nextIds.count,
-               mismatches <= Self.maxAnimatedReorderMoves,
+               mismatches <= Self.maxMoveRowReorderMismatches,
                Self.multisetEqual(previousIds, nextIds) {
 #if DEBUG
                 structuralUpdateProbe?(.moveRows)
@@ -274,8 +275,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 // so combining it with row-height invalidation can leave the
                 // reused views at stale frames. Geometry-changing reorders
                 // take the atomic reload path below. Stable moves keep cells
-                // alive and preserve smooth drag-drop settlement.
+                // alive during drag-drop settlement.
                 let table = containerView.tableView
+#if DEBUG
+                let context = NSAnimationContext.current
+                tableAnimationContextProbe?(context.duration, context.allowsImplicitAnimation)
+#endif
                 table.beginUpdates()
                 var current = previousIds
                 for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
@@ -696,7 +701,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// A user drag misaligns one contiguous span (single-digit moves); past
     /// this, the per-move array rescans trend quadratic and the reload path
     /// is both cheaper and visually equivalent for bulk permutations.
-    private static let maxAnimatedReorderMoves = 32
+    private static let maxMoveRowReorderMismatches = 32
 
     private static func multisetEqual(
         _ a: [SidebarWorkspaceRenderItemID],
@@ -949,15 +954,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     /// Legacy parity: the SwiftUI sidebar never animates row geometry (its
-    /// "no implicit animation on agent-mutable fields" rule), but
-    /// NSTableView animates noteHeightOfRows by default — rails and text
-    /// visibly interpolated after width resizes.
-    private func noteHeightOfRowsWithoutAnimation(_ table: NSTableView, _ indexes: IndexSet) {
+    /// "no implicit animation on agent-mutable fields" rule), but NSTableView
+    /// animates row-height notes and move-row transactions by default.
+    private func performTableGeometryUpdateWithoutAnimation(_ update: () -> Void) {
         NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        NSAnimationContext.current.allowsImplicitAnimation = false
-        table.noteHeightOfRows(withIndexesChanged: indexes)
-        NSAnimationContext.endGrouping()
+        defer { NSAnimationContext.endGrouping() }
+        let context = NSAnimationContext.current
+        context.duration = 0
+        context.allowsImplicitAnimation = false
+#if DEBUG
+        tableAnimationContextProbe?(context.duration, context.allowsImplicitAnimation)
+#endif
+        update()
+    }
+
+    private func noteHeightOfRowsWithoutAnimation(_ table: NSTableView, _ indexes: IndexSet) {
+        performTableGeometryUpdateWithoutAnimation {
+            table.noteHeightOfRows(withIndexesChanged: indexes)
+        }
     }
 
     private func reconfigureRows(withIds ids: [SidebarWorkspaceRenderItemID]) {
