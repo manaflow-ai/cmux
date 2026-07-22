@@ -2354,11 +2354,16 @@ struct BrowserWebExtensionsManagerTests {
         let managementID = BrowserWebExtensionManagementIdentity.safariApp(
             bundleIdentifier: "com.example.password-manager.safari"
         )
-        #expect(ledger.records[managementID]?.source == .safariApp(reference))
+        let installedRecord = try #require(ledger.records[managementID])
+        let installedContextIdentifier = try #require(
+            installedRecord.webExtensionContextIdentifier
+        )
+        #expect(installedRecord.source == .safariApp(reference))
+        #expect(installedContextIdentifier.hasPrefix(
+            BrowserWebExtensionsManager.managedContextIdentifierPrefix
+        ))
         #expect(manager.loadedContexts.first?.uniqueIdentifier
-            == BrowserWebExtensionsManager.contextIdentifier(
-                for: managementID
-            ))
+            == installedContextIdentifier)
         #expect(manager.loadedContexts.first?.unsupportedAPIs
             .contains("browser.runtime.sendNativeMessage") == false)
         #expect(manager.loadedContexts.first?.unsupportedAPIs
@@ -2377,9 +2382,7 @@ struct BrowserWebExtensionsManagerTests {
 
         #expect(relaunchedManager.loadErrors.isEmpty)
         #expect(relaunchedManager.loadedContexts.first?.uniqueIdentifier
-            == BrowserWebExtensionsManager.contextIdentifier(
-                for: managementID
-            ))
+            == installedContextIdentifier)
     }
 
     @available(macOS 15.4, *)
@@ -3117,17 +3120,21 @@ struct BrowserWebExtensionsManagerTests {
         try "// no-op".write(to: source.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
         let manager = BrowserWebExtensionsManager(directory: managedRoot, controllerConfiguration: .nonPersistent())
         let firstReceipt = try await manager.installExtension(from: source)
+        let firstContextIdentifier = try #require(manager.loadedContexts.first?.uniqueIdentifier)
         let preview = try await manager.prepareInstall(from: source)
         #expect(preview.isUpdate)
         let secondReceipt = try await manager.confirmPreparedInstall(id: preview.id)
 
         #expect(firstReceipt.name == secondReceipt.name)
         #expect(manager.loadedContexts.count == 1)
+        #expect(manager.loadedContexts.first?.uniqueIdentifier == firstContextIdentifier)
         let ledger = try await BrowserWebExtensionDirectoryRepository()
             .managementLedger(in: managedRoot)
         let managementID = try #require(ledger.records.keys.first)
+        let managedRecord = try #require(ledger.records[managementID])
         #expect(ledger.records.count == 1)
         #expect(managementID.hasPrefix(BrowserWebExtensionManagementIdentity.diskPrefix))
+        #expect(managedRecord.webExtensionContextIdentifier == firstContextIdentifier)
         #expect(BrowserWebExtensionsManager.candidateURLs(in: managedRoot).count == 1)
     }
 

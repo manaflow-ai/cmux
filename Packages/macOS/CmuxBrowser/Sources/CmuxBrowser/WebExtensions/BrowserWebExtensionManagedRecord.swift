@@ -5,6 +5,10 @@ public struct BrowserWebExtensionManagedRecord: Codable, Equatable, Identifiable
     /// Stable logical identity retained across catalog and Safari-app updates.
     public let id: String
 
+    /// WebKit storage identity for this installation. Legacy records derive it
+    /// from ``id`` so existing extension data remains available after upgrade.
+    public var webExtensionContextIdentifier: String?
+
     /// Extension-provided display name captured during permission review.
     public var displayName: String
 
@@ -52,6 +56,7 @@ public struct BrowserWebExtensionManagedRecord: Codable, Equatable, Identifiable
         source: BrowserWebExtensionManagedSource,
         isEnabled: Bool,
         isToolbarPinned: Bool = false,
+        webExtensionContextIdentifier: String? = nil,
         grantedPermissions: [String: Date],
         requiredPermissions: [String] = [],
         deniedPermissions: [String: Date] = [:],
@@ -67,6 +72,7 @@ public struct BrowserWebExtensionManagedRecord: Codable, Equatable, Identifiable
         self.source = source
         self.isEnabled = isEnabled
         self.isToolbarPinned = isToolbarPinned
+        self.webExtensionContextIdentifier = webExtensionContextIdentifier
         self.grantedPermissions = grantedPermissions
         self.requiredPermissions = requiredPermissions.sorted()
         self.deniedPermissions = deniedPermissions
@@ -85,6 +91,7 @@ public struct BrowserWebExtensionManagedRecord: Codable, Equatable, Identifiable
         source: BrowserWebExtensionManagedSource,
         isEnabled: Bool,
         isToolbarPinned: Bool = false,
+        webExtensionContextIdentifier: String? = nil,
         grantedPermissions: [String],
         requiredPermissions: [String]? = nil,
         deniedPermissions: [String] = [],
@@ -102,6 +109,7 @@ public struct BrowserWebExtensionManagedRecord: Codable, Equatable, Identifiable
             source: source,
             isEnabled: isEnabled,
             isToolbarPinned: isToolbarPinned,
+            webExtensionContextIdentifier: webExtensionContextIdentifier,
             grantedPermissions: Dictionary(uniqueKeysWithValues: grantedPermissions.map { ($0, expiration) }),
             requiredPermissions: requiredPermissions ?? grantedPermissions,
             deniedPermissions: Dictionary(uniqueKeysWithValues: deniedPermissions.map { ($0, expiration) }),
