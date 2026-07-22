@@ -13,6 +13,61 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CommandPaletteControlRegistrationTests {
+    @Test func bootstrapDefersSocketListenerUntilTheInitialWindowRegistersItsHandler() {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowID = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        var activations: [(TabManager, String)] = []
+        appDelegate.debugSocketListenerActivationOverrideForTesting = { manager, source in
+            activations.append((manager, source))
+        }
+        defer {
+            appDelegate.debugSocketListenerActivationOverrideForTesting = nil
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            MobileHostService.shared.stop()
+            TerminalController.shared.stop()
+            window.close()
+        }
+
+        let didPublishBeforeHandler = appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: tabManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        #expect(!didPublishBeforeHandler)
+
+        let bootstrappedWindowID = appDelegate.bootstrapInitialMainWindowIfNeeded(
+            debugSource: "commandPaletteRegistrationTest",
+            shouldActivate: false,
+            suppressWelcome: true
+        )
+
+        #expect(bootstrappedWindowID == windowID)
+        #expect(activations.isEmpty)
+
+        let didPublishAfterHandler = appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: tabManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            commandPaletteControlHandler: { $0.complete(.listed([])) }
+        )
+
+        #expect(didPublishAfterHandler)
+        #expect(activations.count == 1)
+        #expect(activations.first?.0 === tabManager)
+        #expect(activations.first?.1 == "mainWindow.register")
+    }
+
     @Test func registrationDoesNotPublishSocketControlBeforeItsHandlerExists() {
         let appDelegate = AppDelegate()
         let tabManager = TabManager()

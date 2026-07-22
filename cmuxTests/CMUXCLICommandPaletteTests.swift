@@ -265,6 +265,55 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["path"] as? String == directoryURL.standardizedFileURL.path)
     }
 
+    @Test func vscodeOutputSanitizesTerminalControlsWithoutChangingJSON() throws {
+        let cliPath = try bundledCLIPath()
+        let path = "/tmp/project\u{001B}[31mred\u{009B}2J\u{001B}]0;owned\u{0007}"
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": [
+                "accepted": true,
+                "path": path,
+            ],
+        ])
+        let response = try #require(String(data: responseData, encoding: .utf8))
+
+        let textSocketPath = "/tmp/cmux-vscodesafe-\(UUID().uuidString.prefix(8)).sock"
+        let textResponder = try UnixSocketResponder(path: textSocketPath, response: response)
+        defer { textResponder.stop() }
+        let textResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", textSocketPath, "vscode", "/tmp"],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!textResult.timedOut)
+        #expect(textResult.status == 0)
+        #expect(
+            textResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "Queued for VS Code (Inline): /tmp/project�[31mred�2J�]0;owned�"
+        )
+        #expect(!textResult.stdout.contains("\u{001B}"))
+        #expect(!textResult.stdout.contains("\u{009B}"))
+        #expect(!textResult.stdout.contains("\u{0007}"))
+
+        let jsonSocketPath = "/tmp/cmux-vscodejson-\(UUID().uuidString.prefix(8)).sock"
+        let jsonResponder = try UnixSocketResponder(path: jsonSocketPath, response: response)
+        defer { jsonResponder.stop() }
+        let jsonResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", jsonSocketPath, "--json", "vscode", "/tmp"],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!jsonResult.timedOut)
+        #expect(jsonResult.status == 0)
+        let jsonData = try #require(jsonResult.stdout.data(using: .utf8))
+        let jsonObject = try #require(JSONSerialization.jsonObject(with: jsonData) as? [String: Any])
+        #expect(jsonObject["path"] as? String == path)
+    }
+
     private func commandPaletteCLIEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {

@@ -1,8 +1,8 @@
 import Testing
 @testable import CmuxCommandPalette
 
-@Suite("Command palette usage recording policy")
-struct CommandPaletteUsageRecordingPolicyTests {
+@Suite("Cmux action execution result command-palette usage")
+struct CmuxActionExecutionResultCommandPaletteUsageTests {
     @Test func recordsAcceptedInteractiveActivations() {
         let acceptedResults: [CmuxActionExecutionResult] = [
             .completed,
@@ -12,10 +12,7 @@ struct CommandPaletteUsageRecordingPolicyTests {
         ]
 
         for result in acceptedResults {
-            #expect(CommandPaletteUsageRecordingPolicy.shouldRecord(
-                source: .commandPalette,
-                result: result
-            ))
+            #expect(result.shouldRecordCommandPaletteUsage(for: .commandPalette))
         }
     }
 
@@ -28,10 +25,7 @@ struct CommandPaletteUsageRecordingPolicyTests {
         ]
 
         for result in rejectedResults {
-            #expect(!CommandPaletteUsageRecordingPolicy.shouldRecord(
-                source: .commandPalette,
-                result: result
-            ))
+            #expect(!result.shouldRecordCommandPaletteUsage(for: .commandPalette))
         }
     }
 
@@ -48,10 +42,7 @@ struct CommandPaletteUsageRecordingPolicyTests {
         ]
 
         for result in allResults {
-            #expect(!CommandPaletteUsageRecordingPolicy.shouldRecord(
-                source: .automation,
-                result: result
-            ))
+            #expect(!result.shouldRecordCommandPaletteUsage(for: .automation))
         }
     }
 }
