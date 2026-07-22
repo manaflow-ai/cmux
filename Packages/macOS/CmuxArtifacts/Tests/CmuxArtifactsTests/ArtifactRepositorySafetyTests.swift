@@ -64,6 +64,74 @@ struct ArtifactRepositorySafetyTests {
         #expect(try Data(contentsOf: metadataURL) == corruptData)
     }
 
+    @Test("Provenance reads reject final symlinks")
+    func rejectsSymlinkedProvenanceDocument() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let outside = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(outside) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        try FileManager.default.createDirectory(at: paths.provenanceRoot, withIntermediateDirectories: true)
+        let valid = ArtifactMetadataDocument(
+            version: 1,
+            digest: "digest",
+            lastKnownRelativePath: "plan.md",
+            size: 4,
+            events: []
+        )
+        let target = outside.appendingPathComponent("outside.json")
+        try JSONEncoder().encode(valid).write(to: target)
+        let metadataURL = recorder.metadataURL(paths: paths, digest: "digest")
+        try FileManager.default.createSymbolicLink(at: metadataURL, withDestinationURL: target)
+
+        #expect(throws: ArtifactStoreError.corruptProvenance(metadataURL.path)) {
+            _ = try recorder.document(paths: paths, digest: "digest")
+        }
+    }
+
+    @Test("Provenance reads reject oversized documents")
+    func rejectsOversizedProvenanceDocument() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        try FileManager.default.createDirectory(
+            at: paths.provenanceRoot,
+            withIntermediateDirectories: true
+        )
+        let metadataURL = recorder.metadataURL(paths: paths, digest: "digest")
+        try Data(count: 256 * 1024 + 1)
+            .write(to: metadataURL)
+
+        #expect(throws: ArtifactStoreError.corruptProvenance(metadataURL.path)) {
+            _ = try recorder.document(paths: paths, digest: "digest")
+        }
+    }
+
+    @Test("Repeated provenance stays within its readable document limit")
+    func boundsWrittenProvenanceDocument() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let largeID = String(repeating: "session", count: 700)
+        let largeEvent = ArtifactProvenanceEvent(
+            sourcePath: "/tmp/plan.md",
+            workspaceID: largeID,
+            sessionID: largeID,
+            provenance: .created,
+            capturedAt: Date(timeIntervalSince1970: 1)
+        )
+        for _ in 0..<100 {
+            try recorder.record(
+                paths: paths, digest: "digest", relativePath: "plan.md",
+                size: 4, event: largeEvent
+            )
+        }
+        let metadataURL = recorder.metadataURL(paths: paths, digest: "digest")
+
+        #expect(try Data(contentsOf: metadataURL).count <= 256 * 1024)
+        #expect(try recorder.document(paths: paths, digest: "digest") != nil)
+    }
+
     @Test("Repository rejects corrupt provenance before moving another file")
     func rejectsCorruptProvenanceBeforePersistence() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

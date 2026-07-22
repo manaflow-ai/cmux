@@ -245,6 +245,54 @@ struct AgentArtifactCaptureCoordinatorTests {
         }
     }
 
+    @Test func automaticTranscriptSnapshotRejectsFinalSymlinks() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let target = projectRoot.appendingPathComponent("real.jsonl")
+        let transcript = projectRoot.appendingPathComponent("transcript.jsonl")
+        try Data("{}\n".utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: transcript, withDestinationURL: target)
+
+        await #expect(throws: (any Error).self) {
+            _ = try await AgentChatArtifactIndex().snapshot(
+                sessionID: "session",
+                agentKind: .claude,
+                transcriptPath: transcript.path,
+                workingDirectory: projectRoot.path,
+                maximumFileBytes: 1_024
+            )
+        }
+    }
+
+    @Test func completedCaptureProgressIsBoundedAcrossEndedSessions() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        for index in 0...64 {
+            let record = captureRecord(
+                projectRoot: projectRoot,
+                sessionID: "ended-\(index)",
+                state: .ended
+            )
+            let path = projectRoot.appendingPathComponent("artifact-\(index).md").path
+            await coordinator.capture(
+                record: record,
+                snapshot: snapshot(revision: 1, artifacts: [(path, 1)])
+            )
+        }
+        let oldest = captureRecord(projectRoot: projectRoot, sessionID: "ended-0", state: .ended)
+        let oldestPath = projectRoot.appendingPathComponent("artifact-0.md").path
+        await coordinator.capture(
+            record: oldest,
+            snapshot: snapshot(revision: 1, artifacts: [(oldestPath, 1)])
+        )
+
+        #expect(await store.importCount == 66)
+    }
+
     @Test func olderCaptureFinishingLastDoesNotRegressCompletedGeneration() async throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -324,16 +372,18 @@ struct AgentArtifactCaptureCoordinatorTests {
 
     private func captureRecord(
         projectRoot: URL,
-        agentKind: ChatAgentKind = .claude
+        agentKind: ChatAgentKind = .claude,
+        sessionID: String = "session",
+        state: ChatAgentState = .idle
     ) -> AgentChatSessionRecord {
         AgentChatSessionRecord(
-            sessionID: "session",
+            sessionID: sessionID,
             agentKind: agentKind,
             workspaceID: "workspace",
             surfaceID: nil,
             workingDirectory: projectRoot.path,
             transcriptPath: nil,
-            state: .idle,
+            state: state,
             lastActivityAt: .now,
             title: nil,
             pid: nil

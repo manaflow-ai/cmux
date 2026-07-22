@@ -109,12 +109,12 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.provenance == .referenced)
     }
 
-    @Test("Successful shell output targets are created but shell inputs remain references")
-    func successfulShellMutationClassifiesOnlyOutputTargetAsCreated() throws {
+    @Test("Successful shell redirections are created but shell inputs remain references")
+    func successfulShellRedirectionClassifiesOnlyOutputTargetAsCreated() throws {
         let renderCall = codexLine(type: "response_item", payload: [
             "type": "function_call",
             "name": "exec_command",
-            "arguments": #"{"cmd":"python3 render.py --output /tmp/rendered.html"}"#,
+            "arguments": #"{"cmd":"python3 render.py > /tmp/rendered.html"}"#,
             "call_id": "render",
         ])
         let renderOutput = codexLine(type: "response_item", payload: [
@@ -142,6 +142,27 @@ struct ArtifactMutationAuthorizationTests {
 
         #expect(artifacts.first { $0.path.hasSuffix("/tmp/rendered.html") }?.provenance == .created)
         #expect(artifacts.first { $0.path.hasSuffix("/tmp/existing.md") }?.provenance == .referenced)
+    }
+
+    @Test("Generic output flags do not authorize copying an external file")
+    func genericOutputFlagFailsClosed() throws {
+        let call = codexLine(type: "response_item", payload: [
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": #"{"cmd":"true --output /Users/me/private.json"}"#,
+            "call_id": "true",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "function_call_output",
+            "call_id": "true",
+            "output": "Process exited with code 0\nOutput:\n",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifacts = indexedArtifacts(result)
+
+        #expect(artifacts.first { $0.path == "/Users/me/private.json" }?.provenance == .referenced)
+        #expect(artifacts.allSatisfy { $0.provenance == .referenced })
     }
 
     @Test("Option-bearing positional shell commands fail closed for mutation provenance")
