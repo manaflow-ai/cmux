@@ -25,7 +25,7 @@ struct CMUXMobileRootView: View {
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// Persists the last durable milestone in first-run onboarding.
     @Bindable private var onboardingStore: MobileOnboardingStore
-    @State private var isStartingOnboardingConnection = false
+    @State private var isAwaitingOnboardingReconnectStart = false
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -211,6 +211,13 @@ struct CMUXMobileRootView: View {
                 clearAttachTicketAuthenticationIfNeeded()
             }
         }
+        #if os(iOS)
+        .onChange(of: store.isReconnectingStoredMac) { _, isReconnecting in
+            if isReconnecting {
+                isAwaitingOnboardingReconnectStart = false
+            }
+        }
+        #endif
         .onChange(of: store.hasActiveUnexpiredAttachTicket) { _, hasActiveUnexpiredAttachTicket in
             if !hasActiveUnexpiredAttachTicket {
                 clearAttachTicketAuthenticationIfNeeded()
@@ -387,7 +394,7 @@ struct CMUXMobileRootView: View {
     private var onboardingConnectionPhase: OnboardingConnectionPhase {
         OnboardingConnectionPhase(
             isMacReady: store.connectionState == .connected,
-            isSearching: isStartingOnboardingConnection || store.isReconnectingStoredMac,
+            isSearching: isAwaitingOnboardingReconnectStart || store.isReconnectingStoredMac,
             didFinishSearch: store.didFinishStoredMacReconnectAttempt
         )
     }
@@ -396,9 +403,9 @@ struct CMUXMobileRootView: View {
         onboardingStore.markReadyToConnect()
         guard isAuthenticated, store.connectionState != .connected else { return }
         let stackUserID = authManager.currentUser?.id
-        isStartingOnboardingConnection = true
+        isAwaitingOnboardingReconnectStart = true
         Task {
-            defer { isStartingOnboardingConnection = false }
+            defer { isAwaitingOnboardingReconnectStart = false }
             _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
         }
     }
