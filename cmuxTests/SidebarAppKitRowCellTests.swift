@@ -348,6 +348,27 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func markdownMetadataDoesNotCaptureKeyboardFocus() throws {
+        let model = Self.makeModel(
+            metadataEntries: [
+                SidebarStatusEntry(
+                    key: "repo_workspace",
+                    value: Self.linkedMetadataMarkdown,
+                    format: .markdown
+                ),
+            ]
+        )
+        let cell = Self.configuredCell(model: model)
+        let textView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextView }
+                .first { !$0.isHidden }
+        )
+
+        #expect(!textView.acceptsFirstResponder)
+    }
+
+    @Test
     func markdownMetadataExplicitURLPreservesFormattedRowAction() throws {
         let explicitURL = try #require(URL(string: "https://example.com/explicit"))
         let model = Self.makeModel(
