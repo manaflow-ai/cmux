@@ -117,6 +117,55 @@ struct FilePreviewReloadTests {
         #expect(panel.isDirty)
     }
 
+    @Test("Rapid text reloads run only the active and latest request")
+    func rapidTextReloadsConflatePendingWork() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-conflated-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "placeholder\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let loader = ControlledFilePreviewTextLoader()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            textLoader: { _ in await loader.load() }
+        )
+        defer { panel.close() }
+        await loader.waitForFirstStart()
+
+        let superseded = panel.loadTextContent()
+        let latest = panel.loadTextContent()
+        await loader.releaseAll()
+        await superseded.value
+        await latest.value
+
+        #expect(await loader.count == 2)
+        #expect(panel.textContent == "load 2")
+    }
+
+    @Test("Saving a text preview does not route its own write through file-change reload")
+    func saveUpdatesObservedFileState() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-save-state-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "before\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        panel.updateTextContent("after with a different size\n")
+
+        let save = try #require(panel.saveTextContent())
+        await save.value
+
+        #expect(panel.handleObservedFileChange() == nil)
+    }
+
     @Test("The manual refresh path replaces a cached Quick Look item")
     func manualRefreshReplacesQuickLookItem() async throws {
         let fileURL = FileManager.default.temporaryDirectory
@@ -202,12 +251,17 @@ struct FilePreviewReloadTests {
         #expect(container.responds(to: rotateRight))
         _ = container.perform(rotateRight)
         #expect(originalPage.rotation == 90)
+        let manualScale: CGFloat = 1.75
+        pdfView.autoScales = false
+        pdfView.scaleFactor = manualScale
 
         await waitForPDFDocumentReplacement(in: pdfView, replacing: originalDocument) {
             container.setURL(fileURL, revision: 1)
         }
 
         #expect(pdfView.document?.page(at: 0)?.rotation == 90)
+        #expect(!pdfView.autoScales)
+        #expect(abs(pdfView.scaleFactor - manualScale) < 0.001)
     }
 
     @Test("Latest preview load state keeps one active and one latest pending request")
@@ -261,5 +315,43 @@ struct FilePreviewReloadTests {
             return true
         }
         return false
+    }
+}
+
+private actor ControlledFilePreviewTextLoader {
+    private(set) var count = 0
+    private var isReleased = false
+    private var firstStartContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func load() async -> FilePreviewTextLoader.Result {
+        count += 1
+        let invocation = count
+        if invocation == 1 {
+            firstStartContinuation?.resume()
+            firstStartContinuation = nil
+        }
+        if !isReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuations.append(continuation)
+            }
+        }
+        return .loaded(content: "load \(invocation)", encoding: .utf8)
+    }
+
+    func waitForFirstStart() async {
+        guard count == 0 else { return }
+        await withCheckedContinuation { continuation in
+            firstStartContinuation = continuation
+        }
+    }
+
+    func releaseAll() {
+        isReleased = true
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
     }
 }
