@@ -966,7 +966,7 @@ fn run_machine_client_with_initial(
     let label = runtime.name(active).unwrap_or("machine").to_string();
     let machine_ui = MachineUiState::new(runtime.snapshot(active));
     let controller: Box<dyn MachineController> =
-        Box::new(StaticMachineController { runtime, active });
+        Box::new(StaticMachineController { runtime, active, pending_active: None });
     match run_tui_once(session, label, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
@@ -978,6 +978,7 @@ fn run_machine_client_with_initial(
 struct StaticMachineController {
     runtime: MachineRuntime,
     active: machine::MachineKey,
+    pending_active: Option<machine::MachineKey>,
 }
 
 impl MachineController for StaticMachineController {
@@ -1008,13 +1009,24 @@ impl MachineController for StaticMachineController {
             }
         }
     }
+
+    fn commit_replacement(&mut self) -> anyhow::Result<()> {
+        self.active = self.pending_active.take().ok_or_else(|| {
+            anyhow::anyhow!(localization::catalog().sidebar.machine_replacement_target_missing)
+        })?;
+        Ok(())
+    }
+
+    fn abort_replacement(&mut self) {
+        self.pending_active = None;
+    }
 }
 
 impl StaticMachineController {
     fn switch(&mut self, machine: machine::MachineKey) -> anyhow::Result<MachineActionResult> {
         let session = self.runtime.connect(machine)?;
         let label = self.runtime.name(machine).unwrap_or("machine").to_string();
-        self.active = machine;
+        self.pending_active = Some(machine);
         let ui = MachineUiState::new(self.runtime.snapshot(machine));
         Ok(MachineActionResult::replace(ui, session, label))
     }

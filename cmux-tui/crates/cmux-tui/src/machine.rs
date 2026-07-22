@@ -382,9 +382,30 @@ impl MachineActionResult {
     }
 }
 
+pub(crate) fn validate_machine_session(
+    session: &Session,
+    ui: &MachineUiState,
+) -> anyhow::Result<()> {
+    if matches!(ui.workspace_creation_policy(), Some(WorkspaceCreationPolicy::ProviderOwned { .. }))
+    {
+        session.mark_workspaces_provider_managed()?;
+    }
+    Ok(())
+}
+
 /// Mutable machine lifecycle boundary owned by the long-lived TUI app.
 pub(crate) trait MachineController: Send {
     fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult>;
+
+    /// Commit controller-side ownership changes for a replacement only after
+    /// the replacement session has passed the shared workspace guard.
+    fn commit_replacement(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Discard a prepared replacement while leaving the active transport and
+    /// controller selection unchanged.
+    fn abort_replacement(&mut self) {}
 
     fn subscribe_updates(&self) -> anyhow::Result<Option<MachineUpdateStream>> {
         Ok(None)

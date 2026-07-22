@@ -66,6 +66,15 @@ pub(crate) struct SidebarMessages {
     pub action_multiple_fields_unsupported: &'static str,
     pub confirm_destructive_action: &'static str,
     pub confirmation_mismatch: &'static str,
+    pub machine_provider_disconnected: &'static str,
+    pub machine_action_failed: &'static str,
+    pub machine_catalog_updates_failed: &'static str,
+    pub machine_catalog_restart_failed: &'static str,
+    pub machine_replacement_pending: &'static str,
+    pub machine_replacement_worker_stopped: &'static str,
+    pub machine_replacement_stale: &'static str,
+    pub machine_replacement_not_pending: &'static str,
+    pub machine_replacement_target_missing: &'static str,
 }
 
 impl ForeignViewportMessages {
@@ -168,6 +177,15 @@ static ENGLISH: Catalog = Catalog {
         action_multiple_fields_unsupported: "This action needs a form that this client cannot show",
         confirm_destructive_action: "Type CONFIRM to continue",
         confirmation_mismatch: "Type CONFIRM exactly to run this action",
+        machine_provider_disconnected: "Machine provider disconnected; reconnecting",
+        machine_action_failed: "Machine action failed",
+        machine_catalog_updates_failed: "Machine catalog updates could not start",
+        machine_catalog_restart_failed: "Machine switched without live catalog updates",
+        machine_replacement_pending: "Another machine replacement is already pending",
+        machine_replacement_worker_stopped: "Machine replacement worker stopped before commit",
+        machine_replacement_stale: "Machine replacement decision is stale",
+        machine_replacement_not_pending: "Machine replacement is no longer pending",
+        machine_replacement_target_missing: "Machine replacement target is missing",
     },
 };
 
@@ -226,6 +244,15 @@ static JAPANESE: Catalog = Catalog {
         action_multiple_fields_unsupported: "この操作に必要なフォームをこのクライアントでは表示できません",
         confirm_destructive_action: "続行するには CONFIRM と入力",
         confirmation_mismatch: "この操作を実行するには CONFIRM と正確に入力してください",
+        machine_provider_disconnected: "マシンプロバイダーから切断されました。再接続しています",
+        machine_action_failed: "マシン操作に失敗しました",
+        machine_catalog_updates_failed: "マシンカタログの更新を開始できませんでした",
+        machine_catalog_restart_failed: "マシンは切り替わりましたが、カタログのライブ更新を再開できませんでした",
+        machine_replacement_pending: "別のマシン切り替えを処理中です",
+        machine_replacement_worker_stopped: "確定前にマシン切り替え処理が停止しました",
+        machine_replacement_stale: "マシン切り替えの状態が古くなっています",
+        machine_replacement_not_pending: "保留中のマシン切り替えがありません",
+        machine_replacement_target_missing: "マシン切り替え先が見つかりません",
     },
 };
 
@@ -254,6 +281,30 @@ mod tests {
         assert_eq!(catalog_for_locale("en_US.UTF-8"), &ENGLISH);
         assert_eq!(catalog_for_locale("ja_JP.UTF-8"), &JAPANESE);
         assert_eq!(catalog_for_locale("C"), &ENGLISH);
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
+            "マシンプロバイダーから切断されました。再接続しています"
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.machine_action_failed,
+            "Machine action failed"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
+            "マシン操作に失敗しました"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_replacement_stale,
+            "マシン切り替えの状態が古くなっています"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_catalog_updates_failed,
+            "マシンカタログの更新を開始できませんでした"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_replacement_worker_stopped,
+            "確定前にマシン切り替え処理が停止しました"
+        );
     }
 
     #[test]

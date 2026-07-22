@@ -44,11 +44,11 @@ use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView}
 use crate::keys;
 use crate::localization;
 use crate::machine::{
-    MachineController, MachineKey, MachineRailSelection, MachineRailTarget, MachineRequest,
-    MachineSession, MachineUiState, MachineUpdateStream, ManagedMachineDescriptor,
+    MachineActionResult, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
+    MachineRequest, MachineSession, MachineUiState, MachineUpdateStream, ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
     ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
-    WorkspaceCreationPolicy,
+    WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
@@ -115,6 +115,7 @@ pub enum AppEvent {
         generation: u64,
         update: Box<MachineUiState>,
     },
+    MachineControllerCompleted(Box<MachineControllerCompletion>),
 }
 
 /// Cancellation-aware sender used by every worker tied to one mux session.
@@ -180,12 +181,18 @@ impl SessionEventSender {
 
 struct SessionEventWorker {
     stop: Arc<AtomicBool>,
+    start: Arc<AtomicBool>,
     mux: Option<JoinHandle<()>>,
 }
 
 impl SessionEventWorker {
+    fn activate(&self) {
+        self.start.store(true, Ordering::Release);
+    }
+
     fn stop_and_join(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.activate();
         if let Some(mux) = self.mux.take() {
             let _ = mux.join();
         }
@@ -338,7 +345,27 @@ fn start_ordered_session(
     app_events: SyncSender<AppEvent>,
     generation: u64,
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
+    start_ordered_session_inner(inner, operations, app_events, generation, false)
+}
+
+fn prepare_ordered_session(
+    inner: Session,
+    operations: PtyInputSender,
+    app_events: SyncSender<AppEvent>,
+    generation: u64,
+) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
+    start_ordered_session_inner(inner, operations, app_events, generation, true)
+}
+
+fn start_ordered_session_inner(
+    inner: Session,
+    operations: PtyInputSender,
+    app_events: SyncSender<AppEvent>,
+    generation: u64,
+    paused: bool,
+) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
     let stop = Arc::new(AtomicBool::new(false));
+    let start = Arc::new(AtomicBool::new(!paused));
     let events = SessionEventSender::scoped(app_events, generation, stop.clone());
     let session = OrderedSession::new_with_event_sender(inner, operations, events.clone());
     let mux_titles = Arc::new(MuxTitleIngress::default());
@@ -349,8 +376,17 @@ fn start_ordered_session(
     let mux_recovery_sequence = mux_recovery_generation.clone();
     let worker_events = events;
     let worker_titles = mux_titles.clone();
+    let worker_start = start.clone();
     let mux =
         std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
+            while !worker_start.load(Ordering::Acquire)
+                && !worker_events.stop.load(Ordering::Acquire)
+            {
+                std::thread::park_timeout(Duration::from_millis(1));
+            }
+            if worker_events.stop.load(Ordering::Acquire) {
+                return;
+            }
             forward_mux_events(
                 event_source,
                 session_events,
@@ -360,7 +396,12 @@ fn start_ordered_session(
                 worker_titles,
             );
         })?;
-    Ok((session, SessionEventWorker { stop, mux: Some(mux) }, mux_titles, mux_recovery_generation))
+    Ok((
+        session,
+        SessionEventWorker { stop, start, mux: Some(mux) },
+        mux_titles,
+        mux_recovery_generation,
+    ))
 }
 
 #[derive(Default)]
@@ -2847,7 +2888,9 @@ pub struct App {
     session_event_worker: Option<SessionEventWorker>,
     session_generation: u64,
     app_events: SyncSender<AppEvent>,
-    machine_controller: Option<Box<dyn MachineController>>,
+    machine_action_worker: Option<MachineActionWorker>,
+    machine_action_in_flight: bool,
+    pending_machine_replacement: Option<PendingMachineReplacement>,
     machine_update_pump: Option<MachineUpdatePump>,
     machine_update_generation: u64,
     pub config: Config,
@@ -3142,6 +3185,377 @@ struct MachineUpdatePump {
     forwarder: Option<JoinHandle<()>>,
 }
 
+enum MachineControllerCommand {
+    Perform { request: MachineRequest, preparation: Box<MachineSessionPreparation> },
+    SubscribeUpdates,
+    CommitReplacement(u64),
+    AbortReplacement(u64),
+}
+
+struct MachineSessionPreparation {
+    initial_size: Option<(u16, u16)>,
+    default_colors: cmux_tui_core::DefaultColors,
+    generation: u64,
+    pty_input: PtyInputSender,
+}
+
+struct PreparedMachineSession {
+    session: OrderedSession,
+    event_worker: SessionEventWorker,
+    generation: u64,
+    mux_titles: Arc<MuxTitleIngress>,
+    mux_recovery_generation: Arc<AtomicU64>,
+    tree: TreeView,
+    label: String,
+    session_available: bool,
+    color_error: Option<String>,
+}
+
+pub(crate) struct PreparedMachineAction {
+    ui: MachineUiState,
+    session_mutation: Option<ManagedWorkspaceSessionMutation>,
+    session_label: Option<String>,
+    session: PreparedMachineSession,
+}
+
+struct PendingMachineReplacement {
+    action_id: u64,
+    action: PreparedMachineAction,
+}
+
+pub(crate) enum MachineControllerCompletion {
+    Action {
+        result: Result<Box<MachineActionResult>, String>,
+        updates: Option<Result<Option<MachineUpdateStream>, String>>,
+    },
+    ReplacementPrepared {
+        action_id: u64,
+        action: Box<PreparedMachineAction>,
+    },
+    ReplacementSettled {
+        action_id: u64,
+        committed: Result<bool, String>,
+        updates: Option<Result<Option<MachineUpdateStream>, String>>,
+    },
+    Updates(Result<Option<MachineUpdateStream>, String>),
+}
+
+struct MachineActionWorker {
+    sender: Option<SyncSender<MachineControllerCommand>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug)]
+enum MachineSubmitError {
+    Busy(MachineRequest),
+    Stopped(MachineRequest),
+}
+
+impl MachineActionWorker {
+    fn spawn(
+        mut controller: Box<dyn MachineController>,
+        app_events: SyncSender<AppEvent>,
+    ) -> anyhow::Result<Self> {
+        let (sender, receiver) = sync_channel(1);
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let worker =
+            std::thread::Builder::new().name("machine-actions".into()).spawn(move || {
+                let mut next_action_id = 1_u64;
+                let mut pending_replacement: Option<(u64, bool)> = None;
+                while !worker_stop.load(Ordering::Acquire) {
+                    let command = match receiver.recv_timeout(Duration::from_millis(50)) {
+                        Ok(command) => command,
+                        Err(RecvTimeoutError::Timeout) => continue,
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    };
+                    let completion = match command {
+                        MachineControllerCommand::Perform { request, preparation } => {
+                            if pending_replacement.is_some() {
+                                MachineControllerCompletion::Action {
+                                    result: Err(localization::catalog()
+                                        .sidebar
+                                        .machine_replacement_pending
+                                        .to_string()),
+                                    updates: None,
+                                }
+                            } else {
+                                match controller.perform(request) {
+                                    Ok(MachineActionResult {
+                                        ui,
+                                        replacement: Some(replacement),
+                                        restart_updates,
+                                        session_mutation,
+                                        session_label,
+                                    }) => match prepare_machine_session(
+                                        replacement,
+                                        &ui,
+                                        *preparation,
+                                        app_events.clone(),
+                                    ) {
+                                        Ok(session) => {
+                                            let action_id = next_action_id;
+                                            next_action_id = next_action_id.wrapping_add(1).max(1);
+                                            pending_replacement =
+                                                Some((action_id, restart_updates));
+                                            MachineControllerCompletion::ReplacementPrepared {
+                                                action_id,
+                                                action: Box::new(PreparedMachineAction {
+                                                    ui,
+                                                    session_mutation,
+                                                    session_label,
+                                                    session,
+                                                }),
+                                            }
+                                        }
+                                        Err(error) => {
+                                            controller.abort_replacement();
+                                            MachineControllerCompletion::Action {
+                                                result: Err(error.to_string()),
+                                                updates: None,
+                                            }
+                                        }
+                                    },
+                                    result => {
+                                        let restart_updates = result
+                                            .as_ref()
+                                            .is_ok_and(|result| result.restart_updates);
+                                        let result =
+                                            result.map(Box::new).map_err(|error| error.to_string());
+                                        let updates = restart_updates.then(|| {
+                                            controller
+                                                .subscribe_updates()
+                                                .map_err(|error| error.to_string())
+                                        });
+                                        MachineControllerCompletion::Action { result, updates }
+                                    }
+                                }
+                            }
+                        }
+                        MachineControllerCommand::SubscribeUpdates => {
+                            MachineControllerCompletion::Updates(
+                                controller.subscribe_updates().map_err(|error| error.to_string()),
+                            )
+                        }
+                        MachineControllerCommand::CommitReplacement(action_id) => {
+                            match pending_replacement.take() {
+                                Some((pending_id, restart_updates)) if pending_id == action_id => {
+                                    let committed = controller
+                                        .commit_replacement()
+                                        .map(|()| true)
+                                        .map_err(|error| error.to_string());
+                                    if committed.is_err() {
+                                        controller.abort_replacement();
+                                    }
+                                    let updates =
+                                        (committed.is_ok() && restart_updates).then(|| {
+                                            controller
+                                                .subscribe_updates()
+                                                .map_err(|error| error.to_string())
+                                        });
+                                    MachineControllerCompletion::ReplacementSettled {
+                                        action_id,
+                                        committed,
+                                        updates,
+                                    }
+                                }
+                                Some(_) => {
+                                    controller.abort_replacement();
+                                    MachineControllerCompletion::ReplacementSettled {
+                                        action_id,
+                                        committed: Err(localization::catalog()
+                                            .sidebar
+                                            .machine_replacement_stale
+                                            .to_string()),
+                                        updates: None,
+                                    }
+                                }
+                                None => MachineControllerCompletion::ReplacementSettled {
+                                    action_id,
+                                    committed: Err(localization::catalog()
+                                        .sidebar
+                                        .machine_replacement_not_pending
+                                        .to_string()),
+                                    updates: None,
+                                },
+                            }
+                        }
+                        MachineControllerCommand::AbortReplacement(action_id) => {
+                            let committed = match pending_replacement.take() {
+                                Some((pending_id, _)) if pending_id == action_id => {
+                                    controller.abort_replacement();
+                                    Ok(false)
+                                }
+                                Some(_) => {
+                                    controller.abort_replacement();
+                                    Err(localization::catalog()
+                                        .sidebar
+                                        .machine_replacement_stale
+                                        .to_string())
+                                }
+                                None => Err(localization::catalog()
+                                    .sidebar
+                                    .machine_replacement_not_pending
+                                    .to_string()),
+                            };
+                            MachineControllerCompletion::ReplacementSettled {
+                                action_id,
+                                committed,
+                                updates: None,
+                            }
+                        }
+                    };
+                    if !send_machine_controller_completion(&app_events, completion, &worker_stop) {
+                        break;
+                    }
+                }
+                if pending_replacement.is_some() {
+                    controller.abort_replacement();
+                }
+                controller.close();
+            })?;
+        Ok(Self { sender: Some(sender), stop, worker: Some(worker) })
+    }
+
+    fn perform(
+        &self,
+        request: MachineRequest,
+        preparation: MachineSessionPreparation,
+    ) -> Result<(), MachineSubmitError> {
+        let Some(sender) = self.sender.as_ref() else {
+            return Err(MachineSubmitError::Stopped(request));
+        };
+        match sender.try_send(MachineControllerCommand::Perform {
+            request,
+            preparation: Box::new(preparation),
+        }) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(command)) => Err(MachineSubmitError::Busy(match command {
+                MachineControllerCommand::Perform { request, .. } => request,
+                MachineControllerCommand::SubscribeUpdates => {
+                    unreachable!("perform returned a subscription command")
+                }
+                MachineControllerCommand::CommitReplacement(_)
+                | MachineControllerCommand::AbortReplacement(_) => {
+                    unreachable!("perform returned a replacement decision")
+                }
+            })),
+            Err(TrySendError::Disconnected(command)) => {
+                Err(MachineSubmitError::Stopped(match command {
+                    MachineControllerCommand::Perform { request, .. } => request,
+                    MachineControllerCommand::SubscribeUpdates => {
+                        unreachable!("perform returned a subscription command")
+                    }
+                    MachineControllerCommand::CommitReplacement(_)
+                    | MachineControllerCommand::AbortReplacement(_) => {
+                        unreachable!("perform returned a replacement decision")
+                    }
+                }))
+            }
+        }
+    }
+
+    fn subscribe_updates(&self) -> bool {
+        self.sender.as_ref().is_some_and(|sender| {
+            sender.try_send(MachineControllerCommand::SubscribeUpdates).is_ok()
+        })
+    }
+
+    fn commit_replacement(&self, action_id: u64) -> bool {
+        self.sender.as_ref().is_some_and(|sender| {
+            sender.try_send(MachineControllerCommand::CommitReplacement(action_id)).is_ok()
+        })
+    }
+
+    fn abort_replacement(&self, action_id: u64) -> bool {
+        self.sender.as_ref().is_some_and(|sender| {
+            sender.try_send(MachineControllerCommand::AbortReplacement(action_id)).is_ok()
+        })
+    }
+
+    fn shutdown(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        self.sender.take();
+        if self.worker.as_ref().is_some_and(JoinHandle::is_finished)
+            && let Some(worker) = self.worker.take()
+        {
+            let _ = worker.join();
+        }
+        // A provider action has a bounded transport deadline but may still be
+        // in progress. Dropping the handle detaches that bounded cleanup so
+        // quitting the TUI never waits for the provider deadline.
+        self.worker.take();
+    }
+}
+
+impl Drop for MachineActionWorker {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+fn prepare_machine_session(
+    replacement: MachineSession,
+    machine_ui: &MachineUiState,
+    preparation: MachineSessionPreparation,
+    app_events: SyncSender<AppEvent>,
+) -> anyhow::Result<PreparedMachineSession> {
+    ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
+    ensure_initial_for_machine_ui(
+        &replacement.session,
+        preparation.initial_size,
+        Some(machine_ui),
+    )?;
+    let color_error = replacement
+        .session
+        .set_default_colors(preparation.default_colors)
+        .err()
+        .map(|error| error.to_string());
+    let session_available = machine_ui.session_available;
+    let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+        replacement.session,
+        preparation.pty_input,
+        app_events,
+        preparation.generation,
+    )?;
+    let tree = session.tree();
+    Ok(PreparedMachineSession {
+        session,
+        event_worker,
+        generation: preparation.generation,
+        mux_titles,
+        mux_recovery_generation,
+        tree,
+        label: replacement.label,
+        session_available,
+        color_error,
+    })
+}
+
+fn send_machine_controller_completion(
+    app_events: &SyncSender<AppEvent>,
+    mut completion: MachineControllerCompletion,
+    stop: &AtomicBool,
+) -> bool {
+    loop {
+        match app_events.try_send(AppEvent::MachineControllerCompleted(Box::new(completion))) {
+            Ok(()) => return true,
+            Err(TrySendError::Full(AppEvent::MachineControllerCompleted(returned))) => {
+                completion = *returned;
+                if stop.load(Ordering::Acquire) {
+                    return false;
+                }
+                std::thread::park_timeout(Duration::from_millis(1));
+            }
+            Err(TrySendError::Full(_)) => {
+                unreachable!("machine completion sender returned a different event")
+            }
+            Err(TrySendError::Disconnected(_)) => return false,
+        }
+    }
+}
+
 impl MachineUpdatePump {
     fn spawn(
         updates: MachineUpdateStream,
@@ -3247,8 +3661,8 @@ fn ensure_managed_workspace_guard(
     session: &Session,
     machine_ui: Option<&MachineUiState>,
 ) -> anyhow::Result<()> {
-    if uses_provider_managed_workspaces(machine_ui) {
-        session.mark_workspaces_provider_managed()?;
+    if let Some(machine_ui) = machine_ui {
+        validate_machine_session(session, machine_ui)?;
     }
     Ok(())
 }
@@ -3303,6 +3717,9 @@ pub fn run_with_machine_updates(
     let (session, session_event_worker, mux_titles, mux_recovery_generation) =
         start_ordered_session(session, pty_input.sender(), tx.clone(), session_generation)?;
     let stdout_lock = Arc::new(Mutex::new(()));
+    let machine_action_worker = machine_controller
+        .map(|controller| MachineActionWorker::spawn(controller, tx.clone()))
+        .transpose()?;
 
     // Crossterm input → app channel.
     enable_raw_mode()?;
@@ -3368,7 +3785,9 @@ pub fn run_with_machine_updates(
         session_event_worker: Some(session_event_worker),
         session_generation,
         app_events: tx,
-        machine_controller,
+        machine_action_worker,
+        machine_action_in_flight: false,
+        pending_machine_replacement: None,
         machine_update_pump: None,
         machine_update_generation: 0,
         config,
@@ -3468,9 +3887,6 @@ pub fn run_with_machine_updates(
 
     let result = app.event_loop(&mut terminal, rx);
     app.shutdown_background_workers();
-    if let Some(controller) = app.machine_controller.as_mut() {
-        controller.close();
-    }
     app.cancel_pty_mouse_drag();
     app.session.begin_shutdown();
     let _ = app.pty_input.shutdown(Duration::from_secs(3));
@@ -3699,12 +4115,19 @@ impl App {
     }
 
     fn restart_machine_updates(&mut self) -> anyhow::Result<()> {
-        let updates = self
-            .machine_controller
-            .as_ref()
-            .map(|controller| controller.subscribe_updates())
-            .transpose()?
-            .flatten();
+        let Some(worker) = self.machine_action_worker.as_ref() else {
+            return Ok(());
+        };
+        if !worker.subscribe_updates() {
+            anyhow::bail!(localization::catalog().sidebar.machine_replacement_worker_stopped)
+        }
+        Ok(())
+    }
+
+    fn replace_machine_updates(
+        &mut self,
+        updates: Option<MachineUpdateStream>,
+    ) -> anyhow::Result<()> {
         let generation = self.machine_update_generation.wrapping_add(1).max(1);
         let next = updates
             .map(|updates| MachineUpdatePump::spawn(updates, self.app_events.clone(), generation))
@@ -3721,70 +4144,205 @@ impl App {
         if let Some(mut updates) = self.machine_update_pump.take() {
             updates.stop_and_join();
         }
+        if let Some(mut actions) = self.machine_action_worker.take() {
+            actions.shutdown();
+        }
         if let Some(mut session_events) = self.session_event_worker.take() {
             session_events.stop_and_join();
         }
     }
 
     fn process_machine_requests(&mut self) -> RenderAction {
-        let mut action = RenderAction::None;
-        for _ in 0..4 {
-            let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
-                break;
-            };
-            let Some(mut controller) = self.machine_controller.take() else {
+        if self.machine_action_in_flight {
+            return RenderAction::None;
+        }
+        let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
+            return RenderAction::None;
+        };
+        let Some(worker) = self.machine_action_worker.as_ref() else {
+            if let Some(ui) = self.machine_ui.as_mut() {
+                ui.request = Some(request);
+            }
+            self.quit = true;
+            return RenderAction::None;
+        };
+        let preparation = MachineSessionPreparation {
+            initial_size: content_size_for_rect(self.content_area, self.config.scrollbar.position),
+            default_colors: self.default_colors,
+            generation: self.session_generation.wrapping_add(1).max(1),
+            pty_input: self.pty_input.sender(),
+        };
+        match worker.perform(request, preparation) {
+            Ok(()) => self.machine_action_in_flight = true,
+            Err(MachineSubmitError::Busy(request)) => {
+                if let Some(ui) = self.machine_ui.as_mut() {
+                    ui.request = Some(request);
+                }
+            }
+            Err(MachineSubmitError::Stopped(request)) => {
                 if let Some(ui) = self.machine_ui.as_mut() {
                     ui.request = Some(request);
                 }
                 self.quit = true;
-                break;
-            };
-            let result = controller.perform(request);
-            self.machine_controller = Some(controller);
-            let result = match result {
-                Ok(result) => result,
-                Err(error) => {
-                    self.status_message = Some(format!("Machine action failed: {error}"));
-                    action = action.merge(RenderAction::Draw);
-                    break;
-                }
-            };
-
-            let restart_updates = result.restart_updates;
-            let session_mutation = result.session_mutation;
-            let session_label = result.session_label;
-            if let Some(replacement) = result.replacement
-                && let Err(error) = self.replace_machine_session(replacement, &result.ui)
-            {
-                self.status_message = Some(format!("Could not switch machine: {error}"));
-                action = action.merge(RenderAction::Draw);
-                if restart_updates && let Err(error) = self.restart_machine_updates() {
-                    self.status_message =
-                        Some(format!("Machine switched without live catalog updates: {error}"));
-                }
-                break;
-            }
-            if let Some(mutation) = session_mutation {
-                self.apply_managed_workspace_session_mutation(mutation);
-            }
-            if let Some(label) = session_label {
-                self.session_label = label;
-            }
-            action = action.merge(self.apply_machine_ui_update(result.ui));
-            if restart_updates && let Err(error) = self.restart_machine_updates() {
-                self.status_message =
-                    Some(format!("Machine catalog updates could not restart: {error}"));
-                action = action.merge(RenderAction::Draw);
             }
         }
-        action
+        RenderAction::None
+    }
+
+    fn apply_machine_controller_completion(
+        &mut self,
+        completion: MachineControllerCompletion,
+    ) -> RenderAction {
+        match completion {
+            MachineControllerCompletion::Updates(updates) => {
+                if let Err(error) = updates
+                    .map_err(anyhow::Error::msg)
+                    .and_then(|updates| self.replace_machine_updates(updates))
+                {
+                    self.status_message = Some(format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_catalog_updates_failed
+                    ));
+                    return RenderAction::Draw;
+                }
+                RenderAction::None
+            }
+            MachineControllerCompletion::Action { result, updates } => {
+                self.machine_action_in_flight = false;
+                let result = match result {
+                    Ok(result) => result,
+                    Err(error) => {
+                        self.status_message = Some(format!(
+                            "{}: {error}",
+                            localization::catalog().sidebar.machine_action_failed
+                        ));
+                        return RenderAction::Draw;
+                    }
+                };
+                let MachineActionResult {
+                    ui,
+                    replacement,
+                    restart_updates: _,
+                    session_mutation,
+                    session_label,
+                } = *result;
+                debug_assert!(replacement.is_none());
+                let mut action = RenderAction::None;
+                drop(replacement);
+                if let Some(mutation) = session_mutation {
+                    self.apply_managed_workspace_session_mutation(mutation);
+                }
+                if let Some(label) = session_label {
+                    self.session_label = label;
+                }
+                action = action.merge(self.apply_machine_ui_update(ui));
+                if let Some(updates) = updates
+                    && let Err(error) = updates
+                        .map_err(anyhow::Error::msg)
+                        .and_then(|updates| self.replace_machine_updates(updates))
+                {
+                    self.status_message = Some(format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_catalog_restart_failed
+                    ));
+                    action = action.merge(RenderAction::Draw);
+                }
+                action
+            }
+            MachineControllerCompletion::ReplacementPrepared { action_id, action } => {
+                if self.pending_machine_replacement.is_some() {
+                    if let Some(worker) = self.machine_action_worker.as_ref() {
+                        let _ = worker.abort_replacement(action_id);
+                    }
+                    self.machine_action_in_flight = false;
+                    self.status_message = Some(format!(
+                        "{}: {}",
+                        localization::catalog().sidebar.machine_action_failed,
+                        localization::catalog().sidebar.machine_replacement_pending
+                    ));
+                    return RenderAction::Draw;
+                }
+                self.pending_machine_replacement =
+                    Some(PendingMachineReplacement { action_id, action: *action });
+                if self
+                    .machine_action_worker
+                    .as_ref()
+                    .is_none_or(|worker| !worker.commit_replacement(action_id))
+                {
+                    self.pending_machine_replacement.take();
+                    self.machine_action_in_flight = false;
+                    self.status_message = Some(format!(
+                        "{}: {}",
+                        localization::catalog().sidebar.machine_action_failed,
+                        localization::catalog().sidebar.machine_replacement_worker_stopped
+                    ));
+                    return RenderAction::Draw;
+                }
+                RenderAction::None
+            }
+            MachineControllerCompletion::ReplacementSettled { action_id, committed, updates } => {
+                self.machine_action_in_flight = false;
+                let mut action = RenderAction::None;
+                match committed {
+                    Ok(true) => {
+                        let Some(pending) = self
+                            .pending_machine_replacement
+                            .take()
+                            .filter(|pending| pending.action_id == action_id)
+                        else {
+                            self.status_message = Some(format!(
+                                "{}: {}",
+                                localization::catalog().sidebar.machine_action_failed,
+                                localization::catalog().sidebar.machine_replacement_stale
+                            ));
+                            return RenderAction::Draw;
+                        };
+                        let PreparedMachineAction { ui, session_mutation, session_label, session } =
+                            pending.action;
+                        self.install_prepared_machine_session(session);
+                        if let Some(mutation) = session_mutation {
+                            self.apply_managed_workspace_session_mutation(mutation);
+                        }
+                        if let Some(label) = session_label {
+                            self.session_label = label;
+                        }
+                        action = action.merge(self.apply_machine_ui_update(ui));
+                    }
+                    Ok(false) => {
+                        self.pending_machine_replacement.take();
+                    }
+                    Err(error) => {
+                        self.pending_machine_replacement.take();
+                        self.status_message = Some(format!(
+                            "{}: {error}",
+                            localization::catalog().sidebar.machine_action_failed
+                        ));
+                        action = action.merge(RenderAction::Draw);
+                    }
+                }
+                if let Some(updates) = updates
+                    && let Err(error) = updates
+                        .map_err(anyhow::Error::msg)
+                        .and_then(|updates| self.replace_machine_updates(updates))
+                {
+                    self.status_message = Some(format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_catalog_restart_failed
+                    ));
+                    action = action.merge(RenderAction::Draw);
+                }
+                action
+            }
+        }
     }
 
     fn apply_managed_workspace_session_mutation(
         &mut self,
         mutation: ManagedWorkspaceSessionMutation,
     ) {
-        if let Err(error) = self.session.mark_workspaces_provider_managed() {
+        if !self.session.workspaces_are_provider_managed()
+            && let Err(error) = self.session.mark_workspaces_provider_managed()
+        {
             self.status_message = Some(error.to_string());
             return;
         }
@@ -3811,10 +4369,11 @@ impl App {
     }
 
     fn apply_machine_ui_update(&mut self, mut update: MachineUiState) -> RenderAction {
-        let guard_error = uses_provider_managed_workspaces(Some(&update))
-            .then(|| self.session.mark_workspaces_provider_managed().err())
-            .flatten()
-            .map(|error| error.to_string());
+        let guard_error = (uses_provider_managed_workspaces(Some(&update))
+            && !self.session.workspaces_are_provider_managed())
+        .then(|| self.session.mark_workspaces_provider_managed().err())
+        .flatten()
+        .map(|error| error.to_string());
         if guard_error.is_some() {
             update.session_available = false;
         }
@@ -3860,35 +4419,31 @@ impl App {
         RenderAction::Draw
     }
 
-    fn replace_machine_session(
-        &mut self,
-        replacement: MachineSession,
-        machine_ui: &MachineUiState,
-    ) -> anyhow::Result<()> {
-        let initial_size = content_size_for_rect(self.content_area, self.config.scrollbar.position);
-        ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
-        ensure_initial_for_machine_ui(&replacement.session, initial_size, Some(machine_ui))?;
-        let session_available = machine_ui.session_available;
-        if let Err(error) = replacement.session.set_default_colors(self.default_colors) {
+    fn install_prepared_machine_session(&mut self, prepared: PreparedMachineSession) {
+        let PreparedMachineSession {
+            session,
+            event_worker,
+            generation,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label,
+            session_available,
+            color_error,
+        } = prepared;
+        self.session_generation = generation;
+        let previous_session = std::mem::replace(&mut self.session, session);
+        let previous_worker = self.session_event_worker.replace(event_worker);
+        self.mux_titles = mux_titles;
+        self.mux_recovery_generation = mux_recovery_generation;
+        self.session_label = label;
+        self.reset_session_presentation(tree);
+        if let Some(worker) = self.session_event_worker.as_ref() {
+            worker.activate();
+        }
+        if let Some(error) = color_error {
             self.status_message = Some(format!("Could not apply terminal colors: {error}"));
         }
-        let generation = self.session_generation.wrapping_add(1).max(1);
-        let (next_session, next_worker, next_titles, next_recovery_generation) =
-            start_ordered_session(
-                replacement.session,
-                self.pty_input.sender(),
-                self.app_events.clone(),
-                generation,
-            )?;
-        let next_tree = next_session.tree();
-
-        self.session_generation = generation;
-        let previous_session = std::mem::replace(&mut self.session, next_session);
-        let previous_worker = self.session_event_worker.replace(next_worker);
-        self.mux_titles = next_titles;
-        self.mux_recovery_generation = next_recovery_generation;
-        self.session_label = replacement.label;
-        self.reset_session_presentation(next_tree);
         if session_available {
             self.session.set_cell_pixel_size(self.cell_pixels.0, self.cell_pixels.1);
             self.session.apply_config(self.config.clone());
@@ -3899,7 +4454,6 @@ impl App {
             previous_worker.stop_and_join();
         }
         previous_session.begin_shutdown();
-        Ok(())
     }
 
     fn reset_session_presentation(&mut self, tree: TreeView) {
@@ -4914,6 +5468,9 @@ impl App {
                     return Ok(RenderAction::None);
                 }
                 Ok(self.apply_machine_ui_update(*update))
+            }
+            AppEvent::MachineControllerCompleted(completion) => {
+                Ok(self.apply_machine_controller_completion(*completion))
             }
             AppEvent::Mux(MuxEvent::Empty) => {
                 if self.request_current_machine_session() {
@@ -9736,14 +10293,15 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
-        PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState, PromptTarget,
-        PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, Selection,
-        SessionCompletion, SessionCompletionAction, SessionEventSender, SidebarLayout,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
-        SurfaceResizeOwnership, WorkspaceRailSelection, browser_content_size_for_rect,
-        browser_hover_forward_allowed, client_menu_item, forward_mux_event, forward_mux_events,
-        pane_context_menu_groups, pane_parts_for_rect, preserve_client_view, rail_drag_width,
+        ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
+        OrderedSession, PaneArea, PaneFocusHistory, PendingSessionMutation,
+        PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
+        RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
+        browser_content_size_for_rect, browser_hover_forward_allowed, client_menu_item,
+        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width,
         record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session,
     };
@@ -13920,21 +14478,24 @@ mod tests {
                 None,
             )
             .unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         app.machine_ui = Some(provider_machine_ui_with_lifecycle());
-        app.machine_controller = Some(Box::new(FakeMachineController {
-            actions: VecDeque::from([
-                FakeMachineAction::Fail("provider rename failed"),
-                FakeMachineAction::Fail("provider delete failed"),
-            ]),
-            requests: Arc::new(Mutex::new(Vec::new())),
-        }));
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([
+                    FakeMachineAction::Fail("provider rename failed"),
+                    FakeMachineAction::Fail("provider delete failed"),
+                ]),
+                requests: Arc::new(Mutex::new(Vec::new())),
+            }),
+        );
 
         app.request_rename_managed_workspace(placement.workspace, "renamed".into());
-        app.process_machine_requests();
+        settle_machine_action(&mut app, &events);
         app.request_delete_workspace(placement.workspace);
-        app.process_machine_requests();
+        settle_machine_action(&mut app, &events);
 
         mux.with_state(|state| {
             let workspace = state
@@ -13958,27 +14519,30 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
         let requests = Arc::new(Mutex::new(Vec::new()));
-        app.machine_controller = Some(Box::new(FakeMachineController {
-            actions: VecDeque::from([
-                FakeMachineAction::Return(Box::new(
-                    MachineActionResult::ui(provider_machine_ui_with_lifecycle())
-                        .with_session_mutation(ManagedWorkspaceSessionMutation::Rename {
-                            workspace_key: workspace_key.into(),
-                            name: "renamed".into(),
-                        }),
-                )),
-                FakeMachineAction::Return(Box::new(
-                    MachineActionResult::ui(provider_machine_ui_with_lifecycle())
-                        .with_session_mutation(ManagedWorkspaceSessionMutation::Close {
-                            workspace_key: workspace_key.into(),
-                        }),
-                )),
-            ]),
-            requests: requests.clone(),
-        }));
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([
+                    FakeMachineAction::Return(Box::new(
+                        MachineActionResult::ui(provider_machine_ui_with_lifecycle())
+                            .with_session_mutation(ManagedWorkspaceSessionMutation::Rename {
+                                workspace_key: workspace_key.into(),
+                                name: "renamed".into(),
+                            }),
+                    )),
+                    FakeMachineAction::Return(Box::new(
+                        MachineActionResult::ui(provider_machine_ui_with_lifecycle())
+                            .with_session_mutation(ManagedWorkspaceSessionMutation::Close {
+                                workspace_key: workspace_key.into(),
+                            }),
+                    )),
+                ]),
+                requests: requests.clone(),
+            }),
+        );
 
         app.request_rename_managed_workspace(placement.workspace, "renamed".into());
-        app.process_machine_requests();
+        settle_machine_action(&mut app, &events);
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
@@ -13991,7 +14555,7 @@ mod tests {
         }));
 
         app.request_delete_workspace(placement.workspace);
-        app.process_machine_requests();
+        settle_machine_action(&mut app, &events);
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
@@ -14754,6 +15318,30 @@ mod tests {
         )
     }
 
+    fn install_machine_controller(app: &mut App, controller: Box<dyn MachineController>) {
+        app.machine_action_worker =
+            Some(MachineActionWorker::spawn(controller, app.app_events.clone()).unwrap());
+    }
+
+    fn unused_machine_preparation() -> super::MachineSessionPreparation {
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        super::MachineSessionPreparation {
+            initial_size: None,
+            default_colors: cmux_tui_core::DefaultColors::default(),
+            generation: 2,
+            pty_input: dispatcher.sender(),
+        }
+    }
+
+    fn settle_machine_action(app: &mut App, events: &Receiver<AppEvent>) -> RenderAction {
+        let mut action = app.process_machine_requests();
+        while app.machine_action_in_flight {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            action = action.merge(app.handle(event).unwrap());
+        }
+        action
+    }
+
     struct BlockingMachineController {
         release: Receiver<()>,
     }
@@ -14765,13 +15353,39 @@ mod tests {
         }
     }
 
+    struct OrderedBlockingMachineController {
+        started: std::sync::mpsc::Sender<MachineKey>,
+        release: Receiver<()>,
+        closed: Option<std::sync::mpsc::Sender<()>>,
+    }
+
+    impl MachineController for OrderedBlockingMachineController {
+        fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+            let MachineRequest::Switch(machine) = request else {
+                panic!("ordered fake received a non-switch request");
+            };
+            self.started.send(machine).unwrap();
+            self.release.recv().expect("release ordered machine action");
+            Ok(MachineActionResult::ui(provider_machine_ui()))
+        }
+
+        fn close(&mut self) {
+            if let Some(closed) = self.closed.take() {
+                let _ = closed.send(());
+            }
+        }
+    }
+
     #[test]
     fn blocked_machine_action_does_not_block_the_app_event_loop() {
         let mux = Mux::new("machine-action-responsive", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
         app.machine_ui = Some(provider_machine_ui());
         let (release, blocked) = std::sync::mpsc::channel();
-        app.machine_controller = Some(Box::new(BlockingMachineController { release: blocked }));
+        install_machine_controller(
+            &mut app,
+            Box::new(BlockingMachineController { release: blocked }),
+        );
         app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(41)));
         let releaser = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(200));
@@ -14787,11 +15401,81 @@ mod tests {
     }
 
     #[test]
+    fn machine_action_worker_serializes_requests_in_submission_order() {
+        let (events, event_receiver) = std::sync::mpsc::sync_channel(4);
+        let (started, starts) = std::sync::mpsc::channel();
+        let (release, releases) = std::sync::mpsc::channel();
+        let mut worker = MachineActionWorker::spawn(
+            Box::new(OrderedBlockingMachineController { started, release: releases, closed: None }),
+            events,
+        )
+        .unwrap();
+
+        worker
+            .perform(MachineRequest::Switch(MachineKey(1)), unused_machine_preparation())
+            .unwrap();
+
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
+        worker
+            .perform(MachineRequest::Switch(MachineKey(2)), unused_machine_preparation())
+            .unwrap();
+        assert!(matches!(
+            worker.perform(MachineRequest::Switch(MachineKey(3)), unused_machine_preparation()),
+            Err(super::MachineSubmitError::Busy(MachineRequest::Switch(MachineKey(3))))
+        ));
+        assert!(starts.try_recv().is_err(), "second action started before the first completed");
+        release.send(()).unwrap();
+        assert!(matches!(
+            event_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::MachineControllerCompleted(_)
+        ));
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(2));
+        release.send(()).unwrap();
+        assert!(matches!(
+            event_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::MachineControllerCompleted(_)
+        ));
+        assert!(
+            starts.try_recv().is_err(),
+            "rejected stale action replayed after the queue drained"
+        );
+        worker.shutdown();
+    }
+
+    #[test]
+    fn machine_action_worker_shutdown_never_joins_a_blocked_action() {
+        let (events, _event_receiver) = std::sync::mpsc::sync_channel(4);
+        let (started, starts) = std::sync::mpsc::channel();
+        let (release, releases) = std::sync::mpsc::channel();
+        let (closed, closes) = std::sync::mpsc::channel();
+        let mut worker = MachineActionWorker::spawn(
+            Box::new(OrderedBlockingMachineController {
+                started,
+                release: releases,
+                closed: Some(closed),
+            }),
+            events,
+        )
+        .unwrap();
+        worker
+            .perform(MachineRequest::Switch(MachineKey(1)), unused_machine_preparation())
+            .unwrap();
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
+
+        let started_shutdown = Instant::now();
+        worker.shutdown();
+
+        assert!(started_shutdown.elapsed() < Duration::from_millis(50));
+        release.send(()).unwrap();
+        closes.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
     fn in_place_machine_switch_preserves_rail_view_focus_and_widths() {
         let first = Mux::new("machine-switch-first", SurfaceOptions::default());
         first.new_workspace(None, None).unwrap();
         let second = Mux::new("machine-switch-second", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(first));
+        let (mut app, events) = test_app_with_events(Session::Local(first));
         app.replace_tree(app.session.tree());
         app.machine_ui = Some(provider_machine_ui());
         app.sidebar_view = SidebarView::Workspaces;
@@ -14805,10 +15489,10 @@ mod tests {
         let (controller, requests) = fake_controller(FakeMachineAction::Return(Box::new(
             MachineActionResult::replace(next_ui, Session::Local(second), "second".into()),
         )));
-        app.machine_controller = Some(controller);
+        install_machine_controller(&mut app, controller);
         app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(41)));
 
-        assert!(matches!(app.process_machine_requests(), RenderAction::Draw));
+        assert!(matches!(settle_machine_action(&mut app, &events), RenderAction::Draw));
         assert_eq!(app.session_generation, 2);
         assert_eq!(app.session_label, "second");
         assert_eq!(app.sidebar_view, SidebarView::Workspaces);
@@ -14825,7 +15509,7 @@ mod tests {
     fn non_switch_machine_action_keeps_the_current_session_and_rails() {
         let mux = Mux::new("machine-non-switch", SurfaceOptions::default());
         mux.new_workspace(None, None).unwrap();
-        let mut app = test_app(Session::Local(mux));
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
         app.replace_tree(app.session.tree());
         let original_workspace_count = app.tree.workspaces.len();
         let original_surface = app.tree.active_surface();
@@ -14836,11 +15520,11 @@ mod tests {
         next_ui.notice = Some("team selected".into());
         let (controller, requests) =
             fake_controller(FakeMachineAction::Return(Box::new(MachineActionResult::ui(next_ui))));
-        app.machine_controller = Some(controller);
+        install_machine_controller(&mut app, controller);
         app.machine_ui.as_mut().unwrap().request =
             Some(MachineRequest::SelectProviderScope("team".into()));
 
-        app.process_machine_requests();
+        settle_machine_action(&mut app, &events);
 
         assert_eq!(app.session_generation, 1);
         assert_eq!(app.tree.workspaces.len(), original_workspace_count);
@@ -14859,22 +15543,24 @@ mod tests {
     fn failed_machine_switch_preserves_the_current_session() {
         let mux = Mux::new("machine-failed-switch", SurfaceOptions::default());
         mux.new_workspace(None, None).unwrap();
-        let mut app = test_app(Session::Local(mux));
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
         app.replace_tree(app.session.tree());
         let original_workspace_count = app.tree.workspaces.len();
         let original_surface = app.tree.active_surface();
         app.machine_ui = Some(provider_machine_ui());
         let (controller, _) = fake_controller(FakeMachineAction::Fail("candidate refused"));
-        app.machine_controller = Some(controller);
+        install_machine_controller(&mut app, controller);
         app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(99)));
 
-        app.process_machine_requests();
+        settle_machine_action(&mut app, &events);
 
         assert_eq!(app.session_generation, 1);
         assert_eq!(app.session_label, "test");
         assert_eq!(app.tree.workspaces.len(), original_workspace_count);
         assert_eq!(app.tree.active_surface(), original_surface);
-        assert!(app.status_message.as_deref().unwrap().contains("candidate refused"));
+        let expected =
+            format!("{}: candidate refused", localization::catalog().sidebar.machine_action_failed);
+        assert_eq!(app.status_message.as_deref(), Some(expected.as_str()));
         assert!(!app.quit);
     }
 
@@ -14883,7 +15569,7 @@ mod tests {
         let first = Mux::new("machine-stale-first", SurfaceOptions::default());
         first.new_workspace(None, None).unwrap();
         let second = Mux::new("machine-stale-second", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(first));
+        let (mut app, events) = test_app_with_events(Session::Local(first));
         app.machine_ui = Some(provider_machine_ui());
         let (controller, _) =
             fake_controller(FakeMachineAction::Return(Box::new(MachineActionResult::replace(
@@ -14891,9 +15577,9 @@ mod tests {
                 Session::Local(second),
                 "second".into(),
             ))));
-        app.machine_controller = Some(controller);
+        install_machine_controller(&mut app, controller);
         app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(41)));
-        app.process_machine_requests();
+        settle_machine_action(&mut app, &events);
         app.machine_ui.as_mut().unwrap().request = None;
 
         let action = app
@@ -14942,6 +15628,29 @@ mod tests {
         assert!(worker.mux.is_none());
     }
 
+    #[test]
+    fn prepared_machine_session_events_stay_paused_until_commit_activation() {
+        let mux = Mux::new("prepared-machine-session-events", SurfaceOptions::default());
+        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
+        let (_session, mut worker, _, _) =
+            prepare_ordered_session(Session::Local(mux.clone()), pty_input.sender(), events, 7)
+                .unwrap();
+
+        mux.new_workspace(None, None).unwrap();
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_millis(50)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+
+        worker.activate();
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::SessionScoped { generation: 7, .. }
+        ));
+        worker.stop_and_join();
+    }
+
     fn test_app(session: Session) -> App {
         test_app_with_events(session).0
     }
@@ -14955,7 +15664,9 @@ mod tests {
             session_event_worker: None,
             session_generation: 1,
             app_events: events,
-            machine_controller: None,
+            machine_action_worker: None,
+            machine_action_in_flight: false,
+            pending_machine_replacement: None,
             machine_update_pump: None,
             machine_update_generation: 0,
             config: Config::default(),

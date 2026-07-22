@@ -1380,6 +1380,41 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
 }
 
 #[cfg(test)]
+pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
+    struct NoopWriter;
+
+    impl RemoteMessageWriter for NoopWriter {
+        fn send(&mut self, _message: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    Arc::new(RemoteSession {
+        writer: Mutex::new(Box::new(NoopWriter)),
+        pending: Mutex::new(HashMap::new()),
+        next_id: AtomicU64::new(1),
+        shutdown: AtomicBool::new(false),
+        surfaces: Mutex::new(HashMap::new()),
+        exited_surfaces: Mutex::new(HashSet::new()),
+        tree: Mutex::new(RemoteTreeCache::default()),
+        tree_refresh: Mutex::new(()),
+        tree_stale: AtomicBool::new(true),
+        subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
+        subscribers: MuxEventBroadcaster::default(),
+        frame_logs: Mutex::new(HashMap::new()),
+        surface_overflow_recovery: Mutex::new(HashMap::new()),
+        capabilities: Mutex::new(HashSet::from([
+            cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string(),
+        ])),
+        provider_workspace_authority: None,
+    })
+}
+
+#[cfg(test)]
 mod tests {
     #[cfg(unix)]
     use std::io::{BufRead, Read, Write};

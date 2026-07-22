@@ -1449,6 +1449,11 @@ impl SurfaceHandle {
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_without_provider_authority() -> Session {
+    Session::Remote(remote::test_session_without_provider_authority())
+}
+
+#[cfg(test)]
 mod tests {
     use cmux_tui_core::{Mux, SurfaceOptions};
 

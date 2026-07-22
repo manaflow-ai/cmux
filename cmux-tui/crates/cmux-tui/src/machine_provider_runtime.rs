@@ -12,6 +12,7 @@ use cmux_tui_machine_protocol as protocol;
 use zeroize::Zeroize;
 
 use crate::config::MachineConfig;
+use crate::localization;
 use crate::machine::{
     MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
     MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdateStream,
@@ -33,6 +34,16 @@ struct OpenConnection {
     machine_id: protocol::OpaqueId,
 }
 
+struct ProviderSelectionRollback {
+    selected_machine_id: Option<protocol::OpaqueId>,
+    workspace_snapshot: Option<protocol::WorkspaceSnapshotResult>,
+}
+
+struct PendingConnection {
+    candidate: Option<OpenConnection>,
+    rollback: Option<ProviderSelectionRollback>,
+}
+
 struct KeyRegistry {
     by_id: HashMap<protocol::OpaqueId, MachineKey>,
     by_key: HashMap<MachineKey, protocol::OpaqueId>,
@@ -50,6 +61,7 @@ pub(crate) struct ProviderMachineRuntime {
     mutation_nonce: String,
     mutation_sequence: AtomicU64,
     open: Option<OpenConnection>,
+    pending: Option<PendingConnection>,
     notice: Option<String>,
 }
 
@@ -60,6 +72,7 @@ pub(crate) struct ProviderMachineController {
     provider: ProviderMachineRuntime,
     local: MachineRuntime,
     active_local: Option<MachineKey>,
+    pending_active_local: Option<Option<MachineKey>>,
 }
 
 impl ProviderMachineController {
@@ -72,6 +85,7 @@ impl ProviderMachineController {
             provider: ProviderMachineRuntime::connect_with(connector)?,
             local: MachineRuntime::external(configured, connect_external),
             active_local: None,
+            pending_active_local: None,
         })
     }
 
@@ -105,16 +119,19 @@ impl ProviderMachineController {
             request => {
                 let switching_provider = matches!(request, MachineRequest::Switch(_));
                 let mut result = self.provider.perform_request(request)?;
-                if switching_provider {
-                    self.active_local = None;
+                if switching_provider && result.replacement.is_some() {
+                    self.pending_active_local = Some(None);
+                    result.ui = self.merge_local_ui_for(result.ui, None);
                 } else if self.active_local.is_some() && result.replacement.is_some() {
                     // A provider lifecycle response must never replace an
                     // active client-local session implicitly.
-                    self.provider.close_open_connection();
+                    self.provider.abort_replacement();
                     result.replacement = None;
                     result.session_label = None;
+                    result.ui = self.merge_local_ui(result.ui);
+                } else {
+                    result.ui = self.merge_local_ui(result.ui);
                 }
-                result.ui = self.merge_local_ui(result.ui);
                 Ok(result)
             }
         }
@@ -125,20 +142,25 @@ impl ProviderMachineController {
         // the current provider/local session untouched.
         let session = self.local.connect(key)?;
         let label = self.local.name(key).unwrap_or("machine").to_string();
-        self.provider.close_open_connection();
-        self.active_local = Some(key);
+        self.provider.stage_connection(None, None)?;
+        self.pending_active_local = Some(Some(key));
         let ui = self.provider.ui_state_for_open_connection();
-        let mut result = MachineActionResult::replace(self.merge_local_ui(ui), session, label);
+        let mut result =
+            MachineActionResult::replace(self.merge_local_ui_for(ui, Some(key)), session, label);
         result.restart_updates = true;
         Ok(result)
     }
 
     fn merge_local_ui(&self, ui: MachineUiState) -> MachineUiState {
-        merge_local_machine_ui(
-            ui,
-            &self.local.snapshot_with_active(self.active_local),
-            self.active_local,
-        )
+        self.merge_local_ui_for(ui, self.active_local)
+    }
+
+    fn merge_local_ui_for(
+        &self,
+        ui: MachineUiState,
+        active_local: Option<MachineKey>,
+    ) -> MachineUiState {
+        merge_local_machine_ui(ui, &self.local.snapshot_with_active(active_local), active_local)
     }
 
     fn subscribe_ui_updates(&self) -> anyhow::Result<MachineUpdateStream> {
@@ -173,7 +195,23 @@ impl ProviderMachineController {
     }
 
     fn close(&mut self) {
+        self.abort_replacement();
         self.provider.close();
+    }
+
+    fn commit_replacement(&mut self) -> anyhow::Result<()> {
+        let active_local = self.pending_active_local.as_ref().copied().ok_or_else(|| {
+            anyhow::anyhow!(localization::catalog().sidebar.machine_replacement_target_missing)
+        })?;
+        self.provider.commit_replacement()?;
+        self.pending_active_local.take();
+        self.active_local = active_local;
+        Ok(())
+    }
+
+    fn abort_replacement(&mut self) {
+        self.provider.abort_replacement();
+        self.pending_active_local = None;
     }
 }
 
@@ -184,6 +222,14 @@ impl MachineController for ProviderMachineController {
 
     fn subscribe_updates(&self) -> anyhow::Result<Option<MachineUpdateStream>> {
         self.subscribe_ui_updates().map(Some)
+    }
+
+    fn commit_replacement(&mut self) -> anyhow::Result<()> {
+        ProviderMachineController::commit_replacement(self)
+    }
+
+    fn abort_replacement(&mut self) {
+        ProviderMachineController::abort_replacement(self);
     }
 
     fn close(&mut self) {
@@ -223,6 +269,7 @@ impl ProviderMachineRuntime {
             mutation_nonce: random_mutation_nonce()?,
             mutation_sequence: AtomicU64::new(1),
             open: None,
+            pending: None,
             notice: None,
         };
         runtime.reconcile_keys();
@@ -280,17 +327,28 @@ impl ProviderMachineRuntime {
         match request {
             MachineRequest::Switch(key) => {
                 let machine_id = self.machine_id(key)?;
-                let previous_selection = self.snapshot.selected_machine_id.clone();
+                let rollback = ProviderSelectionRollback {
+                    selected_machine_id: self.snapshot.selected_machine_id.clone(),
+                    workspace_snapshot: self.workspace_snapshot.clone(),
+                };
                 self.snapshot.selected_machine_id = Some(machine_id);
-                self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
-                let candidate = self.open_selected_candidate();
-                if candidate.is_err() {
-                    self.snapshot.selected_machine_id = previous_selection;
-                }
-                let (session, label, open) = candidate?;
-                self.close_open_connection();
+                self.workspace_snapshot =
+                    match load_workspace_snapshot(&self.client, &self.snapshot) {
+                        Ok(snapshot) => snapshot,
+                        Err(error) => {
+                            self.restore_selection(rollback);
+                            return Err(error);
+                        }
+                    };
+                let (session, label, open) = match self.open_selected_candidate() {
+                    Ok(candidate) => candidate,
+                    Err(error) => {
+                        self.restore_selection(rollback);
+                        return Err(error);
+                    }
+                };
                 let session_available = open.is_some();
-                self.open = open;
+                self.stage_connection(open, Some(rollback))?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.notice.take();
                 let mut result = MachineActionResult::replace(ui, session, label);
@@ -396,9 +454,8 @@ impl ProviderMachineRuntime {
                 self.refresh()?;
                 if deletes_open_session {
                     let (session, label, open) = self.open_selected_candidate()?;
-                    self.close_open_connection();
                     let session_available = open.is_some();
-                    self.open = open;
+                    self.stage_connection(open, None)?;
                     let mut ui = self.ui_state(session_available);
                     ui.notice = self.notice.take();
                     return Ok(MachineActionResult::replace(ui, session, label));
@@ -494,6 +551,7 @@ impl ProviderMachineRuntime {
     }
 
     pub(crate) fn close(&mut self) {
+        self.abort_replacement();
         self.close_open_connection();
     }
 
@@ -526,7 +584,12 @@ impl ProviderMachineRuntime {
                                 false,
                                 provider_connect_supported,
                             );
-                            ui.notice = Some("Machine provider disconnected; reconnecting".into());
+                            ui.notice = Some(
+                                localization::catalog()
+                                    .sidebar
+                                    .machine_provider_disconnected
+                                    .into(),
+                            );
                             ui.request = Some(MachineRequest::ReconnectProvider);
                             let _ = sender.send(ui);
                             break;
@@ -637,9 +700,8 @@ impl ProviderMachineRuntime {
 
         match self.open_selected_candidate() {
             Ok((session, label, open)) => {
-                self.close_open_connection();
                 let session_available = open.is_some();
-                self.open = open;
+                self.stage_connection(open, None)?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.notice.take();
                 let mut result = MachineActionResult::replace(ui, session, label);
@@ -756,9 +818,57 @@ impl ProviderMachineRuntime {
         self.refresh()
     }
 
+    fn stage_connection(
+        &mut self,
+        candidate: Option<OpenConnection>,
+        rollback: Option<ProviderSelectionRollback>,
+    ) -> anyhow::Result<()> {
+        if self.pending.is_some() {
+            if let Some(candidate) = candidate {
+                Self::close_connection(candidate);
+            }
+            if let Some(rollback) = rollback {
+                self.restore_selection(rollback);
+            }
+            anyhow::bail!(localization::catalog().sidebar.machine_replacement_pending)
+        }
+        self.pending = Some(PendingConnection { candidate, rollback });
+        Ok(())
+    }
+
+    fn commit_replacement(&mut self) -> anyhow::Result<()> {
+        let pending = self.pending.take().ok_or_else(|| {
+            anyhow::anyhow!(localization::catalog().sidebar.machine_replacement_not_pending)
+        })?;
+        self.close_open_connection();
+        self.open = pending.candidate;
+        Ok(())
+    }
+
+    fn abort_replacement(&mut self) {
+        let Some(pending) = self.pending.take() else {
+            return;
+        };
+        if let Some(candidate) = pending.candidate {
+            Self::close_connection(candidate);
+        }
+        if let Some(rollback) = pending.rollback {
+            self.restore_selection(rollback);
+        }
+    }
+
+    fn restore_selection(&mut self, rollback: ProviderSelectionRollback) {
+        self.snapshot.selected_machine_id = rollback.selected_machine_id;
+        self.workspace_snapshot = rollback.workspace_snapshot;
+    }
+
+    fn close_connection(open: OpenConnection) {
+        let _ = open.client.close_machine(open.connection_id);
+    }
+
     fn close_open_connection(&mut self) {
         if let Some(open) = self.open.take() {
-            let _ = open.client.close_machine(open.connection_id);
+            Self::close_connection(open);
         }
     }
 
@@ -866,6 +976,14 @@ impl MachineController for ProviderMachineRuntime {
         self.subscribe_ui_updates().map(Some)
     }
 
+    fn commit_replacement(&mut self) -> anyhow::Result<()> {
+        ProviderMachineRuntime::commit_replacement(self)
+    }
+
+    fn abort_replacement(&mut self) {
+        ProviderMachineRuntime::abort_replacement(self);
+    }
+
     fn close(&mut self) {
         ProviderMachineRuntime::close(self);
     }
@@ -927,7 +1045,7 @@ fn load_workspace_snapshot(
 
 impl Drop for ProviderMachineRuntime {
     fn drop(&mut self) {
-        self.close_open_connection();
+        self.close();
     }
 }
 
@@ -1594,6 +1712,7 @@ mod tests {
             provider: ProviderMachineRuntime::connect(&provider_socket.path, token()).unwrap(),
             local,
             active_local: None,
+            pending_active_local: None,
         };
 
         let result = controller.perform_request(MachineRequest::Switch(local_key)).unwrap();
@@ -1602,6 +1721,8 @@ mod tests {
         assert!(result.restart_updates);
         assert_eq!(result.ui.snapshot.active, Some(local_key));
         assert!(result.ui.session_available);
+        assert_eq!(controller.active_local, None, "candidate is not active before commit");
+        controller.commit_replacement().unwrap();
         assert_eq!(controller.active_local, Some(local_key));
         let failed = controller.perform_request(MachineRequest::Switch(offline_key));
         assert!(failed.is_err());
@@ -2003,6 +2124,106 @@ mod tests {
     }
 
     #[test]
+    fn rejected_candidate_authority_preserves_the_current_transport_and_selection() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut catalog = snapshot(1, "First", protocol::MachineStatus::Running);
+        catalog.machines.push(protocol::MachineDescriptor {
+            id: id("machine-2"),
+            display_name: "Second".into(),
+            subtitle: "cloud".into(),
+            status: protocol::MachineStatus::Running,
+            connectable: true,
+            workspace_create: protocol::WorkspaceCreatePolicy::Session,
+        });
+        let server_catalog = catalog.clone();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_catalog.clone());
+
+            let close_candidate: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                close_candidate.request,
+                protocol::ProviderRequest::CloseMachine(params)
+                    if params.connection_id == id("reject-second")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    close_candidate.id,
+                    protocol::CloseMachineResult { revision: 2 },
+                ),
+            );
+
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            let mut refreshed = server_catalog;
+            refreshed.revision = 2;
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, refreshed.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &refreshed);
+
+            let close_current: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                close_current.request,
+                protocol::ProviderRequest::CloseMachine(params)
+                    if params.connection_id == id("keep-first-open")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    close_current.id,
+                    protocol::CloseMachineResult { revision: 3 },
+                ),
+            );
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        runtime.open = Some(OpenConnection {
+            client: runtime.client.clone(),
+            connection_id: id("keep-first-open"),
+            machine_id: id("machine-1"),
+        });
+        let rollback = ProviderSelectionRollback {
+            selected_machine_id: runtime.snapshot.selected_machine_id.clone(),
+            workspace_snapshot: runtime.workspace_snapshot.clone(),
+        };
+        runtime.snapshot.selected_machine_id = Some(id("machine-2"));
+        runtime.snapshot.machines[1].workspace_create = protocol::WorkspaceCreatePolicy::Provider {
+            default_mode: protocol::WorkspaceCreateMode::Isolated,
+            modes: vec![protocol::WorkspaceCreateMode::Isolated],
+        };
+        runtime
+            .stage_connection(
+                Some(OpenConnection {
+                    client: runtime.client.clone(),
+                    connection_id: id("reject-second"),
+                    machine_id: id("machine-2"),
+                }),
+                Some(rollback),
+            )
+            .unwrap();
+        let candidate = crate::session::test_remote_session_without_provider_authority();
+        let candidate_ui = runtime.ui_state(true);
+
+        let error =
+            crate::machine::validate_machine_session(&candidate, &candidate_ui).unwrap_err();
+        runtime.abort_replacement();
+
+        assert!(error.to_string().contains("did not supply workspace mirror authority"));
+        assert_eq!(runtime.snapshot.selected_machine_id, Some(id("machine-1")));
+        assert_eq!(
+            runtime.open.as_ref().map(|open| open.connection_id.as_str()),
+            Some("keep-first-open")
+        );
+        runtime.refresh().expect("provider control connection remains usable");
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn snapshot_event_replaces_dynamic_ui_with_stable_machine_key() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
@@ -2086,7 +2307,10 @@ mod tests {
 
         let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
         assert_eq!(update.request, Some(MachineRequest::ReconnectProvider));
-        assert!(update.notice.as_deref().unwrap().contains("reconnecting"));
+        assert_eq!(
+            update.notice.as_deref(),
+            Some(localization::catalog().sidebar.machine_provider_disconnected)
+        );
         stop.store(true, Ordering::Release);
         drop(receiver);
         worker.join().unwrap();
