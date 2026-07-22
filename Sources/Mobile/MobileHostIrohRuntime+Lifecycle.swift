@@ -85,7 +85,7 @@ extension MobileHostIrohRuntime {
         }
 
         guard var preparation = preparedSignOut else { return }
-        if preparation.pendingRevocation == nil {
+        guard let pendingRevocation = preparation.pendingRevocation else {
             preparedSignOut = nil
             return
         }
@@ -99,12 +99,18 @@ extension MobileHostIrohRuntime {
             guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
                 throw CmxIrohTrustBrokerClientError.invalidBaseURL
             }
-            let broker = try CmxIrohTrustBrokerClient(
+            let rawBroker = try CmxIrohTrustBrokerClient(
                 baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
                     accessToken: { accessToken },
                     refreshToken: { refreshToken }
-                )
+                ),
+                backpressureMode: .callerOwned
+            )
+            let broker = CmxIrohBackpressuredHostBroker(
+                broker: rawBroker,
+                gate: brokerBackpressureGate,
+                accountID: pendingRevocation.accountID
             )
             try await preparation.revoke(
                 using: broker,

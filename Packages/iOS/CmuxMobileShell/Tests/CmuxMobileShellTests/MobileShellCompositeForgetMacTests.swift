@@ -261,11 +261,11 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         await store.loadPairedMacs()
-        let generationBeforeForget = store.storedMacReconnectGenerationForTesting()
+        let generationBeforeForget = store.storedMacReconnectGeneration
 
         await store.forgetMac(macDeviceID: "mac-a")
 
-        #expect(store.storedMacReconnectGenerationForTesting() > generationBeforeForget)
+        #expect(store.storedMacReconnectGeneration > generationBeforeForget)
     }
 
     @Test func forgettingMacFiltersOnlyMatchingRowsFromMixedWorkspaceBucket() async throws {

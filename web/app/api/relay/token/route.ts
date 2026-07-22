@@ -118,15 +118,6 @@ export async function handleRelayTokenRequest(
   if (!user) return unauthorized();
 
   try {
-    await runRelayEffect(enforceRelayRateLimit({
-      request,
-      accountId: user.id,
-      ruleId: deps.rateLimitRuleId(),
-      check: deps.checkRateLimit,
-      isVercel: deps.isVercel(),
-      retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS,
-    }));
-
     const key = deps.signingKey();
     if (!key) return jsonResponse({ error: "relay_token_not_configured" }, 503);
 
@@ -141,6 +132,19 @@ export async function handleRelayTokenRequest(
     if (typeof rawEndpointId !== "string" || !isValidEndpointId(rawEndpointId)) {
       return jsonResponse({ error: "invalid_endpoint_id" }, 400);
     }
+
+    // Rate limited per account+endpoint so one storming device only starves
+    // itself; runs after validation so malformed requests never consume the
+    // per-device budget.
+    await runRelayEffect(enforceRelayRateLimit({
+      request,
+      accountId: user.id,
+      devicePartition: rawEndpointId.toLowerCase(),
+      ruleId: deps.rateLimitRuleId(),
+      check: deps.checkRateLimit,
+      isVercel: deps.isVercel(),
+      retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS,
+    }));
 
     const nowSeconds = deps.nowSeconds();
     const policy = await deps.signedPolicy(user.id, nowSeconds);

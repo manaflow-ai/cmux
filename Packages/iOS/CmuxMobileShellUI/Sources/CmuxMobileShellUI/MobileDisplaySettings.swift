@@ -23,6 +23,7 @@ public final class MobileDisplaySettings {
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
+    private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
     private static let terminalFilesChipEnabledKey = "cmux.mobile.terminalFilesChipEnabled"
     private static let taskComposerEnabledKey = "cmux.mobile.taskComposerEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
@@ -69,6 +70,13 @@ public final class MobileDisplaySettings {
     /// injected ``UserDefaults``.
     public var showMissingFiles: Bool {
         didSet { defaults.set(showMissingFiles, forKey: Self.showMissingFilesKey) }
+    }
+
+    /// Whether tapping a directory path in the terminal opens the folder browser.
+    /// Defaults to `true`. File-path taps remain enabled regardless of this value.
+    /// Mutating this writes through to the injected ``UserDefaults``.
+    public var terminalFolderTapEnabled: Bool {
+        didSet { defaults.set(terminalFolderTapEnabled, forKey: Self.terminalFolderTapEnabledKey) }
     }
 
     /// Whether the beta terminal files chip and its count scan are enabled.
@@ -149,13 +157,14 @@ public final class MobileDisplaySettings {
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
     ///   are initialized from `defaults`; absent keys read as their default
-    ///   (single-line titles, hidden missing files, two preview lines) without
-    ///   a write.
+    ///   (single-line titles, enabled folder taps, hidden missing files, two
+    ///   preview lines) without a write.
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
+        self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
         self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int

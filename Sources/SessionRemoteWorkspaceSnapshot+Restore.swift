@@ -108,7 +108,7 @@ extension SessionRemoteWorkspaceSnapshot {
             ? Self.restoreRelayTokenHex()
             : nil
         let restoredRemoteShellCommand = preservePTYSession
-            ? normalizedRelayPort.map(SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(relayPort:))
+            ? normalizedRelayPort.map { SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(relayPort: $0) }
             : nil
         return WorkspaceRemoteConfiguration(
             transport: transport,

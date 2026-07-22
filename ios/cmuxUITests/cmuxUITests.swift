@@ -42,6 +42,165 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(emailCodeButton.isEnabled)
     }
 
+    /// Exercises the complete first-run activation path without Stack auth,
+    /// a Mac, camera hardware, or network access. The first launch forces the
+    /// durable progress key to `welcome`; advancing to Connect writes the real
+    /// `.connect` milestone. The default connection scene must describe
+    /// same-account automatic discovery without presenting QR as the primary
+    /// path. The middle scene explains the shipped chronological notification
+    /// feed without depending on its current GUI. Relaunching after the simulated
+    /// search finishes must resume at Connect and expose QR as an explicit fallback.
+    @MainActor
+    func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
+        let app = XCUIApplication()
+        let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        let progressOverride = [
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+            "welcome",
+        ]
+        app.launchArguments = baseArguments + progressOverride
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "0",
+            "CMUX_UITEST_SCANNER_PREVIEW": "1",
+        ]
+        app.launch()
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let agentsScene = element("MobileOnboardingAgentsScene")
+        XCTAssertTrue(agentsScene.waitForExistence(timeout: 8))
+        let header = element("MobileOnboardingHeader")
+        let progress = element("MobileOnboardingProgressIndicator")
+        let footer = element("MobileOnboardingFooter")
+        let pageViewport = element("MobileOnboardingPageViewport")
+        XCTAssertTrue(header.waitForExistence(timeout: 4))
+        XCTAssertTrue(progress.waitForExistence(timeout: 4))
+        XCTAssertTrue(footer.waitForExistence(timeout: 4))
+        XCTAssertTrue(pageViewport.waitForExistence(timeout: 4))
+
+        let initialHeaderFrame = header.frame
+        let initialProgressFrame = progress.frame
+        let initialFooterFrame = footer.frame
+
+        func assertStableChrome(
+            includeFooter: Bool = true,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertEqual(header.frame.minX, initialHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.minY, initialHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.width, initialHeaderFrame.width, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.height, initialHeaderFrame.height, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midX, initialProgressFrame.midX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midY, initialProgressFrame.midY, accuracy: 0.5, file: file, line: line)
+            if includeFooter {
+                XCTAssertEqual(footer.frame.minY, initialFooterFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(footer.frame.maxY, initialFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
+            }
+        }
+
+        func assertPageVisible(
+            _ page: XCUIElement,
+            timeout: TimeInterval = 4,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertTrue(page.waitForExistence(timeout: timeout), file: file, line: line)
+            XCTAssertTrue(page.frame.intersects(app.frame), file: file, line: line)
+        }
+
+        capture("onboarding-01-agents")
+
+        let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
+        let notificationsScene = element("MobileOnboardingNotificationsScene")
+        assertPageVisible(notificationsScene)
+        XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
+        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
+        let notificationsBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+        )).firstMatch
+        XCTAssertTrue(notificationsBody.exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
+        XCTAssertTrue(primaryButton.exists)
+        assertStableChrome()
+        capture("onboarding-02-notifications")
+
+        let backButton = app.buttons["MobileOnboardingBackButton"]
+        backButton.tap()
+        assertPageVisible(agentsScene)
+        XCTAssertTrue(backButton.waitForNonExistence(timeout: 2))
+        assertStableChrome()
+        capture("onboarding-02a-agents-after-back")
+
+        primaryButton.tap()
+        assertPageVisible(notificationsScene)
+        XCTAssertTrue(backButton.waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
+        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
+        assertStableChrome()
+        capture("onboarding-02b-notifications-after-return")
+
+        primaryButton.tap()
+
+        let connectScene = element("MobileOnboardingConnectScene")
+        assertPageVisible(connectScene)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
+        XCTAssertTrue(app.staticTexts[
+            "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+        ].exists)
+        XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
+        XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
+        XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
+        assertStableChrome(includeFooter: false)
+        capture("onboarding-03-connect")
+
+        // Drop only the launch-domain override. The application-domain value
+        // written while entering Connect must now be the source of truth. The
+        // preview marks automatic discovery finished so QR appears only as the
+        // fallback on this second launch.
+        app.terminate()
+        app.launchArguments = baseArguments
+        app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
+        app.launch()
+
+        assertPageVisible(connectScene, timeout: 8)
+        XCTAssertTrue(app.buttons["Check Again"].exists)
+        XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
+        capture("onboarding-04-resumed-connect")
+
+        let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
+        qrFallbackButton.tap()
+
+        let scannerPreview = element("MobilePairingScannerPreview")
+        let scannerCancel = app.buttons["MobileScannerCancelButton"]
+        XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
+        capture("onboarding-05-scanner-fallback")
+
+        scannerCancel.tap()
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
+        XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
+        capture("onboarding-06-scanner-cancelled")
+    }
+
     @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
         let invalidHostApp = launchAddDeviceApp(environment: [
@@ -133,6 +292,60 @@ final class cmuxUITests: XCTestCase {
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-mac-picker-computer-copy"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES": "1",
+        ])
+        defer { app.terminate() }
+
+        let table = app.tables["MobileWorkspaceList"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let firstRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-0"
+        ]
+        let lastRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-59"
+        ]
+        XCTAssertTrue(firstRow.isHittable)
+
+        // Exercise rapid opposite-direction flicks while live 80 ms row
+        // updates continue. XCUITest waits for UI quiescence between public
+        // swipe calls; WorkspaceListScrollUpdateTests separately asserts that
+        // the coordinator leaves the pan lifecycle entirely to UIKit.
+        table.swipeUp(velocity: .fast)
+        table.swipeDown(velocity: .fast)
+        for _ in 0..<4 where !firstRow.isHittable {
+            table.swipeDown(velocity: .fast)
+        }
+        XCTAssertTrue(firstRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        // Exercise the real top boundary before traversing to the bottom.
+        table.swipeDown(velocity: .fast)
+        table.swipeUp(velocity: .fast)
+        XCTAssertFalse(firstRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        // Drive through the real bottom boundary, overscroll it, and prove
+        // that the table accepts the next opposite-direction gesture.
+        for _ in 0..<20 where !lastRow.isHittable {
+            table.swipeUp(velocity: .fast)
+        }
+        XCTAssertTrue(lastRow.isHittable)
+        table.swipeUp(velocity: .fast)
+        table.swipeDown(velocity: .fast)
+        XCTAssertFalse(lastRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-rapid-direction-changes-and-boundaries"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
