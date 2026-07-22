@@ -2136,12 +2136,12 @@ impl Mux {
             let notifications = self.surface_notifications();
             let delta = {
                 let mut state = self.state.lock().unwrap();
-        if state.workspace_by_key(&workspace_key).is_some() {
-            state.surfaces.remove(&surface.id);
-            surface.kill();
-            anyhow::bail!("workspace key already exists: {workspace_key}");
-        }
-        let workspace_name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
+                if state.workspace_by_key(&workspace_key).is_some() {
+                    state.surfaces.remove(&surface.id);
+                    surface.kill();
+                    anyhow::bail!("workspace key already exists: {workspace_key}");
+                }
+                let workspace_name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
                 state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.push_workspace(Workspace {
