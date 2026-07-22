@@ -1809,21 +1809,27 @@ struct BrowserThemeSettingsTests {
 
     @Test
     func normalizationMigratesLegacyForcedDarkModeFlagDespiteRegisteredFallback() throws {
-        let fixture = try makeIsolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        for legacyEnabled in [true, false] {
+            let fixture = try makeIsolatedDefaults()
+            defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
 
-        fixture.defaults.register(defaults: [
-            BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
-        ])
-        fixture.defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+            fixture.defaults.register(defaults: [
+                BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
+            ])
+            fixture.defaults.set(legacyEnabled, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
 
-        BrowserPanel.normalizeBrowserDefaults(
-            defaults: fixture.defaults,
-            persistentDomainName: fixture.suiteName
-        )
+            BrowserPanel.normalizeBrowserDefaults(
+                defaults: fixture.defaults,
+                persistentDomainName: fixture.suiteName
+            )
 
-        #expect(BrowserThemeSettings.mode(defaults: fixture.defaults) == .dark)
-        #expect(fixture.defaults.string(forKey: BrowserThemeSettings.modeKey) == BrowserThemeMode.dark.rawValue)
+            let expectedMode: BrowserThemeMode = legacyEnabled ? .dark : .system
+            let persistedMode = fixture.defaults.persistentDomain(forName: fixture.suiteName)?[
+                BrowserThemeSettings.modeKey
+            ] as? String
+            #expect(BrowserThemeSettings.mode(defaults: fixture.defaults) == expectedMode)
+            #expect(persistedMode == expectedMode.rawValue)
+        }
     }
 
     @Test
@@ -1841,12 +1847,6 @@ struct BrowserThemeSettingsTests {
 
         #expect(BrowserThemeSettings.mode(defaults: fixture.defaults) == .system)
         #expect(fixture.defaults.string(forKey: BrowserThemeSettings.modeKey) == BrowserThemeMode.system.rawValue)
-    }
-}
-
-private extension BrowserPanel {
-    static func normalizeBrowserDefaults(defaults: UserDefaults, persistentDomainName _: String) {
-        normalizeBrowserDefaults(defaults: defaults)
     }
 }
 
