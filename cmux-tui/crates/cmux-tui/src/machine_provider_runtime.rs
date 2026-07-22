@@ -3176,7 +3176,11 @@ mod tests {
                 protocol::ProviderRequest::SelectScope(params)
                     if params.scope_id == id("personal")
             ));
-            let selected = snapshot(3, "Machine", protocol::MachineStatus::Running);
+            let mut selected = snapshot(3, "Machine", protocol::MachineStatus::Running);
+            selected.notice = Some(protocol::ProviderNotice {
+                level: protocol::NoticeLevel::Info,
+                message: "scope selected".into(),
+            });
             write_frame(
                 &mut stream,
                 &protocol::ResponseEnvelope::success(
@@ -3216,6 +3220,7 @@ mod tests {
 
         assert!(result.replacement.is_none());
         assert!(result.ui.session_available);
+        assert_eq!(result.ui.notice.as_deref(), Some("scope selected"));
         assert_eq!(
             runtime.open.as_ref().map(|open| open.connection_id.as_str()),
             Some("keep-open")
@@ -3292,7 +3297,7 @@ mod tests {
                 protocol::ProviderRequest::Snapshot(_) => {
                     // A provider may return the action-selected scope without mutating its
                     // process-global selection. Refreshing here therefore returns the old scope.
-                    let mut old_scope = personal;
+                    let mut old_scope = personal.clone();
                     old_scope.revision = 3;
                     write_frame(
                         &mut stream,
@@ -3301,6 +3306,44 @@ mod tests {
                     serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &old_scope);
                 }
                 request => panic!("unexpected request after provider action: {request:?}"),
+            }
+
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            let mut old_scope = personal;
+            old_scope.revision = 4;
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, old_scope.clone()),
+            );
+
+            let selection: protocol::RequestEnvelope = read_frame(&mut reader);
+            match selection.request {
+                protocol::ProviderRequest::SelectScope(params) => {
+                    assert_eq!(params.scope_id, id("team-1"));
+                    let mut updated_team = team;
+                    updated_team.revision = 4;
+                    updated_team.machines[0].display_name = "Updated team machine".into();
+                    write_frame(
+                        &mut stream,
+                        &protocol::ResponseEnvelope::success(
+                            selection.id,
+                            protocol::SelectScopeResult { snapshot: updated_team.clone() },
+                        ),
+                    );
+                    serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &updated_team);
+                }
+                protocol::ProviderRequest::MachineLifecycleSnapshot(params) => {
+                    assert_eq!(params.scope_id, id("personal"));
+                    write_frame(
+                        &mut stream,
+                        &protocol::ResponseEnvelope::success(
+                            selection.id,
+                            machine_lifecycle_snapshot(&old_scope),
+                        ),
+                    );
+                }
+                request => panic!("unexpected subscription reconciliation request: {request:?}"),
             }
             finished.recv().unwrap();
         });
@@ -3312,6 +3355,12 @@ mod tests {
                 values: BTreeMap::new(),
             })
             .unwrap();
+        let updates = runtime.subscribe_ui_updates().unwrap();
+        let (receiver, stop, worker) = updates.into_parts();
+        let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        stop.store(true, Ordering::Release);
+        drop(receiver);
+        worker.join().unwrap();
         finish.send(()).unwrap();
         server.join().unwrap();
 
@@ -3320,6 +3369,42 @@ mod tests {
         assert_eq!(runtime.snapshot.machines[0].id, id("team-machine"));
         assert_eq!(runtime.machine_lifecycle_snapshot.scope_id, id("team-1"));
         assert_eq!(result.ui.snapshot.machines[0].id, "team-machine");
+        assert_eq!(update.provider.as_ref().unwrap().selected_scope_id, "team-1");
+        assert_eq!(update.snapshot.machines[0].name, "Updated team machine");
+    }
+
+    #[test]
+    fn persistent_snapshot_notice_is_not_repeated_by_refresh() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
+        catalog.notice = Some(protocol::ProviderNotice {
+            level: protocol::NoticeLevel::Warning,
+            message: "scheduled maintenance".into(),
+        });
+        let server_catalog = catalog.clone();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_catalog.clone());
+            let mut second = server_catalog.clone();
+            second.revision = 2;
+            serve_runtime_refresh(&mut stream, &mut reader, &second, None);
+            let mut third = server_catalog;
+            third.revision = 3;
+            serve_runtime_refresh(&mut stream, &mut reader, &third, None);
+            finished.recv().unwrap();
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        runtime.refresh().unwrap();
+        runtime.refresh().unwrap();
+        let ui = runtime.ui_state_for_open_connection();
+
+        finish.send(()).unwrap();
+        assert_eq!(ui.notice.as_deref(), Some("scheduled maintenance"));
+        drop(runtime);
+        server.join().unwrap();
     }
 
     #[test]
