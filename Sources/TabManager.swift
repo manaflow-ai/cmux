@@ -4218,7 +4218,8 @@ class TabManager: ObservableObject {
         let preRestoreFocus = currentFocusHistoryEntry
         var reservedWorkspaceIds = liveWorkspaceIdSet()
         let excludedStableIdentities = liveStableIdentitySet()
-        let restoredWorkspaceId = WorkspaceSessionRestoreIdentity.restoredWorkspaceId(
+        let identitySelector = WorkspaceSessionRestoreIdentity()
+        let restoredWorkspaceId = identitySelector.restoredWorkspaceId(
             persistedWorkspaceId: entry.snapshot.workspaceId,
             stableId: entry.snapshot.stableId,
             reservedWorkspaceIds: &reservedWorkspaceIds,
@@ -6057,10 +6058,11 @@ extension TabManager {
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         var restoredOriginalWorkspaceIds: [UUID?] = []
         var reservedWorkspaceIds = excludingWorkspaceIds
+        let identitySelector = WorkspaceSessionRestoreIdentity()
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let restoredWorkspaceId = WorkspaceSessionRestoreIdentity.restoredWorkspaceId(
+            let restoredWorkspaceId = identitySelector.restoredWorkspaceId(
                 persistedWorkspaceId: workspaceSnapshot.workspaceId,
                 stableId: workspaceSnapshot.stableId,
                 reservedWorkspaceIds: &reservedWorkspaceIds,
@@ -6087,7 +6089,7 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallbackWorkspaceId = WorkspaceSessionRestoreIdentity.freshWorkspaceId(
+            let fallbackWorkspaceId = identitySelector.freshWorkspaceId(
                 reservingIn: &reservedWorkspaceIds
             )
             let fallback = Workspace(

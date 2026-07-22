@@ -2,10 +2,13 @@ public import Foundation
 
 /// Selects live workspace UUIDs during session restore while preserving persisted
 /// identities whenever they are safe to reuse.
-public enum WorkspaceSessionRestoreIdentity {
+public struct WorkspaceSessionRestoreIdentity: Sendable {
+    /// Creates a workspace restore identity selector.
+    public init() {}
+
     /// Returns the persisted workspace UUID unless the snapshot identity is
     /// excluded or the UUID has already been reserved in this restore batch.
-    public static func restoredWorkspaceId(
+    public func restoredWorkspaceId(
         persistedWorkspaceId: UUID?,
         stableId: UUID?,
         reservedWorkspaceIds: inout Set<UUID>,
@@ -22,7 +25,7 @@ public enum WorkspaceSessionRestoreIdentity {
 
     /// Returns the persisted workspace UUID unless the caller already knows it
     /// must be excluded or the UUID has already been reserved.
-    public static func restoredWorkspaceId(
+    public func restoredWorkspaceId(
         persistedWorkspaceId: UUID?,
         reservedWorkspaceIds: inout Set<UUID>,
         shouldExcludePersistedWorkspaceId: Bool = false
@@ -36,7 +39,7 @@ public enum WorkspaceSessionRestoreIdentity {
     }
 
     /// Mints and reserves a UUID that is not already present in the provided set.
-    public static func freshWorkspaceId(reservingIn reservedWorkspaceIds: inout Set<UUID>) -> UUID {
+    public func freshWorkspaceId(reservingIn reservedWorkspaceIds: inout Set<UUID>) -> UUID {
         var id = UUID()
         while !reservedWorkspaceIds.insert(id).inserted {
             id = UUID()

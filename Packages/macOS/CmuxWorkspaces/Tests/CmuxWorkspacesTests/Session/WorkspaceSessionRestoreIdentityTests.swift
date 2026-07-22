@@ -6,10 +6,11 @@ import Testing
 struct WorkspaceSessionRestoreIdentityTests {
     @Test("preserves an unreserved persisted workspace id")
     func preservesUnreservedPersistedWorkspaceId() {
+        let identitySelector = WorkspaceSessionRestoreIdentity()
         let persistedWorkspaceId = UUID()
         var reservedWorkspaceIds: Set<UUID> = []
 
-        let restoredWorkspaceId = WorkspaceSessionRestoreIdentity.restoredWorkspaceId(
+        let restoredWorkspaceId = identitySelector.restoredWorkspaceId(
             persistedWorkspaceId: persistedWorkspaceId,
             stableId: UUID(),
             reservedWorkspaceIds: &reservedWorkspaceIds
@@ -21,10 +22,11 @@ struct WorkspaceSessionRestoreIdentityTests {
 
     @Test("mints a fresh id when the persisted workspace id is already reserved")
     func mintsFreshIdForDuplicatePersistedWorkspaceId() {
+        let identitySelector = WorkspaceSessionRestoreIdentity()
         let persistedWorkspaceId = UUID()
         var reservedWorkspaceIds: Set<UUID> = [persistedWorkspaceId]
 
-        let restoredWorkspaceId = WorkspaceSessionRestoreIdentity.restoredWorkspaceId(
+        let restoredWorkspaceId = identitySelector.restoredWorkspaceId(
             persistedWorkspaceId: persistedWorkspaceId,
             stableId: UUID(),
             reservedWorkspaceIds: &reservedWorkspaceIds
@@ -38,11 +40,12 @@ struct WorkspaceSessionRestoreIdentityTests {
 
     @Test("mints a fresh id when the stable identity is excluded")
     func mintsFreshIdForExcludedStableIdentity() {
+        let identitySelector = WorkspaceSessionRestoreIdentity()
         let persistedWorkspaceId = UUID()
         let stableId = UUID()
         var reservedWorkspaceIds: Set<UUID> = []
 
-        let restoredWorkspaceId = WorkspaceSessionRestoreIdentity.restoredWorkspaceId(
+        let restoredWorkspaceId = identitySelector.restoredWorkspaceId(
             persistedWorkspaceId: persistedWorkspaceId,
             stableId: stableId,
             reservedWorkspaceIds: &reservedWorkspaceIds,
