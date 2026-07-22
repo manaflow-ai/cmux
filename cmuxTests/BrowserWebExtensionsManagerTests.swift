@@ -985,8 +985,8 @@ struct BrowserWebExtensionsManagerTests {
         )
         let panel = BrowserPanel(workspaceId: UUID(), browserServices: services)
         let appearance = PanelAppearance(
-            backgroundColor: Color(nsColor: .windowBackgroundColor),
-            foregroundColor: Color(nsColor: .labelColor),
+            backgroundColor: .windowBackgroundColor,
+            foregroundColor: .labelColor,
             dividerColor: Color(nsColor: .separatorColor),
             unfocusedOverlayNSColor: .clear,
             unfocusedOverlayOpacity: 0,
