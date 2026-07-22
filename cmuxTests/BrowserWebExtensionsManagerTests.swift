@@ -960,6 +960,7 @@ struct BrowserWebExtensionsManagerTests {
         #expect(try await visiblePinnedIdentifiers(width: 120, pinCount: 12).count == 4)
     }
 
+    @available(macOS 15.4, *)
     @Test func managerPageDisappearanceCancelsSuspendedCatalogPreparation() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -984,9 +985,9 @@ struct BrowserWebExtensionsManagerTests {
         )
         let panel = BrowserPanel(workspaceId: UUID(), browserServices: services)
         let appearance = PanelAppearance(
-            backgroundColor: .windowBackgroundColor,
-            foregroundColor: .labelColor,
-            dividerColor: .separator,
+            backgroundColor: Color(nsColor: .windowBackgroundColor),
+            foregroundColor: Color(nsColor: .labelColor),
+            dividerColor: Color(nsColor: .separatorColor),
             unfocusedOverlayNSColor: .clear,
             unfocusedOverlayOpacity: 0,
             usesClearContentBackground: false
@@ -4365,12 +4366,14 @@ struct BrowserWebExtensionsManagerTests {
             encoding: .utf8
         )
         let repository = BrowserWebExtensionDirectoryRepository()
+        let cookiePermission = WKWebExtension.Permission.cookies
+        let historyPermission = WKWebExtension.Permission(rawValue: "history")
         let manager = BrowserWebExtensionsManager(
             directory: managedRoot,
             controllerIdentifier: UUID(),
             directoryRepository: repository,
             permissionPromptPresenter: { request, _ in
-                request.permissions.contains(WKWebExtension.Permission.history.rawValue)
+                request.permissions.contains(historyPermission.rawValue)
                     ? .deny
                     : .grant
             }
@@ -4389,7 +4392,7 @@ struct BrowserWebExtensionsManagerTests {
         let grantedCookies = await withCheckedContinuation { continuation in
             manager.webExtensionController(
                 manager.controller,
-                promptForPermissions: [.cookies],
+                promptForPermissions: [cookiePermission],
                 in: nil,
                 for: oldContext
             ) { permissions, _ in
@@ -4399,14 +4402,14 @@ struct BrowserWebExtensionsManagerTests {
         let deniedHistory = await withCheckedContinuation { continuation in
             manager.webExtensionController(
                 manager.controller,
-                promptForPermissions: [.history],
+                promptForPermissions: [historyPermission],
                 in: nil,
                 for: oldContext
             ) { permissions, _ in
                 continuation.resume(returning: permissions)
             }
         }
-        #expect(grantedCookies == [.cookies])
+        #expect(grantedCookies == [cookiePermission])
         #expect(deniedHistory.isEmpty)
         let stateWebView = try await Self.loadExtensionPage(
             "probe.html",
@@ -4440,12 +4443,12 @@ struct BrowserWebExtensionsManagerTests {
         #expect(populatedRecord.isToolbarPinned)
         #expect(
             populatedRecord.grantedPermissions[
-                WKWebExtension.Permission.cookies.rawValue
+                cookiePermission.rawValue
             ] != nil
         )
         #expect(
             populatedRecord.deniedPermissions[
-                WKWebExtension.Permission.history.rawValue
+                historyPermission.rawValue
             ] != nil
         )
         let oldDataRecords = await manager.controller.dataRecords(
@@ -4473,12 +4476,12 @@ struct BrowserWebExtensionsManagerTests {
         #expect(!newRecord.isToolbarPinned)
         #expect(
             newRecord.grantedPermissions[
-                WKWebExtension.Permission.cookies.rawValue
+                cookiePermission.rawValue
             ] == nil
         )
         #expect(
             newRecord.deniedPermissions[
-                WKWebExtension.Permission.history.rawValue
+                historyPermission.rawValue
             ] == nil
         )
         let freshStateWebView = try await Self.loadExtensionPage(
