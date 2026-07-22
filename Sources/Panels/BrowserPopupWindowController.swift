@@ -58,10 +58,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         let isWebKitSuppliedConfiguration: Bool
         if #available(macOS 15.4, *),
-           let expectedExtensionController = browserContext.browserServices?
-            .webExtensionsManager(for: browserContext.profileID).controller {
-            isWebKitSuppliedConfiguration = configuration.webExtensionController === expectedExtensionController
-                && configuration.websiteDataStore === browserContext.websiteDataStore
+           let extensionsManager = browserContext.browserServices?
+            .webExtensionsManager(for: browserContext.profileID) {
+            isWebKitSuppliedConfiguration = extensionsManager
+                .ownsWebExtensionPageConfiguration(configuration)
         } else {
             isWebKitSuppliedConfiguration = false
         }

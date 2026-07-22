@@ -101,6 +101,7 @@ final class BrowserServices {
 
     private let extensionDirectory: URL
     private let extensionDirectoryRemover: ExtensionDirectoryRemover
+    private let usesNonPersistentWebExtensionStorage: Bool
     private var webExtensionsManagerStorage: [UUID: AnyObject] = [:]
     private var pendingWebExtensionNavigations: [UUID: PendingWebExtensionNavigation] = [:]
     private var pendingWebExtensionNavigationIDsByOwner: [UUID: UUID] = [:]
@@ -117,11 +118,13 @@ final class BrowserServices {
 
     init(
         extensionDirectory: URL? = nil,
+        usesNonPersistentWebExtensionStorage: Bool = false,
         extensionDirectoryRemover: @escaping ExtensionDirectoryRemover = { directory in
             try? FileManager.default.removeItem(at: directory)
         }
     ) {
         self.extensionDirectory = extensionDirectory ?? Self.defaultExtensionDirectory
+        self.usesNonPersistentWebExtensionStorage = usesNonPersistentWebExtensionStorage
         self.extensionDirectoryRemover = extensionDirectoryRemover
         profileDeletionObserver = NotificationCenter.default.addObserver(
             forName: BrowserProfileStore.profileDidDeleteNotification,
@@ -154,6 +157,9 @@ final class BrowserServices {
             return manager
         }
         let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let controllerConfiguration = usesNonPersistentWebExtensionStorage
+            ? WKWebExtensionController.Configuration.nonPersistent()
+            : nil
         let manager = BrowserWebExtensionsManager(
             directory: Self.extensionDirectory(
                 for: profileID,
@@ -161,6 +167,7 @@ final class BrowserServices {
                 root: extensionDirectory
             ),
             controllerIdentifier: profileID == defaultProfileID ? nil : profileID,
+            controllerConfiguration: controllerConfiguration,
             websiteDataStore: BrowserProfileStore.shared.websiteDataStore(for: profileID),
             profileID: profileID
         )

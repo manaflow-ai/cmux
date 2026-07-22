@@ -23,12 +23,23 @@ struct BrowserExtensionsToolbarButton: View {
     @State private var interactionError: String?
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            toolbarContent(maximumPinnedActions: 4)
-            toolbarContent(maximumPinnedActions: 2)
-            toolbarContent(maximumPinnedActions: 1)
-            toolbarContent(maximumPinnedActions: 0)
+        GeometryReader { proxy in
+            toolbarContent(
+                maximumPinnedActions: Self.maximumPinnedActions(
+                    availableWidth: proxy.size.width,
+                    hitSize: hitSize
+                )
+            )
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .frame(
+            minWidth: hitSize,
+            idealWidth: hitSize * CGFloat(min(pinnedActions.count, 4) + 1),
+            maxWidth: hitSize * 5,
+            minHeight: hitSize,
+            idealHeight: hitSize,
+            maxHeight: hitSize
+        )
         .task(id: profileID) {
             actionRefreshTask?.cancel()
             subscriptionGeneration &+= 1
@@ -80,6 +91,14 @@ struct BrowserExtensionsToolbarButton: View {
 
     private var pinnedActions: [BrowserWebExtensionPresentationItem] {
         snapshot.extensions.filter { $0.hasAction && $0.isToolbarPinned }
+    }
+
+    static func maximumPinnedActions(
+        availableWidth: CGFloat,
+        hitSize: CGFloat
+    ) -> Int {
+        guard hitSize > 0, availableWidth.isFinite else { return 0 }
+        return min(4, max(0, Int(availableWidth / hitSize) - 1))
     }
 
     private func toolbarContent(maximumPinnedActions: Int) -> some View {

@@ -393,17 +393,24 @@ struct BrowserWebExtensionsManagerTests {
             let contentType = route?.contentType ?? "text/plain; charset=utf-8"
             let body = route?.body ?? "not found"
             let bodyData = Data(body.utf8)
-            let response = Data("""
-            HTTP/1.1 \(status)\r
-            Content-Type: \(contentType)\r
-            Content-Length: \(bodyData.count)\r
-            Cache-Control: no-store\r
-            Connection: close\r
-            \r
-            """.utf8) + bodyData
-            connection.send(content: response, completion: .contentProcessed { _ in
-                connection.cancel()
-            })
+            let headers = [
+                "HTTP/1.1 \(status)",
+                "Content-Type: \(contentType)",
+                "Content-Length: \(bodyData.count)",
+                "Cache-Control: no-store",
+                "Connection: close",
+                "",
+                "",
+            ].joined(separator: "\r\n")
+            let response = Data(headers.utf8) + bodyData
+            connection.send(
+                content: response,
+                contentContext: .finalMessage,
+                isComplete: true,
+                completion: .contentProcessed { _ in
+                    connection.cancel()
+                }
+            )
         }
     }
 
@@ -976,9 +983,10 @@ struct BrowserWebExtensionsManagerTests {
         let manager = BrowserWebExtensionsManager(
             directory: root,
             controllerConfiguration: .nonPersistent(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             catalogPackageRepository: packageRepository
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         services.installWebExtensionsManagerForTesting(
             manager,
             profileID: BrowserProfileStore.shared.builtInDefaultProfileID
@@ -1045,7 +1053,7 @@ struct BrowserWebExtensionsManagerTests {
         func assertRejected(selector: [String: Any]) throws {
             let root = try Self.makeExtensionsRoot()
             defer { try? FileManager.default.removeItem(at: root) }
-            let services = BrowserServices(extensionDirectory: root)
+            let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
             let tabManager = TabManager(
                 autoWelcomeIfNeeded: false,
                 browserServices: services
@@ -1241,7 +1249,6 @@ struct BrowserWebExtensionsManagerTests {
         let anchor = NSButton(frame: NSRect(x: 160, y: 190, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
-        defer { window.close() }
         let contentController = NSViewController()
         contentController.view = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 100))
         let popover = NSPopover()
@@ -1265,10 +1272,6 @@ struct BrowserWebExtensionsManagerTests {
             anchorRect: anchor.bounds,
             side: plan.side
         ))
-        defer {
-            placementLock.stop()
-            popover.performClose(nil)
-        }
         let anchorScreenRect = try #require(anchor.window).convertToScreen(
             anchor.convert(anchor.bounds, to: nil)
         )
@@ -1283,6 +1286,11 @@ struct BrowserWebExtensionsManagerTests {
         #expect(placementLock.stabilizationCount >= 2)
         #expect(placementLock.firstStabilizedFrame != nil)
         #expect(placementLock.lastStabilizedFrame != nil)
+        placementLock.stop()
+        popover.performClose(nil)
+        for _ in 0..<4 { await Task.yield() }
+        window.close()
+        for _ in 0..<2 { await Task.yield() }
     }
 
     @Test func iconEncodingUsesStableBoundedAspectPreservingPixels() throws {
@@ -1566,7 +1574,7 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let manager = try #require(services.webExtensionsManager)
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
@@ -2722,7 +2730,7 @@ struct BrowserWebExtensionsManagerTests {
     @Test func workspaceExtensionTabInsertionUsesFlatOrderAcrossPanes() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let rootPane = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -2757,7 +2765,7 @@ struct BrowserWebExtensionsManagerTests {
     @Test func dockExtensionTabInsertionUsesFlatOrderAcrossPanes() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let store = DockSplitStore(
             workspaceId: UUID(),
             browserServices: services,
@@ -3216,7 +3224,7 @@ struct BrowserWebExtensionsManagerTests {
     @Test func webViewConfigurationUsesInjectedController() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let configuration = WKWebViewConfiguration()
 
         BrowserPanel.configureWebViewConfiguration(
@@ -3233,7 +3241,7 @@ struct BrowserWebExtensionsManagerTests {
     @Test func webViewConfigurationDoesNotStartExtensionsBeforeWebViewExists() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let profileID = UUID()
         let manager = services.webExtensionsManager(for: profileID)
         let configuration = WKWebViewConfiguration()
@@ -3396,7 +3404,7 @@ struct BrowserWebExtensionsManagerTests {
     @Test func profileManagersUseSeparateControllersAndInstallDirectories() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let alternateProfileID = UUID()
         let defaultManager = try #require(services.webExtensionsManager)
@@ -3440,7 +3448,7 @@ struct BrowserWebExtensionsManagerTests {
             named: "Extension isolation \(UUID().uuidString.prefix(6))"
         ))
         defer { _ = BrowserProfileStore.shared.deleteProfile(id: alternateProfile.id) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let panel = BrowserPanel(
@@ -3509,7 +3517,7 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let panel = BrowserPanel(
@@ -3550,7 +3558,7 @@ struct BrowserWebExtensionsManagerTests {
             named: "Deleted extension profile \(UUID().uuidString.prefix(6))"
         ))
         defer { _ = BrowserProfileStore.shared.deleteProfile(id: deletedProfile.id) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let panel = BrowserPanel(
@@ -3602,7 +3610,7 @@ struct BrowserWebExtensionsManagerTests {
             named: "Deferred extension restore \(UUID().uuidString.prefix(6))"
         ))
         defer { _ = BrowserProfileStore.shared.deleteProfile(id: alternateProfile.id) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         await services.webExtensionsManager?.loadExtensions()
         let loadGate = RuntimeLoadGate()
         let runtime = BrowserWebExtensionProfileRuntime(
@@ -3652,7 +3660,7 @@ struct BrowserWebExtensionsManagerTests {
             _ = BrowserProfileStore.shared.deleteProfile(id: firstProfile.id)
             _ = BrowserProfileStore.shared.deleteProfile(id: secondProfile.id)
         }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let defaultManager = services.webExtensionsManager(for: defaultProfileID)
         let firstManager = services.webExtensionsManager(for: firstProfile.id)
@@ -3687,7 +3695,7 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let manager = try #require(services.webExtensionsManager)
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
@@ -3794,7 +3802,7 @@ struct BrowserWebExtensionsManagerTests {
             named: "Popup isolation \(UUID().uuidString.prefix(6))"
         ))
         defer { _ = BrowserProfileStore.shared.deleteProfile(id: alternateProfile.id) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let panel = BrowserPanel(
             workspaceId: UUID(),
             profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
@@ -3845,7 +3853,7 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let panel = BrowserPanel(
@@ -3897,7 +3905,7 @@ struct BrowserWebExtensionsManagerTests {
             named: "Popup runtime \(UUID().uuidString.prefix(6))"
         ))
         defer { _ = BrowserProfileStore.shared.deleteProfile(id: popupProfile.id) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let panel = BrowserPanel(
@@ -3933,7 +3941,7 @@ struct BrowserWebExtensionsManagerTests {
     @Test func newerNavigationCancelsDeferredStartupNavigation() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let loadGate = RuntimeLoadGate()
         let runtime = BrowserWebExtensionProfileRuntime(
@@ -3979,7 +3987,7 @@ struct BrowserWebExtensionsManagerTests {
             profileID: profileID,
             profileRuntime: runtime
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         let ownerID = UUID()
         var executions: [Int] = []
@@ -4039,7 +4047,7 @@ struct BrowserWebExtensionsManagerTests {
             profileID: profileID,
             profileRuntime: runtime
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         let ownerID = UUID()
         var executionCount = 0
@@ -4087,7 +4095,7 @@ struct BrowserWebExtensionsManagerTests {
         let extensionContext = WKWebExtensionContext(
             for: try await WKWebExtension(resourceBaseURL: extensionDirectory)
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -4141,7 +4149,7 @@ struct BrowserWebExtensionsManagerTests {
         let extensionContext = WKWebExtensionContext(
             for: try await WKWebExtension(resourceBaseURL: extensionDirectory)
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -4175,7 +4183,7 @@ struct BrowserWebExtensionsManagerTests {
     @Test func rejectedBrowserTabCreationDoesNotRegisterOrRetainPanel() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -4198,7 +4206,7 @@ struct BrowserWebExtensionsManagerTests {
     @Test func rejectedManagerSplitKeepsOnlySourcePanelRegistered() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -4365,7 +4373,7 @@ struct BrowserWebExtensionsManagerTests {
                 "name": "Remove reinstall state fixture",
                 "version": "1.0",
                 "permissions": ["storage", "declarativeNetRequest"],
-                "optional_permissions": ["cookies", "history"],
+                "optional_permissions": ["cookies", "clipboardWrite"],
                 "action": ["default_title": "State fixture"],
             ]
         )
@@ -4376,13 +4384,13 @@ struct BrowserWebExtensionsManagerTests {
         )
         let repository = BrowserWebExtensionDirectoryRepository()
         let cookiePermission = WKWebExtension.Permission.cookies
-        let historyPermission = WKWebExtension.Permission(rawValue: "history")
+        let deniedPermission = WKWebExtension.Permission.clipboardWrite
         let manager = BrowserWebExtensionsManager(
             directory: managedRoot,
             controllerIdentifier: UUID(),
             directoryRepository: repository,
             permissionPromptPresenter: { request, _ in
-                request.permissions.contains(historyPermission.rawValue)
+                request.permissions.contains(deniedPermission.rawValue)
                     ? .deny
                     : .grant
             }
@@ -4408,10 +4416,10 @@ struct BrowserWebExtensionsManagerTests {
                 continuation.resume(returning: permissions)
             }
         }
-        let deniedHistory = await withCheckedContinuation { continuation in
+        let deniedClipboardWrite = await withCheckedContinuation { continuation in
             manager.webExtensionController(
                 manager.controller,
-                promptForPermissions: [historyPermission],
+                promptForPermissions: [deniedPermission],
                 in: nil,
                 for: oldContext
             ) { permissions, _ in
@@ -4419,7 +4427,7 @@ struct BrowserWebExtensionsManagerTests {
             }
         }
         #expect(grantedCookies == [cookiePermission])
-        #expect(deniedHistory.isEmpty)
+        #expect(deniedClipboardWrite.isEmpty)
         let stateWebView = try await Self.loadExtensionPage(
             "probe.html",
             context: oldContext,
@@ -4457,7 +4465,7 @@ struct BrowserWebExtensionsManagerTests {
         )
         #expect(
             populatedRecord.deniedPermissions[
-                historyPermission.rawValue
+                deniedPermission.rawValue
             ] != nil
         )
         let oldDataRecords = await manager.controller.dataRecords(
@@ -4490,7 +4498,7 @@ struct BrowserWebExtensionsManagerTests {
         )
         #expect(
             newRecord.deniedPermissions[
-                historyPermission.rawValue
+                deniedPermission.rawValue
             ] == nil
         )
         let freshStateWebView = try await Self.loadExtensionPage(
@@ -4525,7 +4533,7 @@ struct BrowserWebExtensionsManagerTests {
             named: "Extension lifetime \(UUID().uuidString.prefix(6))"
         ))
         defer { _ = BrowserProfileStore.shared.deleteProfile(id: profile.id) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
         let workspace = try #require(tabManager.selectedWorkspace)
         let alternatePanel = BrowserPanel(
@@ -4569,7 +4577,7 @@ struct BrowserWebExtensionsManagerTests {
         let profile = try #require(BrowserProfileStore.shared.createProfile(
             named: "Extension teardown \(UUID().uuidString.prefix(6))"
         ))
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         var manager: BrowserWebExtensionsManager? = services.webExtensionsManager(for: profile.id)
         weak var weakManager = manager
         manager = nil
@@ -4591,6 +4599,7 @@ struct BrowserWebExtensionsManagerTests {
         )
         let services = BrowserServices(
             extensionDirectory: root,
+            usesNonPersistentWebExtensionStorage: true,
             extensionDirectoryRemover: { _ in
                 removalState.withLock { state in
                     state = (didRun: true, ranOnMainThread: Thread.isMainThread)
@@ -4882,7 +4891,7 @@ struct BrowserWebExtensionsManagerTests {
             controllerConfiguration: .nonPersistent(),
             profileID: profileID
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -5007,7 +5016,7 @@ struct BrowserWebExtensionsManagerTests {
             controllerConfiguration: .nonPersistent(),
             profileID: profileID
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -5384,7 +5393,7 @@ struct BrowserWebExtensionsManagerTests {
             controllerIdentifier: controllerID,
             profileID: profileID
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -5564,7 +5573,7 @@ struct BrowserWebExtensionsManagerTests {
             controllerConfiguration: .nonPersistent(),
             profileID: profileID
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         try await manager.approveInstalledCandidate(extensionDirectory)
         await manager.loadExtensions()
@@ -5672,6 +5681,16 @@ struct BrowserWebExtensionsManagerTests {
 
         let item = try #require(manager.presentationSnapshot(for: panel.id).extensions.first)
         #expect(item.actionFailure == nil)
+        window.close()
+        for created in createdPanels {
+            manager.unregister(panelID: created.id)
+            created.close()
+        }
+        createdPanels.removeAll()
+        manager.unregister(panelID: panel.id)
+        panel.close()
+        await manager.shutdownAndWait()
+        for _ in 0..<2 { await Task.yield() }
     }
 
     @available(macOS 15.4, *)
@@ -5800,6 +5819,9 @@ struct BrowserWebExtensionsManagerTests {
         #expect(popover.isShown)
         #expect(popover.positioningRect == anchor.bounds)
         #expect(performCount.withLock { $0 } == 1)
+        manager.unregister(panelID: panel.id)
+        await manager.shutdownAndWait()
+        #expect(!popover.isShown)
     }
 
     @available(macOS 15.4, *)
@@ -5876,6 +5898,7 @@ struct BrowserWebExtensionsManagerTests {
             panelID: panel.id,
             extensionIdentifier: context.uniqueIdentifier
         ).total == 0)
+        await manager.shutdownAndWait()
     }
 
     @available(macOS 15.4, *)
@@ -5969,6 +5992,7 @@ struct BrowserWebExtensionsManagerTests {
         popover.performClose(nil)
         for _ in 0..<4 { await Task.yield() }
         #expect(!popover.isShown)
+        await manager.shutdownAndWait()
     }
 
     @available(macOS 15.4, *)
@@ -6061,7 +6085,6 @@ struct BrowserWebExtensionsManagerTests {
 
         #expect(presentationError == nil)
         let updatedPopover = try #require(updatedAction.popupPopover)
-        defer { updatedPopover.performClose(nil) }
         #expect(updatedPopover.isShown)
         #expect(updatedPopover.positioningRect == anchor.bounds)
         #expect(performCount.withLock { $0 } == 1)
@@ -6072,6 +6095,9 @@ struct BrowserWebExtensionsManagerTests {
             forExtensionContext: context
         )
         #expect(performCount.withLock { $0 } == 1)
+        updatedPopover.performClose(nil)
+        for _ in 0..<4 { await Task.yield() }
+        await manager.shutdownAndWait()
     }
 
     @available(macOS 15.4, *)
@@ -6092,7 +6118,7 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
-        let services = BrowserServices(extensionDirectory: managedRoot)
+        let services = BrowserServices(extensionDirectory: managedRoot, usesNonPersistentWebExtensionStorage: true)
         let profileID = UUID()
 
         let preview = try await services.prepareWebExtensionInstall(
@@ -6132,7 +6158,7 @@ struct BrowserWebExtensionsManagerTests {
     @Test func replacementWebViewPreservesInjectedController() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let panel = BrowserPanel(workspaceId: UUID(), browserServices: services)
 
         let replacement = panel.makeReplacementWebView(
@@ -6196,7 +6222,7 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
-        let services = BrowserServices(extensionDirectory: root)
+        let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let manager = try #require(services.webExtensionsManager)
         let extensionContext = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: directory))
         let store = DockSplitStore(

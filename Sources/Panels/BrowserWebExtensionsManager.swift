@@ -592,9 +592,13 @@ final class BrowserWebExtensionsManager: NSObject {
         }
     }
 
-    func shutdownAndRemoveDirectory() async {
+    func shutdownAndWait() async {
         shutdown()
         await waitForShutdownFinalization()
+    }
+
+    func shutdownAndRemoveDirectory() async {
+        await shutdownAndWait()
         await directoryRepository.shutdownAndRemoveDirectory(directory)
     }
 
@@ -1237,7 +1241,8 @@ final class BrowserWebExtensionsManager: NSObject {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let version = webExtension.version?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !webExtension.manifest.isEmpty,
+        guard webExtension.errors.isEmpty,
+              !webExtension.manifest.isEmpty,
               webExtension.manifestVersion > 0,
               !displayName.isEmpty,
               !version.isEmpty else {
@@ -1411,9 +1416,6 @@ final class BrowserWebExtensionsManager: NSObject {
         }
         let identifier = Self.contextIdentifier(for: managementID)
         let dataTypes = WKWebExtensionController.allExtensionDataTypes
-        let dataRecords = await controller.dataRecords(ofTypes: dataTypes)
-            .filter { $0.uniqueIdentifier == identifier }
-        try requireActive()
         let context = loadedContext(managementID: managementID)
         if let context {
             cancelPermissionPrompts(for: context)
@@ -1422,6 +1424,9 @@ final class BrowserWebExtensionsManager: NSObject {
             loadedContexts.removeAll { $0 === context }
             managedRecordIDsByContextIdentifier.removeValue(forKey: context.uniqueIdentifier)
         }
+        let dataRecords = await controller.dataRecords(ofTypes: dataTypes)
+            .filter { $0.uniqueIdentifier == identifier }
+        try requireActive()
         do {
             guard try await directoryRepository.removeManagedRecord(
                 id: managementID,
@@ -2525,6 +2530,16 @@ final class BrowserWebExtensionsManager: NSObject {
             return nil
         }
         return (context.baseURL, configuration)
+    }
+
+    func ownsWebExtensionPageConfiguration(
+        _ configuration: WKWebViewConfiguration
+    ) -> Bool {
+        guard configuration.webExtensionController === controller else { return false }
+        let userContentController = configuration.userContentController
+        return loadedContexts.contains { context in
+            context.webViewConfiguration?.userContentController === userContentController
+        }
     }
 
     private static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
