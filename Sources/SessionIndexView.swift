@@ -242,9 +242,10 @@ struct SessionIndexView: View {
         ]
 
         return SessionIndexTableView(rows: rows)
-        .background(
-            DragCancelMonitor(dragCoordinator: dragCoordinator)
-        )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(
+                DragCancelMonitor(dragCoordinator: dragCoordinator)
+            )
     }
 }
 
@@ -352,9 +353,9 @@ struct IndexSectionView: View, Equatable {
 
     /// Skip body re-eval when this view's inputs are unchanged. `actions` is
     /// not comparable (closures) but is expected to be stable (closures
-    /// capture stable object references above the list boundary). Excluding
-    /// it from `==` is the core optimization that keeps LazyVStack's layout
-    /// cache from thrashing when unrelated store fields change.
+    /// capture stable object references above the table boundary). Excluding
+    /// it from `==` keeps a recycled cell's hosted graph stable when unrelated
+    /// store fields change.
     static func == (lhs: IndexSectionView, rhs: IndexSectionView) -> Bool {
         lhs.section == rhs.section
             && lhs.rowLimit == rhs.rowLimit
