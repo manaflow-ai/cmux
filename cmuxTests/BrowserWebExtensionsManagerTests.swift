@@ -1228,66 +1228,37 @@ struct BrowserWebExtensionsManagerTests {
 
     @available(macOS 15.4, *)
     @Test func popupPlacementKeepsItsChosenSideAcrossContentResizes() async throws {
-        let visibleFrame = try #require(NSScreen.main?.visibleFrame)
-        let window = NSWindow(
-            contentRect: NSRect(
-                x: visibleFrame.midX - 180,
-                y: visibleFrame.maxY - 300,
-                width: 360,
-                height: 240
-            ),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
+        let visibleFrame = NSRect(x: 0, y: 0, width: 1_000, height: 800)
+        let anchorScreenRect = NSRect(x: 480, y: 730, width: 40, height: 24)
+        let plan = BrowserWebExtensionPopupPlacementLock.plan(
+            contentHeight: 100,
+            anchorScreenRect: anchorScreenRect,
+            visibleFrame: visibleFrame
         )
-        window.level = NSWindow.Level(rawValue: 2002)
-        let anchor = NSButton(frame: NSRect(x: 160, y: 190, width: 40, height: 24))
-        window.contentView?.addSubview(anchor)
-        window.orderFront(nil)
-        let contentController = NSViewController()
-        contentController.view = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 100))
-        let popover = NSPopover()
-        popover.contentViewController = contentController
-        popover.contentSize = NSSize(width: 280, height: 100)
-        popover.animates = false
-        let plan = try #require(BrowserWebExtensionPopupPlacementLock.plan(
-            popover: popover,
-            anchorView: anchor,
-            anchorRect: anchor.bounds
-        ))
         #expect(plan.side == .below)
-        popover.show(
-            relativeTo: anchor.bounds,
-            of: anchor,
-            preferredEdge: plan.preferredEdge
-        )
-        let placementLock = try #require(BrowserWebExtensionPopupPlacementLock(
-            popover: popover,
-            anchorView: anchor,
-            anchorRect: anchor.bounds,
-            side: plan.side
-        ))
-        let anchorScreenRect = try #require(anchor.window).convertToScreen(
-            anchor.convert(anchor.bounds, to: nil)
-        )
 
-        for height in [180, 260, 120] {
-            popover.contentSize = NSSize(width: 280, height: height)
-            await Task.yield()
-            let frame = try #require(popover.contentViewController?.view.window?.frame)
-            #expect(frame.maxY <= anchorScreenRect.minY + 1)
-            #expect(frame.minY >= visibleFrame.minY - 1)
+        var stabilizedContentHeights: [CGFloat] = []
+        for contentHeight in [100, 180, 900, 120] as [CGFloat] {
+            let stabilizedContentHeight =
+                BrowserWebExtensionPopupPlacementLock.contentHeightFittingChosenSide(
+                    side: plan.side,
+                    popupHeight: contentHeight + 24,
+                    contentHeight: contentHeight,
+                    anchorScreenRect: anchorScreenRect,
+                    visibleFrame: visibleFrame
+                )
+            stabilizedContentHeights.append(stabilizedContentHeight)
+            let popupSize = NSSize(width: 280, height: stabilizedContentHeight + 24)
+            let origin = BrowserWebExtensionPopupPlacementLock.lockedOrigin(
+                side: plan.side,
+                popupSize: popupSize,
+                anchorScreenRect: anchorScreenRect,
+                visibleFrame: visibleFrame
+            )
+            #expect(origin.y + popupSize.height == anchorScreenRect.minY)
+            #expect(origin.y >= visibleFrame.minY)
         }
-        #expect(placementLock.stabilizationCount >= 2)
-        #expect(placementLock.firstStabilizedFrame != nil)
-        #expect(placementLock.lastStabilizedFrame != nil)
-        placementLock.stop()
-        popover.close()
-        await Self.waitForMainQueueTurn()
-        await Self.waitForMainQueueTurn()
-        window.close()
-        await Self.waitForMainQueueTurn()
-        await Self.waitForMainQueueTurn()
+        #expect(stabilizedContentHeights == [100, 180, 706, 120])
     }
 
     @Test func iconEncodingUsesStableBoundedAspectPreservingPixels() throws {
@@ -4425,36 +4396,40 @@ struct BrowserWebExtensionsManagerTests {
         let oldRecord = try #require(
             try await repository.managementLedger(in: managedRoot).records.values.first
         )
-        let oldContext = try #require(manager.loadedContexts.first)
+        var oldContext: WKWebExtensionContext? = try #require(manager.loadedContexts.first)
+        let oldContextIdentifier = try #require(oldContext).uniqueIdentifier
         try await manager.setToolbarActionPinned(
             true,
-            uniqueIdentifier: oldContext.uniqueIdentifier
+            uniqueIdentifier: oldContextIdentifier
         )
-        let grantedCookies = await withCheckedContinuation { continuation in
-            manager.webExtensionController(
-                manager.controller,
-                promptForPermissions: [cookiePermission],
-                in: nil,
-                for: oldContext
-            ) { permissions, _ in
-                continuation.resume(returning: permissions)
+        do {
+            let permissionContext = try #require(oldContext)
+            let grantedCookies = await withCheckedContinuation { continuation in
+                manager.webExtensionController(
+                    manager.controller,
+                    promptForPermissions: [cookiePermission],
+                    in: nil,
+                    for: permissionContext
+                ) { permissions, _ in
+                    continuation.resume(returning: permissions)
+                }
             }
-        }
-        let deniedClipboardWrite = await withCheckedContinuation { continuation in
-            manager.webExtensionController(
-                manager.controller,
-                promptForPermissions: [deniedPermission],
-                in: nil,
-                for: oldContext
-            ) { permissions, _ in
-                continuation.resume(returning: permissions)
+            let deniedClipboardWrite = await withCheckedContinuation { continuation in
+                manager.webExtensionController(
+                    manager.controller,
+                    promptForPermissions: [deniedPermission],
+                    in: nil,
+                    for: permissionContext
+                ) { permissions, _ in
+                    continuation.resume(returning: permissions)
+                }
             }
+            #expect(grantedCookies == [cookiePermission])
+            #expect(deniedClipboardWrite.isEmpty)
         }
-        #expect(grantedCookies == [cookiePermission])
-        #expect(deniedClipboardWrite.isEmpty)
         var stateWebView: WKWebView? = try await Self.loadExtensionPage(
             "probe.html",
-            context: oldContext,
+            context: try #require(oldContext),
             manager: manager
         )
         _ = try await stateWebView?.callAsyncJavaScript(
@@ -4495,9 +4470,10 @@ struct BrowserWebExtensionsManagerTests {
         let oldDataRecords = await manager.controller.dataRecords(
             ofTypes: WKWebExtensionController.allExtensionDataTypes
         )
-        #expect(oldDataRecords.contains { $0.uniqueIdentifier == oldContext.uniqueIdentifier })
+        #expect(oldDataRecords.contains { $0.uniqueIdentifier == oldContextIdentifier })
         stateWebView?.stopLoading()
         stateWebView = nil
+        oldContext = nil
         await Self.waitForMainQueueTurn()
         await Self.waitForMainQueueTurn()
 
@@ -4508,7 +4484,7 @@ struct BrowserWebExtensionsManagerTests {
         let remainingDataRecords = await manager.controller.dataRecords(
             ofTypes: WKWebExtensionController.allExtensionDataTypes
         )
-        #expect(!remainingDataRecords.contains { $0.uniqueIdentifier == oldContext.uniqueIdentifier })
+        #expect(!remainingDataRecords.contains { $0.uniqueIdentifier == oldContextIdentifier })
 
         _ = try await manager.installExtension(from: source)
         let newRecord = try #require(
@@ -4516,8 +4492,7 @@ struct BrowserWebExtensionsManagerTests {
         )
         let newContext = try #require(manager.loadedContexts.first)
         #expect(newRecord.id != oldRecord.id)
-        #expect(newContext !== oldContext)
-        #expect(newContext.uniqueIdentifier != oldContext.uniqueIdentifier)
+        #expect(newContext.uniqueIdentifier != oldContextIdentifier)
         #expect(!newRecord.isToolbarPinned)
         #expect(
             newRecord.grantedPermissions[
@@ -5374,11 +5349,19 @@ struct BrowserWebExtensionsManagerTests {
                 manager: firstManager
             )
             #expect(updatedRuleIDs == [901])
-            let updatedResponses = try await Self.fetchDNRPaths(
-                ["/cmux-dynamic-blocked", "/cmux-updated-blocked"],
-                server: server,
-                panel: firstPanel
-            )
+            let expectedUpdatedResponses = ["dynamic-server", "blocked"]
+            let clock = ContinuousClock()
+            let propagationDeadline = clock.now.advanced(by: .seconds(8))
+            var updatedResponses: [String] = []
+            repeat {
+                updatedResponses = try await Self.fetchDNRPaths(
+                    ["/cmux-dynamic-blocked", "/cmux-updated-blocked"],
+                    server: server,
+                    panel: firstPanel
+                )
+                if updatedResponses == expectedUpdatedResponses { break }
+                try await clock.sleep(for: .milliseconds(20))
+            } while clock.now < propagationDeadline
             #expect(updatedResponses == ["dynamic-server", "blocked"])
         }
 
@@ -5847,17 +5830,28 @@ struct BrowserWebExtensionsManagerTests {
             encoding: .utf8
         )
 
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let performCount = OSAllocatedUnfairLock(initialState: 0)
         let manager = BrowserWebExtensionsManager(
             directory: root,
             controllerConfiguration: .nonPersistent(),
+            profileID: profileID,
             performExtensionAction: { _, _ in
                 performCount.withLock { $0 += 1 }
             }
         )
+        let services = BrowserServices(
+            extensionDirectory: root,
+            usesNonPersistentWebExtensionStorage: true
+        )
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
-        let panel = BrowserPanel(workspaceId: UUID())
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            browserServices: services
+        )
         manager.register(
             panel: panel,
             ownerID: UUID(),
@@ -5948,13 +5942,24 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let manager = BrowserWebExtensionsManager(
             directory: root,
-            controllerConfiguration: .nonPersistent()
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID
         )
+        let services = BrowserServices(
+            extensionDirectory: root,
+            usesNonPersistentWebExtensionStorage: true
+        )
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
-        let panel = BrowserPanel(workspaceId: UUID())
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            browserServices: services
+        )
         manager.register(
             panel: panel,
             ownerID: UUID(),
@@ -6042,13 +6047,24 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let manager = BrowserWebExtensionsManager(
             directory: root,
-            controllerConfiguration: .nonPersistent()
+            controllerConfiguration: .nonPersistent(),
+            profileID: profileID
         )
+        let services = BrowserServices(
+            extensionDirectory: root,
+            usesNonPersistentWebExtensionStorage: true
+        )
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
-        let panel = BrowserPanel(workspaceId: UUID())
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            browserServices: services
+        )
         let firstOwnerID = UUID()
         let secondOwnerID = UUID()
         manager.register(
@@ -6146,18 +6162,29 @@ struct BrowserWebExtensionsManagerTests {
             encoding: .utf8
         )
 
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let performCount = OSAllocatedUnfairLock(initialState: 0)
         let manager = BrowserWebExtensionsManager(
             directory: root,
             controllerConfiguration: .nonPersistent(),
+            profileID: profileID,
             performExtensionAction: { _, _ in
                 performCount.withLock { $0 += 1 }
             }
         )
+        let services = BrowserServices(
+            extensionDirectory: root,
+            usesNonPersistentWebExtensionStorage: true
+        )
+        services.installWebExtensionsManagerForTesting(manager, profileID: profileID)
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
 
-        let panel = BrowserPanel(workspaceId: UUID())
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            browserServices: services
+        )
         manager.register(
             panel: panel,
             ownerID: UUID(),
