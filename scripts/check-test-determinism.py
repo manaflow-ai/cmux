@@ -296,6 +296,10 @@ _BLOCK_COMMENT_MARKER = re.compile(r'/\*|\*/')
 _DIRECT_ASSIGNMENT = re.compile(
     r"(?:^|[;{}])\s*([A-Za-z_]\w*)\s*=(?!=)\s*([^;]+)"
 )
+_SELF_DIRECT_ASSIGNMENT = re.compile(
+    r"(?:^|[;{}])\s*(?:self|Self)\s*[?!]?\s*\.\s*"
+    r"([A-Za-z_]\w*)\s*=(?!=)\s*([^;]+)"
+)
 _CONSTRUCTED_CLOCK_SLEEP_CALL = re.compile(
     r"(?<![.\w])((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\s*"
     r"(?:\.\s*init)?\s*\(\s*\)\s*\.\s*sleep\s*\("
@@ -1166,6 +1170,19 @@ def _local_receiver_assignments(
     return [
         (match.start(1), f"= {match.group(2).strip()}")
         for match in _DIRECT_ASSIGNMENT.finditer(text)
+        if match.group(1) == receiver
+    ]
+
+
+def _self_receiver_assignments(
+    text: str, receiver: str
+) -> list[tuple[int, str]]:
+    """Return direct `self.receiver = value` assignments on one line."""
+    if receiver not in text or ("self" not in text and "Self" not in text):
+        return []
+    return [
+        (match.start(1), f"= {match.group(2).strip()}")
+        for match in _SELF_DIRECT_ASSIGNMENT.finditer(text)
         if match.group(1) == receiver
     ]
 
@@ -2088,6 +2105,7 @@ def _resolve_named_receiver_kind(
     prefix_lines = masked_lines[:call_index] + [current[:call_column]]
     tracks_reassignment = any(
         _local_receiver_assignments(line, receiver)
+        or _self_receiver_assignments(line, receiver)
         for line in prefix_lines
     )
     scopes: list[dict[str, bool]] = [{}]
@@ -2284,6 +2302,12 @@ def _resolve_named_receiver_kind(
             )
         )
         events.extend(
+            (position, "self_assignment", declaration)
+            for position, declaration in _self_receiver_assignments(
+                candidate, receiver
+            )
+        )
+        events.extend(
             (pos, token, None)
             for pos, token in enumerate(candidate)
             if token in "{}()"
@@ -2449,16 +2473,30 @@ def _resolve_named_receiver_kind(
                             prefix_lines[candidate_index + 1 :],
                             real_clock_aliases,
                         )
-                if event == "assignment":
+                if event in ("assignment", "self_assignment"):
                     current_mutation = scope_mutations[-1]
+                    search_start = len(scopes) - 1
+                    if event == "self_assignment":
+                        function_scope = next(
+                            (
+                                scope_index
+                                for scope_index, scope_kind in enumerate(
+                                    scope_kinds
+                                )
+                                if scope_kind == "function"
+                            ),
+                            len(scopes),
+                        )
+                        search_start = function_scope - 1
                     binding_scope = (
                         current_mutation[0]
-                        if current_mutation is not None
+                        if event == "assignment"
+                        and current_mutation is not None
                         else next(
                             (
                                 scope_index
                                 for scope_index in range(
-                                    len(scopes) - 1, -1, -1
+                                    search_start, -1, -1
                                 )
                                 if receiver in scopes[scope_index]
                             ),
@@ -2469,7 +2507,9 @@ def _resolve_named_receiver_kind(
                         continue
                     if scope_declared_real[binding_scope]:
                         kind = True
-                    if binding_scope == len(scopes) - 1:
+                    if event == "self_assignment":
+                        scopes[binding_scope][receiver] = kind
+                    elif binding_scope == len(scopes) - 1:
                         scopes[binding_scope][receiver] = kind
                     else:
                         scopes[-1][receiver] = kind
@@ -3525,7 +3565,7 @@ def _self_test() -> int:
         (
             "Tests/SelfReassignedRealClockTests.swift",
             "final class Fixture {\n"
-            "    var clock = TestRelayClock()\n"
+            "    var clock: any Clock<Duration> = TestRelayClock()\n"
             "    func verify() async {\n"
             "        self.clock = ContinuousClock()\n"
             "        try await self.clock.sleep(for: .milliseconds(300))\n"
@@ -4826,7 +4866,7 @@ def _self_test() -> int:
         (
             "Packages/CmuxClock/Tests/SelfReassignedVirtualClockTests.swift",
             "final class Fixture {\n"
-            "    var clock = ContinuousClock()\n"
+            "    var clock: any Clock<Duration> = ContinuousClock()\n"
             "    func verify() async {\n"
             "        self.clock = TestRelayClock()\n"
             "        try await self.clock.sleep(until: deadline)\n"

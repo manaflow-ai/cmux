@@ -75,7 +75,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
     func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async throws {
         typealias SleepRequest = (
