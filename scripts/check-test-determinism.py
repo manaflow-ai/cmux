@@ -1293,6 +1293,30 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "web/tests/BunSleepTests.ts",
+            "await Bun.sleep(300)\n"
+            "expect(widget.isRendered).toBe(true)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/trio_sleep.py",
+            "await trio.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/anyio_sleep.py",
+            "await anyio.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/gevent_sleep.py",
+            "gevent.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/QualifiedRealClockInitializerTests.swift",
             "let clock = Swift.ContinuousClock()\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
@@ -1368,6 +1392,20 @@ def _self_test() -> int:
         (
             "Tests/SecondRealClockBindingTests.swift",
             "let fakeClock = TestRelayClock(), clock = ContinuousClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ComparisonBeforeRealClockBindingTests.swift",
+            "let isReady = count < limit, clock = ContinuousClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/GenericBeforeRealClockBindingTests.swift",
+            "let values = Result<Int, String>.success(1), clock = ContinuousClock()\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
             "#expect(widget.isRendered)\n",
             {RULE_SLEEP_THEN_ASSERT},
@@ -1942,6 +1980,23 @@ def _self_test() -> int:
             "}\n"
             "struct RealFixture {\n"
             "    let clock: ContinuousClock\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/NestedTypeNameCollisionTests.swift",
+            "enum A {\n"
+            "    struct Fixture {\n"
+            "        let clock: ContinuousClock\n"
+            "    }\n"
+            "}\n"
+            "enum B {\n"
+            "    struct Fixture {\n"
+            "        func verify() async {\n"
+            "            try await self.clock.sleep(until: deadline)\n"
+            "            #expect(await events.next() == expected)\n"
+            "        }\n"
+            "        let clock: TestRelayClock\n"
+            "    }\n"
             "}\n",
         ),
         (
