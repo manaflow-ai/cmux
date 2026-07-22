@@ -11,6 +11,72 @@ import Bonsplit
 @testable import cmux
 #endif
 
+private final class WorkspaceContentViewManualClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol, Sendable {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant {
+            Instant(offset: offset + duration)
+        }
+
+        func duration(to other: Instant) -> Duration {
+            other.offset - offset
+        }
+
+        static func < (lhs: Instant, rhs: Instant) -> Bool {
+            lhs.offset < rhs.offset
+        }
+    }
+
+    private struct Sleeper {
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private let lock = NSLock()
+    private var _now = Instant(offset: .zero)
+    private var sleepers: [Sleeper] = []
+
+    var now: Instant {
+        lock.lock()
+        defer { lock.unlock() }
+        return _now
+    }
+
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance _: Duration?) async throws {
+        try Task.checkCancellation()
+        let readyNow: Bool = {
+            lock.lock()
+            defer { lock.unlock() }
+            return deadline <= _now
+        }()
+        if readyNow { return }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            lock.lock()
+            if deadline <= _now {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            sleepers.append(Sleeper(deadline: deadline, continuation: continuation))
+            lock.unlock()
+        }
+    }
+
+    func advance(by duration: Duration) {
+        lock.lock()
+        _now = _now.advanced(by: duration)
+        let due = sleepers.filter { $0.deadline <= _now }
+        sleepers.removeAll { $0.deadline <= _now }
+        lock.unlock()
+        for sleeper in due {
+            sleeper.continuation.resume()
+        }
+    }
+}
+
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
     private final class MinimalModeBodyProbeCounts {
@@ -51,6 +117,25 @@ final class WorkspaceContentViewVisibilityTests {
         let lineEnd = source[index...].firstIndex(of: "\n") ?? source.endIndex
         let line = source[lineStart..<lineEnd].trimmingCharacters(in: .whitespaces)
         return "\(lineNumber(in: source, at: index)): \(line)"
+    }
+
+    @MainActor
+    private func drainMainActorTasks() async {
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+    }
+
+    private static func restoreFocusTarget(
+        workspaceId: UUID = UUID(),
+        panelId: UUID = UUID(),
+        intent: PanelFocusIntent = .panel
+    ) -> CommandPaletteRestoreFocusTarget {
+        CommandPaletteRestoreFocusTarget(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            intent: intent
+        )
     }
 
     private static func functionBody(named name: String, in source: String) throws -> String {
@@ -233,6 +318,60 @@ final class WorkspaceContentViewVisibilityTests {
             can be reset.
             """
         )
+    }
+
+    @Test
+    @MainActor
+    func commandPaletteFocusRestoreCoordinatorSupersedesOldTimeout() async {
+        let clock = WorkspaceContentViewManualClock()
+        let coordinator = CommandPaletteFocusRestoreCoordinator(
+            timeout: .milliseconds(100),
+            clock: clock
+        )
+        let firstTarget = Self.restoreFocusTarget()
+        let secondTarget = Self.restoreFocusTarget()
+
+        coordinator.request(target: firstTarget)
+        await drainMainActorTasks()
+        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+
+        clock.advance(by: .milliseconds(60))
+        coordinator.request(target: secondTarget)
+        await drainMainActorTasks()
+        #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+
+        clock.advance(by: .milliseconds(40))
+        await drainMainActorTasks()
+        #expect(
+            coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId,
+            "The first request's cancelled timeout must not clear the newer pending target."
+        )
+
+        clock.advance(by: .milliseconds(60))
+        await drainMainActorTasks()
+        #expect(coordinator.pendingTarget?.workspaceId == nil)
+    }
+
+    @Test
+    @MainActor
+    func commandPaletteFocusRestoreCoordinatorClearCancelsTimeout() async {
+        let clock = WorkspaceContentViewManualClock()
+        let coordinator = CommandPaletteFocusRestoreCoordinator(
+            timeout: .milliseconds(100),
+            clock: clock
+        )
+        let target = Self.restoreFocusTarget()
+
+        coordinator.request(target: target)
+        await drainMainActorTasks()
+        #expect(coordinator.pendingTarget?.workspaceId == target.workspaceId)
+
+        coordinator.clear()
+        #expect(coordinator.pendingTarget?.workspaceId == nil)
+
+        clock.advance(by: .milliseconds(100))
+        await drainMainActorTasks()
+        #expect(coordinator.pendingTarget?.workspaceId == nil)
     }
 
     @Test
