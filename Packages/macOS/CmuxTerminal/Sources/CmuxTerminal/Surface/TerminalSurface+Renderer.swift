@@ -118,6 +118,10 @@ extension TerminalSurface {
         if rendererPortalVisible {
             rendererPresentationPhase = .presented
         } else {
+            // The portal may have become hidden before the native pointer
+            // existed. Replay occlusion now so Ghostty stops drawing before
+            // the ordered renderer-release message makes its swap chain defunct.
+            setOcclusion(false)
             _ = releaseRenderer()
         }
     }
