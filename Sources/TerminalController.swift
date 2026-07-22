@@ -368,7 +368,7 @@ class TerminalController {
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
-        panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore = .init(),
+        panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -383,7 +383,7 @@ class TerminalController {
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
-        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore
+        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
