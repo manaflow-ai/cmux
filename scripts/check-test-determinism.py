@@ -3164,6 +3164,23 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/TypealiasedRealClockTests.swift",
+            "typealias WallClock = ContinuousClock\n"
+            "let clock = WallClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/TransitiveTypealiasedRealClockTests.swift",
+            "typealias BaseWallClock = ContinuousClock\n"
+            "typealias WallClock = BaseWallClock\n"
+            "let clock: WallClock = WallClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/CastRealClockTests.swift",
             "let clock = makeClock() as ContinuousClock\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
@@ -4869,6 +4886,24 @@ def _self_test() -> int:
         (
             "Packages/CmuxClock/Tests/CmuxClockTests/QualifiedVirtualClockTests.swift",
             "final class QualifiedVirtualClockTests: Support.BaseFixture {\n"
+            "    func verifyRefresh() async {\n"
+            "        try await self.clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/RealPrivateBase.swift",
+            "private class PrivateBaseFixture {\n"
+            "    let clock = ContinuousClock()\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/VirtualPrivateBase.swift",
+            "private class PrivateBaseFixture {\n"
+            "    let clock = TestRelayClock()\n"
+            "}\n"
+            "private final class PrivateVirtualFixture: PrivateBaseFixture {\n"
             "    func verifyRefresh() async {\n"
             "        try await self.clock.sleep(until: deadline)\n"
             "        #expect(await events.next() == expected)\n"
