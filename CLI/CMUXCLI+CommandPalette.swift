@@ -62,7 +62,7 @@ extension CMUXCLI {
             )
 
         default:
-            guard positional.count == 1 else {
+            guard positional.count == 1, !positional[0].isEmpty else {
                 throw CLIError(message: String(
                     localized: "cli.palette.error.unknownSubcommand",
                     defaultValue: "Unknown palette subcommand"
@@ -179,7 +179,7 @@ extension CMUXCLI {
                 defaultValue: "Ran command palette action:"
             )
         }
-        print("\(prefix) \(commandID)")
+        print("\(prefix) \(Self.sanitizeForTerminal(commandID))")
     }
 
     private func parsePaletteActionArguments(_ values: [String]) throws -> [String: String] {
