@@ -160,7 +160,9 @@ struct TranscriptBatchAssembler {
             return [edit.filePath]
         case .toolUse(let toolUse):
             return toolUse.artifactMutationPaths
-        case .prose, .thought, .terminal, .permissionRequest, .question,
+        case .terminal(let terminal):
+            return ShellArtifactMutationPathDetector().paths(in: terminal.command)
+        case .prose, .thought, .permissionRequest, .question,
              .status, .attachment, .unsupported:
             return []
         }

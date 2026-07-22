@@ -64,8 +64,8 @@ struct ArtifactGitPrivacyTests {
         !/.cmux/
         !/.cmux/artifacts/
         /.cmux/artifacts/**
-        !/.cmux/artifacts/workspace/
-        !/.cmux/artifacts/workspace/session/
+        !/.cmux/artifacts/workspace-workspace/
+        !/.cmux/artifacts/workspace-workspace/session-session/
         !/.cmux/artifacts/**/*.json
 
         """.write(
@@ -79,7 +79,7 @@ struct ArtifactGitPrivacyTests {
         ]) == 0)
         #expect(try runGit([
             "-C", root.path, "check-ignore", "--quiet", "--",
-            ".cmux/artifacts/workspace/session/secret.json",
+            ".cmux/artifacts/workspace-workspace/session-session/secret.json",
         ]) == 1)
         let source = try ArtifactTestSupport.write(
             "secret",

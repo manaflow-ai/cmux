@@ -60,6 +60,15 @@ extension AgentChatTranscriptService {
         return try await artifactCaptureCoordinator.save(record: record, sourceURL: sourceURL)
     }
 
+    /// Cancels obsolete work and serializes coordinator cleanup before session reuse.
+    func removeArtifactCaptureSession(sessionID: String) {
+        artifactCaptureTasks.removeValue(forKey: sessionID)?.task?.cancel()
+        guard let artifactCaptureCoordinator else { return }
+        replaceArtifactCaptureTask(sessionID: sessionID) {
+            await artifactCaptureCoordinator.removeSession(sessionID: sessionID)
+        }
+    }
+
     private func replaceArtifactCaptureTask(
         sessionID: String,
         operation: @escaping @Sendable () async -> Void

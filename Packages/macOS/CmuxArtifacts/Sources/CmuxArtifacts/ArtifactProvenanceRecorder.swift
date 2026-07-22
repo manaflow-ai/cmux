@@ -55,7 +55,7 @@ struct ArtifactProvenanceRecorder {
         try data.write(to: metadataURL(paths: paths, digest: digest), options: .atomic)
     }
 
-    private func metadataURL(paths: ArtifactStorePaths, digest: String) -> URL {
+    func metadataURL(paths: ArtifactStorePaths, digest: String) -> URL {
         paths.provenanceRoot.appendingPathComponent("\(digest).json", isDirectory: false)
     }
 

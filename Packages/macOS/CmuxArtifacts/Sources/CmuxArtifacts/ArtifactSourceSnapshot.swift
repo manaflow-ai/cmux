@@ -17,6 +17,21 @@ struct ArtifactSourceSnapshotter {
         paths: ArtifactStorePaths,
         configuration: ArtifactCaptureConfiguration
     ) throws -> ArtifactSourceSnapshot {
+        try snapshot(
+            source: source,
+            paths: paths,
+            configuration: configuration,
+            stagedURL: paths.importStagingRoot
+                .appendingPathComponent("\(UUID().uuidString).artifact-import", isDirectory: false)
+        )
+    }
+
+    func snapshot(
+        source: URL,
+        paths: ArtifactStorePaths,
+        configuration: ArtifactCaptureConfiguration,
+        stagedURL: URL
+    ) throws -> ArtifactSourceSnapshot {
         let normalizedConfiguration = configuration.normalized
         let pathExtension = source.pathExtension.lowercased()
         guard normalizedConfiguration.allowedExtensions.contains(pathExtension) else {
@@ -29,8 +44,6 @@ struct ArtifactSourceSnapshotter {
         try rejectSymbolicLink(at: paths.importStagingRoot)
         try fileManager.createDirectory(at: paths.importStagingRoot, withIntermediateDirectories: true)
         try rejectSymbolicLink(at: paths.importStagingRoot)
-        let stagedURL = paths.importStagingRoot
-            .appendingPathComponent("\(UUID().uuidString).artifact-import", isDirectory: false)
         let sourceDescriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard sourceDescriptor >= 0 else {
             throw ArtifactStoreError.sourceNotRegularFile(source.path)

@@ -7,12 +7,12 @@ public import Foundation
 /// content-addressed so user-driven file moves and renames do not invalidate
 /// deduplication or provenance.
 public actor LocalArtifactRepository: ArtifactStoring {
-    private let fileManager: FileManager
-    private let decoder: JSONDecoder
-    private let encoder: JSONEncoder
-    private let gitCommandRunner: any ArtifactGitCommandRunning
+    let fileManager: FileManager
+    let decoder: JSONDecoder
+    let encoder: JSONEncoder
+    let gitCommandRunner: any ArtifactGitCommandRunning
     private let maximumScanDepth: Int
-    private let nodeBudget: Int
+    let nodeBudget: Int
 
     /// Creates a local filesystem repository.
     ///
@@ -138,25 +138,27 @@ public actor LocalArtifactRepository: ArtifactStoring {
         } catch {
             return candidates.map { _ in .rejected(.pathOutsideStore(paths.artifactsRoot.path)) }
         }
-        if candidates.contains(where: { $0.provenance != .manual }),
-           !ArtifactGitIgnoreManager(fileManager: fileManager).permitsAutomaticCapture(
-               projectRoot: paths.projectRoot,
-               commandRunner: gitCommandRunner
-           ) {
-            return candidates.map { _ in
-                .rejected(.gitPrivacyUnavailable(paths.artifactsRoot.path))
-            }
-        }
-
         var attempts = Array<ArtifactImportAttempt?>(repeating: nil, count: candidates.count)
         var preparedByIndex: [Int: PreparedArtifactImport] = [:]
         for (index, candidate) in candidates.enumerated() {
             let source = candidate.sourceURL.standardizedFileURL
+            let stagedURL = paths.importStagingRoot
+                .appendingPathComponent("\(UUID().uuidString).artifact-import", isDirectory: false)
+            if candidate.provenance != .manual,
+               !ArtifactGitIgnoreManager(fileManager: fileManager).permitsAutomaticWrites(
+                   projectRoot: paths.projectRoot,
+                   destinations: [stagedURL],
+                   commandRunner: gitCommandRunner
+               ) {
+                attempts[index] = .rejected(.gitPrivacyUnavailable(paths.artifactsRoot.path))
+                continue
+            }
             do {
                 let snapshot = try ArtifactSourceSnapshotter(fileManager: fileManager).snapshot(
                     source: source,
                     paths: paths,
-                    configuration: configuration
+                    configuration: configuration,
+                    stagedURL: stagedURL
                 )
                 preparedByIndex[index] = PreparedArtifactImport(
                     candidate: ArtifactCandidate(sourceURL: source, provenance: candidate.provenance),
@@ -222,98 +224,6 @@ public actor LocalArtifactRepository: ArtifactStoring {
         return attempts.enumerated().map { index, attempt in
             attempt ?? .rejected(.sourceNotRegularFile(candidates[index].sourceURL.path))
         }
-    }
-
-    private func importPrepared(
-        _ prepared: PreparedArtifactImport,
-        context: ArtifactCaptureContext,
-        paths: ArtifactStorePaths,
-        capturedAt: Date,
-        existingByDigest: inout [String: URL],
-        captureDirectory: inout URL?
-    ) throws -> ArtifactImportOutcome {
-        let source = prepared.candidate.sourceURL
-        let size = prepared.snapshot.size
-        let digest = prepared.digest
-        let pathResolver = ArtifactPathResolver()
-
-        if pathResolver.isInsideStore(source, paths: paths),
-           let relativePath = pathResolver.relativePath(source, root: paths.artifactsRoot) {
-            let record = makeRecord(
-                digest: digest,
-                source: source,
-                relativePath: relativePath,
-                context: context,
-                provenance: prepared.candidate.provenance,
-                capturedAt: capturedAt,
-                size: size
-            )
-            try recordProvenance(record, paths: paths)
-            existingByDigest[digest] = source
-            return .alreadyStored(record)
-        }
-
-        if let existing = existingByDigest[digest],
-           let relativePath = pathResolver.relativePath(existing, root: paths.artifactsRoot) {
-            let record = makeRecord(
-                digest: digest,
-                source: source,
-                relativePath: relativePath,
-                context: context,
-                provenance: prepared.candidate.provenance,
-                capturedAt: capturedAt,
-                size: size
-            )
-            try recordProvenance(record, paths: paths)
-            return .deduplicated(record)
-        }
-
-        if captureDirectory == nil {
-            let resolution = ArtifactCaptureDirectoryFinder(
-                fileManager: fileManager,
-                decoder: decoder,
-                nodeBudget: nodeBudget
-            ).resolve(paths: paths, context: context, pathResolver: pathResolver)
-            try createCaptureDirectory(
-                resolution.directory,
-                paths: paths,
-                context: context,
-                capturedAt: capturedAt,
-                writesWorkspaceMarker: !resolution.reusedSessionMarker
-            )
-            captureDirectory = resolution.directory
-        }
-        guard let captureDirectory else {
-            throw ArtifactStoreError.pathOutsideStore(paths.artifactsRoot.path)
-        }
-        let destination = pathResolver.uniqueDestination(
-            source: source,
-            directory: captureDirectory,
-            fileManager: fileManager
-        )
-        try fileManager.moveItem(at: prepared.snapshot.url, to: destination)
-        var keepsDestination = false
-        defer {
-            if !keepsDestination {
-                try? fileManager.removeItem(at: destination)
-            }
-        }
-        guard let relativePath = pathResolver.relativePath(destination, root: paths.artifactsRoot) else {
-            throw ArtifactStoreError.pathOutsideStore(destination.path)
-        }
-        let record = makeRecord(
-            digest: digest,
-            source: source,
-            relativePath: relativePath,
-            context: context,
-            provenance: prepared.candidate.provenance,
-            capturedAt: capturedAt,
-            size: size
-        )
-        try recordProvenance(record, paths: paths)
-        existingByDigest[digest] = destination
-        keepsDestination = true
-        return .copied(record)
     }
 
     /// Resolves an exact relative path, unique basename, or unique fuzzy match.
@@ -395,7 +305,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         try ArtifactGitIgnoreManager(fileManager: fileManager).ensureIgnored(projectRoot: paths.projectRoot)
     }
 
-    private func createCaptureDirectory(
+    func createCaptureDirectory(
         _ sessionDirectory: URL,
         paths: ArtifactStorePaths,
         context: ArtifactCaptureContext,
@@ -453,7 +363,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         }
     }
 
-    private func makeRecord(
+    func makeRecord(
         digest: String,
         source: URL,
         relativePath: String,
@@ -474,7 +384,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         )
     }
 
-    private func recordProvenance(_ record: ArtifactRecord, paths: ArtifactStorePaths) throws {
+    func recordProvenance(_ record: ArtifactRecord, paths: ArtifactStorePaths) throws {
         let recorder = ArtifactProvenanceRecorder(
             fileManager: fileManager,
             encoder: encoder,
