@@ -606,7 +606,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard visible.length > 0 else { return }
         for row in visible.lowerBound..<(visible.lowerBound + visible.length)
         where rows.indices.contains(row) {
-            let paint = painter?.paint(forRowWorkspaceId: rows[row].workspaceId) ?? (false, false)
+            let paint = painter?.paint(forRowWorkspaceId: rows[row].workspaceId)
+                ?? (top: false, bottom: false)
             switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
             case let cell as SidebarWorkspaceRowTableCellView:
                 cell.paintControllerDropIndicator(top: paint.top, bottom: paint.bottom)
