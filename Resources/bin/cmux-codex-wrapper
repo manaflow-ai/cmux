@@ -236,11 +236,13 @@ cmux_codex_emit_computer_use_args() {
                 ;;
         esac
     done
-    local driver default_session runtime_scope runtime_uid cua_socket state_dir
+    local driver default_session runtime_scope runtime_uid cua_socket state_dir auth_token
     driver="$(cmux_computer_use_resolve_driver)" || return 1
+    auth_token="${CUA_DRIVER_SOCKET_AUTH_TOKEN:-}"
+    [[ -n "$auth_token" ]] || return 1
     # Stable per-terminal session id so the branded cursor survives helper restarts.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
-    runtime_scope="${CMUX_TAG:-default}"
+    runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
     runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
     runtime_uid="$(/usr/bin/id -u)"
@@ -257,6 +259,8 @@ cmux_codex_emit_computer_use_args() {
         'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_FORCE_PROXY="1"' \
         "-c" \
         'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0"' \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
         "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \

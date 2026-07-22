@@ -934,6 +934,7 @@ def computer_use_sandbox(
     managed_sideload_source: str | None = None,
     path_helper_trap: bool = False,
     stale_helper_bundle_id: str | None = None,
+    auth_token: bool = True,
 ):
     def setup(tmp: Path, env: dict) -> None:
         sandbox_home = tmp / "home"
@@ -941,6 +942,9 @@ def computer_use_sandbox(
         env["HOME"] = str(sandbox_home)
         env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
         env.pop("CMUX_CUA_DRIVER", None)
+        env.pop("CUA_DRIVER_SOCKET_AUTH_TOKEN", None)
+        if auth_token:
+            env["CUA_DRIVER_SOCKET_AUTH_TOKEN"] = "cmux-test-auth-token"
         if bundled_driver:
             make_executable(
                 tmp / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua-driver",
@@ -1070,6 +1074,7 @@ def expect_computer_use_env_scrubbed(
         "CUA_DRIVER_DEFAULT_SESSION": "cmux-surface:test",
         "CUA_DRIVER_RS_MCP_FORCE_PROXY": "1",
         "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "0",
+        "CUA_DRIVER_SOCKET_AUTH_TOKEN": "cmux-test-auth-token",
         "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
         "CUA_DRIVER_RS_UPDATE_CHECK": "false",
         "CUA_DRIVER_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
@@ -1181,6 +1186,20 @@ def test_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None:
     expect(
         "CUA_DRIVER_RS_MCP_FORCE_PROXY" in source,
         "computer use wrapper must force the shared daemon proxy path",
+        failures,
+    )
+
+
+def test_computer_use_skips_without_daemon_credential(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(auth_token=False),
+    )
+    expect(code == 0, f"computer use missing auth: wrapper exited {code}: {stderr}", failures)
+    expect(
+        extract_injected_mcp_config(real_argv) is None,
+        f"computer use missing auth: expected no MCP injection, got {real_argv}",
         failures,
     )
 
@@ -2407,6 +2426,7 @@ def main() -> int:
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cua_driver_when_available(failures)
     test_computer_use_wrapper_is_a_pure_proxy(failures)
+    test_computer_use_skips_without_daemon_credential(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_driver_does_not_require_external_runtime_auth(failures)
     test_computer_use_uses_trusted_cua_driver_override(failures)

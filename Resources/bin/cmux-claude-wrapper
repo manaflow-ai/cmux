@@ -926,9 +926,11 @@ cmux_computer_use_config() {
                 ;;
         esac
     done
-    local driver state_dir default_session cua_socket runtime_scope runtime_uid
+    local driver state_dir default_session cua_socket runtime_scope runtime_uid auth_token
     driver="$(cmux_computer_use_resolve_driver)" || return 1
-    runtime_scope="${CMUX_TAG:-default}"
+    auth_token="${CUA_DRIVER_SOCKET_AUTH_TOKEN:-}"
+    [[ -n "$auth_token" ]] || return 1
+    runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
     runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
     runtime_uid="$(/usr/bin/id -u)"
@@ -939,9 +941,10 @@ cmux_computer_use_config() {
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     # The helper owns external onboarding; the proxy keeps this false so its
     # first driving call waits until that helper reports both grants.
-    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CUA_DRIVER_RS_MCP_FORCE_PROXY":"1","CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"0","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CUA_DRIVER_RS_MCP_FORCE_PROXY":"1","CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"0","CUA_DRIVER_SOCKET_AUTH_TOKEN":"%s","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
         "$(cmux_computer_use_json_escape "$driver")" \
         "$(cmux_computer_use_json_escape "$cua_socket")" \
+        "$(cmux_computer_use_json_escape "$auth_token")" \
         "$(cmux_computer_use_json_escape "$default_session")" \
         "$(cmux_computer_use_json_escape "$state_dir")"
 }

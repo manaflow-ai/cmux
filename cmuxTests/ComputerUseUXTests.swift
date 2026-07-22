@@ -272,7 +272,8 @@ struct ComputerUseUXTests {
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
             socketRootDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
             userIdentifier: 501,
-            environment: ["CMUX_TAG": "permission-owner-v2"]
+            environment: ["CMUX_TAG": "permission-owner-v2"],
+            authenticationToken: "test-token"
         )
 
         #expect(paths.daemonSocketURL.path == "/tmp/cmux-cua-501/permission-owner-v2/cua.sock")
@@ -282,6 +283,26 @@ struct ComputerUseUXTests {
         #expect(paths.installedHelperAppURL.path.hasSuffix(
             "/Library/Application Support/cmux/computer-use/helper/permission-owner-v2/cmux Computer Use.app"
         ))
+    }
+
+    @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
+        let production = ComputerUseRuntimePaths(
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app",
+            authenticationToken: "production-token"
+        )
+        let staging = ComputerUseRuntimePaths(
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.staging",
+            authenticationToken: "staging-token"
+        )
+
+        #expect(production.scope == "com.cmuxterm.app")
+        #expect(staging.scope == "com.cmuxterm.app.staging")
+        #expect(production.daemonSocketURL != staging.daemonSocketURL)
+        #expect(production.installedHelperAppURL != staging.installedHelperAppURL)
     }
 
     @Test func taggedRuntimeSocketFitsDarwinUnixPathLimit() {
@@ -298,7 +319,9 @@ struct ComputerUseUXTests {
     @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
-            environment: [:]
+            environment: [:],
+            bundleIdentifier: nil,
+            authenticationToken: "test-auth-token"
         )
         let configuration = ComputerUseHelperLaunchConfiguration(paths: paths)
 
@@ -314,6 +337,7 @@ struct ComputerUseUXTests {
         #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
         #expect(configuration.environment["CUA_DRIVER_RS_TELEMETRY_ENABLED"] == "false")
         #expect(configuration.environment["CUA_DRIVER_RS_UPDATE_CHECK"] == "false")
+        #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTH_TOKEN"] == "test-auth-token")
     }
 
     @Test func menuBarRequiresAComputerUsePairedSession() {

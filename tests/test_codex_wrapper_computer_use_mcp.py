@@ -65,6 +65,7 @@ def expect_scrubbed_mcp_env(
     daemon_app = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DAEMON_APP=")
     force_proxy = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_FORCE_PROXY=")
     external_flow = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=")
+    auth_token = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=")
     default_session = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=")
     permissions_gate = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_PERMISSIONS_GATE=")
     telemetry = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=")
@@ -80,6 +81,7 @@ def expect_scrubbed_mcp_env(
     expect(permissions_gate is None, f"{context}: proxy must not own the daemon permission gate: {args}", failures)
     expect(force_proxy is not None, f"{context}: missing forced proxy config in {args}", failures)
     expect(external_flow is not None, f"{context}: missing proxy permission-wait config in {args}", failures)
+    expect(auth_token is not None, f"{context}: missing daemon authentication config in {args}", failures)
     expect(default_session is not None, f"{context}: missing CUA_DRIVER_DEFAULT_SESSION config in {args}", failures)
     expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
     expect(update_check is not None, f"{context}: missing update-check opt-out config in {args}", failures)
@@ -103,6 +105,8 @@ def expect_scrubbed_mcp_env(
             f"{context}: proxy must wait for the helper's grants, got {external_flow}",
             failures,
         )
+    if auth_token is not None:
+        expect(json.loads(auth_token) == "cmux-test-auth-token", f"{context}: unexpected daemon auth token", failures)
     if telemetry is not None:
         expect(json.loads(telemetry) == "false", f"{context}: expected telemetry disabled, got {telemetry}", failures)
     if update_check is not None:
@@ -138,6 +142,7 @@ def run_wrapper(
     hooks_disabled: bool = False,
     dead_socket: bool = False,
     stale_helper_bundle_id: str | None = None,
+    auth_token: bool = True,
 ) -> tuple[int, list[str], str, Path]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -245,6 +250,9 @@ exit 1
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
             env.pop("CMUX_COMPUTER_USE_MCP_DISABLED", None)
             env.pop("CMUX_CUA_DRIVER", None)
+            env.pop("CUA_DRIVER_SOCKET_AUTH_TOKEN", None)
+            if auth_token:
+                env["CUA_DRIVER_SOCKET_AUTH_TOKEN"] = "cmux-test-auth-token"
             if override_driver:
                 env["CMUX_CUA_DRIVER"] = "/bin/echo"
             if untrusted_override:
@@ -440,6 +448,12 @@ def test_codex_skips_when_disabled(failures: list[str]) -> None:
     expect(command_config(args) is None, f"expected no injection with kill switch, got {args}", failures)
 
 
+def test_codex_skips_when_daemon_credential_is_missing(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["hello"], auth_token=False)
+    expect(code == 0, f"missing-auth wrapper exited {code}: {stderr}", failures)
+    expect(command_config(args) is None, f"expected no injection without daemon credential, got {args}", failures)
+
+
 def test_codex_hooks_disabled_is_fully_inert(failures: list[str]) -> None:
     # CMUX_CODEX_HOOKS_DISABLED is the documented master opt-out: the wrapper
     # does nothing but exec the real codex — no hook args, no computer-use
@@ -535,6 +549,7 @@ def main() -> int:
     test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)
     test_codex_skips_when_disabled(failures)
+    test_codex_skips_when_daemon_credential_is_missing(failures)
     test_codex_fork_gets_hooks_and_cua_driver(failures)
     test_codex_hooks_disabled_is_fully_inert(failures)
     test_codex_fails_closed_for_computer_use_when_socket_dead(failures)

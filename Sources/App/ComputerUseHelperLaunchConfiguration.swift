@@ -23,6 +23,7 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
             "CUA_DRIVER_CURSOR_BLOOM": "#2d8cff",
             "CUA_DRIVER_CURSOR_LABEL": "cmux",
             "CUA_DRIVER_STATE_DIR": paths.stateDirectoryURL.path,
+            ComputerUseRuntimePaths.authenticationTokenEnvironmentKey: paths.authenticationToken,
         ]
     }
 }

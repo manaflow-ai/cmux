@@ -174,6 +174,16 @@ struct cmuxApp: App {
             computerUsePaths.stateDirectoryURL.path,
             1
         )
+        setenv(
+            ComputerUseRuntimePaths.runtimeScopeEnvironmentKey,
+            computerUsePaths.scope,
+            1
+        )
+        setenv(
+            ComputerUseRuntimePaths.authenticationTokenEnvironmentKey,
+            computerUsePaths.authenticationToken,
+            1
+        )
         let computerUseRuntimeService = ComputerUseRuntimeService(paths: computerUsePaths)
         self.computerUseRuntimeService = computerUseRuntimeService
         _ = KeyboardShortcutSettings.settingsFileStore

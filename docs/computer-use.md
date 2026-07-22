@@ -7,30 +7,17 @@ with existing cmux-launched agents.
 Claude Code and Codex CLI sessions launched by cmux receive the server
 automatically at session start (injection is implemented in
 `cmux-claude-wrapper` and `cmux-codex-wrapper`); no user MCP configuration is
-required for them. Other MCP-capable agents can use the bundled driver by
-pointing their own MCP configuration at the same command:
+required for them. Other agents are not currently supported: the socket proxy
+requires the per-launch credential that cmux injects into its own terminal
+process tree. Do not configure the bundled driver with `--embedded`; that would
+grant Accessibility and Screen Recording to the main terminal host and bypass
+the separately permissioned **cmux Computer Use** helper.
 
-```json
-{
-  "mcpServers": {
-    "cmux-computer-use": {
-      "command": "<cmux>/Contents/Resources/bin/cmux-cua-driver",
-      "args": ["--embedded"],
-      "env": {
-        "CUA_DRIVER_EMBEDDED": "1",
-        "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
-        "CUA_DRIVER_RS_UPDATE_CHECK": "false"
-      }
-    }
-  }
-}
-```
-
-Embedded mode is important: `cua-driver` inherits cmux's TCC identity instead
-of prompting as a separate helper. The user grants Accessibility and Screen
-Recording to cmux once, then any cmux-launched agent can perceive the desktop
-through screenshots and accessibility trees and act with click, type, scroll,
-hotkey, drag, app, window, cursor, and diagnostic tools.
+The user grants Accessibility and Screen Recording to the helper once. A
+cmux-launched agent then connects through the authenticated, variant-scoped
+socket and can perceive the desktop through screenshots and accessibility
+trees and act with click, type, scroll, hotkey, drag, app, window, cursor, and
+diagnostic tools.
 cmux's injection disables the upstream driver's telemetry and self-update
 checks; cmux manages application updates through Sparkle.
 

@@ -80,6 +80,7 @@ final class ComputerUseRuntimeService {
         }
 
         await stopDaemon()
+        recoverStaleDaemonIfNeeded(helperURL: destination)
         let directory = paths.installedHelperDirectoryURL
         let task = Task.detached(priority: .userInitiated) {
             Self.installHelper(
@@ -144,6 +145,7 @@ final class ComputerUseRuntimeService {
     private func startIfNeeded() async {
         guard let helperURL = await ensureStandaloneHelperInstalled() else { return }
         guard !(await Self.isDaemonListening(paths: paths, transport: transport)) else { return }
+        recoverStaleDaemonIfNeeded(helperURL: helperURL)
         await launchHelper(at: helperURL)
         _ = await Self.waitForDaemonStart(paths: paths, transport: transport)
     }
@@ -152,7 +154,7 @@ final class ComputerUseRuntimeService {
         guard await Self.isDaemonListening(paths: paths, transport: transport) else { return }
         _ = await Self.sendDaemonRequest(
             ["method": "shutdown"],
-            socketURL: paths.daemonSocketURL,
+            paths: paths,
             transport: transport,
             timeout: 2
         )
@@ -169,6 +171,14 @@ final class ComputerUseRuntimeService {
             at: paths.stateDirectoryURL,
             withIntermediateDirectories: true
         )
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: paths.runtimeDirectoryURL.path
+        )
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: paths.stateDirectoryURL.path
+        )
 
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
@@ -183,6 +193,21 @@ final class ComputerUseRuntimeService {
                 continuation.resume()
             }
         }
+    }
+
+    /// Removes a helper left by an older app process whose per-launch socket
+    /// credential no longer matches this process.
+    private func recoverStaleDaemonIfNeeded(helperURL: URL) {
+        guard FileManager.default.fileExists(atPath: paths.daemonSocketURL.path) else { return }
+        let expectedURL = helperURL.standardizedFileURL
+        if let bundleIdentifier = Bundle(url: helperURL)?.bundleIdentifier {
+            for application in NSRunningApplication.runningApplications(
+                withBundleIdentifier: bundleIdentifier
+            ) where application.bundleURL?.standardizedFileURL == expectedURL {
+                _ = application.forceTerminate()
+            }
+        }
+        try? FileManager.default.removeItem(at: paths.daemonSocketURL)
     }
 
     private func openSystemSettings(_ deepLink: String) async -> Bool {
@@ -252,7 +277,7 @@ final class ComputerUseRuntimeService {
     ) async -> Bool {
         await sendDaemonRequest(
             ["method": "list"],
-            socketURL: paths.daemonSocketURL,
+            paths: paths,
             transport: transport,
             timeout: 1
         )?["ok"] as? Bool == true
@@ -269,7 +294,7 @@ final class ComputerUseRuntimeService {
                     "name": "check_permissions",
                     "args": ["prompt": false],
                 ],
-                socketURL: paths.daemonSocketURL,
+                paths: paths,
                 transport: transport,
                 timeout: 2
             ),
@@ -287,18 +312,22 @@ final class ComputerUseRuntimeService {
 
     nonisolated private static func sendDaemonRequest(
         _ request: [String: Any],
-        socketURL: URL,
+        paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
         timeout: TimeInterval
     ) async -> [String: Any]? {
+        let authenticatedRequest: [String: Any] = [
+            "auth_token": paths.authenticationToken,
+            "request": request,
+        ]
         guard
-            JSONSerialization.isValidJSONObject(request),
-            let data = try? JSONSerialization.data(withJSONObject: request),
+            JSONSerialization.isValidJSONObject(authenticatedRequest),
+            let data = try? JSONSerialization.data(withJSONObject: authenticatedRequest),
             let line = String(data: data, encoding: .utf8)
         else {
             return nil
         }
-        let socketPath = socketURL.path
+        let socketPath = paths.daemonSocketURL.path
         return await Task.detached(priority: .userInitiated) {
             guard
                 let response = transport.probeCommand(line, at: socketPath, timeout: timeout),
