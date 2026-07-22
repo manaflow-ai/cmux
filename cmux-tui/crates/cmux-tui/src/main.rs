@@ -679,6 +679,10 @@ impl MachineController for StaticMachineController {
             }
             MachineRequest::CreateManagedIsolatedWorkspace(_)
             | MachineRequest::CreateManagedHostWorkspace(_)
+            | MachineRequest::RenameManagedMachine { .. }
+            | MachineRequest::DeleteManagedMachine { .. }
+            | MachineRequest::RestoreManagedMachine { .. }
+            | MachineRequest::PurgeManagedMachine { .. }
             | MachineRequest::RenameManagedWorkspace { .. }
             | MachineRequest::DeleteManagedWorkspace { .. }
             | MachineRequest::RestoreManagedWorkspace { .. }

@@ -29,12 +29,14 @@ use std::time::Duration;
 use cmux_tui_machine_protocol::{
     ActionValue, BearerToken, ClientDescriptor, CloseMachineParams, CloseMachineResult,
     CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
-    EventEnvelope, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult, OpaqueId,
-    OpenMachineParams, OpenMachineResult, Protocol, ProviderError, ProviderEvent, ProviderRequest,
-    ProviderResponse, RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams,
-    SelectScopeResult, SnapshotParams, SnapshotResult, TransportDescriptor, TransportHandshake,
-    TransportHandshakeResult, TransportRole, Version, WorkspaceCreateMode, WorkspaceMutationParams,
-    WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
+    EventEnvelope, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
+    MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult, MachineMutationParams,
+    MachineMutationResult, OpaqueId, OpenMachineParams, OpenMachineResult, Protocol, ProviderError,
+    ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
+    RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams,
+    SnapshotResult, TransportDescriptor, TransportHandshake, TransportHandshakeResult,
+    TransportRole, Version, WorkspaceCreateMode, WorkspaceMutationParams, WorkspaceMutationResult,
+    WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
 use serde::Serialize;
@@ -357,6 +359,45 @@ impl ProviderClient {
         mutation_id: OpaqueId,
     ) -> ProviderResult<CreateMachineResult> {
         self.request(ProviderRequest::CreateMachine(CreateMachineParams { scope_id, mutation_id }))
+    }
+
+    pub(crate) fn machine_lifecycle_snapshot(
+        &self,
+        scope_id: OpaqueId,
+        known_revision: Option<u64>,
+    ) -> ProviderResult<MachineLifecycleSnapshotResult> {
+        self.request(ProviderRequest::MachineLifecycleSnapshot(MachineLifecycleSnapshotParams {
+            scope_id,
+            known_revision,
+        }))
+    }
+
+    pub(crate) fn rename_machine(
+        &self,
+        params: RenameMachineParams,
+    ) -> ProviderResult<MachineMutationResult> {
+        self.request(ProviderRequest::RenameMachine(params))
+    }
+
+    pub(crate) fn delete_machine(
+        &self,
+        params: MachineMutationParams,
+    ) -> ProviderResult<MachineMutationResult> {
+        self.request(ProviderRequest::DeleteMachine(params))
+    }
+
+    pub(crate) fn restore_machine(
+        &self,
+        params: MachineMutationParams,
+    ) -> ProviderResult<MachineMutationResult> {
+        self.request(ProviderRequest::RestoreMachine(params))
+    }
+
+    pub(crate) fn purge_machine(
+        &self,
+        params: MachineMutationParams,
+    ) -> ProviderResult<MachineMutationResult> {
+        self.request(ProviderRequest::PurgeMachine(params))
     }
 
     pub(crate) fn open_machine(&self, machine_id: OpaqueId) -> ProviderResult<OpenMachineResult> {

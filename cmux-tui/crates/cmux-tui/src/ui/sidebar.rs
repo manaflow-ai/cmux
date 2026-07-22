@@ -57,6 +57,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let active = machine_ui.snapshot.active;
     let capabilities = machine_ui.snapshot.capabilities;
     let selection = machine_ui.selection;
+    let managed_machines = machine_ui.managed_machines().to_vec();
     let provider = machine_ui.provider.clone();
     let rail_selection = machine_ui.rail_selection;
     let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
@@ -175,6 +176,10 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         let focused = app.machine_sidebar_focused()
             && rail_selection == MachineRailSelection::Machine
             && selection == index;
+        let managed = managed_machines.iter().find(|managed| managed.key == machine.key);
+        let recoverable = managed.is_some_and(|managed| {
+            managed.status == crate::machine::ManagedMachineStatus::Recoverable
+        });
         let status = match machine.status {
             MachineStatus::Running => messages.running,
             MachineStatus::Connecting => messages.connecting,
@@ -182,14 +187,26 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
             MachineStatus::Stopped => messages.stopped,
             MachineStatus::Unavailable => messages.unavailable,
         };
-        let subtitle = if machine.subtitle.is_empty() { status } else { &machine.subtitle };
-        let indicator = match machine.status {
-            MachineStatus::Running => Some(app.config.theme.notification_info),
-            MachineStatus::Connecting | MachineStatus::Sleeping => {
-                Some(app.config.theme.notification_warning)
+        let recoverable_subtitle = recoverable.then(|| {
+            managed.and_then(|managed| managed.recoverable_until.as_ref()).map_or_else(
+                || messages.recoverable_machine.to_string(),
+                |until| format!("{} · {until}", messages.recoverable_machine),
+            )
+        });
+        let subtitle = recoverable_subtitle.as_deref().unwrap_or_else(|| {
+            if machine.subtitle.is_empty() { status } else { &machine.subtitle }
+        });
+        let indicator = if recoverable {
+            Some(app.config.theme.notification_warning)
+        } else {
+            match machine.status {
+                MachineStatus::Running => Some(app.config.theme.notification_info),
+                MachineStatus::Connecting | MachineStatus::Sleeping => {
+                    Some(app.config.theme.notification_warning)
+                }
+                MachineStatus::Stopped => None,
+                MachineStatus::Unavailable => Some(app.config.theme.notification_error),
             }
-            MachineStatus::Stopped => None,
-            MachineStatus::Unavailable => Some(app.config.theme.notification_error),
         };
         rail::entry(
             frame,
@@ -201,7 +218,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
                 highlighted: is_active || focused,
                 active: is_active,
                 indicator,
-                dimmed: false,
+                dimmed: recoverable,
             },
             palette,
         );

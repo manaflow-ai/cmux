@@ -228,6 +228,31 @@ pub struct ManagedWorkspaceDescriptor {
     pub capabilities: ManagedWorkspaceCapabilities,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ManagedMachineCapabilities {
+    pub rename: bool,
+    pub delete: bool,
+    pub restore: bool,
+    pub purge: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManagedMachineStatus {
+    Active,
+    Recoverable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedMachineDescriptor {
+    pub key: MachineKey,
+    pub id: String,
+    pub name: String,
+    pub status: ManagedMachineStatus,
+    pub version: u64,
+    pub recoverable_until: Option<String>,
+    pub capabilities: ManagedMachineCapabilities,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineSnapshot {
     pub machines: Vec<MachineDescriptor>,
@@ -255,6 +280,23 @@ pub enum MachineRequest {
     InvokeProviderAction {
         action_id: String,
         values: BTreeMap<String, ProviderActionValue>,
+    },
+    RenameManagedMachine {
+        machine: MachineKey,
+        expected_version: u64,
+        name: String,
+    },
+    DeleteManagedMachine {
+        machine: MachineKey,
+        expected_version: u64,
+    },
+    RestoreManagedMachine {
+        machine: MachineKey,
+        expected_version: u64,
+    },
+    PurgeManagedMachine {
+        machine: MachineKey,
+        expected_version: u64,
     },
     CreateManagedIsolatedWorkspace(MachineKey),
     CreateManagedHostWorkspace(MachineKey),
@@ -302,11 +344,18 @@ pub(crate) struct MachineActionResult {
     pub replacement: Option<MachineSession>,
     pub restart_updates: bool,
     pub session_mutation: Option<ManagedWorkspaceSessionMutation>,
+    pub session_label: Option<String>,
 }
 
 impl MachineActionResult {
     pub(crate) fn ui(ui: MachineUiState) -> Self {
-        Self { ui, replacement: None, restart_updates: false, session_mutation: None }
+        Self {
+            ui,
+            replacement: None,
+            restart_updates: false,
+            session_mutation: None,
+            session_label: None,
+        }
     }
 
     pub(crate) fn replace(ui: MachineUiState, session: Session, label: String) -> Self {
@@ -315,6 +364,7 @@ impl MachineActionResult {
             replacement: Some(MachineSession { session, label }),
             restart_updates: false,
             session_mutation: None,
+            session_label: None,
         }
     }
 
@@ -323,6 +373,11 @@ impl MachineActionResult {
         mutation: ManagedWorkspaceSessionMutation,
     ) -> Self {
         self.session_mutation = Some(mutation);
+        self
+    }
+
+    pub(crate) fn with_session_label(mut self, label: String) -> Self {
+        self.session_label = Some(label);
         self
     }
 }
@@ -367,6 +422,7 @@ pub struct MachineUiState {
     pub provider: Option<ProviderPresentation>,
     pub rail_selection: MachineRailSelection,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
+    managed_machines: Vec<ManagedMachineDescriptor>,
     managed_workspaces: HashMap<MachineKey, Vec<ManagedWorkspaceDescriptor>>,
 }
 
@@ -430,6 +486,7 @@ impl MachineUiState {
             provider: None,
             rail_selection: MachineRailSelection::Machine,
             workspace_creation: HashMap::new(),
+            managed_machines: Vec::new(),
             managed_workspaces: HashMap::new(),
         };
         state.ensure_rail_selection();
@@ -474,6 +531,18 @@ impl MachineUiState {
             .iter()
             .any(|machine| machine.key == active)
             .then(|| self.workspace_creation.get(&active).cloned().unwrap_or_default())
+    }
+
+    pub fn set_managed_machines(&mut self, machines: Vec<ManagedMachineDescriptor>) {
+        self.managed_machines = machines;
+    }
+
+    pub fn managed_machines(&self) -> &[ManagedMachineDescriptor] {
+        &self.managed_machines
+    }
+
+    pub fn managed_machine(&self, key: MachineKey) -> Option<&ManagedMachineDescriptor> {
+        self.managed_machines.iter().find(|machine| machine.key == key)
     }
 
     pub fn set_managed_workspaces(

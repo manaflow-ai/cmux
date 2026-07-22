@@ -45,9 +45,10 @@ use crate::keys;
 use crate::localization;
 use crate::machine::{
     MachineController, MachineKey, MachineRailSelection, MachineRailTarget, MachineRequest,
-    MachineSession, MachineUiState, MachineUpdateStream, ManagedWorkspaceDescriptor,
-    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionInputError,
-    WorkspaceCreationMode, WorkspaceCreationPolicy,
+    MachineSession, MachineUiState, MachineUpdateStream, ManagedMachineDescriptor,
+    ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
+    ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
+    WorkspaceCreationPolicy,
 };
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
@@ -109,10 +110,10 @@ pub enum AppEvent {
         relaunch: bool,
     },
     #[cfg(test)]
-    MachineUiUpdated(MachineUiState),
+    MachineUiUpdated(Box<MachineUiState>),
     MachineUiUpdatedForGeneration {
         generation: u64,
-        update: MachineUiState,
+        update: Box<MachineUiState>,
     },
 }
 
@@ -1884,6 +1885,10 @@ enum RenderAction {
 
 enum MachineRailCommand {
     Switch(MachineKey),
+    Rename(MachineKey),
+    Delete(MachineKey),
+    Restore(MachineKey),
+    Purge(MachineKey),
     OpenScopes,
     OpenActions,
     Create,
@@ -2092,6 +2097,10 @@ pub enum OmnibarHit {
 /// A context-menu entry: what activating it does (the label is derived).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
+    RenameManagedMachine(MachineKey),
+    DeleteManagedMachine(MachineKey),
+    RestoreManagedMachine(MachineKey),
+    PurgeManagedMachine(MachineKey),
     RenameWorkspace(WorkspaceId),
     RenameManagedWorkspace(WorkspaceId),
     CopyWorkspaceId(WorkspaceId),
@@ -2127,6 +2136,10 @@ pub enum MenuAction {
 impl MenuAction {
     pub fn label(&self) -> &'static str {
         match self {
+            MenuAction::RenameManagedMachine(_) => localization::catalog().sidebar.rename_machine,
+            MenuAction::DeleteManagedMachine(_) => localization::catalog().sidebar.delete_machine,
+            MenuAction::RestoreManagedMachine(_) => localization::catalog().sidebar.restore_machine,
+            MenuAction::PurgeManagedMachine(_) => localization::catalog().sidebar.purge_machine,
             MenuAction::RenameWorkspace(_) => "Rename workspace",
             MenuAction::RenameManagedWorkspace(_) => {
                 localization::catalog().sidebar.rename_workspace
@@ -2359,6 +2372,10 @@ impl ContextMenu {
                 MenuItem::Action(
                     MenuAction::SelectProviderScope(_)
                     | MenuAction::InvokeProviderAction(_)
+                    | MenuAction::RenameManagedMachine(_)
+                    | MenuAction::DeleteManagedMachine(_)
+                    | MenuAction::RestoreManagedMachine(_)
+                    | MenuAction::PurgeManagedMachine(_)
                     | MenuAction::RenameManagedWorkspace(_)
                     | MenuAction::DeleteManagedWorkspace(_)
                     | MenuAction::RestoreManagedWorkspace(_)
@@ -2368,6 +2385,10 @@ impl ContextMenu {
                     action:
                         MenuAction::SelectProviderScope(_)
                         | MenuAction::InvokeProviderAction(_)
+                        | MenuAction::RenameManagedMachine(_)
+                        | MenuAction::DeleteManagedMachine(_)
+                        | MenuAction::RestoreManagedMachine(_)
+                        | MenuAction::PurgeManagedMachine(_)
                         | MenuAction::RenameManagedWorkspace(_)
                         | MenuAction::DeleteManagedWorkspace(_)
                         | MenuAction::RestoreManagedWorkspace(_)
@@ -2545,6 +2566,9 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
 /// What a committed rename prompt applies to.
 #[derive(Debug, Clone, Copy)]
 pub enum PromptTarget {
+    ManagedMachine(MachineKey),
+    ConfirmDeleteManagedMachine(MachineKey),
+    ConfirmPurgeManagedMachine(MachineKey),
     Workspace(WorkspaceId),
     ManagedWorkspace(WorkspaceId),
     ConfirmPurgeManagedWorkspace(usize),
@@ -3105,30 +3129,35 @@ impl MachineUpdatePump {
             .spawn(move || {
                 while !forwarder_stop.load(Ordering::Acquire) {
                     match updates.recv_timeout(Duration::from_millis(250)) {
-                        Ok(mut update) => loop {
-                            match app_events.try_send(AppEvent::MachineUiUpdatedForGeneration {
-                                generation,
-                                update,
-                            }) {
-                                Ok(()) => break,
-                                Err(TrySendError::Full(
-                                    AppEvent::MachineUiUpdatedForGeneration {
-                                        update: returned,
-                                        ..
-                                    },
-                                )) => {
-                                    update = returned;
-                                    if forwarder_stop.load(Ordering::Acquire) {
-                                        return;
+                        Ok(update) => {
+                            let mut update = Box::new(update);
+                            loop {
+                                match app_events.try_send(AppEvent::MachineUiUpdatedForGeneration {
+                                    generation,
+                                    update,
+                                }) {
+                                    Ok(()) => break,
+                                    Err(TrySendError::Full(
+                                        AppEvent::MachineUiUpdatedForGeneration {
+                                            update: returned,
+                                            ..
+                                        },
+                                    )) => {
+                                        update = returned;
+                                        if forwarder_stop.load(Ordering::Acquire) {
+                                            return;
+                                        }
+                                        std::thread::park_timeout(Duration::from_millis(1));
                                     }
-                                    std::thread::park_timeout(Duration::from_millis(1));
+                                    Err(TrySendError::Full(_)) => {
+                                        unreachable!(
+                                            "machine update sender returned a different event"
+                                        )
+                                    }
+                                    Err(TrySendError::Disconnected(_)) => return,
                                 }
-                                Err(TrySendError::Full(_)) => {
-                                    unreachable!("machine update sender returned a different event")
-                                }
-                                Err(TrySendError::Disconnected(_)) => return,
                             }
-                        },
+                        }
                         Err(RecvTimeoutError::Timeout) => {}
                         Err(RecvTimeoutError::Disconnected) => break,
                     }
@@ -3678,6 +3707,7 @@ impl App {
 
             let restart_updates = result.restart_updates;
             let session_mutation = result.session_mutation;
+            let session_label = result.session_label;
             if let Some(replacement) = result.replacement
                 && let Err(error) = self.replace_machine_session(replacement, &result.ui)
             {
@@ -3691,6 +3721,9 @@ impl App {
             }
             if let Some(mutation) = session_mutation {
                 self.apply_managed_workspace_session_mutation(mutation);
+            }
+            if let Some(label) = session_label {
+                self.session_label = label;
             }
             action = action.merge(self.apply_machine_ui_update(result.ui));
             if restart_updates && let Err(error) = self.restart_machine_updates() {
@@ -3735,7 +3768,9 @@ impl App {
             .and_then(|machine| machine.provider.as_ref())
             != update.provider.as_ref()
             || self.machine_ui.as_ref().map(MachineUiState::managed_workspaces).unwrap_or_default()
-                != update.managed_workspaces();
+                != update.managed_workspaces()
+            || self.machine_ui.as_ref().map(MachineUiState::managed_machines).unwrap_or_default()
+                != update.managed_machines();
         if provider_changed {
             if self.menu.as_ref().is_some_and(ContextMenu::targets_provider_state) {
                 self.menu = None;
@@ -3747,6 +3782,9 @@ impl App {
                         | PromptTarget::ConfirmProviderAction(_)
                         | PromptTarget::ManagedWorkspace(_)
                         | PromptTarget::ConfirmPurgeManagedWorkspace(_)
+                        | PromptTarget::ManagedMachine(_)
+                        | PromptTarget::ConfirmDeleteManagedMachine(_)
+                        | PromptTarget::ConfirmPurgeManagedMachine(_)
                 )
             }) {
                 self.prompt = None;
@@ -4811,12 +4849,12 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             #[cfg(test)]
-            AppEvent::MachineUiUpdated(update) => Ok(self.apply_machine_ui_update(update)),
+            AppEvent::MachineUiUpdated(update) => Ok(self.apply_machine_ui_update(*update)),
             AppEvent::MachineUiUpdatedForGeneration { generation, update } => {
                 if generation != self.machine_update_generation {
                     return Ok(RenderAction::None);
                 }
-                Ok(self.apply_machine_ui_update(update))
+                Ok(self.apply_machine_ui_update(*update))
             }
             AppEvent::Mux(MuxEvent::Empty) => {
                 if self.request_current_machine_session() {
@@ -5647,6 +5685,107 @@ impl App {
         }
     }
 
+    fn managed_machine(&self, key: MachineKey) -> Option<ManagedMachineDescriptor> {
+        self.machine_ui.as_ref()?.managed_machine(key).cloned()
+    }
+
+    fn request_rename_managed_machine(&mut self, key: MachineKey, name: String) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Active && machine.capabilities.rename
+        }) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::RenameManagedMachine {
+                machine: key,
+                expected_version: machine.version,
+                name,
+            });
+        }
+    }
+
+    fn request_delete_managed_machine(&mut self, key: MachineKey) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Active && machine.capabilities.delete
+        }) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::DeleteManagedMachine {
+                machine: key,
+                expected_version: machine.version,
+            });
+        }
+    }
+
+    fn request_restore_managed_machine(&mut self, key: MachineKey) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.restore
+        }) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::RestoreManagedMachine {
+                machine: key,
+                expected_version: machine.version,
+            });
+        }
+    }
+
+    fn request_purge_managed_machine(&mut self, key: MachineKey) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.purge
+        }) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::PurgeManagedMachine {
+                machine: key,
+                expected_version: machine.version,
+            });
+        }
+    }
+
+    fn open_rename_managed_machine_prompt(&mut self, key: MachineKey) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Active && machine.capabilities.rename
+        }) else {
+            return;
+        };
+        self.cancel_pty_mouse_drag();
+        self.prompt = Some(Prompt::new(
+            localization::catalog().sidebar.rename_machine,
+            machine.name,
+            PromptTarget::ManagedMachine(key),
+        ));
+    }
+
+    fn open_delete_managed_machine_prompt(&mut self, key: MachineKey) {
+        if self.managed_machine(key).is_some_and(|machine| {
+            machine.status == ManagedMachineStatus::Active && machine.capabilities.delete
+        }) {
+            self.cancel_pty_mouse_drag();
+            self.prompt = Some(Prompt::new(
+                localization::catalog().sidebar.confirm_delete_machine,
+                String::new(),
+                PromptTarget::ConfirmDeleteManagedMachine(key),
+            ));
+        }
+    }
+
+    fn open_purge_managed_machine_prompt(&mut self, key: MachineKey) {
+        if self.managed_machine(key).is_some_and(|machine| {
+            machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.purge
+        }) {
+            self.cancel_pty_mouse_drag();
+            self.prompt = Some(Prompt::new(
+                localization::catalog().sidebar.confirm_purge_machine,
+                String::new(),
+                PromptTarget::ConfirmPurgeManagedMachine(key),
+            ));
+        }
+    }
+
     fn managed_workspace_for_view(
         &self,
         workspace_id: WorkspaceId,
@@ -5913,18 +6052,55 @@ impl App {
                     machine.select_rail_target(target);
                 }
                 None
+            } else if let Some(MachineRailTarget::Machine(machine_key)) =
+                targets.get(current).copied()
+            {
+                let managed = machine.managed_machine(machine_key);
+                match key.code {
+                    KeyCode::Char('r')
+                        if managed.is_some_and(|managed| {
+                            managed.status == ManagedMachineStatus::Active
+                                && managed.capabilities.rename
+                        }) =>
+                    {
+                        Some(MachineRailCommand::Rename(machine_key))
+                    }
+                    KeyCode::Char('d') | KeyCode::Delete
+                        if managed.is_some_and(|managed| {
+                            managed.status == ManagedMachineStatus::Active
+                                && managed.capabilities.delete
+                        }) =>
+                    {
+                        Some(MachineRailCommand::Delete(machine_key))
+                    }
+                    KeyCode::Char('p') | KeyCode::Delete
+                        if managed.is_some_and(|managed| {
+                            managed.status == ManagedMachineStatus::Recoverable
+                                && managed.capabilities.purge
+                        }) =>
+                    {
+                        Some(MachineRailCommand::Purge(machine_key))
+                    }
+                    KeyCode::Enter
+                        if managed.is_some_and(|managed| {
+                            managed.status == ManagedMachineStatus::Recoverable
+                                && managed.capabilities.restore
+                        }) =>
+                    {
+                        Some(MachineRailCommand::Restore(machine_key))
+                    }
+                    KeyCode::Enter if Some(machine_key) != machine.snapshot.active => {
+                        Some(MachineRailCommand::Switch(machine_key))
+                    }
+                    _ => None,
+                }
             } else if key.code == KeyCode::Enter {
                 match targets.get(current).copied() {
                     Some(MachineRailTarget::Scope) => Some(MachineRailCommand::OpenScopes),
                     Some(MachineRailTarget::Actions) => Some(MachineRailCommand::OpenActions),
-                    Some(MachineRailTarget::Machine(key))
-                        if Some(key) != machine.snapshot.active =>
-                    {
-                        Some(MachineRailCommand::Switch(key))
-                    }
                     Some(MachineRailTarget::NewVm) => Some(MachineRailCommand::Create),
                     Some(MachineRailTarget::ConnectMachine) => Some(MachineRailCommand::Connect),
-                    _ => None,
+                    Some(MachineRailTarget::Machine(_)) | None => None,
                 }
             } else {
                 None
@@ -5935,6 +6111,18 @@ impl App {
                 if let Some(ui) = self.machine_ui.as_mut() {
                     ui.request = Some(MachineRequest::Switch(machine));
                 }
+            }
+            Some(MachineRailCommand::Rename(machine)) => {
+                self.open_rename_managed_machine_prompt(machine);
+            }
+            Some(MachineRailCommand::Delete(machine)) => {
+                self.open_delete_managed_machine_prompt(machine);
+            }
+            Some(MachineRailCommand::Restore(machine)) => {
+                self.request_restore_managed_machine(machine);
+            }
+            Some(MachineRailCommand::Purge(machine)) => {
+                self.open_purge_managed_machine_prompt(machine);
             }
             Some(MachineRailCommand::OpenScopes) => self.open_provider_scope_menu(1, 2),
             Some(MachineRailCommand::OpenActions) => self.open_provider_actions_menu(1, 3),
@@ -6208,6 +6396,34 @@ impl App {
             }
             return;
         }
+        if let PromptTarget::ManagedMachine(key) = prompt.target {
+            if !input.is_empty() {
+                self.request_rename_managed_machine(key, input);
+            }
+            return;
+        }
+        if let PromptTarget::ConfirmDeleteManagedMachine(key) = prompt.target {
+            if input.trim() == "CONFIRM" {
+                self.request_delete_managed_machine(key);
+            } else {
+                self.status_message =
+                    Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
+                self.prompt = Some(prompt);
+                self.shake_frames = 6;
+            }
+            return;
+        }
+        if let PromptTarget::ConfirmPurgeManagedMachine(key) = prompt.target {
+            if input.trim() == "CONFIRM" {
+                self.request_purge_managed_machine(key);
+            } else {
+                self.status_message =
+                    Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
+                self.prompt = Some(prompt);
+                self.shake_frames = 6;
+            }
+            return;
+        }
         if let PromptTarget::ProviderAction(index) = prompt.target {
             let result = self
                 .machine_ui
@@ -6278,6 +6494,9 @@ impl App {
             PromptTarget::Screen(id) => self.session.rename_screen(id, input),
             PromptTarget::Surface(id) => self.session.rename_surface(id, input),
             PromptTarget::ConnectMachine
+            | PromptTarget::ManagedMachine(_)
+            | PromptTarget::ConfirmDeleteManagedMachine(_)
+            | PromptTarget::ConfirmPurgeManagedMachine(_)
             | PromptTarget::ProviderAction(_)
             | PromptTarget::ConfirmProviderAction(_)
             | PromptTarget::ManagedWorkspace(_)
@@ -6777,6 +6996,18 @@ impl App {
             return Ok(());
         }
         match action {
+            MenuAction::RenameManagedMachine(key) => {
+                self.open_rename_managed_machine_prompt(key);
+            }
+            MenuAction::DeleteManagedMachine(key) => {
+                self.open_delete_managed_machine_prompt(key);
+            }
+            MenuAction::RestoreManagedMachine(key) => {
+                self.request_restore_managed_machine(key);
+            }
+            MenuAction::PurgeManagedMachine(key) => {
+                self.open_purge_managed_machine_prompt(key);
+            }
             MenuAction::RenameWorkspace(id) => {
                 let buffer = self
                     .tree
@@ -8603,11 +8834,17 @@ impl App {
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         if let Some(Drag::MachineArm { machine, at }) = self.drag {
             self.drag = None;
-            if (x, y) == at
-                && let Some(ui) = self.machine_ui.as_mut()
-                && Some(machine) != ui.snapshot.active
-            {
-                ui.request = Some(MachineRequest::Switch(machine));
+            if (x, y) == at {
+                if self.managed_machine(machine).is_some_and(|managed| {
+                    managed.status == ManagedMachineStatus::Recoverable
+                        && managed.capabilities.restore
+                }) {
+                    self.request_restore_managed_machine(machine);
+                } else if let Some(ui) = self.machine_ui.as_mut()
+                    && Some(machine) != ui.snapshot.active
+                {
+                    ui.request = Some(MachineRequest::Switch(machine));
+                }
             }
             return Ok(RenderAction::Draw);
         }
@@ -8890,6 +9127,32 @@ impl App {
         self.omnibar = None;
         self.session.refresh_clients_background();
         match self.hit_at(x, y) {
+            Some(Hit::Machine { key, .. }) => {
+                let Some(machine) = self.managed_machine(key) else { return };
+                let mut actions = Vec::new();
+                match machine.status {
+                    ManagedMachineStatus::Active => {
+                        if machine.capabilities.rename {
+                            actions.push(MenuAction::RenameManagedMachine(key));
+                        }
+                        if machine.capabilities.delete {
+                            actions.push(MenuAction::DeleteManagedMachine(key));
+                        }
+                    }
+                    ManagedMachineStatus::Recoverable => {
+                        if machine.capabilities.restore {
+                            actions.push(MenuAction::RestoreManagedMachine(key));
+                        }
+                        if machine.capabilities.purge {
+                            actions.push(MenuAction::PurgeManagedMachine(key));
+                        }
+                    }
+                }
+                if !actions.is_empty() {
+                    self.menu = Some(ContextMenu::at(x, y, vec![actions]));
+                }
+                return;
+            }
             Some(Hit::Workspace { id, .. }) => {
                 if let Some(workspace) = self.managed_workspace_for_view(id) {
                     let mut actions = Vec::new();
@@ -9243,7 +9506,11 @@ fn action_prepares_pty_release(action: Action) -> bool {
 fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
     !matches!(
         action,
-        MenuAction::RenameWorkspace(_)
+        MenuAction::RenameManagedMachine(_)
+            | MenuAction::DeleteManagedMachine(_)
+            | MenuAction::RestoreManagedMachine(_)
+            | MenuAction::PurgeManagedMachine(_)
+            | MenuAction::RenameWorkspace(_)
             | MenuAction::RenameManagedWorkspace(_)
             | MenuAction::DeleteManagedWorkspace(_)
             | MenuAction::RestoreManagedWorkspace(_)
@@ -9367,6 +9634,7 @@ mod tests {
     use crate::machine::{
         MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
         MachineRailSelection, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
+        ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
         ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceStatus,
         ProviderActionDescriptor, ProviderActionFieldDescriptor, ProviderActionFieldKind,
         ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor, ProviderScopeKind,
@@ -13117,6 +13385,174 @@ mod tests {
         ui
     }
 
+    fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(41),
+                    id: "00000000-0000-4000-8000-000000000041".into(),
+                    name: "managed".into(),
+                    subtitle: "cloud".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(42),
+                    id: "00000000-0000-4000-8000-000000000042".into(),
+                    name: "quiet-forest".into(),
+                    subtitle: String::new(),
+                    status: MachineStatus::Stopped,
+                },
+            ],
+            active: Some(MachineKey(41)),
+            capabilities: MachineCapabilities { create: true, connect: true },
+        });
+        ui.set_managed_machines(vec![
+            ManagedMachineDescriptor {
+                key: MachineKey(41),
+                id: "00000000-0000-4000-8000-000000000041".into(),
+                name: "managed".into(),
+                status: ManagedMachineStatus::Active,
+                version: 7,
+                recoverable_until: None,
+                capabilities: ManagedMachineCapabilities {
+                    rename: true,
+                    delete: true,
+                    restore: false,
+                    purge: false,
+                },
+            },
+            ManagedMachineDescriptor {
+                key: MachineKey(42),
+                id: "00000000-0000-4000-8000-000000000042".into(),
+                name: "quiet-forest".into(),
+                status: ManagedMachineStatus::Recoverable,
+                version: 12,
+                recoverable_until: Some("2030-01-02T03:04:05Z".into()),
+                capabilities: ManagedMachineCapabilities {
+                    rename: false,
+                    delete: false,
+                    restore: true,
+                    purge: true,
+                },
+            },
+        ]);
+        ui
+    }
+
+    #[test]
+    fn provider_owned_machine_keyboard_actions_use_version_and_confirmation() {
+        let mux = Mux::new("managed-machine-keyboard-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 14));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::ManagedMachine(MachineKey(41)))
+        ));
+        app.prompt.as_mut().unwrap().input.clear();
+        app.prompt.as_mut().unwrap().input.insert_str("renamed machine");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RenameManagedMachine {
+                machine: MachineKey(41),
+                expected_version: 7,
+                name: "renamed machine".into(),
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::ConfirmDeleteManagedMachine(MachineKey(41)))
+        ));
+        app.prompt.as_mut().unwrap().input.insert_str("confirm");
+        app.commit_prompt();
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+        assert!(app.prompt.is_some());
+        app.prompt.as_mut().unwrap().input.clear();
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::DeleteManagedMachine {
+                machine: MachineKey(41),
+                expected_version: 7,
+            })
+        );
+    }
+
+    #[test]
+    fn recoverable_machine_is_rendered_and_mouse_restorable_or_purgeable() {
+        let mux = Mux::new("managed-machine-mouse-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 14));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("quiet-forest"), "{text}");
+        assert!(text.contains(localization::catalog().sidebar.recoverable_machine), "{text}");
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: MachineKey(42), .. }).then_some(*rect)
+            })
+            .unwrap();
+
+        app.handle_left_down(hit.x, hit.y, KeyModifiers::NONE).unwrap();
+        app.handle_left_up(hit.x, hit.y).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RestoreManagedMachine {
+                machine: MachineKey(42),
+                expected_version: 12,
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.open_context_menu(hit.x, hit.y);
+        assert_eq!(
+            app.menu.as_ref().map(|menu| menu.levels[0].items.clone()),
+            Some(vec![
+                MenuItem::Action(MenuAction::RestoreManagedMachine(MachineKey(42))),
+                MenuItem::Action(MenuAction::PurgeManagedMachine(MachineKey(42))),
+            ])
+        );
+        app.activate_menu(MenuAction::PurgeManagedMachine(MachineKey(42))).unwrap();
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::PurgeManagedMachine {
+                machine: MachineKey(42),
+                expected_version: 12,
+            })
+        );
+    }
+
+    #[test]
+    fn unmanaged_machine_ignores_provider_lifecycle_shortcuts() {
+        let mux = Mux::new("unmanaged-machine-shortcuts-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 14));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)).unwrap();
+        assert!(app.prompt.is_none());
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
     #[test]
     fn provider_owned_workspace_actions_use_stable_key_and_version() {
         let mux = Mux::new("managed-workspace-actions-test", SurfaceOptions::default());
@@ -13380,7 +13816,7 @@ mod tests {
 
         let mut update = provider_controls_ui();
         update.provider.as_mut().unwrap().actions.remove(0);
-        app.handle(AppEvent::MachineUiUpdated(update)).unwrap();
+        app.handle(AppEvent::MachineUiUpdated(Box::new(update))).unwrap();
         assert!(app.menu.is_none(), "a menu cannot retain provider action indexes across updates");
 
         app.machine_ui = Some(provider_controls_ui());
@@ -13392,7 +13828,7 @@ mod tests {
 
         let mut update = provider_controls_ui();
         update.provider.as_mut().unwrap().actions.swap(0, 1);
-        app.handle(AppEvent::MachineUiUpdated(update)).unwrap();
+        app.handle(AppEvent::MachineUiUpdated(Box::new(update))).unwrap();
         assert!(app.prompt.is_none(), "a prompt cannot submit against a reordered action index");
     }
 
@@ -13985,7 +14421,10 @@ mod tests {
         stale.notice = Some("stale provider update".into());
 
         let action = app
-            .handle(AppEvent::MachineUiUpdatedForGeneration { generation: 1, update: stale })
+            .handle(AppEvent::MachineUiUpdatedForGeneration {
+                generation: 1,
+                update: Box::new(stale),
+            })
             .unwrap();
 
         assert_eq!(action, RenderAction::None);

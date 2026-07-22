@@ -201,6 +201,11 @@ pub enum ProviderRequest {
     OpenMachine(OpenMachineParams),
     SelectScope(SelectScopeParams),
     CreateMachine(CreateMachineParams),
+    MachineLifecycleSnapshot(MachineLifecycleSnapshotParams),
+    RenameMachine(RenameMachineParams),
+    DeleteMachine(MachineMutationParams),
+    RestoreMachine(MachineMutationParams),
+    PurgeMachine(MachineMutationParams),
     CreateWorkspace(CreateWorkspaceParams),
     WorkspaceSnapshot(WorkspaceSnapshotParams),
     RenameWorkspace(RenameWorkspaceParams),
@@ -504,6 +509,88 @@ pub struct CreateMachineParams {
 #[serde(deny_unknown_fields)]
 pub struct CreateMachineResult {
     pub machine_id: OpaqueId,
+    pub revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<ProviderNotice>,
+}
+
+/// Selects the provider-owned machine lifecycle catalog for one scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MachineLifecycleSnapshotParams {
+    pub scope_id: OpaqueId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_revision: Option<u64>,
+}
+
+/// Active and recoverable machines whose durable lifecycle is provider-owned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MachineLifecycleSnapshotResult {
+    pub revision: u64,
+    pub scope_id: OpaqueId,
+    pub machines: Vec<MachineLifecycleDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MachineLifecycleDescriptor {
+    pub id: OpaqueId,
+    pub display_name: String,
+    pub status: MachineLifecycleStatus,
+    pub version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recoverable_until: Option<String>,
+    pub capabilities: MachineLifecycleCapabilities,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MachineLifecycleStatus {
+    Active,
+    Recoverable,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MachineLifecycleCapabilities {
+    #[serde(default)]
+    pub rename: bool,
+    #[serde(default)]
+    pub delete: bool,
+    #[serde(default)]
+    pub restore: bool,
+    #[serde(default)]
+    pub purge: bool,
+}
+
+/// Renames one provider-owned machine under an optimistic version fence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameMachineParams {
+    pub scope_id: OpaqueId,
+    pub machine_id: OpaqueId,
+    pub expected_version: u64,
+    pub display_name: String,
+    pub mutation_id: OpaqueId,
+}
+
+/// Deletes, restores, or permanently purges one provider-owned machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MachineMutationParams {
+    pub scope_id: OpaqueId,
+    pub machine_id: OpaqueId,
+    pub expected_version: u64,
+    pub mutation_id: OpaqueId,
+}
+
+/// Durable result shared by provider-owned machine lifecycle mutations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MachineMutationResult {
+    pub machine_id: OpaqueId,
+    pub version: u64,
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<ProviderNotice>,
@@ -1009,6 +1096,35 @@ mod tests {
                 scope_id: id("team"),
                 mutation_id: id("mutation-machine"),
             }),
+            ProviderRequest::MachineLifecycleSnapshot(MachineLifecycleSnapshotParams {
+                scope_id: id("team"),
+                known_revision: Some(22),
+            }),
+            ProviderRequest::RenameMachine(RenameMachineParams {
+                scope_id: id("team"),
+                machine_id: id("machine"),
+                expected_version: 3,
+                display_name: "new-machine-name".into(),
+                mutation_id: id("mutation-rename-machine"),
+            }),
+            ProviderRequest::DeleteMachine(MachineMutationParams {
+                scope_id: id("team"),
+                machine_id: id("machine"),
+                expected_version: 4,
+                mutation_id: id("mutation-delete-machine"),
+            }),
+            ProviderRequest::RestoreMachine(MachineMutationParams {
+                scope_id: id("team"),
+                machine_id: id("machine"),
+                expected_version: 5,
+                mutation_id: id("mutation-restore-machine"),
+            }),
+            ProviderRequest::PurgeMachine(MachineMutationParams {
+                scope_id: id("team"),
+                machine_id: id("machine"),
+                expected_version: 6,
+                mutation_id: id("mutation-purge-machine"),
+            }),
             ProviderRequest::CreateWorkspace(CreateWorkspaceParams {
                 machine_id: id("machine"),
                 mode: WorkspaceCreateMode::Host,
@@ -1069,6 +1185,32 @@ mod tests {
             notice: Some(ProviderNotice {
                 level: NoticeLevel::Info,
                 message: "VM provisioning".into(),
+            }),
+        });
+        assert_response_round_trip(MachineLifecycleSnapshotResult {
+            revision: 23,
+            scope_id: id("team"),
+            machines: vec![MachineLifecycleDescriptor {
+                id: id("machine"),
+                display_name: "earth".into(),
+                status: MachineLifecycleStatus::Recoverable,
+                version: 7,
+                recoverable_until: Some("2026-07-28T22:00:30Z".into()),
+                capabilities: MachineLifecycleCapabilities {
+                    rename: false,
+                    delete: false,
+                    restore: true,
+                    purge: true,
+                },
+            }],
+        });
+        assert_response_round_trip(MachineMutationResult {
+            machine_id: id("machine"),
+            version: 8,
+            revision: 24,
+            notice: Some(ProviderNotice {
+                level: NoticeLevel::Info,
+                message: "Machine restore requested".into(),
             }),
         });
         assert_response_round_trip(CreateWorkspaceResult {

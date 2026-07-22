@@ -13,6 +13,7 @@ use cmux_tui_machine_protocol as protocol;
 use crate::machine::{
     MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
     MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdateStream,
+    ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
     ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
     ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
     ProviderActionFieldKind, ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor,
@@ -40,6 +41,7 @@ pub(crate) struct ProviderMachineRuntime {
     connector: Arc<dyn MachineProviderConnector>,
     client: Arc<ProviderClient>,
     snapshot: protocol::SnapshotResult,
+    machine_lifecycle_snapshot: protocol::MachineLifecycleSnapshotResult,
     workspace_snapshot: Option<protocol::WorkspaceSnapshotResult>,
     keys: Arc<Mutex<KeyRegistry>>,
     mutation_nonce: String,
@@ -63,12 +65,14 @@ impl ProviderMachineRuntime {
     pub(crate) fn connect_with(
         connector: Arc<dyn MachineProviderConnector>,
     ) -> anyhow::Result<Self> {
-        let (client, snapshot, workspace_snapshot) = connect_client(Arc::clone(&connector))?;
+        let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
+            connect_client(Arc::clone(&connector))?;
         let client = Arc::new(client);
         let mut runtime = Self {
             connector,
             client,
             snapshot,
+            machine_lifecycle_snapshot,
             workspace_snapshot,
             keys: Arc::new(Mutex::new(KeyRegistry {
                 by_id: HashMap::new(),
@@ -86,6 +90,8 @@ impl ProviderMachineRuntime {
 
     pub(crate) fn refresh(&mut self) -> anyhow::Result<()> {
         self.snapshot = self.client.snapshot(Some(self.snapshot.revision))?;
+        self.machine_lifecycle_snapshot =
+            load_machine_lifecycle_snapshot(&self.client, &self.snapshot)?;
         self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
         self.reconcile_keys();
         if let Some(notice) = &self.snapshot.notice {
@@ -166,6 +172,8 @@ impl ProviderMachineRuntime {
             MachineRequest::SelectProviderScope(scope_id) => {
                 let scope_id = protocol::OpaqueId::new(scope_id)?;
                 self.snapshot = self.client.select_scope(scope_id)?.snapshot;
+                self.machine_lifecycle_snapshot =
+                    load_machine_lifecycle_snapshot(&self.client, &self.snapshot)?;
                 self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
                 self.reconcile_keys();
             }
@@ -202,6 +210,77 @@ impl ProviderMachineRuntime {
                 {
                     self.snapshot.selected_machine_id = Some(machine_id);
                 }
+            }
+            MachineRequest::RenameManagedMachine { machine, expected_version, name } => {
+                let machine_id = self.machine_id(machine)?;
+                let renames_open_session =
+                    self.open.as_ref().is_some_and(|open| open.machine_id == machine_id);
+                let result = self.client.rename_machine(protocol::RenameMachineParams {
+                    scope_id: self.snapshot.selected_scope_id.clone(),
+                    machine_id: machine_id.clone(),
+                    expected_version,
+                    display_name: name,
+                    mutation_id: self.next_mutation_id()?,
+                })?;
+                self.set_notice(result.notice);
+                self.refresh()?;
+                let result = MachineActionResult::ui(self.ui_state_for_open_connection());
+                return Ok(if renames_open_session {
+                    let label = self
+                        .snapshot
+                        .machines
+                        .iter()
+                        .find(|machine| machine.id == machine_id)
+                        .map(|machine| machine.display_name.clone())
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("renamed machine is missing from snapshot")
+                        })?;
+                    result.with_session_label(label)
+                } else {
+                    result
+                });
+            }
+            MachineRequest::DeleteManagedMachine { machine, expected_version } => {
+                let machine_id = self.machine_id(machine)?;
+                let deletes_open_session =
+                    self.open.as_ref().is_some_and(|open| open.machine_id == machine_id);
+                let result = self.client.delete_machine(protocol::MachineMutationParams {
+                    scope_id: self.snapshot.selected_scope_id.clone(),
+                    machine_id,
+                    expected_version,
+                    mutation_id: self.next_mutation_id()?,
+                })?;
+                self.set_notice(result.notice);
+                self.refresh()?;
+                if deletes_open_session {
+                    let (session, label, open) = self.open_selected_candidate()?;
+                    self.close_open_connection();
+                    let session_available = open.is_some();
+                    self.open = open;
+                    let mut ui = self.ui_state(session_available);
+                    ui.notice = self.notice.take();
+                    return Ok(MachineActionResult::replace(ui, session, label));
+                }
+            }
+            MachineRequest::RestoreManagedMachine { machine, expected_version } => {
+                let result = self.client.restore_machine(protocol::MachineMutationParams {
+                    scope_id: self.snapshot.selected_scope_id.clone(),
+                    machine_id: self.machine_id(machine)?,
+                    expected_version,
+                    mutation_id: self.next_mutation_id()?,
+                })?;
+                self.set_notice(result.notice);
+                self.refresh()?;
+            }
+            MachineRequest::PurgeManagedMachine { machine, expected_version } => {
+                let result = self.client.purge_machine(protocol::MachineMutationParams {
+                    scope_id: self.snapshot.selected_scope_id.clone(),
+                    machine_id: self.machine_id(machine)?,
+                    expected_version,
+                    mutation_id: self.next_mutation_id()?,
+                })?;
+                self.set_notice(result.notice);
+                self.refresh()?;
             }
             MachineRequest::CreateManagedIsolatedWorkspace(key) => {
                 self.create_workspace(key, protocol::WorkspaceCreateMode::Isolated)?;
@@ -285,6 +364,7 @@ impl ProviderMachineRuntime {
         let thread_stop = stop.clone();
         let (sender, receiver) = mpsc::sync_channel(8);
         let mut last_snapshot = self.snapshot.clone();
+        let mut last_machine_lifecycle_snapshot = self.machine_lifecycle_snapshot.clone();
         let mut last_workspace_snapshot = self.workspace_snapshot.clone();
         let worker = std::thread::Builder::new().name("machine-provider-snapshots".into()).spawn(
             move || {
@@ -295,6 +375,7 @@ impl ProviderMachineRuntime {
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
                             let mut ui = machine_ui_state(
                                 &last_snapshot,
+                                &last_machine_lifecycle_snapshot,
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
@@ -321,6 +402,7 @@ impl ProviderMachineRuntime {
                         Err(error) => {
                             let mut ui = machine_ui_state(
                                 &last_snapshot,
+                                &last_machine_lifecycle_snapshot,
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
@@ -332,11 +414,31 @@ impl ProviderMachineRuntime {
                         }
                     };
                     last_snapshot = snapshot.clone();
+                    last_machine_lifecycle_snapshot =
+                        match load_machine_lifecycle_snapshot(&client, &snapshot) {
+                            Ok(snapshot) => snapshot,
+                            Err(error) => {
+                                let mut ui = machine_ui_state(
+                                    &last_snapshot,
+                                    &last_machine_lifecycle_snapshot,
+                                    last_workspace_snapshot.as_ref(),
+                                    &keys,
+                                    false,
+                                );
+                                ui.notice = Some(format!(
+                                    "Machine provider lifecycle update failed: {error}"
+                                ));
+                                ui.request = Some(MachineRequest::ReconnectProvider);
+                                let _ = sender.send(ui);
+                                break;
+                            }
+                        };
                     last_workspace_snapshot = match load_workspace_snapshot(&client, &snapshot) {
                         Ok(snapshot) => snapshot,
                         Err(error) => {
                             let mut ui = machine_ui_state(
                                 &last_snapshot,
+                                &last_machine_lifecycle_snapshot,
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
@@ -352,6 +454,7 @@ impl ProviderMachineRuntime {
                         && snapshot.selected_machine_id.as_ref() == connected_machine_id.as_ref();
                     let mut ui = machine_ui_state(
                         &snapshot,
+                        &last_machine_lifecycle_snapshot,
                         last_workspace_snapshot.as_ref(),
                         &keys,
                         session_available,
@@ -380,9 +483,11 @@ impl ProviderMachineRuntime {
     }
 
     fn reconnect_session(&mut self) -> anyhow::Result<MachineActionResult> {
-        let (client, snapshot, workspace_snapshot) = connect_client(Arc::clone(&self.connector))?;
+        let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
+            connect_client(Arc::clone(&self.connector))?;
         self.client = Arc::new(client);
         self.snapshot = snapshot;
+        self.machine_lifecycle_snapshot = machine_lifecycle_snapshot;
         self.workspace_snapshot = workspace_snapshot;
         self.reconcile_keys();
         if let Some(notice) = &self.snapshot.notice {
@@ -411,6 +516,7 @@ impl ProviderMachineRuntime {
                     replacement: None,
                     restart_updates: true,
                     session_mutation: None,
+                    session_label: None,
                 })
             }
         }
@@ -493,12 +599,13 @@ impl ProviderMachineRuntime {
     }
 
     fn reconcile_keys(&mut self) {
-        reconcile_keys(&self.keys, &self.snapshot);
+        reconcile_keys(&self.keys, &self.snapshot, &self.machine_lifecycle_snapshot);
     }
 
     fn ui_state(&self, session_available: bool) -> MachineUiState {
         machine_ui_state(
             &self.snapshot,
+            &self.machine_lifecycle_snapshot,
             self.workspace_snapshot.as_ref(),
             &self.keys,
             session_available,
@@ -564,6 +671,7 @@ fn connect_client(
 ) -> anyhow::Result<(
     ProviderClient,
     protocol::SnapshotResult,
+    protocol::MachineLifecycleSnapshotResult,
     Option<protocol::WorkspaceSnapshotResult>,
 )> {
     let client_descriptor = protocol::ClientDescriptor {
@@ -574,8 +682,16 @@ fn connect_client(
     let (client, _hello) =
         ProviderClient::connect_authenticated_with(connector, client_descriptor)?;
     let snapshot = client.snapshot(None)?;
+    let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&client, &snapshot)?;
     let workspace_snapshot = load_workspace_snapshot(&client, &snapshot)?;
-    Ok((client, snapshot, workspace_snapshot))
+    Ok((client, snapshot, machine_lifecycle_snapshot, workspace_snapshot))
+}
+
+fn load_machine_lifecycle_snapshot(
+    client: &ProviderClient,
+    snapshot: &protocol::SnapshotResult,
+) -> anyhow::Result<protocol::MachineLifecycleSnapshotResult> {
+    client.machine_lifecycle_snapshot(snapshot.selected_scope_id.clone(), None).map_err(Into::into)
 }
 
 fn load_workspace_snapshot(
@@ -600,16 +716,25 @@ impl Drop for ProviderMachineRuntime {
     }
 }
 
-fn reconcile_keys(keys: &Arc<Mutex<KeyRegistry>>, snapshot: &protocol::SnapshotResult) {
+fn reconcile_keys(
+    keys: &Arc<Mutex<KeyRegistry>>,
+    snapshot: &protocol::SnapshotResult,
+    machine_lifecycle_snapshot: &protocol::MachineLifecycleSnapshotResult,
+) {
     let Ok(mut keys) = keys.lock() else { return };
-    for machine in &snapshot.machines {
-        if keys.by_id.contains_key(&machine.id) {
+    for machine_id in snapshot
+        .machines
+        .iter()
+        .map(|machine| &machine.id)
+        .chain(machine_lifecycle_snapshot.machines.iter().map(|machine| &machine.id))
+    {
+        if keys.by_id.contains_key(machine_id) {
             continue;
         }
         let key = MachineKey(keys.next);
         keys.next = keys.next.saturating_add(1);
-        keys.by_id.insert(machine.id.clone(), key);
-        keys.by_key.insert(key, machine.id.clone());
+        keys.by_id.insert(machine_id.clone(), key);
+        keys.by_key.insert(key, machine_id.clone());
     }
 }
 
@@ -619,11 +744,12 @@ fn key_for_id(keys: &Arc<Mutex<KeyRegistry>>, id: &protocol::OpaqueId) -> Option
 
 fn machine_ui_state(
     snapshot: &protocol::SnapshotResult,
+    machine_lifecycle_snapshot: &protocol::MachineLifecycleSnapshotResult,
     workspace_snapshot: Option<&protocol::WorkspaceSnapshotResult>,
     keys: &Arc<Mutex<KeyRegistry>>,
     session_available: bool,
 ) -> MachineUiState {
-    reconcile_keys(keys, snapshot);
+    reconcile_keys(keys, snapshot, machine_lifecycle_snapshot);
     let active = snapshot.selected_machine_id.as_ref().and_then(|id| key_for_id(keys, id));
     let mut ui = MachineUiState::new(MachineSnapshot {
         machines: snapshot
@@ -638,6 +764,24 @@ fn machine_ui_state(
                     status: machine_status(machine.status),
                 })
             })
+            .chain(
+                machine_lifecycle_snapshot
+                    .machines
+                    .iter()
+                    .filter(|managed| {
+                        managed.status == protocol::MachineLifecycleStatus::Recoverable
+                            && !snapshot.machines.iter().any(|machine| machine.id == managed.id)
+                    })
+                    .filter_map(|machine| {
+                        Some(MachineDescriptor {
+                            key: key_for_id(keys, &machine.id)?,
+                            id: machine.id.as_str().to_string(),
+                            name: machine.display_name.clone(),
+                            subtitle: String::new(),
+                            status: MachineStatus::Stopped,
+                        })
+                    }),
+            )
             .collect(),
         active,
         capabilities: MachineCapabilities {
@@ -646,6 +790,13 @@ fn machine_ui_state(
         },
     });
     ui.session_available = session_available;
+    ui.set_managed_machines(
+        machine_lifecycle_snapshot
+            .machines
+            .iter()
+            .filter_map(|machine| managed_machine_descriptor(machine, keys))
+            .collect(),
+    );
     for machine in &snapshot.machines {
         let Some(key) = key_for_id(keys, &machine.id) else { continue };
         let policy = match &machine.workspace_create {
@@ -669,6 +820,29 @@ fn machine_ui_state(
     }
     ui.set_provider_presentation(provider_presentation(snapshot));
     ui
+}
+
+fn managed_machine_descriptor(
+    machine: &protocol::MachineLifecycleDescriptor,
+    keys: &Arc<Mutex<KeyRegistry>>,
+) -> Option<ManagedMachineDescriptor> {
+    Some(ManagedMachineDescriptor {
+        key: key_for_id(keys, &machine.id)?,
+        id: machine.id.as_str().to_string(),
+        name: machine.display_name.clone(),
+        status: match machine.status {
+            protocol::MachineLifecycleStatus::Active => ManagedMachineStatus::Active,
+            protocol::MachineLifecycleStatus::Recoverable => ManagedMachineStatus::Recoverable,
+        },
+        version: machine.version,
+        recoverable_until: machine.recoverable_until.clone(),
+        capabilities: ManagedMachineCapabilities {
+            rename: machine.capabilities.rename,
+            delete: machine.capabilities.delete,
+            restore: machine.capabilities.restore,
+            purge: machine.capabilities.purge,
+        },
+    })
 }
 
 fn managed_workspace_descriptor(
@@ -850,8 +1024,55 @@ mod tests {
 
         let request: protocol::RequestEnvelope = read_frame(&mut reader);
         assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
-        write_frame(&mut stream, &protocol::ResponseEnvelope::success(request.id, snapshot));
+        write_frame(
+            &mut stream,
+            &protocol::ResponseEnvelope::success(request.id, snapshot.clone()),
+        );
+        serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &snapshot);
         (stream, reader)
+    }
+
+    fn machine_lifecycle_snapshot(
+        snapshot: &protocol::SnapshotResult,
+    ) -> protocol::MachineLifecycleSnapshotResult {
+        protocol::MachineLifecycleSnapshotResult {
+            revision: snapshot.revision,
+            scope_id: snapshot.selected_scope_id.clone(),
+            machines: snapshot
+                .machines
+                .iter()
+                .map(|machine| protocol::MachineLifecycleDescriptor {
+                    id: machine.id.clone(),
+                    display_name: machine.display_name.clone(),
+                    status: protocol::MachineLifecycleStatus::Active,
+                    version: snapshot.revision,
+                    recoverable_until: None,
+                    capabilities: protocol::MachineLifecycleCapabilities {
+                        rename: true,
+                        delete: true,
+                        restore: false,
+                        purge: false,
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    fn serve_machine_lifecycle_snapshot(
+        stream: &mut UnixStream,
+        reader: &mut BufReader<UnixStream>,
+        snapshot: &protocol::SnapshotResult,
+    ) {
+        let request: protocol::RequestEnvelope = read_frame(reader);
+        assert!(matches!(
+            &request.request,
+            protocol::ProviderRequest::MachineLifecycleSnapshot(params)
+                if params.scope_id == snapshot.selected_scope_id
+        ));
+        write_frame(
+            stream,
+            &protocol::ResponseEnvelope::success(request.id, machine_lifecycle_snapshot(snapshot)),
+        );
     }
 
     fn snapshot(
@@ -948,7 +1169,8 @@ mod tests {
             next: 1,
         }));
 
-        let ui = machine_ui_state(&snapshot, None, &keys, true);
+        let machine_lifecycle = machine_lifecycle_snapshot(&snapshot);
+        let ui = machine_ui_state(&snapshot, &machine_lifecycle, None, &keys, true);
 
         assert_eq!(
             ui.workspace_creation_policy(),
@@ -990,7 +1212,8 @@ mod tests {
             next: 1,
         }));
 
-        let ui = machine_ui_state(&snapshot, Some(&lifecycle), &keys, true);
+        let machine_lifecycle = machine_lifecycle_snapshot(&snapshot);
+        let ui = machine_ui_state(&snapshot, &machine_lifecycle, Some(&lifecycle), &keys, true);
 
         assert_eq!(
             ui.managed_workspaces(),
@@ -1009,6 +1232,57 @@ mod tests {
                 },
             }]
         );
+    }
+
+    #[test]
+    fn machine_lifecycle_translation_keeps_tombstone_identity_version_and_capabilities() {
+        let snapshot = snapshot(1, "Machine", protocol::MachineStatus::Running);
+        let mut lifecycle = machine_lifecycle_snapshot(&snapshot);
+        lifecycle.machines.push(protocol::MachineLifecycleDescriptor {
+            id: id("deleted-machine-uuid"),
+            display_name: "quiet-forest".into(),
+            status: protocol::MachineLifecycleStatus::Recoverable,
+            version: 12,
+            recoverable_until: Some("2030-01-02T03:04:05Z".into()),
+            capabilities: protocol::MachineLifecycleCapabilities {
+                rename: false,
+                delete: false,
+                restore: true,
+                purge: true,
+            },
+        });
+        let keys = Arc::new(Mutex::new(KeyRegistry {
+            by_id: HashMap::new(),
+            by_key: HashMap::new(),
+            next: 1,
+        }));
+
+        let first = machine_ui_state(&snapshot, &lifecycle, None, &keys, true);
+        let tombstone_key = first.snapshot.machines[1].key;
+        assert_eq!(first.snapshot.machines[1].id, "deleted-machine-uuid");
+        assert_eq!(
+            first.managed_machine(tombstone_key),
+            Some(&ManagedMachineDescriptor {
+                key: tombstone_key,
+                id: "deleted-machine-uuid".into(),
+                name: "quiet-forest".into(),
+                status: ManagedMachineStatus::Recoverable,
+                version: 12,
+                recoverable_until: Some("2030-01-02T03:04:05Z".into()),
+                capabilities: ManagedMachineCapabilities {
+                    rename: false,
+                    delete: false,
+                    restore: true,
+                    purge: true,
+                },
+            })
+        );
+
+        lifecycle.machines[1].display_name = "renamed tombstone".into();
+        lifecycle.machines[1].version = 13;
+        let refreshed = machine_ui_state(&snapshot, &lifecycle, None, &keys, true);
+        assert_eq!(refreshed.snapshot.machines[1].key, tombstone_key);
+        assert_eq!(refreshed.managed_machine(tombstone_key).unwrap().version, 13);
     }
 
     #[test]
@@ -1056,13 +1330,12 @@ mod tests {
 
             let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
             assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            let refreshed = snapshot(2, "Machine", protocol::MachineStatus::Running);
             write_frame(
                 &mut stream,
-                &protocol::ResponseEnvelope::success(
-                    refresh.id,
-                    snapshot(2, "Machine", protocol::MachineStatus::Running),
-                ),
+                &protocol::ResponseEnvelope::success(refresh.id, refreshed.clone()),
             );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &refreshed);
 
             let select: protocol::RequestEnvelope = read_frame(&mut reader);
             assert!(matches!(
@@ -1070,15 +1343,15 @@ mod tests {
                 protocol::ProviderRequest::SelectScope(params)
                     if params.scope_id == id("personal")
             ));
+            let selected = snapshot(3, "Machine", protocol::MachineStatus::Running);
             write_frame(
                 &mut stream,
                 &protocol::ResponseEnvelope::success(
                     select.id,
-                    protocol::SelectScopeResult {
-                        snapshot: snapshot(3, "Machine", protocol::MachineStatus::Running),
-                    },
+                    protocol::SelectScopeResult { snapshot: selected.clone() },
                 ),
             );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &selected);
 
             // The close must be the first request after the non-switch action
             // and is emitted only when the runtime is dropped below.
@@ -1141,8 +1414,9 @@ mod tests {
             assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
             write_frame(
                 &mut stream,
-                &protocol::ResponseEnvelope::success(refresh.id, server_catalog),
+                &protocol::ResponseEnvelope::success(refresh.id, server_catalog.clone()),
             );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &server_catalog);
 
             let open: protocol::RequestEnvelope = read_frame(&mut reader);
             assert!(matches!(
@@ -1222,13 +1496,12 @@ mod tests {
                 panic!("snapshot event did not trigger a snapshot request");
             };
             assert_eq!(params.known_revision, Some(1));
+            let refreshed = snapshot(2, "Renamed machine", protocol::MachineStatus::Sleeping);
             write_frame(
                 &mut stream,
-                &protocol::ResponseEnvelope::success(
-                    request.id,
-                    snapshot(2, "Renamed machine", protocol::MachineStatus::Sleeping),
-                ),
+                &protocol::ResponseEnvelope::success(request.id, refreshed.clone()),
             );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &refreshed);
             finished.recv().unwrap();
         });
 
