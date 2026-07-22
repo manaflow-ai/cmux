@@ -69,6 +69,14 @@ final class SidebarRowChecklistSummaryLine: NSControl {
         }
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("SidebarChecklistSummaryLine")
+        var accessibilityText = countLabel.stringValue
+        if let preview, !preview.isEmpty {
+            accessibilityText += " · " + preview
+        }
+        setAccessibilityLabel(accessibilityText)
+        countLabel.setAccessibilityElement(false)
+        separatorLabel.setAccessibilityElement(false)
+        previewLabel.setAccessibilityElement(false)
         needsLayout = true
     }
 

@@ -46,6 +46,8 @@ final class SidebarRowCompactStatusLine: NSControl {
         toolTip = String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status")
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("SidebarWorkspaceCompactStatusMenu")
+        setAccessibilityLabel(label.stringValue)
+        label.setAccessibilityElement(false)
         needsLayout = true
     }
 

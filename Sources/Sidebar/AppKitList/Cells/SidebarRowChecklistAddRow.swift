@@ -259,6 +259,10 @@ final class SidebarRowChecklistGhostAddButton: NSControl {
         label.stringValue = title
         label.font = font
         label.textColor = color
+        // The custom control does not combine its child text into an
+        // accessible name the way the SwiftUI Button it replaces did.
+        setAccessibilityLabel(title)
+        label.setAccessibilityElement(false)
         needsLayout = true
     }
 
