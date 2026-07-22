@@ -7941,6 +7941,7 @@ extension BrowserPanel {
     func showBrowserExtensionsManager() -> Bool {
         isBrowserExtensionsPopoverPresented = false
         setOmnibarVisible(false)
+        hideBrowserPortalView(source: "extensionsManager")
         internalPage = .extensions
         browserServices?.browserPanelInternalPageDidChange(self)
         return true
