@@ -231,6 +231,9 @@ final class SidebarRowProgressView: NSView {
 /// One wrapping/truncating text line (or block) with measured height.
 @MainActor
 final class SidebarRowTextView: NSTextField {
+    var onOpenLink: ((URL) -> Void)?
+    private var pendingLinkURL: URL?
+
     init(lines: Int) {
         super.init(frame: .zero)
         isEditable = false
@@ -247,9 +250,91 @@ final class SidebarRowTextView: NSTextField {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard onOpenLink != nil, !isHidden, alphaValue > 0, linkURL(at: point) != nil else {
+            return nil
+        }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard onOpenLink != nil else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let url = linkURL(at: point) else {
+            pendingLinkURL = nil
+            return
+        }
+        pendingLinkURL = url
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard onOpenLink != nil else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let pending = pendingLinkURL else { return }
+        pendingLinkURL = nil
+        guard linkURL(at: point) == pending else { return }
+        onOpenLink?(pending)
+    }
+
     func measuredHeight(width: CGFloat) -> CGFloat {
         guard !isHidden else { return 0 }
         let size = cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)) ?? .zero
         return ceil(size.height)
+    }
+
+    private func linkURL(at point: NSPoint) -> URL? {
+        guard bounds.contains(point), attributedStringValue.length > 0 else {
+            return nil
+        }
+        let textRect = cell?.titleRect(forBounds: bounds) ?? bounds
+        guard textRect.contains(point), textRect.width > 0, textRect.height > 0 else {
+            return nil
+        }
+
+        let storage = NSTextStorage(attributedString: attributedStringValue)
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(size: textRect.size)
+        textContainer.lineFragmentPadding = 0
+        textContainer.maximumNumberOfLines = maximumNumberOfLines
+        textContainer.lineBreakMode = lineBreakMode
+        layoutManager.addTextContainer(textContainer)
+        storage.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: textContainer)
+
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let textPoint = NSPoint(
+            x: point.x - textRect.minX - usedRect.minX,
+            y: point.y - textRect.minY - usedRect.minY
+        )
+        guard textPoint.x >= 0, textPoint.y >= 0,
+              textPoint.x <= usedRect.width, textPoint.y <= usedRect.height
+        else {
+            return nil
+        }
+
+        let glyphIndex = layoutManager.glyphIndex(for: textPoint, in: textContainer)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            in: textContainer
+        ).insetBy(dx: -2, dy: -2)
+        guard glyphRect.contains(textPoint) else { return nil }
+
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard characterIndex < attributedStringValue.length else { return nil }
+        return Self.linkURL(from: attributedStringValue.attribute(.link, at: characterIndex, effectiveRange: nil))
+    }
+
+    private static func linkURL(from value: Any?) -> URL? {
+        switch value {
+        case let url as URL:
+            return url
+        case let url as NSURL:
+            return url as URL
+        case let string as String:
+            return URL(string: string)
+        default:
+            return nil
+        }
     }
 }

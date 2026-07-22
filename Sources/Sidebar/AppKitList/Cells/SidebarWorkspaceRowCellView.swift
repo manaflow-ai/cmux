@@ -187,6 +187,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         addSubview(closeButton)
 
         addSubview(descriptionView)
+        descriptionView.onOpenLink = { [weak self] url in
+            guard let self else { return }
+            self.actions?.commands.updateSelection()
+            self.actions?.onOpenWorkspaceDescriptionURL(url)
+        }
         addSubview(subtitleView)
         addSubview(remoteTargetView)
         addSubview(remoteStatusView)
