@@ -1001,6 +1001,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */; };
 		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
 		827300000000000000000004 /* KimiHookConfigLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827300000000000000000003 /* KimiHookConfigLocationTests.swift */; };
+		858200000000000000000002 /* KimiRestorableAgentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000001 /* KimiRestorableAgentTests.swift */; };
+		8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */; };
 		87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */; };
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
@@ -1414,6 +1416,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		842300000000000000000005 /* RestorableAgentProcessGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000006 /* RestorableAgentProcessGenerationTests.swift */; };
 		842300000000000000000003 /* RestorableAgentProcessLiveness+ProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000004 /* RestorableAgentProcessLiveness+ProcessIdentity.swift */; };
 		A5001662 /* RestorableAgentSession+Campfire.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001663 /* RestorableAgentSession+Campfire.swift */; };
+		858200000000000000000006 /* RestorableAgentSession+Kimi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000005 /* RestorableAgentSession+Kimi.swift */; };
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
 		C6711A020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */; };
 		F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */; };
@@ -1982,6 +1985,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B35750000000000000000012 /* VaultAgentProcessScannerDetectRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000011 /* VaultAgentProcessScannerDetectRules.swift */; };
 		B35750000000000000000010 /* VaultAgentProcessScannerSessionDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000F /* VaultAgentProcessScannerSessionDirectories.swift */; };
 		B3575000000000000000000E /* VaultAgentRegistry+Campfire.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */; };
+		858200000000000000000004 /* VaultAgentRegistry+Kimi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000003 /* VaultAgentRegistry+Kimi.swift */; };
 		B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000001 /* VaultAgentRegistry.swift */; };
 		F76550060000000000000001 /* VaultObservedAgentProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550060000000000000002 /* VaultObservedAgentProcess.swift */; };
 		F7216001000000000000001 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */; };
@@ -3137,6 +3141,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSpaceKeyTests.swift; sourceTree = "<group>"; };
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		827300000000000000000003 /* KimiHookConfigLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiHookConfigLocationTests.swift; sourceTree = "<group>"; };
+		858200000000000000000001 /* KimiRestorableAgentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiRestorableAgentTests.swift; sourceTree = "<group>"; };
+		8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiResumeReviewRegressionTests.swift; sourceTree = "<group>"; };
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -3545,6 +3551,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		842300000000000000000006 /* RestorableAgentProcessGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentProcessGenerationTests.swift; sourceTree = "<group>"; };
 		842300000000000000000004 /* RestorableAgentProcessLiveness+ProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentProcessLiveness+ProcessIdentity.swift"; sourceTree = "<group>"; };
 		A5001663 /* RestorableAgentSession+Campfire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSession+Campfire.swift"; sourceTree = "<group>"; };
+		858200000000000000000005 /* RestorableAgentSession+Kimi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSession+Kimi.swift"; sourceTree = "<group>"; };
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
 		C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexCodexWeakRecordTests.swift; sourceTree = "<group>"; };
 		F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexTests.swift; sourceTree = "<group>"; };
@@ -4101,6 +4108,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B35750000000000000000011 /* VaultAgentProcessScannerDetectRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentProcessScannerDetectRules.swift; sourceTree = "<group>"; };
 		B3575000000000000000000F /* VaultAgentProcessScannerSessionDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentProcessScannerSessionDirectories.swift; sourceTree = "<group>"; };
 		B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Campfire.swift"; sourceTree = "<group>"; };
+		858200000000000000000003 /* VaultAgentRegistry+Kimi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Kimi.swift"; sourceTree = "<group>"; };
 		B35750000000000000000001 /* VaultAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentRegistry.swift; sourceTree = "<group>"; };
 		F76550060000000000000002 /* VaultObservedAgentProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultObservedAgentProcess.swift; sourceTree = "<group>"; };
 		F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+EmptyAreasAndFooter.swift"; sourceTree = "<group>"; };
@@ -5067,6 +5075,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B3575000000000000000000B /* SessionIndexModels.swift */,
 				F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */,
 				B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */,
+				858200000000000000000003 /* VaultAgentRegistry+Kimi.swift */,
 				B35750000000000000000001 /* VaultAgentRegistry.swift */,
 				D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */,
 				77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */,
@@ -5709,6 +5718,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				842300000000000000000004 /* RestorableAgentProcessLiveness+ProcessIdentity.swift */,
 				C6711B060000000000000001 /* RestorableAgentHookSessionStoreFile.swift */,
 				A5001663 /* RestorableAgentSession+Campfire.swift */,
+				858200000000000000000005 /* RestorableAgentSession+Kimi.swift */,
 				A5001661 /* RestorableAgentSession.swift */,
 				F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */,
 				F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */,
@@ -6248,6 +6258,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */,
 					C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */,
 					827300000000000000000003 /* KimiHookConfigLocationTests.swift */,
+					858200000000000000000001 /* KimiRestorableAgentTests.swift */,
+					8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */,
 				C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */,
 				F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */,
 				E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */,
@@ -7809,6 +7821,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C6711A060000000000000001 /* RestorableAgentHookSessionStoreFile.swift in Sources */,
 				842300000000000000000003 /* RestorableAgentProcessLiveness+ProcessIdentity.swift in Sources */,
 				A5001662 /* RestorableAgentSession+Campfire.swift in Sources */,
+				858200000000000000000006 /* RestorableAgentSession+Kimi.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				C7C5FAF3145342F395DB4C40 /* RestoredAgentCompletedGeneration.swift in Sources */,
@@ -8213,6 +8226,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B35750000000000000000012 /* VaultAgentProcessScannerDetectRules.swift in Sources */,
 				B35750000000000000000010 /* VaultAgentProcessScannerSessionDirectories.swift in Sources */,
 				B3575000000000000000000E /* VaultAgentRegistry+Campfire.swift in Sources */,
+				858200000000000000000004 /* VaultAgentRegistry+Kimi.swift in Sources */,
 				B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */,
 				F76550060000000000000001 /* VaultObservedAgentProcess.swift in Sources */,
 				F7216001000000000000001 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift in Sources */,
@@ -8752,6 +8766,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */,
 				C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */,
 				827300000000000000000004 /* KimiHookConfigLocationTests.swift in Sources */,
+				858200000000000000000002 /* KimiRestorableAgentTests.swift in Sources */,
+				8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */,
 				87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */,
 				A7C0F0010000000000000002 /* MacPairedMacBackupPublisherScopeTests.swift in Sources */,
 				6512F0C06512F0C06512F002 /* MainWindowFocusRestoreTests.swift in Sources */,
