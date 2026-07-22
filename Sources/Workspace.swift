@@ -3146,7 +3146,7 @@ final class Workspace: Identifiable, ObservableObject {
             // Mirrors the minimal terminal branch below plus the browser panel
             // wiring `attachDetachedSurface` performs for reattached panels.
             let browserPanel = BrowserPanel(
-                workspaceId: id,
+                workspaceId: self.id,
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
@@ -3177,7 +3177,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
             installBrowserPanelSubscription(browserPanel)
         } else if initialSurface == .cloudVMLoading {
-            let loadingPanel = CloudVMLoadingPanel(workspaceId: id)
+            let loadingPanel = CloudVMLoadingPanel(workspaceId: self.id)
             panels[loadingPanel.id] = loadingPanel
             panelTitles[loadingPanel.id] = loadingPanel.displayTitle
 
@@ -3195,7 +3195,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             // Create initial terminal panel
             let terminalPanel = TerminalPanel(
-                workspaceId: id,
+                workspaceId: self.id,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
                 configTemplate: resolvedConfigTemplate,
                 workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
