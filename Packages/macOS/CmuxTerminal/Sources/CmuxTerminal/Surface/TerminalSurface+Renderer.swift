@@ -77,10 +77,9 @@ extension TerminalSurface {
     @MainActor
     public func setRendererPortalVisible(_ visible: Bool) {
         let wasVisible = rendererPortalVisible
-        if visible, !wasVisible {
-            rendererPresentationImmediateRetriesRemaining = Self.rendererPresentationImmediateRetryLimit
-        } else if !visible {
-            rendererPresentationImmediateRetriesRemaining = 0
+        rendererPortalVisible = visible
+        if !visible {
+            surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
         }
         // This is the single presentation transition for both a renderer that
         // was reclaimed and one that was born hidden and never got a drawable.
@@ -90,7 +89,6 @@ extension TerminalSurface {
         if visible {
             ensureRendererPresented()
         }
-        rendererPortalVisible = visible
         // Stamp the last-visible time while visible, and exactly once at the hide
         // transition (the hide moment is the last-visible time). Do NOT re-stamp
         // on repeated hidden updates (setVisibleInUI can be called many times with
@@ -115,7 +113,7 @@ extension TerminalSurface {
     @MainActor
     func rendererRuntimeSurfaceDidCreate() {
         rendererPresentationPhase = .awaitingFirstPresentation
-        rendererPresentationImmediateRetriesRemaining = 0
+        surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
         guard surface != nil else { return }
         if rendererPortalVisible {
             rendererPresentationPhase = .presented
@@ -147,7 +145,7 @@ extension TerminalSurface {
         // controller retries rather than desyncing from Ghostty's live renderer.
         if ghostty_surface_set_renderer_realized(surface, false) {
             rendererPresentationPhase = .released
-            rendererPresentationImmediateRetriesRemaining = 0
+            surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
             return true
         }
         return false
@@ -168,15 +166,17 @@ extension TerminalSurface {
 #if os(macOS)
         guard rendererPresentationPhase != .presented else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.ensurePresented") else { return }
+        let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
 
         if rendererPresentationPhase == .awaitingFirstPresentation {
             // Ghostty starts with a live renderer even if its view was born
             // hidden. Release it once so first presentation can take the exact
             // same proven restore path as a renderer reclaimed later.
-            guard ghostty_surface_set_renderer_realized(surface, false) else {
-                scheduleRendererPresentationRetryIfNeeded()
-                return
-            }
+            // Arm before the non-blocking enqueue so a concurrent renderer
+            // drain cannot race past the signal that makes this retryable.
+            callbackContext?.armRendererPresentationRepair()
+            guard ghostty_surface_set_renderer_realized(surface, false) else { return }
+            callbackContext?.cancelRendererPresentationRepair()
             rendererPresentationPhase = .released
         }
 
@@ -184,30 +184,27 @@ extension TerminalSurface {
         // state only on success. On re-show the renderer mailbox is normally
         // empty, so the realize enqueues immediately and the surface is never
         // presented against a defunct swap chain. In the rare full-mailbox case
-        // the push drops, the phase stays released, and the controller's
-        // pass re-realizes any visible-but-unrealized surface as the backstop. We
-        // never block the main actor waiting on the renderer thread.
+        // the push drops and the armed callback targets this surface after the
+        // renderer drains that mailbox. We never block the main actor waiting on
+        // the renderer thread.
+        callbackContext?.armRendererPresentationRepair()
         if ghostty_surface_set_renderer_realized(surface, true) {
+            callbackContext?.cancelRendererPresentationRepair()
             rendererPresentationPhase = .presented
-            rendererPresentationImmediateRetriesRemaining = 0
-        } else {
-            // Enqueue dropped (full mailbox, i.e. the renderer thread is not
-            // draining). Kick an immediate reclamation pass so the controller
-            // re-realizes this now-visible surface on the next runloop turn
-            // instead of waiting for the periodic tick, minimizing how long a
-            // re-shown terminal could draw against a defunct swap chain.
-            scheduleRendererPresentationRetryIfNeeded()
         }
 #endif
     }
 
-    /// Requests a bounded next-turn repair for an unresolved presentation.
-    /// Exhausting this visibility epoch's budget falls back to natural portal
-    /// updates and the controller's periodic pass instead of spinning forever.
+    /// Retries an unresolved presentation after Ghostty reports renderer activity.
+    ///
+    /// The app resolves the callback's stable surface id, then calls this only
+    /// for that surface. Re-checking lifecycle and visibility here makes a
+    /// queued callback harmless after hide, close, or successful presentation.
     @MainActor
-    private func scheduleRendererPresentationRetryIfNeeded() {
-        guard rendererPresentationImmediateRetriesRemaining > 0 else { return }
-        rendererPresentationImmediateRetriesRemaining -= 1
-        rendererRealization.scheduleImmediatePass()
+    public func retryRendererPresentationAfterActivity() {
+        guard rendererPortalVisible,
+              hasLiveSurface,
+              rendererPresentationPhase != .presented else { return }
+        ensureRendererPresented()
     }
 }

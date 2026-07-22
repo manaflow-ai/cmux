@@ -1,10 +1,13 @@
+import Foundation
 @testable import CmuxTerminal
 
 @MainActor
 final class FakeRendererRealizationScheduler: TerminalRendererRealizationScheduling {
-    private(set) var scheduledPassCount = 0
+    private(set) var scheduledSurfaceIDs: [UUID] = []
+    var onSchedule: ((UUID) -> Void)?
 
-    func scheduleImmediatePass() {
-        scheduledPassCount += 1
+    func scheduleRendererPresentationRepair(surfaceID: UUID) {
+        scheduledSurfaceIDs.append(surfaceID)
+        onSchedule?(surfaceID)
     }
 }

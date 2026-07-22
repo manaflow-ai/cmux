@@ -35,7 +35,6 @@ final class RendererRealizationController {
     private let systemMemoryPressureRetryPasses = 2
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
-    private var immediatePassTask: Task<Void, Never>?
     private var systemMemoryPressureRetryTask: Task<Void, Never>?
 
     private init() {}
@@ -62,8 +61,6 @@ final class RendererRealizationController {
     func stop() {
         timer?.cancel()
         timer = nil
-        immediatePassTask?.cancel()
-        immediatePassTask = nil
         systemMemoryPressureRetryTask?.cancel()
         systemMemoryPressureRetryTask = nil
         if let settingsObserver {
@@ -93,21 +90,11 @@ final class RendererRealizationController {
         self.timer = timer
     }
 
-    /// Schedule a reclamation pass on the next main-actor turn. Called when a
-    /// re-show realize enqueue dropped, so the controller re-realizes the
-    /// now-visible-but-unrealized surface immediately rather than waiting for the
-    /// periodic tick. Async (not re-entrant): the caller is already mid
-    /// `ensureRendererPresented`.
-    func scheduleImmediatePass() {
-        guard immediatePassTask == nil else { return }
-        immediatePassTask = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self, !Task.isCancelled else { return }
-            // Clear before evaluating so a failed repair can enqueue the next
-            // bounded turn without being mistaken for duplicate fanout.
-            self.immediatePassTask = nil
-            self.evaluate(now: Date())
-        }
+    /// Repairs only the surface whose renderer reported activity after a
+    /// dropped presentation enqueue.
+    func scheduleRendererPresentationRepair(surfaceID: UUID) {
+        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else { return }
+        surface.retryRendererPresentationAfterActivity()
     }
 
     @discardableResult

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import GhosttyKit
 import Testing
 @testable import CmuxTerminal
@@ -106,6 +107,7 @@ private func setRendererRealizedResult(_ result: Bool)
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
+        let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
@@ -125,11 +127,166 @@ private func setRendererRealizedResult(_ result: Bool)
 
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
-        #expect(scheduler.scheduledPassCount == 0)
+        #expect(scheduler.scheduledSurfaceIDs.isEmpty)
+
+        setRendererRealizedResult(true)
+        scheduler.onSchedule = { surfaceID in
+            #expect(surfaceID == surface.id)
+            surface.retryRendererPresentationAfterActivity()
+        }
+        terminalRendererEventCallback(
+            callbackContext.toOpaque(),
+            GHOSTTY_RENDERER_EVENT_DRAW_FRAME_END
+        )
+        #expect(scheduler.scheduledSurfaceIDs.isEmpty)
+        terminalRendererEventCallback(
+            callbackContext.toOpaque(),
+            GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END
+        )
+        terminalRendererEventCallback(
+            callbackContext.toOpaque(),
+            GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END
+        )
+
+        #expect(surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [false, false, true])
+        #expect(scheduler.scheduledSurfaceIDs == [surface.id])
+    }
+
+    @Test func laterRendererActivityRepairsAfterRepeatedMailboxFailures() {
+        let registry = TerminalSurfaceRegistry()
+        let scheduler = FakeRendererRealizationScheduler()
+        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
+        let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        beginRendererRealizedTracking(runtimeSurface)
+        surface.setRendererPortalVisible(false)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetRendererRealizedTracking()
+        }
+
+        beginRendererRealizedTracking(runtimeSurface)
+        setRendererRealizedResult(false)
+        scheduler.onSchedule = { surfaceID in
+            #expect(surfaceID == surface.id)
+            surface.retryRendererPresentationAfterActivity()
+        }
+        surface.setRendererPortalVisible(true)
+        terminalRendererEventCallback(
+            callbackContext.toOpaque(),
+            GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END
+        )
+
+        #expect(!surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [true, true])
+        #expect(scheduler.scheduledSurfaceIDs == [surface.id])
+
+        setRendererRealizedResult(true)
+        terminalRendererEventCallback(
+            callbackContext.toOpaque(),
+            GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END
+        )
+
+        #expect(surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [true, true, true])
+        #expect(scheduler.scheduledSurfaceIDs == [surface.id, surface.id])
+    }
+
+    @Test func rendererActivityDoesNotRetryAfterSurfaceBecomesHidden() {
+        let registry = TerminalSurfaceRegistry()
+        let scheduler = FakeRendererRealizationScheduler()
+        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
+        let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        beginRendererRealizedTracking(runtimeSurface)
+        surface.setRendererPortalVisible(false)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetRendererRealizedTracking()
+        }
+
+        beginRendererRealizedTracking(runtimeSurface)
+        setRendererRealizedResult(false)
+        surface.setRendererPortalVisible(true)
+        surface.setRendererPortalVisible(false)
+        callbackContext.takeUnretainedValue().rendererMailboxDidDrain()
+        surface.retryRendererPresentationAfterActivity()
+
+        #expect(!surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [true])
+        #expect(scheduler.scheduledSurfaceIDs.isEmpty)
+    }
+
+    @Test func queuedRendererRepairDoesNotTouchReleasedSurface() {
+        let registry = TerminalSurfaceRegistry()
+        let scheduler = FakeRendererRealizationScheduler()
+        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
+        let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        beginRendererRealizedTracking(runtimeSurface)
+        surface.setRendererPortalVisible(false)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetRendererRealizedTracking()
+        }
+
+        beginRendererRealizedTracking(runtimeSurface)
+        setRendererRealizedResult(false)
+        var queuedRepair: (() -> Void)?
+        scheduler.onSchedule = { surfaceID in
+            #expect(surfaceID == surface.id)
+            queuedRepair = {
+                surface.retryRendererPresentationAfterActivity()
+            }
+        }
+        surface.setRendererPortalVisible(true)
+        terminalRendererEventCallback(
+            callbackContext.toOpaque(),
+            GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END
+        )
+
+        #expect(scheduler.scheduledSurfaceIDs == [surface.id])
+        #expect(rendererRealizedCalls() == [true])
+
+        surface.releaseSurfaceForTesting()
+        queuedRepair?()
+
+        #expect(!surface.hasLiveSurface)
+        #expect(rendererRealizedCalls() == [true])
     }
 
     private func rendererRealizedCalls() -> [Bool] {
         (0..<rendererRealizedCallCount()).map(rendererRealizedCallValue)
+    }
+
+    private func installRendererCallbackContext(
+        on surface: TerminalSurface,
+        scheduler: FakeRendererRealizationScheduler
+    ) -> Unmanaged<GhosttySurfaceCallbackContext> {
+        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
+            surfaceHost: surface.surfaceView,
+            surfaceController: surface,
+            rendererMailboxDidDrain: { surfaceID in
+                MainActor.assumeIsolated {
+                    scheduler.scheduleRendererPresentationRepair(surfaceID: surfaceID)
+                }
+            }
+        ))
+        surface.surfaceCallbackContext = callbackContext
+        return callbackContext
     }
 
     private func makeSurface(

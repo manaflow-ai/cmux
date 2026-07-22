@@ -96,12 +96,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// window, while preserving strict native unrealize/realize alternation.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
 
-    /// Bounds next-turn repair work when renderer mailbox enqueues keep dropping.
-    static let rendererPresentationImmediateRetryLimit = 3
-
-    /// Immediate repair passes still available in the current visibility epoch.
-    var rendererPresentationImmediateRetriesRemaining = 0
-
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.
