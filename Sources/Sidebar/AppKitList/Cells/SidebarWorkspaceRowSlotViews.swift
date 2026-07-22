@@ -235,6 +235,8 @@ final class SidebarRowTextView: NSTextField {
     private var pendingLinkURL: URL?
     private var cachedLinkHitLayout: LinkHitLayout?
 
+    override var isFlipped: Bool { true }
+
     private struct LinkHitLayout {
         let attributedString: NSAttributedString
         let textRectSize: NSSize

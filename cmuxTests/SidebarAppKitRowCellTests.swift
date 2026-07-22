@@ -381,6 +381,30 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func workspaceDescriptionURLClickOpensWrappedTopLineLink() throws {
+        let url = try #require(URL(string: "https://linear.app/attendu/issue/ATD-366"))
+        let model = Self.makeModel(customDescription: "\(url.absoluteString) plain text after the link wraps below")
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        _ = Self.layoutCell(cell, model: model, width: 240)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+        let font = try #require(textView.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+
+        #expect(textView.bounds.height > font.ascender - font.descender)
+        #expect(textView.isFlipped)
+
+        try Self.click(
+            textView,
+            at: NSPoint(x: min(16, textView.bounds.width / 2), y: ceil((font.ascender - font.descender) / 2))
+        )
+
+        #expect(openedURL == url)
+    }
+
+    @Test
     func hoverEnforcementShortCircuitsWhenAlreadyCorrect() {
         let model = Self.makeModel()
         let cell = Self.configuredCell(model: model)
