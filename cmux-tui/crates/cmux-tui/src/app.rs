@@ -14543,6 +14543,44 @@ mod tests {
     }
 
     #[test]
+    fn provider_notice_cannot_mask_missing_workspace_mirror_error() {
+        let mux = Mux::new("managed-workspace-notice-masking-test", SurfaceOptions::default());
+        mux.create_empty_workspace(
+            Some("work".into()),
+            Some("00000000-0000-4000-8000-000000000004".into()),
+            None,
+        )
+        .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let mut update = provider_machine_ui_with_lifecycle();
+        update.notice = Some("provider accepted the rename".into());
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([FakeMachineAction::Return(Box::new(
+                    MachineActionResult::ui(update).with_session_mutation(
+                        ManagedWorkspaceSessionMutation::Rename {
+                            workspace_key: "00000000-0000-4000-8000-000000000099".into(),
+                            name: "renamed".into(),
+                        },
+                    ),
+                ))]),
+                requests: Arc::new(Mutex::new(Vec::new())),
+            }),
+        );
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::ReconnectProvider);
+
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_unavailable)
+        );
+    }
+
+    #[test]
     fn rejected_provider_workspace_mirror_commit_surfaces_the_session_error() {
         let mux = Mux::new("managed-workspace-rejected-mirror-test", SurfaceOptions::default());
         let placement = mux

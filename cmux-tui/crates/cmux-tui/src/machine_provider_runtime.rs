@@ -1675,6 +1675,89 @@ mod tests {
     }
 
     #[test]
+    fn deleting_open_managed_machine_restarts_updates_for_replacement() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let initial = snapshot(1, "Before delete", protocol::MachineStatus::Running);
+            let (mut stream, mut reader) = serve_initial_snapshot(&listener, initial);
+
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            let refreshed = snapshot(2, "Before delete", protocol::MachineStatus::Running);
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, refreshed.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &refreshed);
+
+            let delete: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                &delete.request,
+                protocol::ProviderRequest::DeleteMachine(params)
+                    if params.machine_id == id("machine-1") && params.expected_version == 1
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    delete.id,
+                    protocol::MachineMutationResult {
+                        machine_id: id("machine-1"),
+                        version: 2,
+                        revision: 3,
+                        notice: None,
+                    },
+                ),
+            );
+
+            let post_delete: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(post_delete.request, protocol::ProviderRequest::Snapshot(_)));
+            let mut deleted = snapshot(3, "Deleted", protocol::MachineStatus::Stopped);
+            deleted.machines.clear();
+            deleted.selected_machine_id = None;
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(post_delete.id, deleted.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &deleted);
+
+            let close: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                close.request,
+                protocol::ProviderRequest::CloseMachine(params)
+                    if params.connection_id == id("deleted-open")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    close.id,
+                    protocol::CloseMachineResult { revision: 4 },
+                ),
+            );
+        });
+        let connector = Arc::new(UnixProviderConnector::new(socket.path.clone(), token()));
+        let mut controller =
+            ProviderMachineController::connect_with(connector, Vec::new(), false).unwrap();
+        let machine = key_for_id(&controller.provider.keys, &id("machine-1")).unwrap();
+        controller.provider.open = Some(OpenConnection {
+            client: controller.provider.client.clone(),
+            connection_id: id("deleted-open"),
+            machine_id: id("machine-1"),
+        });
+
+        let result = controller
+            .perform_request(MachineRequest::DeleteManagedMachine { machine, expected_version: 1 })
+            .unwrap();
+
+        assert!(result.replacement.is_some());
+        assert!(result.restart_updates, "replacement retained the deleted machine update stream");
+        controller.abort_replacement();
+        drop(result);
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn local_overlay_switches_to_a_real_client_local_mux() {
         let provider_socket = TestProviderSocket::bind();
         let listener = provider_socket.listener();
