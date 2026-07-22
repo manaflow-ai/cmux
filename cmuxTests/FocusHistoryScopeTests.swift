@@ -10,6 +10,22 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct FocusHistoryScopeTests {
+    @Test func settingsFileMetadataSupportsFocusHistoryScope() throws {
+        let mapping = try #require(
+            AppSettingsFileMapping.booleanSettings.first {
+                $0.jsonKey == "focusHistoryIncludesPanesAndTabs"
+            }
+        )
+
+        #expect(mapping.defaultsKey == SettingCatalog().app.focusHistoryIncludesPanesAndTabs.userDefaultsKey)
+        #expect(CmuxSettingsFileStore.supportedSettingsJSONPaths.contains("app.focusHistoryIncludesPanesAndTabs"))
+        #expect(
+            CmuxSettingsFileStore.defaultTemplate().contains(
+                #"//     "focusHistoryIncludesPanesAndTabs" : false,"#
+            )
+        )
+    }
+
     private func withPaneHistoryManager(_ body: (TabManager) throws -> Void) throws {
         let suiteName = "FocusHistoryScopeTests.paneHistory.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
