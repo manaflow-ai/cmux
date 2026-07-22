@@ -24,6 +24,47 @@ private func rendererReleaseWasOccluded() -> Bool
 
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererPresentationTests {
+    @Test func firstPresentationWaitsUntilTheSurfaceIsAttachedToARealWindow() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        surface.attachToView(surface.surfaceView)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        beginRendererRealizedTracking(runtimeSurface)
+        surface.setRendererPortalVisible(false)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetRendererRealizedTracking()
+        }
+
+        #expect(rendererRealizedCalls() == [false])
+
+        surface.setRendererPortalVisible(true)
+
+        #expect(surface.isRendererPortalVisible)
+        #expect(!surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [false])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = surface.paneHost
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        surface.attachToView(surface.surfaceView)
+
+        #expect(surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [false, true])
+    }
+
     @Test func hiddenRuntimeIsReleasedThenRealizedOnFirstVisibility() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
