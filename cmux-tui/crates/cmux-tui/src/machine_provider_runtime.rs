@@ -641,7 +641,6 @@ impl ProviderMachineRuntime {
             }
             MachineRequest::ReconnectProvider => unreachable!("handled before refresh"),
         }
-        Ok(MachineActionResult::ui(self.ui_state_for_open_connection()))
     }
 
     pub(crate) fn close(&mut self) {
@@ -2049,6 +2048,308 @@ mod tests {
             "durably accepted mutations were reported as failed:\n{}",
             rejected.join("\n")
         );
+    }
+
+    #[test]
+    fn accepted_create_selection_survives_workspace_refresh_failure() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let initial = provider_managed_snapshot(1);
+        let initial_workspace = active_workspace_snapshot(1);
+        let mut created = initial.clone();
+        created.revision = 2;
+        let mut created_machine = created.machines[0].clone();
+        created_machine.id = id("created-machine");
+        created_machine.display_name = "Created".into();
+        created.machines.push(created_machine);
+        let created_workspace = protocol::WorkspaceSnapshotResult {
+            revision: 2,
+            machine_id: id("created-machine"),
+            workspaces: Vec::new(),
+        };
+        let server_initial = initial.clone();
+        let server_created = created.clone();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_initial.clone());
+            serve_workspace_snapshot(&mut stream, &mut reader, &initial_workspace);
+            serve_runtime_refresh(
+                &mut stream,
+                &mut reader,
+                &server_initial,
+                Some(&initial_workspace),
+            );
+
+            let create: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(create.request, protocol::ProviderRequest::CreateMachine(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    create.id,
+                    protocol::CreateMachineResult {
+                        machine_id: id("created-machine"),
+                        revision: 2,
+                        notice: Some(protocol::ProviderNotice {
+                            level: protocol::NoticeLevel::Info,
+                            message: "create accepted".into(),
+                        }),
+                    },
+                ),
+            );
+
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, server_created.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &server_created);
+            let workspace: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                &workspace.request,
+                protocol::ProviderRequest::WorkspaceSnapshot(params)
+                    if params.machine_id == id("created-machine")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::<protocol::WorkspaceSnapshotResult>::failure(
+                    workspace.id,
+                    protocol::ProviderError {
+                        code: protocol::ProviderErrorCode::Unavailable,
+                        message: "created workspace refresh failed".into(),
+                        retryable: true,
+                    },
+                ),
+            );
+
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_created.clone());
+            serve_workspace_snapshot(&mut stream, &mut reader, &initial_workspace);
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &server_created);
+            serve_workspace_snapshot(&mut stream, &mut reader, &created_workspace);
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let result = runtime.perform_request(MachineRequest::Create).unwrap();
+        assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
+        assert_eq!(runtime.snapshot, initial, "failed install mixed provider state");
+        assert!(result.ui.notice.as_deref().is_some_and(|notice| {
+            notice.contains("create accepted")
+                && notice.contains("created workspace refresh failed")
+        }));
+        assert_eq!(
+            runtime
+                .accepted_selection
+                .as_ref()
+                .and_then(|selection| selection.machine_id.as_ref())
+                .map(protocol::OpaqueId::as_str),
+            Some("created-machine")
+        );
+
+        runtime.reconnect_control().unwrap();
+        assert_eq!(runtime.snapshot.selected_machine_id, Some(id("created-machine")));
+        assert_eq!(
+            runtime.workspace_snapshot.as_ref().map(|snapshot| &snapshot.machine_id),
+            Some(&id("created-machine"))
+        );
+        assert!(runtime.accepted_selection.is_none());
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn accepted_action_selection_and_messages_survive_scope_refresh_failure() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut personal = provider_managed_snapshot(1);
+        personal.scopes.push(protocol::ScopeDescriptor {
+            id: id("team-1"),
+            display_name: "Team".into(),
+            kind: protocol::ScopeKind::Team,
+            can_admin: true,
+        });
+        let personal_workspace = active_workspace_snapshot(1);
+        let mut team = personal.clone();
+        team.revision = 2;
+        team.selected_scope_id = id("team-1");
+        team.machines[0].id = id("team-default");
+        team.machines[0].display_name = "Team default".into();
+        let mut selected_machine = team.machines[0].clone();
+        selected_machine.id = id("team-selected");
+        selected_machine.display_name = "Team selected".into();
+        team.machines.push(selected_machine);
+        team.selected_machine_id = Some(id("team-default"));
+        let selected_workspace = protocol::WorkspaceSnapshotResult {
+            revision: 2,
+            machine_id: id("team-selected"),
+            workspaces: Vec::new(),
+        };
+        let server_personal = personal.clone();
+        let server_team = team.clone();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_personal.clone());
+            serve_workspace_snapshot(&mut stream, &mut reader, &personal_workspace);
+            serve_runtime_refresh(
+                &mut stream,
+                &mut reader,
+                &server_personal,
+                Some(&personal_workspace),
+            );
+
+            let action: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(action.request, protocol::ProviderRequest::InvokeAction(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    action.id,
+                    protocol::InvokeActionResult {
+                        revision: 2,
+                        notice: Some(protocol::ProviderNotice {
+                            level: protocol::NoticeLevel::Info,
+                            message: "action accepted".into(),
+                        }),
+                        url: Some("https://example.com/action".into()),
+                        selected_scope_id: Some(id("team-1")),
+                        selected_machine_id: Some(id("team-selected")),
+                    },
+                ),
+            );
+            let failed_select: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                &failed_select.request,
+                protocol::ProviderRequest::SelectScope(params)
+                    if params.scope_id == id("team-1")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::<protocol::SelectScopeResult>::failure(
+                    failed_select.id,
+                    protocol::ProviderError {
+                        code: protocol::ProviderErrorCode::Unavailable,
+                        message: "team scope refresh failed".into(),
+                        retryable: true,
+                    },
+                ),
+            );
+
+            let select: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                &select.request,
+                protocol::ProviderRequest::SelectScope(params)
+                    if params.scope_id == id("team-1")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    select.id,
+                    protocol::SelectScopeResult { snapshot: server_team.clone() },
+                ),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &server_team);
+            serve_workspace_snapshot(&mut stream, &mut reader, &selected_workspace);
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let result = runtime
+            .perform_request(MachineRequest::InvokeProviderAction {
+                action_id: "billing".into(),
+                values: BTreeMap::new(),
+            })
+            .unwrap();
+        assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
+        assert_eq!(runtime.snapshot, personal, "failed scope install mixed provider state");
+        assert!(result.ui.notice.as_deref().is_some_and(|notice| {
+            notice.contains("action accepted")
+                && notice.contains("https://example.com/action")
+                && notice.contains("team scope refresh failed")
+        }));
+
+        runtime.refresh().unwrap();
+        assert_eq!(runtime.snapshot.selected_scope_id, id("team-1"));
+        assert_eq!(runtime.snapshot.selected_machine_id, Some(id("team-selected")));
+        assert_eq!(
+            runtime.workspace_snapshot.as_ref().map(|snapshot| &snapshot.machine_id),
+            Some(&id("team-selected"))
+        );
+        assert!(runtime.accepted_selection.is_none());
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn accepted_open_machine_delete_retires_session_when_refresh_fails() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let catalog = snapshot(1, "Deleted machine", protocol::MachineStatus::Running);
+        let server_catalog = catalog;
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_catalog.clone());
+            serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+
+            let delete: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(delete.request, protocol::ProviderRequest::DeleteMachine(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    delete.id,
+                    protocol::MachineMutationResult {
+                        machine_id: id("machine-1"),
+                        version: 2,
+                        revision: 2,
+                        notice: None,
+                    },
+                ),
+            );
+            let failed_refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(failed_refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::<protocol::SnapshotResult>::failure(
+                    failed_refresh.id,
+                    protocol::ProviderError {
+                        code: protocol::ProviderErrorCode::Unavailable,
+                        message: "delete refresh failed".into(),
+                        retryable: true,
+                    },
+                ),
+            );
+
+            let close: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                close.request,
+                protocol::ProviderRequest::CloseMachine(params)
+                    if params.connection_id == id("deleted-open")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    close.id,
+                    protocol::CloseMachineResult { revision: 3 },
+                ),
+            );
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let machine = key_for_id(&runtime.keys, &id("machine-1")).unwrap();
+        runtime.open = Some(OpenConnection {
+            client: runtime.client.clone(),
+            connection_id: id("deleted-open"),
+            machine_id: id("machine-1"),
+        });
+        let result = runtime
+            .perform_request(MachineRequest::DeleteManagedMachine { machine, expected_version: 1 })
+            .unwrap();
+        assert!(result.replacement.is_some());
+        assert!(result.restart_updates);
+        assert!(runtime.pending.as_ref().is_some_and(|pending| pending.retire_open_on_abort));
+
+        runtime.abort_replacement();
+        assert!(runtime.open.is_none(), "aborted preparation retained a deleted session");
+        drop(result);
+        drop(runtime);
+        server.join().unwrap();
     }
 
     #[test]
