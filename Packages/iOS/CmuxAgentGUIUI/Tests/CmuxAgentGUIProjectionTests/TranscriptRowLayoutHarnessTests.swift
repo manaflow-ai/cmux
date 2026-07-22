@@ -16,6 +16,7 @@ extension TranscriptRenderingRegressionTests {
         var exercisedLayouts = 0
         let rows = Self.rowLayoutContentVariants.indices.flatMap(Self.layoutHarnessRows)
             + Self.supplementalLayoutHarnessRows
+            + Self.slice3CatalogLayoutHarnessRows
 
         for row in rows {
             for width in widths {
@@ -98,7 +99,7 @@ extension TranscriptRenderingRegressionTests {
                 }
             }
         }
-        #expect(exercisedLayouts == ((13 * 5) + 4) * 4 * 2)
+        #expect(exercisedLayouts == ((13 * 5) + 9) * 4 * 2)
     }
 
     @Test func pureRowLayoutRunsOffTheMainActor() async {
