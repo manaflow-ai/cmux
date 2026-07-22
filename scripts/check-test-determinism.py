@@ -3462,11 +3462,7 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             type_name in text
             for type_name in repository_real_clock_leaves
         )
-        if (
-            "ContinuousClock" in text
-            or "SuspendingClock" in text
-            or uses_repository_clock
-        ):
+        if "ContinuousClock" in text or "SuspendingClock" in text:
             literal_clock_bundles.add(bundle)
         aliases: dict[str, set[str]] = {}
         declared_types: set[str] = set()
@@ -3497,13 +3493,28 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             aliases,
         )
 
+    for rel_posix, aliases in file_typealiases.items():
+        bundle = _swift_test_bundle_key(rel_posix)
+        visible_real_clock_types = file_visible_real_clock_types.get(
+            rel_posix, set()
+        )
+        real_clock_aliases = set(visible_real_clock_types)
+        real_clock_aliases.update(
+            _resolved_real_clock_aliases(
+                _effective_typealias_targets(
+                    aliases,
+                    bundle_typealiases.get(bundle),
+                ),
+                visible_real_clock_types,
+            )
+        )
+        file_real_clock_aliases[rel_posix] = real_clock_aliases
+
     indexed_bundles = set(literal_clock_bundles)
     indexed_bundles.update(
         bundle
         for bundle, aliases in bundle_typealiases.items()
-        if _resolved_real_clock_aliases(
-            aliases, repository_real_clock_types
-        )
+        if _resolved_real_clock_aliases(aliases)
     )
 
     bundle_members: dict[str, dict[str, set[str]]] = {}
