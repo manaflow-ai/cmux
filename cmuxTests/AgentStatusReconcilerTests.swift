@@ -155,6 +155,29 @@ struct AgentStatusReconcilerTests {
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .unknown)
     }
 
+    @Test @MainActor func foregroundProbeExcludesUnrelatedProcessRoots() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "custom-tool.session",
+            pid: getppid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.recordAgentPID(
+            key: "codex.session",
+            pid: getpid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        let probe = workspace.agentStatusForegroundProbe()
+        let rootStatusKeys = Set((probe.rootStatusKeysByPanelId[panelId] ?? [:]).values)
+
+        #expect(rootStatusKeys == ["codex"])
+    }
+
     @Test @MainActor func workspaceAggregateTimestampCannotRefreshPanelLifecycleEvidence() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
