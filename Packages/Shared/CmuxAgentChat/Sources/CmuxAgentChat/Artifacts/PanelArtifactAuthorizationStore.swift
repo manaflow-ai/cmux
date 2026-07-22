@@ -85,4 +85,42 @@ public final class PanelArtifactAuthorizationStore {
         }
         return requestedCanonicalPath
     }
+
+    /// Resolves a request only when both the live panel path and request still
+    /// canonicalize to the recorded grant.
+    ///
+    /// This comparison deliberately does not replace the grant. A symlink that
+    /// is retargeted after grant time must revoke access until the panel
+    /// lifecycle records a new file, rather than silently authorizing the new
+    /// target during a read.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: Workspace containing the panel.
+    ///   - surfaceID: Panel authorizing the request.
+    ///   - currentFilePath: File path the live panel reports displaying.
+    ///   - requestedPath: Absolute path requested by the mobile client.
+    /// - Returns: The canonical requested path when the live panel and request
+    ///   both exactly match the recorded grant, otherwise `nil`.
+    public func authorizedCanonicalPath(
+        workspaceID: String,
+        surfaceID: String,
+        currentFilePath: String,
+        requestedPath: String
+    ) -> String? {
+        let key = GrantKey(workspaceID: workspaceID, surfaceID: surfaceID)
+        guard let grantedPath = canonicalPathByGrantKey[key],
+              let currentCanonicalPath = ChatArtifactScope.canonicalizedPath(
+                currentFilePath,
+                resolver: resolver
+              ),
+              currentCanonicalPath == grantedPath,
+              let requestedCanonicalPath = ChatArtifactScope.canonicalizedPath(
+                requestedPath,
+                resolver: resolver
+              ),
+              requestedCanonicalPath == grantedPath else {
+            return nil
+        }
+        return requestedCanonicalPath
+    }
 }

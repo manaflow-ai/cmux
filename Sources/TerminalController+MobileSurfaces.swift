@@ -324,17 +324,10 @@ extension TerminalController {
             ))
         }
 
-        // Refresh from the live panel immediately before authorization. This is
-        // what makes a symlink retarget or same-surface file replacement revoke
-        // the previous canonical path even before the next inventory emission.
-        panelArtifactAuthorizationStore.record(
-            workspaceID: requestedWorkspaceID.uuidString,
-            surfaceID: requestedSurfaceID.uuidString,
-            filePath: currentFilePath
-        )
         guard let canonicalPath = panelArtifactAuthorizationStore.authorizedCanonicalPath(
             workspaceID: requestedWorkspaceID.uuidString,
             surfaceID: requestedSurfaceID.uuidString,
+            currentFilePath: currentFilePath,
             requestedPath: requestedPath
         ) else {
             return (nil, .err(
