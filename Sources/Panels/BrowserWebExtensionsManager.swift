@@ -1460,24 +1460,13 @@ final class BrowserWebExtensionsManager: NSObject {
             throw BrowserWebExtensionManagementError.extensionNotFound
         }
         let identifier = Self.contextIdentifier(for: managementID)
-        let dataTypes = WKWebExtensionController.allExtensionDataTypes
-        var contextToUnload = loadedContext(managementID: managementID)
-        // WebKit stops enumerating an extension's records once its context is
-        // unloaded. Capture them first so removal clears storage and rules.
-        let dataRecords = await controller.dataRecords(ofTypes: dataTypes)
-            .filter { $0.uniqueIdentifier == identifier }
-        try requireActive()
-        if let context = contextToUnload {
+        if let context = loadedContext(managementID: managementID) {
             cancelPermissionPrompts(for: context)
             await closePresentedPopups(forExtensionIdentifier: context.uniqueIdentifier)
             try unloadContext(context)
             loadedContexts.removeAll { $0 === context }
             managedRecordIDsByContextIdentifier.removeValue(forKey: context.uniqueIdentifier)
         }
-        // WebKit can keep extension storage files open for the lifetime of the
-        // context wrapper even after `unload`. Release our final local owner
-        // before asking the controller to remove those files.
-        contextToUnload = nil
         try requireActive()
         do {
             guard try await directoryRepository.removeManagedRecord(
@@ -1494,9 +1483,10 @@ final class BrowserWebExtensionsManager: NSObject {
         managedRecords.removeValue(forKey: managementID)
         toolbarPinnedExtensionIdentifiers.remove(identifier)
         clearTransientState(forExtensionIdentifier: identifier)
-        if !dataRecords.isEmpty {
-            await controller.removeData(ofTypes: dataTypes, from: dataRecords)
-        }
+        // WKWebExtensionController unloads contexts synchronously while its
+        // storage queues close asynchronously. Eager data deletion can unlink
+        // an open SQLite WAL. Keep the now-unreachable record quarantined;
+        // the next controller startup removes it before loading any context.
         if let packageURL = managedPackageURL(for: record) {
             try? await directoryRepository.removeManagedPackageIfUnreferenced(
                 at: packageURL,
