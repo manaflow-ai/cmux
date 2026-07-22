@@ -315,11 +315,13 @@ struct SidebarAppKitRowCellTests {
 
     @Test
     func reusedWorkspaceCellClearsPreviousShortcutHintImmediately() throws {
-        let first = Self.makeModel(shortcutHintText: "⌘1")
+        let workspaceId = UUID()
+        let first = Self.makeModel(workspaceId: workspaceId, shortcutHintText: "⌘1")
         let cell = Self.configuredCell(model: first)
         let pill = try #require(Self.descendants(of: cell).compactMap { $0 as? SidebarShortcutHintPillView }.first)
 
-        let replacement = Self.makeModel()
+        cell.prepareForReuse()
+        let replacement = Self.makeModel(workspaceId: workspaceId)
         cell.configure(
             model: replacement,
             actions: Self.makeActions(model: replacement),
