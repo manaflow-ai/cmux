@@ -41,6 +41,7 @@ final class MobileWorkspaceListObserver {
     /// mobile subscriber.
     static var subscriberPresenceOverrideForTesting: Bool?
     var pipelinesAttachedForTesting: Bool { pipelinesAttached }
+    private(set) var emittedUpdateCountForTesting = 0
     #endif
 
     /// Whether any mobile client currently subscribes to `workspace.updated`.
@@ -287,6 +288,9 @@ final class MobileWorkspaceListObserver {
             return
         }
         lastSummaryHash = hash
+        #if DEBUG
+        emittedUpdateCountForTesting += 1
+        #endif
         mobileWorkspaceObserverLog.debug("emitting workspace.updated (hash=\(hash, privacy: .public))")
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
@@ -300,11 +304,10 @@ final class MobileWorkspaceListObserver {
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
     /// panels in spatial order + each panel's displayed (custom-aware) title and
-    /// directory + the `layout.v1` pane topology. The topology hashes pane ids in
-    /// DFS order, each pane's surface-id order, and each pane's selected tab. It
-    /// deliberately excludes split ratios, so divider drags don't spam events,
-    /// and keeps excluding `focusedPanelId` itself. Scrollback content and focus
-    /// changes with no other list-facing effect also remain excluded.
+    /// directory + the shared mobile pane topology. The topology includes split
+    /// structure/orientation, pane ids, surface order, selected surfaces, and the
+    /// focused pane. It deliberately excludes split ratios, so divider drags do
+    /// not spam events. Scrollback content remains excluded.
     ///
     /// The panel ids are hashed in `orderedPanelIds` order (not the sorted set),
     /// so a pure drag-reorder, which changes the spatial order but not the id set,
@@ -357,15 +360,7 @@ final class MobileWorkspaceListObserver {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))
             }
-            let paneTopology = MobileWorkspaceLayoutSerializer.paneTopology(
-                in: workspace.bonsplitController.treeSnapshot()
-            )
-            hasher.combine(paneTopology.count)
-            for pane in paneTopology {
-                hasher.combine(pane.id)
-                hasher.combine(pane.surfaceIDs)
-                hasher.combine(pane.selectedSurfaceID)
-            }
+            workspace.mobileWorkspaceLayoutSnapshot().hashTopology(into: &hasher)
             hasher.combine(workspace.presentedCurrentDirectory)
             // Todo mutations change the list-facing shape; without these the
             // hash-diff would suppress the re-emit the publishers above fire.

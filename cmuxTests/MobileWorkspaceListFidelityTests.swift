@@ -189,6 +189,30 @@ struct MobileWorkspaceListFidelityTests {
         #expect(!observer.pipelinesAttachedForTesting)
     }
 
+    @Test func observerPipelineEmitsForPaneSelectionAndSuppressesNoOp() async throws {
+        let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
+        defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        let firstTabID = try #require(workspace.surfaceIdFromPanelId(firstPanelID))
+        let secondTabID = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
+        workspace.bonsplitController.selectTab(firstTabID)
+        let observer = MobileWorkspaceListObserver(tabManager: manager)
+        #expect(observer.emittedUpdateCountForTesting == 1, "attachment emits the initial snapshot")
+
+        workspace.bonsplitController.selectTab(secondTabID)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(observer.emittedUpdateCountForTesting == 2, "selection publishes through the observer")
+
+        workspace.bonsplitController.selectTab(secondTabID)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(observer.emittedUpdateCountForTesting == 2, "a no-op selection stays suppressed")
+    }
+
     @Test func orderedPanelIdsMatchesBonsplitSpatialOrder() throws {
         let (workspace, createdOrder) = try makeWorkspaceWithSplitTerminals(count: 3)
 
