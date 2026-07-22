@@ -10,7 +10,6 @@ struct SurfaceSwitcherSheet: View {
     let dismiss: () -> Void
 
     @State private var searchText = ""
-    @State private var lastAutoScrolledDestinationID: SurfaceSwitcherDestination.ID?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -38,7 +37,6 @@ struct SurfaceSwitcherSheet: View {
                 hasBrowserRows: !value.browserStreamRows.isEmpty,
                 searchText: searchText,
                 foreground: foreground,
-                lastAutoScrolledDestinationID: $lastAutoScrolledDestinationID,
                 select: select,
                 retryBrowserStreamRefresh: actions.retryBrowserStreamRefresh
             )
@@ -145,6 +143,8 @@ private struct SurfaceSwitcherSearchField: View {
             .autocorrectionDisabled()
             .submitLabel(.done)
             .foregroundStyle(foreground)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("MobileSurfaceSwitcherSearchField")
         }
         .font(.body)
         .padding(.horizontal, 12)
@@ -154,7 +154,6 @@ private struct SurfaceSwitcherSearchField: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(foreground.opacity(0.14), lineWidth: 1)
         }
-        .accessibilityIdentifier("MobileSurfaceSwitcherSearchField")
     }
 }
 
@@ -166,81 +165,137 @@ private struct SurfaceSwitcherDestinationList: View {
     let hasBrowserRows: Bool
     let searchText: String
     let foreground: Color
-    @Binding var lastAutoScrolledDestinationID: SurfaceSwitcherDestination.ID?
     let select: (SurfaceSwitcherDestination) -> Void
     let retryBrowserStreamRefresh: () -> Void
+    @State private var scrollPosition: ScrollPosition
+
+    init(
+        destinations: [SurfaceSwitcherDestination],
+        activeDestinationID: SurfaceSwitcherDestination.ID?,
+        supportsBrowserStream: Bool,
+        browserRefreshState: SurfaceSwitcherBrowserRefreshState,
+        hasBrowserRows: Bool,
+        searchText: String,
+        foreground: Color,
+        select: @escaping (SurfaceSwitcherDestination) -> Void,
+        retryBrowserStreamRefresh: @escaping () -> Void
+    ) {
+        self.destinations = destinations
+        self.activeDestinationID = activeDestinationID
+        self.supportsBrowserStream = supportsBrowserStream
+        self.browserRefreshState = browserRefreshState
+        self.hasBrowserRows = hasBrowserRows
+        self.searchText = searchText
+        self.foreground = foreground
+        self.select = select
+        self.retryBrowserStreamRefresh = retryBrowserStreamRefresh
+        let destinationID = Self.visibleActiveDestinationID(
+            destinations: destinations,
+            activeDestinationID: activeDestinationID
+        )
+        _scrollPosition = State(initialValue: destinationID.map {
+            ScrollPosition(id: $0, anchor: .center)
+        } ?? ScrollPosition(idType: SurfaceSwitcherDestination.ID.self))
+    }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: SurfaceSwitcherMetrics.sectionSpacing) {
-                    if destinations.isEmpty, !searchText.isEmpty {
-                        SurfaceSwitcherStatusRow(
-                            title: L10n.string("mobile.switchTab.noResults", defaultValue: "No matching tabs"),
-                            subtitle: L10n.string("mobile.switchTab.noResultsDetail", defaultValue: "Try a different title or source."),
-                            systemImage: "magnifyingglass",
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: SurfaceSwitcherMetrics.rowSpacing) {
+                ForEach(listItems) { item in
+                    switch item.content {
+                    case .header(let title, let topPadding):
+                        Text(title)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(foreground.opacity(0.62))
+                            .padding(.horizontal, 2)
+                            .padding(.top, topPadding)
+                    case .destination(let destination):
+                        SurfaceSwitcherDestinationRow(
+                            destination: destination,
+                            isSelected: destination.id == activeDestinationID,
                             foreground: foreground,
-                            accessibilityIdentifier: "MobileSurfaceSwitcherNoResults"
+                            select: select
                         )
-                    } else {
-                        section(
-                            title: L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"),
-                            rows: destinations.filter(\.kind.isTerminal),
-                            empty: terminalEmptyRow
-                        )
-                        section(
-                            title: L10n.string("mobile.switchTab.agentChat", defaultValue: "Agent Chat"),
-                            rows: destinations.filter(\.kind.isChat),
-                            empty: nil
-                        )
-                        section(
-                            title: L10n.string("mobile.browserStream.menuTitle", defaultValue: "Browsers"),
-                            rows: destinations.filter(\.kind.isBrowser),
-                            empty: browserStatusRow
-                        )
+                        .id(destination.id)
+                    case .status(let status):
+                        status
                     }
                 }
-                .padding(.horizontal, SurfaceSwitcherMetrics.sideInset)
-                .padding(.top, 2)
-                .padding(.bottom, SurfaceSwitcherMetrics.contentBottomInset)
             }
-            .accessibilityIdentifier("MobileSurfaceSwitcherList")
-            .onAppear { scheduleAutoScroll(proxy) }
-            .onChange(of: activeDestinationID) { _, _ in
-                scheduleAutoScroll(proxy)
-            }
+            .scrollTargetLayout()
+            .padding(.horizontal, SurfaceSwitcherMetrics.sideInset)
+            .padding(.top, 2)
+            .padding(.bottom, SurfaceSwitcherMetrics.contentBottomInset)
+        }
+        .scrollPosition($scrollPosition)
+        .accessibilityIdentifier("MobileSurfaceSwitcherList")
+        .onChange(of: visibleActiveDestinationID) { _, destinationID in
+            guard let destinationID else { return }
+            scrollPosition.scrollTo(id: destinationID, anchor: .center)
         }
     }
 
-    @ViewBuilder
-    private func section(
+    private var listItems: [SurfaceSwitcherListItem] {
+        if destinations.isEmpty, !searchText.isEmpty {
+            return [
+                .status(
+                    SurfaceSwitcherStatusRow(
+                        title: L10n.string("mobile.switchTab.noResults", defaultValue: "No matching tabs"),
+                        subtitle: L10n.string("mobile.switchTab.noResultsDetail", defaultValue: "Try a different title or source."),
+                        systemImage: "magnifyingglass",
+                        foreground: foreground,
+                        accessibilityIdentifier: "MobileSurfaceSwitcherNoResults"
+                    )
+                )
+            ]
+        }
+
+        var items: [SurfaceSwitcherListItem] = []
+        items += sectionItems(
+            id: "terminals",
+            title: L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"),
+            rows: destinations.filter(\.kind.isTerminal),
+            empty: searchText.isEmpty ? terminalEmptyRow : nil,
+            isFirst: items.isEmpty
+        )
+        items += sectionItems(
+            id: "agent-chat",
+            title: L10n.string("mobile.switchTab.agentChat", defaultValue: "Agent Chat"),
+            rows: destinations.filter(\.kind.isChat),
+            empty: nil,
+            isFirst: items.isEmpty
+        )
+        items += sectionItems(
+            id: "browsers",
+            title: L10n.string("mobile.browserStream.menuTitle", defaultValue: "Browsers"),
+            rows: destinations.filter(\.kind.isBrowser),
+            empty: searchText.isEmpty ? browserStatusRow : nil,
+            isFirst: items.isEmpty
+        )
+        return items
+    }
+
+    private func sectionItems(
+        id: String,
         title: String,
         rows: [SurfaceSwitcherDestination],
-        empty: SurfaceSwitcherStatusRow?
-    ) -> some View {
-        if !rows.isEmpty || empty != nil {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(foreground.opacity(0.62))
-                    .padding(.horizontal, 2)
-                LazyVStack(spacing: SurfaceSwitcherMetrics.rowSpacing) {
-                    if rows.isEmpty, let empty {
-                        empty
-                    } else {
-                        ForEach(rows) { destination in
-                            SurfaceSwitcherDestinationRow(
-                                destination: destination,
-                                isSelected: destination.id == activeDestinationID,
-                                foreground: foreground,
-                                select: select
-                            )
-                            .id(destination.id)
-                        }
-                    }
-                }
-            }
+        empty: SurfaceSwitcherStatusRow?,
+        isFirst: Bool
+    ) -> [SurfaceSwitcherListItem] {
+        guard !rows.isEmpty || empty != nil else { return [] }
+        var items: [SurfaceSwitcherListItem] = [
+            .header(
+                id: id,
+                title: title,
+                topPadding: isFirst ? 0 : SurfaceSwitcherMetrics.sectionSpacing - SurfaceSwitcherMetrics.rowSpacing
+            )
+        ]
+        if rows.isEmpty, let empty {
+            items.append(.status(empty))
+        } else {
+            items += rows.map(SurfaceSwitcherListItem.destination)
         }
+        return items
     }
 
     private var terminalEmptyRow: SurfaceSwitcherStatusRow? {
@@ -293,21 +348,43 @@ private struct SurfaceSwitcherDestinationList: View {
         }
     }
 
-    private func scheduleAutoScroll(_ proxy: ScrollViewProxy) {
-        guard let destinationID = activeDestinationID else {
-            lastAutoScrolledDestinationID = nil
-            return
-        }
-        guard lastAutoScrolledDestinationID != destinationID else { return }
-        Task { @MainActor in
-            await Task.yield()
-            guard activeDestinationID == destinationID,
-                  lastAutoScrolledDestinationID != destinationID else { return }
-            withAnimation(.snappy(duration: 0.2)) {
-                proxy.scrollTo(destinationID, anchor: .center)
-            }
-            lastAutoScrolledDestinationID = destinationID
-        }
+    private var visibleActiveDestinationID: SurfaceSwitcherDestination.ID? {
+        Self.visibleActiveDestinationID(
+            destinations: destinations,
+            activeDestinationID: activeDestinationID
+        )
+    }
+
+    private static func visibleActiveDestinationID(
+        destinations: [SurfaceSwitcherDestination],
+        activeDestinationID: SurfaceSwitcherDestination.ID?
+    ) -> SurfaceSwitcherDestination.ID? {
+        guard let activeDestinationID,
+              destinations.contains(where: { $0.id == activeDestinationID }) else { return nil }
+        return activeDestinationID
+    }
+}
+
+private struct SurfaceSwitcherListItem: Identifiable {
+    enum Content {
+        case header(title: String, topPadding: CGFloat)
+        case destination(SurfaceSwitcherDestination)
+        case status(SurfaceSwitcherStatusRow)
+    }
+
+    let id: String
+    let content: Content
+
+    static func header(id: String, title: String, topPadding: CGFloat) -> Self {
+        Self(id: "header:\(id)", content: .header(title: title, topPadding: topPadding))
+    }
+
+    static func destination(_ destination: SurfaceSwitcherDestination) -> Self {
+        Self(id: destination.id, content: .destination(destination))
+    }
+
+    static func status(_ status: SurfaceSwitcherStatusRow) -> Self {
+        Self(id: "status:\(status.accessibilityIdentifier)", content: .status(status))
     }
 }
 
@@ -341,12 +418,17 @@ private struct SurfaceSwitcherDestinationRow: View {
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(foreground)
-                    .frame(width: SurfaceSwitcherMetrics.checkWell, height: SurfaceSwitcherMetrics.checkWell)
-                    .opacity(isSelected ? 1 : 0)
-                    .accessibilityHidden(true)
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(foreground)
+                        .frame(width: SurfaceSwitcherMetrics.checkWell, height: SurfaceSwitcherMetrics.checkWell)
+                        .accessibilityHidden(true)
+                } else {
+                    Color.clear
+                        .frame(width: SurfaceSwitcherMetrics.checkWell, height: SurfaceSwitcherMetrics.checkWell)
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, SurfaceSwitcherMetrics.rowHorizontalPadding)
             .padding(.vertical, 10)
@@ -362,8 +444,6 @@ private struct SurfaceSwitcherDestinationRow: View {
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(destination.accessibilityIdentifier)
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             String(
                 format: L10n.string("mobile.switchTab.row.accessibilityLabel", defaultValue: "%1$@, %2$@"),
@@ -372,6 +452,7 @@ private struct SurfaceSwitcherDestinationRow: View {
             )
         )
         .accessibilityValue(isSelected ? L10n.string("mobile.surfaceSwitcher.selected", defaultValue: "Selected") : "")
+        .accessibilityIdentifier(destination.accessibilityIdentifier)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -386,23 +467,30 @@ private struct SurfaceSwitcherStatusRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.body.weight(.semibold))
-                .frame(width: SurfaceSwitcherMetrics.iconWell, height: SurfaceSwitcherMetrics.iconWell)
-                .background(foreground.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.body)
-                    .foregroundStyle(foreground)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(foreground.opacity(0.68))
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.semibold))
+                    .frame(width: SurfaceSwitcherMetrics.iconWell, height: SurfaceSwitcherMetrics.iconWell)
+                    .background(foreground.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.body)
+                        .foregroundStyle(foreground)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(foreground.opacity(0.68))
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityValue(subtitle)
+            .accessibilityIdentifier(accessibilityIdentifier)
             if let retry {
                 Button(action: retry) {
                     Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
@@ -422,7 +510,6 @@ private struct SurfaceSwitcherStatusRow: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(foreground.opacity(0.14), lineWidth: 1)
         }
-        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 

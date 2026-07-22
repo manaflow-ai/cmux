@@ -32,10 +32,17 @@ final class cmuxUITests: XCTestCase {
         tap(app.buttons["MobileTerminalDropdown"], in: app)
 
         XCTAssertTrue(app.otherElements["MobileSurfaceSwitcher"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.otherElements["MobileSurfaceSwitcherSearchField"].waitForExistence(timeout: 3))
+        let searchField = app.textFields["MobileSurfaceSwitcherSearchField"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 3))
+        XCTAssertTrue(searchField.isHittable)
+        XCTAssertGreaterThanOrEqual(app.buttons["MobileSurfaceSwitcherCloseButton"].frame.height, 42)
         let selectedStream = app.buttons["BrowserStreamMenuItem-browser-stream-24"]
         XCTAssertTrue(selectedStream.waitForExistence(timeout: 3))
+        XCTAssertTrue(selectedStream.isSelected)
         XCTAssertEqual(selectedStream.value as? String, "Selected")
+        XCTAssertGreaterThanOrEqual(selectedStream.frame.height, 57.5)
+        XCTAssertGreaterThanOrEqual(app.buttons["MobileNewTerminalMenuItem"].frame.height, 42)
+        XCTAssertGreaterThanOrEqual(app.buttons["MobileNewBrowserMenuItem"].frame.height, 42)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "surface-switcher-preview-24x24-stream-selected"
@@ -55,7 +62,7 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["BrowserStreamFailureState"].waitForExistence(timeout: 4))
         tap(app.buttons["BrowserStreamRetryButton"], in: app)
-        XCTAssertTrue(app.otherElements["BrowserStreamLoadingState"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.otherElements["BrowserStreamLoadingState"].exists)
         XCTAssertTrue(app.buttons["BrowserStreamMenuItem-browser-stream-24"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.otherElements["MobileSurfaceSwitcher"].exists)
 
