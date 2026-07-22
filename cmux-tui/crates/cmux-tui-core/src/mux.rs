@@ -5327,6 +5327,7 @@ mod tests {
         );
         let first = mux.apply_layout(None, Some("round-trip".into()), &spec, None).unwrap();
         let exported_shape = node_shape(&screen_root(&mux, first.screen));
+        mux.with_state(|state| assert_eq!(state.workspaces[0].name, "0"));
 
         let round_trip_spec = mux.with_state(|s| {
             fn from_node(node: &Node) -> LayoutSpec {
