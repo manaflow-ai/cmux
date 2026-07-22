@@ -161,7 +161,7 @@ fn read_message(mut reader: impl Read) -> io::Result<SensitiveBytes> {
     let mut byte = Zeroizing::new([0_u8; 1]);
     loop {
         match reader.read(&mut *byte) {
-            Ok(0) => break,
+            Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
             Ok(1) => {
                 let value = byte[0];
                 byte.zeroize();
@@ -413,6 +413,16 @@ mod tests {
             "sensitive message storage could reallocate without scrubbing the old allocation"
         );
         assert_eq!(message.0, line.as_bytes()[..line.len() - 1]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn management_read_rejects_eof_before_the_frame_delimiter() {
+        let Err(error) = read_message(io::Cursor::new(br#"{"protocol":1,"operation":"status"}"#))
+        else {
+            panic!("EOF without a frame delimiter was accepted");
+        };
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
     }
 
     #[test]

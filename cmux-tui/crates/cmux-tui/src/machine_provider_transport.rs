@@ -989,8 +989,8 @@ mod tests {
         }
         cleanup.join().expect("join provider cleanup");
 
-        assert!(completed, "provider cleanup waited for detached descendant diagnostics");
         let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
+        assert!(completed, "provider cleanup waited for detached descendant diagnostics");
     }
 
     #[test]
