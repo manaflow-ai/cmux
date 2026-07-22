@@ -7,13 +7,46 @@ CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
 SGR_RE = re.compile(rb"\x1b\[([0-9;]*)m")
 
 
+def sgr_commands(parameters):
+    values = tuple(int(part or b"0") for part in parameters.split(b";"))
+    start = 0
+    while start < len(values):
+        code = values[start]
+        if code in (38, 48) and start + 1 < len(values):
+            mode = values[start + 1]
+            if mode == 5:
+                end = min(start + 3, len(values))
+            elif mode == 2:
+                end = min(start + 5, len(values))
+            else:
+                # An invalid extended-color mode has no reliable command
+                # boundary. Keep the remainder together rather than treating
+                # a color operand as an independent SGR command.
+                end = len(values)
+        else:
+            end = start + 1
+        yield values[start:end]
+        start = end
+
+
 def has_sgr_parameters(data, expected):
-    for match in SGR_RE.finditer(data):
-        parameters = tuple(int(part or b"0") for part in match.group(1).split(b";"))
-        width = len(expected)
-        if any(parameters[start : start + width] == expected for start in range(len(parameters))):
-            return True
-    return False
+    return any(
+        command == expected
+        for match in SGR_RE.finditer(data)
+        for command in sgr_commands(match.group(1))
+    )
+
+
+def assert_sgr_parser():
+    combined = b"\x1b[1;31;48;2;31;0;0;38;5;196;48;5;236m"
+    assert has_sgr_parameters(combined, (31,))
+    assert has_sgr_parameters(combined, (38, 5, 196))
+    assert has_sgr_parameters(combined, (48, 5, 236))
+    assert not has_sgr_parameters(b"\x1b[38;5;31m", (31,))
+    assert not has_sgr_parameters(b"\x1b[48;2;31;0;0m", (31,))
+
+
+assert_sgr_parser()
 
 
 def fallback_socket_path():
