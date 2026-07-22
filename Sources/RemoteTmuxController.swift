@@ -441,7 +441,7 @@ final class RemoteTmuxController {
     /// create round trip and mirror creation finish inside the test body.
     private(set) var newSessionRoutingTask: Task<Void, Never>?
 
-    /// How a failed routed New Workspace reaches the user (host, failure detail,
+    /// How a failed routed New Workspace reaches the user (host, diagnostic detail,
     /// requesting manager). Local creation stays suppressed either way — a mirror
     /// workspace's Cmd+N must not quietly fall back to a local workspace — so the
     /// failure has to be visible. Settable so tests can capture it instead of
@@ -452,19 +452,25 @@ final class RemoteTmuxController {
     }
 
     private func presentNewSessionFailureAlert(host: RemoteTmuxHost, detail: String, manager: TabManager) {
+        // `detail` is whatever the remote produced — tmux stderr, or a transport
+        // error's description. It goes to the debug log, never into the dialog: the
+        // user gets a sentence about their workspace, not the plumbing's output.
+        #if DEBUG
+        let trimmedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedDetail.isEmpty {
+            cmuxDebugLog("remote-tmux: new-session failed on \(host.destination): \(trimmedDetail)")
+        }
+        #endif
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
             localized: "dialog.remoteTmux.newSessionFailed.title",
             defaultValue: "Couldn't Create a tmux Session on \(host.destination)"
         )
-        let trimmedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-        alert.informativeText = trimmedDetail.isEmpty
-            ? String(
-                localized: "dialog.remoteTmux.newSessionFailed.message",
-                defaultValue: "tmux new-session failed on the remote host. No workspace was created."
-            )
-            : trimmedDetail
+        alert.informativeText = String(
+            localized: "dialog.remoteTmux.newSessionFailed.message",
+            defaultValue: "cmux could not start a new tmux session on the remote host, so no workspace was created. Check that the host is still reachable and try again."
+        )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         if let window = manager.window ?? NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: nil)
