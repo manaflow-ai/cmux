@@ -35,6 +35,11 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
 
+    var agentLifecycleEventTimesByPanelId: [UUID: [String: TimeInterval]] {
+        get { sidebarAgentRuntimeObservation.agentLifecycleEventTimesByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleEventTimesByPanelId(newValue) }
+    }
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 

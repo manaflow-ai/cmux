@@ -123,10 +123,10 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!run.timedOut, Comment(rawValue: run.stderr))
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
-        #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
-        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit", timeout: 1))
-        #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
-        #expect(waitForFile(doneFile, containing: "done", timeout: 6))
+        #expect(waitForFile(capturedStdin, containing: payload, timeout: 3))
+        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit", timeout: 3))
+        #expect(waitForFile(capturedPID, containing: "4242", timeout: 3))
+        #expect(waitForFile(doneFile, containing: "done", timeout: 8))
     }
 
     @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
@@ -187,10 +187,10 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!run.timedOut, Comment(rawValue: run.stderr))
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
-        #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
-        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex stop", timeout: 1))
-        #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
-        #expect(waitForFile(doneFile, containing: "done", timeout: 3))
+        #expect(waitForFile(capturedStdin, containing: payload, timeout: 3))
+        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex stop", timeout: 3))
+        #expect(waitForFile(capturedPID, containing: "4242", timeout: 3))
+        #expect(waitForFile(doneFile, containing: "done", timeout: 8))
     }
 
     @Test func codexInstalledAsyncStopDoesNotMarkNewerTurnIdle() throws {

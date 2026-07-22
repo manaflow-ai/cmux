@@ -4636,6 +4636,7 @@ final class Workspace: Identifiable, ObservableObject {
         let observation = index.entry(workspaceId: id, panelId: panelId)
         if let observation {
             reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+            reconcileLiveIdleAgentStatus(panelId: panelId, observation: observation)
         }
         guard restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit,
               let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? observation?.snapshot,

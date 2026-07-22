@@ -1,7 +1,10 @@
+import CmuxSidebar
 import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
+    private static let agentRunningStatusReconciliationDelay: TimeInterval = 5
+
     func allowsAgentContinuation(forPanelId panelId: UUID) -> Bool {
         restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit ||
             restoredAgentSnapshotForContinuation(panelId: panelId) != nil
@@ -28,6 +31,33 @@ extension Workspace {
             panelId: panelId,
             observation: observation,
             currentProcessIdentity: Self.agentPIDProcessIdentity(pid:)
+        )
+    }
+
+    func reconcileLiveIdleAgentStatus(
+        panelId: UUID,
+        observation: RestorableAgentSessionIndex.Entry
+    ) {
+        guard observation.lifecycle == .idle,
+              !observation.processIDs.union(observation.agentProcessIDs).isEmpty,
+              Date().timeIntervalSince1970 - observation.updatedAt >= Self.agentRunningStatusReconciliationDelay,
+              let statusKey = agentLifecycleStatusKey(for: observation.snapshot.kind),
+              agentLifecycleStatesByPanelId[panelId]?[statusKey] == .running else {
+            return
+        }
+        let eventTime = observation.updatedAt
+        setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .idle, agentEventTime: eventTime)
+        guard let current = statusEntries[statusKey] else { return }
+        statusEntries[statusKey] = SidebarStatusEntry(
+            key: statusKey,
+            value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            url: current.url,
+            priority: current.priority,
+            format: current.format,
+            timestamp: Date(),
+            agentEventTime: eventTime
         )
     }
 
@@ -176,11 +206,20 @@ extension Workspace {
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        agentEventTime: TimeInterval? = nil
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        if let agentEventTime,
+           let currentEventTime = agentLifecycleEventTimesByPanelId[targetPanelId]?[key],
+           agentEventTime < currentEventTime {
+            return
+        }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        if let agentEventTime {
+            agentLifecycleEventTimesByPanelId[targetPanelId, default: [:]][key] = agentEventTime
+        }
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
@@ -196,6 +235,10 @@ extension Workspace {
             agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
             if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
+            }
+            agentLifecycleEventTimesByPanelId[panelId]?.removeValue(forKey: key)
+            if agentLifecycleEventTimesByPanelId[panelId]?.isEmpty == true {
+                agentLifecycleEventTimesByPanelId.removeValue(forKey: panelId)
             }
             didClear = true
             if recordsHibernationActivity {
@@ -213,6 +256,7 @@ extension Workspace {
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
+        let removedEventTimes = agentLifecycleEventTimesByPanelId.removeValue(forKey: panelId) ?? [:]
         guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
         let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
         if !manualStates.isEmpty {
@@ -226,6 +270,9 @@ extension Workspace {
             if let host {
                 for (key, lifecycle) in manualStates {
                     agentLifecycleStatesByPanelId[host, default: [:]][key] = lifecycle
+                    if let eventTime = removedEventTimes[key] {
+                        agentLifecycleEventTimesByPanelId[host, default: [:]][key] = eventTime
+                    }
                 }
             }
         }
@@ -236,6 +283,7 @@ extension Workspace {
         let panelIds = Array(agentLifecycleStatesByPanelId.keys)
         guard !panelIds.isEmpty else { return }
         agentLifecycleStatesByPanelId.removeAll()
+        agentLifecycleEventTimesByPanelId.removeAll()
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }
@@ -256,6 +304,19 @@ extension Workspace {
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
         return fallback ?? .unknown
+    }
+
+    private func agentLifecycleStatusKey(for kind: RestorableAgentKind) -> String? {
+        switch kind {
+        case .claude:
+            return "claude_code"
+        case .hermesAgent:
+            return "hermes-agent"
+        case .custom(let id):
+            return id
+        default:
+            return kind.rawValue
+        }
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {

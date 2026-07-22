@@ -26,7 +26,8 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentEventTime: TimeInterval? = nil
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
@@ -38,7 +39,8 @@ extension TerminalController: ControlSidebarContext {
                 color: color,
                 url: url,
                 priority: priority,
-                format: appFormat
+                format: appFormat,
+                agentEventTime: agentEventTime
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pid {
@@ -54,7 +56,8 @@ extension TerminalController: ControlSidebarContext {
                 url: url,
                 priority: priority,
                 format: appFormat,
-                timestamp: Date()
+                timestamp: Date(),
+                agentEventTime: agentEventTime
             )
             if let pid {
                 tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
@@ -153,14 +156,15 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval? = nil
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
-            tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+            tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle, agentEventTime: agentEventTime)
         }
     }
 

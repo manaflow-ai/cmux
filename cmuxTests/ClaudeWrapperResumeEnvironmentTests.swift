@@ -85,6 +85,9 @@ import Testing
 
         let recorded = try String(contentsOf: recordURL, encoding: .utf8)
         #expect(recorded.contains("--settings"), Comment(rawValue: recorded))
+        #expect(recorded.contains("CMUX_AGENT_HOOK_CAPTURED_AT="), Comment(rawValue: recorded))
+        #expect(recorded.contains("hooks claude stop"), Comment(rawValue: recorded))
+        #expect(recorded.contains("hooks claude pre-tool-use"), Comment(rawValue: recorded))
         #expect(recorded.contains("--resume claude-session-123"), Comment(rawValue: recorded))
         for key in sessionIdentityKeys {
             #expect(recorded.contains("\(key)=<unset>"), Comment(rawValue: recorded))

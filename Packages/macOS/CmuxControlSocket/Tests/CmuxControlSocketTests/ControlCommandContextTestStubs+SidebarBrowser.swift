@@ -58,7 +58,8 @@ extension ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentEventTime: TimeInterval?
     ) {}
 
     nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {}
@@ -82,7 +83,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval?
     ) {}
 
     func controlSidebarSetWorkspaceLoading(

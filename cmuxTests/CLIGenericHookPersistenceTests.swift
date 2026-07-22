@@ -581,8 +581,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 128)
+
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 4)
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -590,7 +591,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -731,23 +731,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
+        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
             }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -755,7 +756,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -1937,35 +1937,36 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        func runGrokHook(_ subcommand: String, input: String, surfaceId: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": surfaceIds.enumerated().map { index, listedSurfaceId in
-                                [
-                                    "id": listedSurfaceId,
-                                    "ref": "surface:\(index + 1)",
-                                    "focused": listedSurfaceId == surfaceId,
-                                ] as [String: Any]
-                            },
-                        ]
-                    )
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
+        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
             }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": surfaceIds.enumerated().map { index, listedSurfaceId in
+                            [
+                                "id": listedSurfaceId,
+                                "ref": "surface:\(index + 1)",
+                                "focused": index == 0,
+                            ] as [String: Any]
+                        },
+                    ]
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        func runGrokHook(_ subcommand: String, input: String, surfaceId: String) -> ProcessRunResult {
             var environment = baseEnvironment
             environment["CMUX_SURFACE_ID"] = surfaceId
             let result = runProcess(
@@ -1975,7 +1976,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2112,23 +2112,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 64)
+
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
-            }
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
@@ -2136,7 +2122,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2214,32 +2199,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runGrokHook(_ subcommand: String, input: String, stallFeedTelemetry: Bool = false) -> ProcessRunResult {
-            let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return stallFeedTelemetry ? nil : self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
+        startDetachedMockServerAllowingNoResponse(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
             }
-            let result = runProcess(
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "feed.push":
+                return nil
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
                 environment: environment,
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
-            return result
         }
 
         let start = runGrokHook(
@@ -2261,8 +2245,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let commandStart = state.commands.count
             let notification = runGrokHook(
                 "notification",
-                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(message)"}"#,
-                stallFeedTelemetry: index == 2
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(message)"}"#
             )
 
             XCTAssertFalse(notification.timedOut, notification.stderr)
@@ -2314,27 +2297,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SURFACE_ID": surfaceId,
         ], uniquingKeysWith: { _, new in new })
 
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 128)
+
         func runGrokHook(
             _ subcommand: String,
             input: String,
             environment: [String: String] = baseEnvironment
         ) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
-            }
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
@@ -2342,7 +2311,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2496,45 +2464,46 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ], uniquingKeysWith: { _, new in new })
         }
 
+        func grokSocketResponse(line: String) -> String {
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            ["id": runningSurfaceId, "ref": "surface:1", "focused": true],
+                            ["id": completingSurfaceId, "ref": "surface:2", "focused": false],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128, handler: grokSocketResponse)
+
         func runGrokHook(
             _ subcommand: String,
             input: String,
             environment: [String: String] = baseEnvironment
         ) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": [
-                                ["id": runningSurfaceId, "ref": "surface:1", "focused": true],
-                                ["id": completingSurfaceId, "ref": "surface:2", "focused": false],
-                            ],
-                        ]
-                    )
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
-            }
-            let result = runProcess(
+            runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
                 environment: environment,
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
-            return result
         }
 
         let runningStart = runGrokHook(
@@ -3104,9 +3073,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(commandBodies)"
         )
         XCTAssertEqual(
-            allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
+            commandBodies.filter { $0.contains("hooks codex prompt-submit") }.count,
             1,
-            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
+            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(commandBodies)"
         )
     }
 

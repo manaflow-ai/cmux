@@ -127,8 +127,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
         let fulfillmentGate = MockSocketFulfillmentGate()
-        for _ in 0..<max(1, connectionCount) {
-            DispatchQueue.global(qos: .userInitiated).async {
+        Thread.detachNewThread {
+            for _ in 0..<max(1, connectionCount) {
                 func fulfillOnce() {
                     fulfillmentGate.fulfill(handled)
                 }
@@ -144,36 +144,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     fulfillOnce()
                     return
                 }
-                defer {
-                    Darwin.close(clientFD)
-                    fulfillOnce()
-                }
 
-                var pending = Data()
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while true {
-                    let count = Darwin.read(clientFD, &buffer, buffer.count)
-                    if count < 0 {
-                        if errno == EINTR { continue }
-                        return
-                    }
-                    if count == 0 { return }
-                    pending.append(buffer, count: count)
-
-                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                        pending.removeSubrange(0...newlineRange.lowerBound)
-                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                        state.append(line)
-                        if fulfillWhen?(line) == true {
-                            fulfillOnce()
-                        }
-                        guard let responsePayload = handler(line) else { continue }
-                        let response = responsePayload + "\n"
-                        _ = response.withCString { ptr in
-                            Darwin.write(clientFD, ptr, strlen(ptr))
-                        }
-                    }
+                Thread.detachNewThread {
+                    self.handleMockSocketClient(
+                        clientFD: clientFD,
+                        state: state,
+                        fulfillWhen: fulfillWhen,
+                        fulfillOnce: fulfillOnce,
+                        handler: handler
+                    )
                 }
             }
         }
@@ -186,8 +165,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         connectionCount: Int = 1,
         handler: @escaping @Sendable (String) -> String
     ) {
-        for _ in 0..<max(1, connectionCount) {
-            DispatchQueue.global(qos: .userInitiated).async {
+        startDetachedMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: connectionCount
+        ) { line in
+            handler(line)
+        }
+    }
+
+    func startDetachedMockServerAllowingNoResponse(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        connectionCount: Int = 1,
+        handler: @escaping @Sendable (String) -> String?
+    ) {
+        Thread.detachNewThread {
+            for _ in 0..<max(1, connectionCount) {
                 var clientAddr = sockaddr_un()
                 var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
                 let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
@@ -198,31 +192,55 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 guard clientFD >= 0 else {
                     return
                 }
-                defer {
-                    Darwin.close(clientFD)
+
+                Thread.detachNewThread {
+                    self.handleMockSocketClient(
+                        clientFD: clientFD,
+                        state: state,
+                        fulfillWhen: nil,
+                        fulfillOnce: {},
+                        handler: handler
+                    )
                 }
+            }
+        }
+    }
 
-                var pending = Data()
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while true {
-                    let count = Darwin.read(clientFD, &buffer, buffer.count)
-                    if count < 0 {
-                        if errno == EINTR { continue }
-                        return
-                    }
-                    if count == 0 { return }
-                    pending.append(buffer, count: count)
+    private func handleMockSocketClient(
+        clientFD: Int32,
+        state: MockSocketServerState,
+        fulfillWhen: (@Sendable (String) -> Bool)?,
+        fulfillOnce: @escaping () -> Void,
+        handler: @escaping @Sendable (String) -> String?
+    ) {
+        defer {
+            Darwin.close(clientFD)
+            fulfillOnce()
+        }
 
-                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                        pending.removeSubrange(0...newlineRange.lowerBound)
-                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                        state.append(line)
-                        let response = handler(line) + "\n"
-                        _ = response.withCString { ptr in
-                            Darwin.write(clientFD, ptr, strlen(ptr))
-                        }
-                    }
+        var pending = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(clientFD, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                return
+            }
+            if count == 0 { return }
+            pending.append(buffer, count: count)
+
+            while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                pending.removeSubrange(0...newlineRange.lowerBound)
+                guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                state.append(line)
+                if fulfillWhen?(line) == true {
+                    fulfillOnce()
+                }
+                guard let responsePayload = handler(line) else { continue }
+                let response = responsePayload + "\n"
+                _ = response.withCString { ptr in
+                    Darwin.write(clientFD, ptr, strlen(ptr))
                 }
             }
         }

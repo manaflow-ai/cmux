@@ -79,6 +79,7 @@ extension ControlCommandCoordinator {
             }
             return nil
         }()
+        let agentEventTime = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
 
         context?.controlSidebarScheduleStatusUpsert(
             target: target,
@@ -90,9 +91,20 @@ extension ControlCommandCoordinator {
             priority: priority,
             format: format,
             panelID: panelResolution.panelId,
-            pid: pidValue
+            pid: pidValue,
+            agentEventTime: agentEventTime
         )
         return "OK"
+    }
+
+    private nonisolated func sidebarParseAgentEventTime(_ raw: String?) -> TimeInterval? {
+        guard let normalized = sidebarNormalizedOptionValue(raw),
+              let value = TimeInterval(normalized),
+              value.isFinite,
+              value > 0 else {
+            return nil
+        }
+        return value
     }
 
     /// The shared `clear_status`/`clear_meta` body (parse + bus enqueue; zero
@@ -361,6 +373,7 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let agentEventTime = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,
             target: target,
@@ -372,7 +385,8 @@ extension ControlCommandCoordinator {
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            agentEventTime: agentEventTime
         )
         return "OK"
     }

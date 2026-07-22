@@ -583,16 +583,23 @@ class TerminalController {
         color: String?,
         url: URL?,
         priority: Int,
-        format: SidebarMetadataFormat
+        format: SidebarMetadataFormat,
+        agentEventTime: TimeInterval? = nil
     ) -> Bool {
         guard let current else { return true }
+        if let agentEventTime,
+           let currentAgentEventTime = current.agentEventTime,
+           agentEventTime < currentAgentEventTime {
+            return false
+        }
         return current.key != key ||
             current.value != value ||
             current.icon != icon ||
             current.color != color ||
             current.url != url ||
             current.priority != priority ||
-            current.format != format
+            current.format != format ||
+            current.agentEventTime != agentEventTime
     }
 
     nonisolated static func shouldReplaceMetadataBlock(
@@ -13624,6 +13631,7 @@ class TerminalController {
             }
             return nil
         }()
+        let agentEventTime = parseAgentEventTime(parsed.options["agent-event-time"])
 
         scheduleSidebarMutation(target: target) { _, tab in
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
@@ -13637,7 +13645,8 @@ class TerminalController {
                 color: color,
                 url: parsedURL,
                 priority: priority,
-                format: format
+                format: format,
+                agentEventTime: agentEventTime
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
@@ -13653,13 +13662,24 @@ class TerminalController {
                 url: parsedURL,
                 priority: priority,
                 format: format,
-                timestamp: Date()
+                timestamp: Date(),
+                agentEventTime: agentEventTime
             )
             if let pidValue {
                 tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
             }
         }
         return "OK"
+    }
+
+    private func parseAgentEventTime(_ raw: String?) -> TimeInterval? {
+        guard let normalized = normalizedOptionValue(raw),
+              let value = TimeInterval(normalized),
+              value.isFinite,
+              value > 0 else {
+            return nil
+        }
+        return value
     }
 
     private func clearSidebarMetadata(_ args: String, usage: String) -> String {

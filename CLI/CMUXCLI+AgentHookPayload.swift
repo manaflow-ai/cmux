@@ -18,7 +18,8 @@ extension CMUXCLI {
                 sessionId: nil,
                 turnId: nil,
                 cwd: nil,
-                transcriptPath: nil
+                transcriptPath: nil,
+                eventTime: parseAgentHookEventTime(rawObject: nil)
             )
         }
 
@@ -26,6 +27,7 @@ extension CMUXCLI {
         let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = extractHookTranscriptPath(from: object)
+        let eventTime = parseAgentHookEventTime(rawObject: object)
         let compactObject = compactClaudeHookObject(object)
         return ClaudeHookParsedInput(
             rawObject: object,
@@ -34,8 +36,60 @@ extension CMUXCLI {
             sessionId: sessionId,
             turnId: turnId,
             cwd: cwd,
-            transcriptPath: transcriptPath
+            transcriptPath: transcriptPath,
+            eventTime: eventTime
         )
+    }
+
+    private func parseAgentHookEventTime(rawObject: [String: Any]?) -> TimeInterval? {
+        let keys = [
+            "cmux_event_time", "cmuxEventTime",
+            "event_time", "eventTime",
+            "timestamp", "created_at", "createdAt",
+        ]
+        if let rawObject {
+            for key in keys {
+                if let parsed = parseAgentHookTimeValue(rawObject[key]) {
+                    return parsed
+                }
+            }
+        }
+        return parseAgentHookTimeValue(ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_CAPTURED_AT"])
+    }
+
+    private func parseAgentHookTimeValue(_ rawValue: Any?) -> TimeInterval? {
+        switch rawValue {
+        case let number as NSNumber:
+            let value = number.doubleValue
+            return value.isFinite && value > 0 ? value : nil
+        case let value as Double:
+            return value.isFinite && value > 0 ? value : nil
+        case let value as Int:
+            return value > 0 ? TimeInterval(value) : nil
+        case let string as String:
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return nil
+            }
+            if let value = Double(trimmed), value.isFinite, value > 0 {
+                return value
+            }
+            return parseAgentHookISO8601TimeValue(trimmed)
+        default:
+            return nil
+        }
+    }
+
+    private func parseAgentHookISO8601TimeValue(_ value: String) -> TimeInterval? {
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalFormatter.date(from: value) {
+            return date.timeIntervalSince1970
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)?.timeIntervalSince1970
     }
 
     private func compactClaudeHookObject(_ object: [String: Any]) -> [String: Any] {

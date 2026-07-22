@@ -19,6 +19,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
     public let format: SidebarMetadataFormat
     /// When the entry was reported.
     public let timestamp: Date
+    /// Hook-captured agent event time used to order detached deliveries.
+    public let agentEventTime: TimeInterval?
 
     /// Creates a status row (defaults mirror the legacy initializer).
     public init(
@@ -29,7 +31,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         url: URL? = nil,
         priority: Int = 0,
         format: SidebarMetadataFormat = .plain,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        agentEventTime: TimeInterval? = nil
     ) {
         self.key = key
         self.value = value
@@ -39,5 +42,6 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         self.priority = priority
         self.format = format
         self.timestamp = timestamp
+        self.agentEventTime = agentEventTime
     }
 }
