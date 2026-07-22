@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 
 enum TaskComposerSubmissionPhase: Equatable {
