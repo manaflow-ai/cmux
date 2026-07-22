@@ -36,19 +36,22 @@ public struct BrowserWebExtensionCatalog: Equatable, Sendable {
     /// APIs have been exercised in cmux. A pinned digest makes an upstream asset
     /// change fail closed instead of silently changing installed code.
     public static let production = BrowserWebExtensionCatalog(
-        verifiedEntries: [],
+        verifiedEntries: [
+            BrowserWebExtensionCatalogEntry(
+                id: "1password",
+                version: "8.12.28.25",
+                packageURL: URL(
+                    string: "https://addons.mozilla.org/firefox/downloads/file/4899098/1password_x_password_manager-8.12.28.25.xpi"
+                )!,
+                packageSHA256: "fc369b5ee7958a57c519aa37e7ba540ebe08d58b4bc976fab1ba2e91bc01bc25"
+            ),
+        ],
         safariAppIdentities: [
         BrowserWebExtensionSafariAppIdentity(
             id: "bitwarden-safari-app",
             appBundleIdentifier: "com.bitwarden.desktop",
             extensionBundleIdentifier: "com.bitwarden.desktop.safari",
             teamIdentifier: "LTZ2PFU5D6"
-        ),
-        BrowserWebExtensionSafariAppIdentity(
-            id: "onepassword-safari-app",
-            appBundleIdentifier: "com.1password.safari",
-            extensionBundleIdentifier: "com.1password.safari.extension",
-            teamIdentifier: "2BUA8C4S2C"
         ),
         BrowserWebExtensionSafariAppIdentity(
             id: "ublock-origin-lite-safari-app",
@@ -148,10 +151,11 @@ public final class BrowserWebExtensionPackageSession: @unchecked Sendable {
 
     public func data(from url: URL) async throws -> (Data, URLResponse) {
         let (bytes, response) = try await session.bytes(from: url)
-        if response.expectedContentLength > maximumResponseByteCount {
-            bytes.task.cancel()
-            throw BrowserWebExtensionCatalogInstallError.packageTooLarge
-        }
+        try Self.validateExpectedContentLength(
+            response,
+            maximumByteCount: maximumResponseByteCount,
+            cancel: { bytes.task.cancel() }
+        )
         let data = try await Self.collect(
             bytes,
             maximumByteCount: maximumResponseByteCount,
@@ -159,6 +163,18 @@ public final class BrowserWebExtensionPackageSession: @unchecked Sendable {
             cancel: { bytes.task.cancel() }
         )
         return (data, response)
+    }
+
+    static func validateExpectedContentLength(
+        _ response: URLResponse,
+        maximumByteCount: Int,
+        cancel: @Sendable () -> Void
+    ) throws {
+        precondition(maximumByteCount > 0)
+        guard response.expectedContentLength <= maximumByteCount else {
+            cancel()
+            throw BrowserWebExtensionCatalogInstallError.packageTooLarge
+        }
     }
 
     public static func collect<Bytes: AsyncSequence>(

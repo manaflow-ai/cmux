@@ -26,13 +26,26 @@ public final class BrowserWebExtensionProfileRuntime {
     @ObservationIgnored
     private var pendingNavigations: [UUID: BrowserWebExtensionNavigationIntent] = [:]
     @ObservationIgnored
-    private var updateContinuations: [UUID: AsyncStream<BrowserWebExtensionUpdate>.Continuation] = [:]
+    private var updateSubscribers: [UUID: UpdateSubscriber] = [:]
+    @ObservationIgnored
+    private var navigationUpdateHandler: (@MainActor (BrowserWebExtensionUpdate) -> Void)?
     @ObservationIgnored
     private var loadTask: Task<Void, Never>?
     @ObservationIgnored
     private var deadlineTask: Task<Void, Never>?
     @ObservationIgnored
     private var generation: UInt64 = 0
+
+    private struct UpdateSubscriber {
+        let panelID: UUID?
+        let continuation: AsyncStream<BrowserWebExtensionUpdate>.Continuation
+
+        func accepts(_ update: BrowserWebExtensionUpdate) -> Bool {
+            guard let panelID else { return true }
+            guard case .actionChanged(let actionUpdate) = update else { return true }
+            return actionUpdate.panelID == nil || actionUpdate.panelID == panelID
+        }
+    }
 
     /// Creates a runtime with an injected, testable loading deadline.
     ///
@@ -51,16 +64,43 @@ public final class BrowserWebExtensionProfileRuntime {
     ///
     /// - Returns: A stream of lifecycle and exactly-once navigation updates.
     public func updates() -> AsyncStream<BrowserWebExtensionUpdate> {
+        makeUpdates(panelID: nil, bufferingPolicy: .unbounded)
+    }
+
+    /// Returns a bounded latest-value stream filtered to one toolbar panel.
+    public func presentationUpdates(
+        for panelID: UUID
+    ) -> AsyncStream<BrowserWebExtensionUpdate> {
+        makeUpdates(panelID: panelID, bufferingPolicy: .bufferingNewest(32))
+    }
+
+    private func makeUpdates(
+        panelID: UUID?,
+        bufferingPolicy: AsyncStream<BrowserWebExtensionUpdate>.Continuation.BufferingPolicy
+    ) -> AsyncStream<BrowserWebExtensionUpdate> {
         let continuationID = UUID()
-        return AsyncStream { continuation in
-            updateContinuations[continuationID] = continuation
+        return AsyncStream(bufferingPolicy: bufferingPolicy) { continuation in
+            updateSubscribers[continuationID] = UpdateSubscriber(
+                panelID: panelID,
+                continuation: continuation
+            )
             continuation.yield(.phaseChanged(phase))
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
-                    self?.updateContinuations.removeValue(forKey: continuationID)
+                    self?.updateSubscribers.removeValue(forKey: continuationID)
                 }
             }
         }
+    }
+
+    /// Installs the composition root's synchronous navigation observer.
+    ///
+    /// Navigation release and cancellation are delivered directly on the main
+    /// actor so presentation stream backpressure can never drop an intent.
+    public func setNavigationUpdateHandler(
+        _ handler: (@MainActor (BrowserWebExtensionUpdate) -> Void)?
+    ) {
+        navigationUpdateHandler = handler
     }
 
     /// Starts or restarts extension loading for this profile.
@@ -195,10 +235,11 @@ public final class BrowserWebExtensionProfileRuntime {
         }
         pendingNavigations.removeAll()
         transition(to: .shutDown)
-        for continuation in updateContinuations.values {
-            continuation.finish()
+        for subscriber in updateSubscribers.values {
+            subscriber.continuation.finish()
         }
-        updateContinuations.removeAll()
+        updateSubscribers.removeAll()
+        navigationUpdateHandler = nil
     }
 
     private func transition(to newPhase: BrowserWebExtensionPhase) {
@@ -218,8 +259,14 @@ public final class BrowserWebExtensionProfileRuntime {
     }
 
     private func emit(_ update: BrowserWebExtensionUpdate) {
-        for continuation in updateContinuations.values {
-            continuation.yield(update)
+        switch update {
+        case .navigationReleased, .navigationCancelled:
+            navigationUpdateHandler?(update)
+        case .phaseChanged, .actionChanged, .snapshotInvalidated, .permissionRequested:
+            break
+        }
+        for subscriber in updateSubscribers.values where subscriber.accepts(update) {
+            subscriber.continuation.yield(update)
         }
     }
 }
