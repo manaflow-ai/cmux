@@ -178,6 +178,63 @@ struct AgentStatusReconcilerTests {
         #expect(rootStatusKeys == ["codex"])
     }
 
+    @Test @MainActor func foregroundProbeRejectsReplacedRuntimeGeneration() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "codex.first",
+            pid: getpid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        let probe = workspace.agentStatusForegroundProbe()
+        workspace.recordAgentPID(
+            key: "codex.replacement",
+            pid: getppid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        #expect(!workspace.agentStatusForegroundProbeIsCurrent(
+            panelId: panelId,
+            foregroundProcessIdentity: probe.foregroundProcessIdentities[panelId],
+            rootStatusKeys: probe.rootStatusKeysByPanelId[panelId] ?? [:]
+        ))
+    }
+
+    @Test @MainActor func processWideSweepDeduplicatesOneReconciliationCycle() async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "codex.current",
+            pid: getpid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        let coordinator = AgentStatusReconciliationCoordinator { _, _ in [:] }
+        let cycleStart = ContinuousClock.now
+        let firstSweep = try #require(coordinator.reconcile(
+            tabManagers: [manager],
+            at: cycleStart,
+            observedAt: now
+        ))
+
+        #expect(coordinator.reconcile(
+            tabManagers: [manager],
+            at: cycleStart,
+            observedAt: now
+        ) == nil)
+        await firstSweep.value
+        #expect(coordinator.reconcile(
+            tabManagers: [manager],
+            at: cycleStart,
+            observedAt: now
+        ) == nil)
+    }
+
     @Test @MainActor func workspaceAggregateTimestampCannotRefreshPanelLifecycleEvidence() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
@@ -334,6 +391,7 @@ struct AgentStatusReconcilerTests {
             source: "codex",
             workspaceId: UUID().uuidString,
             surfaceId: UUID().uuidString,
+            ppid: Int(getpid()),
             receivedAt: now,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput"}"#
         )
@@ -343,7 +401,35 @@ struct AgentStatusReconcilerTests {
         #expect(signal.statusKey == "codex")
         #expect(signal.lifecycle == .needsInput)
         #expect(signal.observedAt == now)
+        #expect(signal.runtimePIDKey == "codex.session")
+        #expect(signal.runtimePID == Int(getpid()))
         #expect(FeedCoordinator.isBlockingDecisionEvent(event.hookEventName) == false)
+    }
+
+    @Test @MainActor func delayedHookSignalCannotCrossRuntimeGeneration() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "codex.current",
+            pid: getpid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        let staleEvent = WorkstreamEvent(
+            sessionId: "codex-stale",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(getpid()),
+            receivedAt: now,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput"}"#
+        )
+        let staleSignal = try #require(AgentStatusHookEventSignal(event: staleEvent))
+
+        #expect(!workspace.agentStatusRuntimeIsCurrent(event: staleEvent, panelId: panelId))
+        workspace.noteAgentStatusHookSignal(staleSignal, panelId: panelId)
+
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] != .needsInput)
     }
 
     @Test func ordinaryFeedTelemetryDoesNotBypassLifecycleRouting() {
