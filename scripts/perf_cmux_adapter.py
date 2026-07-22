@@ -20,6 +20,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
@@ -165,6 +166,13 @@ def _plain(value: Any) -> Any:
         return value
     raise ValueError(f"value is not JSON-friendly: {type(value).__name__}")
 
+class _ProfileCollectionError(RuntimeError):
+    def __init__(self, message: str, evidence: Mapping[str, Any]) -> None:
+        super().__init__(message)
+        self.evidence = evidence
+
+
+
 
 def _make_default_runner(config: AdapterConfig) -> Any:
     runner_module = _load_sibling(
@@ -186,6 +194,23 @@ def _extract_ref(payload: Mapping[str, Any], kind: str) -> str:
         if isinstance(value, str) and value:
             return value
     raise ValueError(f"missing {kind} identity in {payload!r}")
+
+
+def _required_counter(stats: Mapping[str, Any], camel: str, snake: str) -> float:
+    if camel in stats:
+        value = stats[camel]
+    elif snake in stats:
+        value = stats[snake]
+    else:
+        raise ValueError(f"terminal render stats missing {camel}")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) < 0.0
+    ):
+        raise ValueError(f"terminal render stats {camel} must be nonnegative and finite")
+    return float(value)
 
 
 def _surface_type(item: Mapping[str, Any]) -> str:
@@ -221,6 +246,7 @@ class CmuxRuntimeAdapter:
         self._browser_actual_ids: dict[str, str] = {}
         self._last_accounting: Any | None = None
         self._launched = False
+        self._owned_browser_screenshot_paths: set[Path] = set()
         self._details: dict[str, Any] = {
             "invocation": {
                 "sha": config.sha,
@@ -742,10 +768,31 @@ class CmuxRuntimeAdapter:
                 )
                 latencies.append(latency)
                 evidence.append({"label": label, "payload": payload})
+
+        screenshot_latency, screenshot = self._timed_rpc(
+            "browser_screenshot",
+            planned_id,
+            "browser.screenshot",
+            {"workspace_id": self._workspace_id, "surface_id": actual_id},
+        )
+        encoded_png = screenshot.get("png_base64")
+        if not isinstance(encoded_png, str) or not encoded_png:
+            raise ValueError(f"browser screenshot returned no PNG for {planned_id}")
+        latencies.append(screenshot_latency)
+        screenshot_evidence = {
+            key: value for key, value in screenshot.items() if key != "png_base64"
+        }
+        screenshot_evidence["png_base64_length"] = len(encoded_png)
         return {
-            "operations": cycles * len(methods),
+            "operations": cycles * len(methods) + 1,
             "latencies": latencies,
-            "evidence": {"actual_surface_id": actual_id, "cycles": evidence},
+            "render_observations": 1,
+            "owned_screenshot_path": screenshot.get("path"),
+            "evidence": {
+                "actual_surface_id": actual_id,
+                "cycles": evidence,
+                "screenshot": screenshot_evidence,
+            },
         }
 
     def _temporary_browser_cycle(self) -> dict[str, Any] | None:
@@ -809,6 +856,7 @@ class CmuxRuntimeAdapter:
         latencies: list[dict[str, Any]] = []
         evidence: list[dict[str, Any]] = []
         operation_counts = {"terminal": 0, "browser": 0}
+        browser_render_counts: dict[str, int] = {}
         profile_pool: ThreadPoolExecutor | None = None
         profile_futures: dict[Any, dict[str, Any]] = {}
         if self.config.profile_enabled:
@@ -816,11 +864,8 @@ class CmuxRuntimeAdapter:
                 work_units = {
                     "terminal_ansi_lines": len(self._terminal_actual_ids)
                     * self._terminal_ansi_line_target(),
-                    "browser_reload_snapshot_operations": len(
-                        self._browser_actual_ids
-                    )
-                    * cycles
-                    * 2,
+                    "browser_churn_rpc_operations": len(self._browser_actual_ids)
+                    * (cycles * 3 + 1),
                     "temporary_browser_open_close_operations": 2
                     if self._browser_actual_ids
                     else 0,
@@ -883,6 +928,22 @@ class CmuxRuntimeAdapter:
                     )
                     continue
                 operation_counts[kind] += result["operations"]
+                if kind == "browser":
+                    browser_render_counts[planned] = result["render_observations"]
+                    screenshot_path = result.get("owned_screenshot_path")
+                    if isinstance(screenshot_path, str) and screenshot_path:
+                        candidate = Path(screenshot_path).absolute()
+                        expected_root = (
+                            Path(tempfile.gettempdir()) / "cmux-browser-screenshots"
+                        ).resolve()
+                        if (
+                            candidate.parent.resolve() == expected_root
+                            and candidate.name.startswith("surface-")
+                            and candidate.suffix == ".png"
+                            and candidate.is_file()
+                            and not candidate.is_symlink()
+                        ):
+                            self._owned_browser_screenshot_paths.add(candidate)
                 latencies.extend(result["latencies"])
                 evidence.append(
                     {
@@ -911,14 +972,16 @@ class CmuxRuntimeAdapter:
             try:
                 profile_records.append(future.result())
             except BaseException as error:
-                failures.append(
-                    {
-                        "phase": "profile_churn",
-                        "role": metadata["role"],
-                        "pid": metadata["pid"],
-                        "message": str(error),
-                    }
-                )
+                failure = {
+                    "phase": "profile_churn",
+                    "role": metadata["role"],
+                    "pid": metadata["pid"],
+                    "message": str(error),
+                }
+                profile_evidence = getattr(error, "evidence", None)
+                if profile_evidence is not None:
+                    failure["evidence"] = _plain(profile_evidence)
+                failures.append(failure)
         if profile_pool is not None:
             profile_pool.shutdown(wait=True)
         if profile_records:
@@ -927,40 +990,46 @@ class CmuxRuntimeAdapter:
             )
 
         after_render = self._render_stats()
-        presents: list[dict[str, Any]] = []
+        render_observations: list[dict[str, Any]] = []
         for planned, actual in self._terminal_actual_ids.items():
             before = before_render.get(actual)
             after = after_render.get(actual)
             if not isinstance(before, Mapping) or not isinstance(after, Mapping):
                 raise ValueError(f"terminal render stats missing for {planned}")
-            present_delta = float(
-                after.get("presentCount", after.get("present_count", 0))
-            ) - float(before.get("presentCount", before.get("present_count", 0)))
-            draw_delta = float(
-                after.get("drawCount", after.get("draw_count", 0))
-            ) - float(before.get("drawCount", before.get("draw_count", 0)))
-            presents.append(
+            drawable_delta = _required_counter(
+                after, "metalDrawableCount", "metal_drawable_count"
+            ) - _required_counter(
+                before, "metalDrawableCount", "metal_drawable_count"
+            )
+            draw_delta = _required_counter(
+                after, "drawCount", "draw_count"
+            ) - _required_counter(before, "drawCount", "draw_count")
+            observed_final_key_change_delta = _required_counter(
+                after, "presentCount", "present_count"
+            ) - _required_counter(before, "presentCount", "present_count")
+            render_observations.append(
                 {
                     "surface_kind": "terminal",
                     "surface_id": planned,
-                    "measurement": "debug.terminal.render_stats",
-                    "present_delta": max(0.0, present_delta),
+                    "measurement": "debug.terminal.render_stats.metalDrawableCount_render_proxy",
+                    "render_delta": max(0.0, drawable_delta),
                     "draw_delta": max(0.0, draw_delta),
-                    "present_rate": max(0.0, present_delta)
-                    / churn_elapsed_s,
+                    "observed_final_key_change_delta": max(
+                        0.0, observed_final_key_change_delta
+                    ),
+                    "render_rate": max(0.0, drawable_delta) / churn_elapsed_s,
                 }
             )
         for planned in self._browser_actual_ids:
-            completed_presenting_operations = cycles * 2
-            presents.append(
+            completed_screenshots = browser_render_counts.get(planned, 0)
+            render_observations.append(
                 {
                     "surface_kind": "browser",
                     "surface_id": planned,
-                    "measurement": "completed_local_reload_snapshot_operations_proxy",
-                    "present_delta": completed_presenting_operations,
+                    "measurement": "completed_browser_screenshot_render_proxy",
+                    "render_delta": completed_screenshots,
                     "draw_delta": None,
-                    "present_rate": completed_presenting_operations
-                    / churn_elapsed_s,
+                    "render_rate": completed_screenshots / churn_elapsed_s,
                 }
             )
 
@@ -976,7 +1045,7 @@ class CmuxRuntimeAdapter:
                 latencies, key=lambda item: (item["surface_id"], item["label"])
             ),
             "throughput_ops_per_second": throughput,
-            "presents": presents,
+            "render_observations": render_observations,
             "failures": failures,
         }
         self._details["churn"] = {
@@ -1046,7 +1115,7 @@ class CmuxRuntimeAdapter:
 
     def cleanup_owned(self) -> dict[str, Any]:
         browser_fixture_root = self.config.output_root / "browser-fixtures"
-        runtime_paths = [browser_fixture_root]
+        runtime_paths = [browser_fixture_root, *self._owned_browser_screenshot_paths]
         runner_cleanup = getattr(self._runner, "cleanup_owned", None)
         if runner_cleanup is not None:
             runner_evidence = runner_cleanup()
@@ -1135,6 +1204,8 @@ class CmuxRuntimeAdapter:
         ]
 
     def _run_profile(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        profile_path = Path(metadata["path"])
+        profile_path.unlink(missing_ok=True)
         profile_callable = self._profiler or self._default_profile
         if callable(profile_callable):
             result = profile_callable(**metadata)
@@ -1142,7 +1213,17 @@ class CmuxRuntimeAdapter:
             result = profile_callable.sample(**metadata)
         else:
             raise TypeError("profiler must be callable or expose sample()")
-        return {**metadata, "result": _plain(result)}
+
+        record = {**metadata, "result": _plain(result)}
+        if isinstance(result, Mapping):
+            returncode = result.get("returncode")
+            if isinstance(returncode, int) and returncode != 0:
+                raise _ProfileCollectionError(
+                    f"profile command returned nonzero status {returncode}", record
+                )
+        if not profile_path.is_file() or profile_path.stat().st_size == 0:
+            raise _ProfileCollectionError("profile command produced empty output", record)
+        return record
 
     def collect_profiles(self) -> list[dict[str, Any]]:
         if not self.config.profile_enabled:
@@ -1236,21 +1317,21 @@ def extract_metrics(result: Any, raw_details: Mapping[str, Any] | None = None) -
             if present and isinstance(value, (int, float)) and not isinstance(value, bool):
                 metrics[f"{kind}_throughput_per_second"] = float(value)
 
-    presents = _field(result, "presents", [])
-    if isinstance(presents, (list, tuple)):
+    render_observations = _field(result, "render_observations", [])
+    if isinstance(render_observations, (list, tuple)):
         for kind, present in (("terminal", bool(terminals)), ("browser", bool(browsers))):
             if not present:
                 continue
             rates = [
-                float(_field(item, "present_rate"))
-                for item in presents
+                float(_field(item, "render_rate"))
+                for item in render_observations
                 if _field(item, "surface_kind") == kind
-                and isinstance(_field(item, "present_rate"), (int, float))
-                and not isinstance(_field(item, "present_rate"), bool)
+                and isinstance(_field(item, "render_rate"), (int, float))
+                and not isinstance(_field(item, "render_rate"), bool)
             ]
             value = _mean(rates)
             if value is not None:
-                metrics[f"{kind}_present_rate"] = value
+                metrics[f"{kind}_render_rate"] = value
     return metrics
 
 

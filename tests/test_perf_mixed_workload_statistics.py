@@ -88,6 +88,23 @@ def test_higher_is_better_comparison_reports_paired_deltas_and_oriented_effect()
     _assert_close(_field(comparison, "oriented_effect_size"), 1.0 / 3.0)
 
 
+def test_comparison_accepts_zero_baselines_with_finite_directional_deltas() -> None:
+    comparison = perf_statistics.compare_paired_samples(
+        baseline_values=[0.0, 0.0, 2.0],
+        candidate_values=[0.0, 3.0, 1.0],
+        direction="lower_is_better",
+    )
+
+    _assert_float_list(
+        _field(comparison, "relative_deltas"),
+        [0.0, 1.0, -0.5],
+    )
+    assert all(
+        perf_statistics.math.isfinite(value)
+        for value in _field(comparison, "relative_deltas")
+    )
+
+
 def test_aggregation_never_pools_scenario_ids_or_ab_ba_orders() -> None:
     records = [
         {
@@ -241,6 +258,33 @@ def test_throughput_gate_passes_at_five_percent_drop_and_fails_above_it() -> Non
         expected_threshold=0.05,
         expected_regression=0.050001,
         expected_passed=False,
+    )
+
+
+def test_zero_baseline_gate_is_neutral_at_zero_and_decisive_above_zero() -> None:
+    _assert_gate(
+        "cpu_percent",
+        0.0,
+        0.0,
+        expected_threshold=0.05,
+        expected_regression=0.0,
+        expected_passed=True,
+    )
+    _assert_gate(
+        "cpu_percent",
+        0.0,
+        1.0,
+        expected_threshold=0.05,
+        expected_regression=1.0,
+        expected_passed=False,
+    )
+    _assert_gate(
+        "throughput_per_second",
+        0.0,
+        1.0,
+        expected_threshold=0.05,
+        expected_regression=-1.0,
+        expected_passed=True,
     )
 
 

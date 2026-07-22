@@ -13,6 +13,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -51,8 +52,8 @@ METRIC_GATES: Mapping[str, tuple[str, float]] = MappingProxyType(
         "browser_latency_ms": ("lower_is_better", 0.10),
         "terminal_throughput_per_second": ("higher_is_better", 0.05),
         "browser_throughput_per_second": ("higher_is_better", 0.05),
-        "terminal_present_rate": ("higher_is_better", 0.05),
-        "browser_present_rate": ("higher_is_better", 0.05),
+        "terminal_render_rate": ("higher_is_better", 0.05),
+        "browser_render_rate": ("higher_is_better", 0.05),
     }
 )
 _REQUIRED_METRICS_BY_KIND: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -65,7 +66,7 @@ _REQUIRED_METRICS_BY_KIND: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "churn_full_tree_cpu_percent",
             "churn_terminal_cpu_percent",
             "terminal_throughput_per_second",
-            "terminal_present_rate",
+            "terminal_render_rate",
         ),
         "browser": (
             "steady_parent_cpu_percent",
@@ -76,7 +77,7 @@ _REQUIRED_METRICS_BY_KIND: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "churn_webkit_cpu_percent",
             "browser_latency_ms",
             "browser_throughput_per_second",
-            "browser_present_rate",
+            "browser_render_rate",
         ),
         "mixed": tuple(METRIC_GATES),
     }
@@ -84,6 +85,7 @@ _REQUIRED_METRICS_BY_KIND: Mapping[str, tuple[str, ...]] = MappingProxyType(
 
 _SCHEMA = "cmux.perf.mixed-workload-experiment/v1"
 _ANALYSIS_SCHEMA = "cmux.perf.mixed-workload-analysis/v1"
+_SHA_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
 
 
 def _plain_json(value: Any) -> Any:
@@ -314,21 +316,54 @@ def analyze_experiment(
         raise ValueError("records must be an iterable of experiment records")
     input_records = tuple(records)
 
+    scenarios = {
+        scenario.scenario_id: scenario for scenario in _contract.scenario_matrix()
+    }
+    variant_shas: dict[str, set[str]] = {"A": set(), "B": set()}
     paired: dict[tuple[str, str, int], dict[str, Mapping[str, Any] | object]] = {}
     for record in input_records:
-        if _record_field(record, "warmup") is True:
-            continue
         scenario_id = _record_field(record, "scenario_id")
+        scenario = scenarios.get(scenario_id)
+        if scenario is None:
+            raise ValueError(f"unknown scenario_id: {scenario_id!r}")
+        if (
+            _record_field(record, "kind") != scenario.kind
+            or _record_field(record, "load") != scenario.load
+        ):
+            raise ValueError(f"record scenario metadata does not match {scenario_id}")
+
         order = _record_field(record, "order")
         repetition = _record_field(record, "repetition")
         variant = _record_field(record, "variant")
+        warmup = _record_field(record, "warmup")
+        sha = _record_field(record, "sha")
         if order not in ("AB", "BA") or variant not in ("A", "B"):
             raise ValueError("record order and variant must use AB/BA and A/B")
+        if type(warmup) is not bool:
+            raise ValueError("record warmup must be a boolean")
+        if type(repetition) is not int:
+            raise ValueError("record repetition must be an integer")
+        if warmup:
+            if repetition != 0:
+                raise ValueError("warmup repetition must be zero")
+        elif repetition not in (1, 2, 3):
+            raise ValueError("measured repetition must be one of 1, 2, or 3")
+        if not isinstance(sha, str) or _SHA_RE.fullmatch(sha) is None:
+            raise ValueError("record sha must be exactly 40 hexadecimal characters")
+        variant_shas[variant].add(sha.lower())
+
+        if warmup:
+            continue
         key = (scenario_id, order, repetition)
         variants = paired.setdefault(key, {})
         if variant in variants:
             raise ValueError(f"duplicate record for {key!r} variant {variant}")
         variants[variant] = record
+
+    if any(len(shas) > 1 for shas in variant_shas.values()):
+        raise ValueError("each benchmark variant must use exactly one SHA")
+    if variant_shas["A"] and variant_shas["A"] == variant_shas["B"]:
+        raise ValueError("baseline and candidate require distinct build SHAs")
 
     grouped_values: dict[tuple[str, str, str], tuple[list[float], list[float]]] = {}
     for (scenario_id, order, repetition), variants in sorted(
@@ -644,7 +679,7 @@ def _invocation_result_evidence(result: Any) -> dict[str, Any]:
         "churn_samples",
         "latencies_ms",
         "throughput_ops_per_second",
-        "presents",
+        "render_observations",
         "failures",
         "cleanup",
     )

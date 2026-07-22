@@ -69,9 +69,9 @@ EXPECTED_CHURN_SAMPLES = [
     }
 ]
 EXPECTED_LATENCIES_MS = [3.0, 5.0, 7.0, 11.0]
-EXPECTED_PRESENTS = [
-    {"surface_id": "terminal-001", "count": 6},
-    {"surface_id": "browser-mixed-realistic-001", "count": 9},
+EXPECTED_RENDER_OBSERVATIONS = [
+    {"surface_id": "terminal-001", "render_delta": 6},
+    {"surface_id": "browser-mixed-realistic-001", "render_delta": 1},
 ]
 EXPECTED_FAILURES = [
     {
@@ -172,7 +172,7 @@ class FakeRuntimeAdapter:
             "samples": copy.deepcopy(EXPECTED_CHURN_SAMPLES),
             "latencies_ms": list(EXPECTED_LATENCIES_MS),
             "throughput_ops_per_second": 16.0,
-            "presents": copy.deepcopy(EXPECTED_PRESENTS),
+            "render_observations": copy.deepcopy(EXPECTED_RENDER_OBSERVATIONS),
             "failures": copy.deepcopy(EXPECTED_FAILURES),
         }
 
@@ -315,7 +315,7 @@ def test_one_invocation_orders_lifecycle_and_retains_raw_observations(
 
     assert _field(result, "latencies_ms") == EXPECTED_LATENCIES_MS
     assert _field(result, "throughput_ops_per_second") == 16.0
-    assert _field(result, "presents") == EXPECTED_PRESENTS
+    assert _field(result, "render_observations") == EXPECTED_RENDER_OBSERVATIONS
     assert _field(result, "failures") == EXPECTED_FAILURES
     assert _field(result, "cleanup") == {
         "stopped": True,

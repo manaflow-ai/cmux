@@ -315,8 +315,8 @@ def test_predeclared_metric_directions_and_thresholds_are_complete() -> None:
         "browser_latency_ms": ("lower_is_better", 0.10),
         "terminal_throughput_per_second": ("higher_is_better", 0.05),
         "browser_throughput_per_second": ("higher_is_better", 0.05),
-        "terminal_present_rate": ("higher_is_better", 0.05),
-        "browser_present_rate": ("higher_is_better", 0.05),
+        "terminal_render_rate": ("higher_is_better", 0.05),
+        "browser_render_rate": ("higher_is_better", 0.05),
     }
 
 
@@ -450,6 +450,56 @@ def test_cli_contract_requires_exact_fixed_repetition_plan(tmp_path: Path) -> No
         perf_driver.parse_cli_args(bad_repetitions)
 
 
+def test_analysis_rejects_records_outside_fixed_measured_plan() -> None:
+    records = [
+        _record(
+            "terminal-light",
+            "AB",
+            4,
+            variant,
+            {"steady_full_tree_cpu_percent": 1.0},
+        )
+        for variant in "AB"
+    ]
+
+    with pytest.raises(ValueError, match="measured repetition"):
+        perf_driver.analyze_experiment(records)
+
+
+def test_analysis_rejects_inconsistent_build_and_scenario_identity() -> None:
+    baseline = _record(
+        "terminal-light",
+        "AB",
+        1,
+        "A",
+        {"steady_full_tree_cpu_percent": 1.0},
+    ).to_dict()
+    candidate = _record(
+        "terminal-light",
+        "AB",
+        1,
+        "B",
+        {"steady_full_tree_cpu_percent": 1.0},
+    ).to_dict()
+
+    wrong_scenario = dict(candidate)
+    wrong_scenario["kind"] = "browser"
+    with pytest.raises(ValueError, match="scenario metadata"):
+        perf_driver.analyze_experiment([baseline, wrong_scenario])
+
+    wrong_build = dict(candidate)
+    wrong_build["sha"] = BASELINE_SHA
+    with pytest.raises(ValueError, match="distinct build SHAs"):
+        perf_driver.analyze_experiment([baseline, wrong_build])
+
+    second_baseline = dict(baseline)
+    second_baseline["scenario_id"] = "terminal-realistic"
+    second_baseline["load"] = "realistic"
+    second_baseline["sha"] = "a" * 40
+    with pytest.raises(ValueError, match="one SHA"):
+        perf_driver.analyze_experiment([baseline, second_baseline, candidate])
+
+
 def test_final_acceptance_requires_every_scenario_metric_and_order() -> None:
     metrics_by_kind = {
         "terminal": (
@@ -460,7 +510,7 @@ def test_final_acceptance_requires_every_scenario_metric_and_order() -> None:
             "churn_full_tree_cpu_percent",
             "churn_terminal_cpu_percent",
             "terminal_throughput_per_second",
-            "terminal_present_rate",
+            "terminal_render_rate",
         ),
         "browser": (
             "steady_parent_cpu_percent",
@@ -471,7 +521,7 @@ def test_final_acceptance_requires_every_scenario_metric_and_order() -> None:
             "churn_webkit_cpu_percent",
             "browser_latency_ms",
             "browser_throughput_per_second",
-            "browser_present_rate",
+            "browser_render_rate",
         ),
         "mixed": tuple(perf_driver.METRIC_GATES),
     }
@@ -491,7 +541,7 @@ def test_final_acceptance_requires_every_scenario_metric_and_order() -> None:
         if not (
             record.scenario_id == "browser-light"
             and record.order == "BA"
-            and "browser_present_rate" in record.metrics
+            and "browser_render_rate" in record.metrics
         )
     ]
     rejected = perf_driver.analyze_experiment(one_group_missing)
@@ -500,7 +550,7 @@ def test_final_acceptance_requires_every_scenario_metric_and_order() -> None:
         item for item in rejected["scenarios"] if item["scenario_id"] == "browser-light"
     )
     assert browser_light["complete"] is False
-    assert "BA:browser_present_rate" in browser_light["missing_groups"]
+    assert "BA:browser_render_rate" in browser_light["missing_groups"]
 
 
 def test_platform_bridge_passes_exact_variant_scenario_and_profile_scope(
@@ -546,7 +596,7 @@ def test_platform_bridge_passes_exact_variant_scenario_and_profile_scope(
                     "churn_samples": [],
                     "latencies_ms": [],
                     "throughput_ops_per_second": {},
-                    "presents": [],
+                    "render_observations": [],
                     "failures": [],
                 },
             )()

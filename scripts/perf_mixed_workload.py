@@ -53,7 +53,7 @@ class InvocationResult:
     churn_samples: Any
     latencies_ms: Any
     throughput_ops_per_second: Any
-    presents: Any
+    render_observations: Any
     failures: Any
     cleanup: Any
 
@@ -313,7 +313,7 @@ def run_invocation(
             "churn_samples": churn["samples"],
             "latencies_ms": churn["latencies_ms"],
             "throughput_ops_per_second": churn["throughput_ops_per_second"],
-            "presents": churn["presents"],
+            "render_observations": churn["render_observations"],
             "failures": churn["failures"],
         }
     except BaseException as error:

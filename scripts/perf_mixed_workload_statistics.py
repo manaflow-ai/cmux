@@ -157,6 +157,16 @@ def _validate_direction(direction: str) -> None:
         )
 
 
+def _relative_delta(candidate: float, baseline: float) -> float:
+    """Return a finite relative delta, saturating zero-to-nonzero transitions."""
+    if baseline == 0.0:
+        if candidate == 0.0:
+            return 0.0
+        return 1.0 if candidate > 0.0 else -1.0
+    return (candidate - baseline) / baseline
+
+
+
 def _quartiles(sorted_values: tuple[float, ...]) -> tuple[float, float]:
     """Return Tukey hinges, excluding the center observation for odd counts."""
     count = len(sorted_values)
@@ -196,16 +206,16 @@ def compare_paired_samples(
     candidate = _finite_values(candidate_values, name="candidate_values")
     if len(baseline) != len(candidate):
         raise ValueError("baseline_values and candidate_values must have matching lengths")
-    if any(value <= 0.0 for value in baseline):
-        raise ValueError("baseline_values must contain only positive nonzero values")
+    if any(value < 0.0 for value in (*baseline, *candidate)):
+        raise ValueError("sample values must be nonnegative")
 
     absolute_deltas = tuple(
         candidate_value - baseline_value
         for baseline_value, candidate_value in zip(baseline, candidate, strict=True)
     )
     relative_deltas = tuple(
-        delta / baseline_value
-        for delta, baseline_value in zip(absolute_deltas, baseline, strict=True)
+        _relative_delta(candidate_value, baseline_value)
+        for baseline_value, candidate_value in zip(baseline, candidate, strict=True)
     )
 
     wins = 0.0
@@ -283,8 +293,8 @@ def aggregate_paired_samples(
         candidate_value = _finite_value(
             _record_field(record, "candidate_value"), name="candidate_value"
         )
-        if baseline_value <= 0.0:
-            raise ValueError("baseline_value must be positive and nonzero")
+        if baseline_value < 0.0 or candidate_value < 0.0:
+            raise ValueError("metric values must be nonnegative")
 
         key = (scenario_id, order, metric)
         if key not in grouped:
@@ -326,11 +336,11 @@ def evaluate_metric_gate(
         raise ValueError(f"unknown metric: {metric!r}")
     baseline = _finite_value(baseline_value, name="baseline_value")
     candidate = _finite_value(candidate_value, name="candidate_value")
-    if baseline <= 0.0:
-        raise ValueError("baseline_value must be positive and nonzero")
+    if baseline < 0.0 or candidate < 0.0:
+        raise ValueError("metric values must be nonnegative")
 
     direction, threshold = _METRIC_GATES[metric]
-    relative_change = (candidate - baseline) / baseline
+    relative_change = _relative_delta(candidate, baseline)
     relative_regression = (
         relative_change
         if direction == "lower_is_better"

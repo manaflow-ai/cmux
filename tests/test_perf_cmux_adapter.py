@@ -75,6 +75,8 @@ class FakeRunner:
         self.top_payloads: list[dict[str, Any]] = []
         self.terminal_markers: dict[str, str] = {}
         self.stopped = False
+        self.render_stats_calls = 0
+        self.screenshot_path: str | None = None
 
     def check_paths(self) -> None:
         self.events.append("check_paths")
@@ -168,11 +170,12 @@ class FakeRunner:
             assert self.snapshot_payload is not None
             return deepcopy(self.snapshot_payload)
         if method == "debug.terminal.render_stats":
+            self.render_stats_calls += 1
             return {
                 "stats": {
                     "drawCount": 10,
                     "presentCount": 20,
-                    "metalDrawableCount": 20,
+                    "metalDrawableCount": 20 + 5 * self.render_stats_calls,
                 }
             }
         if method == "system.top":
@@ -189,6 +192,14 @@ class FakeRunner:
             return {"value": self.browser_state[params["surface_id"]]["content_marker"]}
         if method in {"browser.focus_webview", "browser.reload", "browser.snapshot"}:
             return {"ok": True, "surface_id": params["surface_id"]}
+        if method == "browser.screenshot":
+            result = {
+                "surface_id": params["surface_id"],
+                "png_base64": "iVBORw0KGgo=",
+            }
+            if self.screenshot_path is not None:
+                result["path"] = self.screenshot_path
+            return result
         if method == "surface.create":
             ref = "surface:temporary"
             self.surfaces.append({"surface_id": ref, "type": "browser", "title": "temporary"})
@@ -417,9 +428,22 @@ def test_churn_calls_every_planned_surface_and_records_real_metrics(tmp_path: Pa
     assert {
         event[1][event[1].index("--surface") + 1] for event in capture_calls
     } == set(adapter._terminal_actual_ids.values())
-    for method in ("browser.focus_webview", "browser.reload", "browser.snapshot"):
-        actual = {event[2]["surface_id"] for event in runner.events if event[:2] == ("rpc", method)}
+    for method in (
+        "browser.focus_webview",
+        "browser.reload",
+        "browser.snapshot",
+        "browser.screenshot",
+    ):
+        actual = {
+            event[2]["surface_id"]
+            for event in runner.events
+            if event[:2] == ("rpc", method)
+        }
         assert actual == set(adapter._browser_actual_ids.values())
+    screenshot_calls = [
+        event for event in runner.events if event[:2] == ("rpc", "browser.screenshot")
+    ]
+    assert len(screenshot_calls) == len(adapter._browser_actual_ids)
     assert any(event[:2] == ("rpc", "surface.create") for event in runner.events)
     assert any(event[:2] == ("rpc", "surface.close") for event in runner.events)
     render_calls = [event for event in runner.events if event[:2] == ("rpc", "debug.terminal.render_stats")]
@@ -428,11 +452,28 @@ def test_churn_calls_every_planned_surface_and_records_real_metrics(tmp_path: Pa
     assert result["latencies_ms"] and all(set(item) == {"label", "surface_id", "milliseconds"} for item in result["latencies_ms"])
     assert result["throughput_ops_per_second"]["terminal"] > 0
     assert result["throughput_ops_per_second"]["browser"] > 0
-    assert {item["measurement"] for item in result["presents"]} == {
-        "debug.terminal.render_stats",
-        "completed_local_reload_snapshot_operations_proxy",
+    assert {item["measurement"] for item in result["render_observations"]} == {
+        "debug.terminal.render_stats.metalDrawableCount_render_proxy",
+        "completed_browser_screenshot_render_proxy",
     }
-    assert all(item["present_delta"] >= 0 for item in result["presents"])
+    assert all(
+        item["render_delta"] > 0 for item in result["render_observations"]
+    )
+    assert {
+        item["render_delta"]
+        for item in result["render_observations"]
+        if item["surface_kind"] == "browser"
+    } == {1}
+    browser_evidence = [
+        item
+        for item in adapter.raw_details["churn"]["surface_evidence"]
+        if item["surface_kind"] == "browser"
+    ]
+    assert all("png_base64" not in item["screenshot"] for item in browser_evidence)
+    assert {item["screenshot"]["png_base64_length"] for item in browser_evidence} == {12}
+    assert all(
+        "present_rate" not in item for item in result["render_observations"]
+    )
     assert result["failures"] == []
 
 
@@ -466,9 +507,9 @@ def test_extract_metrics_omits_absent_kind_metrics(
         ],
         "latencies_ms": [{"label": "browser_reload", "surface_id": "b", "milliseconds": 9.0}],
         "throughput_ops_per_second": {"terminal": 10.0, "browser": 11.0},
-        "presents": [
-            {"surface_kind": "terminal", "present_rate": 12.0},
-            {"surface_kind": "browser", "present_rate": 13.0},
+        "render_observations": [
+            {"surface_kind": "terminal", "render_rate": 12.0},
+            {"surface_kind": "browser", "render_rate": 13.0},
         ],
     }
     details = {"scenario": scenario(terminals=terminals, browsers=browsers, scrollback=0)}
@@ -479,7 +520,7 @@ def test_extract_metrics_omits_absent_kind_metrics(
         "churn_parent_cpu_percent", "churn_full_tree_cpu_percent",
         "churn_terminal_cpu_percent", "churn_webkit_cpu_percent",
         "browser_latency_ms", "terminal_throughput_per_second",
-        "browser_throughput_per_second", "terminal_present_rate", "browser_present_rate",
+        "browser_throughput_per_second", "terminal_render_rate", "browser_render_rate",
     }
     assert set(metrics) <= allowed
     assert not any(name.startswith(forbidden_prefixes) for name in metrics)
@@ -558,6 +599,70 @@ def test_runtime_failure_still_stops_and_cleanup_removes_only_owned_state(tmp_pa
     assert all(str(path).startswith(str(cfg.output_root)) or cfg.tag in str(path) for path in cleanup["owned_paths"])
 
 
+def test_churn_rejects_missing_terminal_drawable_counter(tmp_path: Path) -> None:
+    cfg = config(
+        tmp_path,
+        scenario=scenario(terminals=2, browsers=0, scrollback=120),
+    )
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload(), top_payload()]
+    adapter = adapter_module.CmuxRuntimeAdapter(cfg, runner=runner, clock=FakeClock())
+    prepare_fixture(adapter, runner, cfg)
+    original_rpc = runner.rpc
+
+    def rpc_without_drawables(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        payload = original_rpc(*args, **kwargs)
+        if args[0] == "debug.terminal.render_stats":
+            payload["stats"].pop("metalDrawableCount")
+        return payload
+
+    runner.rpc = rpc_without_drawables
+
+    with pytest.raises(ValueError, match="metalDrawableCount"):
+        adapter.run_churn([])
+
+
+def test_cleanup_never_unlinks_untrusted_screenshot_path(tmp_path: Path) -> None:
+    cfg = config(tmp_path)
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload(), top_payload()]
+    untrusted_root = tmp_path / "outside" / "cmux-browser-screenshots"
+    untrusted_root.mkdir(parents=True)
+    untrusted_path = untrusted_root / "surface-untrusted.png"
+    untrusted_path.write_bytes(b"not owned")
+    runner.screenshot_path = str(untrusted_path)
+    adapter = adapter_module.CmuxRuntimeAdapter(cfg, runner=runner, clock=FakeClock())
+    prepare_fixture(adapter, runner, cfg)
+
+    adapter.run_churn([])
+    adapter.cleanup_owned()
+
+    assert untrusted_path.read_bytes() == b"not owned"
+
+
+def test_cleanup_unlinks_exact_owned_screenshot_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = config(tmp_path)
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload(), top_payload()]
+    system_temp = tmp_path / "system-temp"
+    monkeypatch.setattr(adapter_module.tempfile, "gettempdir", lambda: str(system_temp))
+    screenshot_root = system_temp / "cmux-browser-screenshots"
+    screenshot_root.mkdir(parents=True)
+    screenshot_path = screenshot_root / "surface-owned.png"
+    screenshot_path.write_bytes(b"owned")
+    runner.screenshot_path = str(screenshot_path)
+    adapter = adapter_module.CmuxRuntimeAdapter(cfg, runner=runner, clock=FakeClock())
+    prepare_fixture(adapter, runner, cfg)
+
+    adapter.run_churn([])
+    cleanup = adapter.cleanup_owned()
+
+    assert not screenshot_path.exists()
+    assert str(screenshot_path) in cleanup["owned_paths"]
+
+
 def test_enabled_profiles_overlap_churn_and_record_work_units(tmp_path: Path) -> None:
     cfg = config(tmp_path, profile_enabled=True)
     runner = FakeRunner()
@@ -597,12 +702,81 @@ def test_enabled_profiles_overlap_churn_and_record_work_units(tmp_path: Path) ->
         call["work_units"]
         == {
             "terminal_ansi_lines": 3_200,
-            "browser_reload_snapshot_operations": 8,
+            "browser_churn_rpc_operations": 14,
             "temporary_browser_open_close_operations": 2,
         }
         for call in profile_calls
     )
     assert all(Path(call["path"]).read_text(encoding="utf-8") == "overlapped" for call in profile_calls)
+
+
+def test_profile_rejects_stale_output_not_recreated_by_current_sample(
+    tmp_path: Path,
+) -> None:
+    cfg = config(tmp_path, profile_enabled=True)
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload()]
+
+    def profiler(**kwargs: Any) -> dict[str, Any]:
+        return {
+            "path": kwargs["path"],
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        }
+
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        cfg, runner=runner, clock=FakeClock(), profiler=profiler
+    )
+    metadata = adapter._profile_metadata(phase="manual", work_units={})[0]
+    stale_path = Path(metadata["path"])
+    stale_path.write_text("stale profile", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="empty output") as captured:
+        adapter._run_profile(metadata)
+
+    assert not stale_path.exists()
+    assert captured.value.evidence["result"]["returncode"] == 0
+
+
+@pytest.mark.parametrize(
+    ("returncode", "profile_contents", "message"),
+    [
+        (1, "partial profile", "nonzero status"),
+        (0, "", "empty output"),
+    ],
+)
+def test_profile_failure_rejects_churn_and_retains_evidence(
+    tmp_path: Path,
+    returncode: int,
+    profile_contents: str,
+    message: str,
+) -> None:
+    cfg = config(tmp_path, profile_enabled=True)
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload(), top_payload(), top_payload()]
+
+    def profiler(**kwargs: Any) -> dict[str, Any]:
+        Path(kwargs["path"]).write_text(profile_contents, encoding="utf-8")
+        return {
+            "path": kwargs["path"],
+            "returncode": returncode,
+            "stdout": "profile stdout",
+            "stderr": "profile stderr",
+        }
+
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        cfg, runner=runner, clock=FakeClock(), profiler=profiler
+    )
+    prepare_fixture(adapter, runner, cfg)
+
+    result = adapter.run_churn([])
+
+    assert len(result["failures"]) == 2
+    assert all(item["phase"] == "profile_churn" for item in result["failures"])
+    assert all(message in item["message"] for item in result["failures"])
+    assert all(item["evidence"]["result"]["returncode"] == returncode for item in result["failures"])
+    assert all(item["evidence"]["result"]["stderr"] == "profile stderr" for item in result["failures"])
 
 
 def test_profile_keeps_parent_and_each_discovered_webkit_role_separate(tmp_path: Path) -> None:
