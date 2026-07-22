@@ -90,8 +90,23 @@ struct TranscriptProjectorCatalogTests {
             entries: [Self.user(seq: 5, text: "real content")],
             holes: [hole],
             streamingTail: Self.tail(text: "live tail", revision: 3)
-        )).rows
-        #expect(midHistory.contains { $0.rowID == .hole(hole) })
+        ))
+        #expect(midHistory.rows.contains { $0.rowID == .hole(hole) })
+
+        let latched = projector.project(TranscriptProjectionInput(
+            entries: [],
+            holes: [hole],
+            streamingTail: Self.tail(text: "live tail", revision: 4)
+        ), previousRows: midHistory.rows)
+        #expect(latched.rows.contains { $0.rowID == .hole(hole) })
+        #expect(latched.diff.removed[.hole(hole)] == nil)
+
+        let filled = projector.project(TranscriptProjectionInput(
+            entries: [Self.user(seq: 5, text: "real content")],
+            streamingTail: Self.tail(text: "live tail", revision: 5)
+        ), previousRows: latched.rows)
+        #expect(!filled.rows.contains { $0.rowID == .hole(hole) })
+        #expect(filled.diff.removed[.hole(hole)] != nil)
     }
 
     @Test

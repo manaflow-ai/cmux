@@ -36,7 +36,7 @@ struct TranscriptProjectorTests {
     }
 
     @Test
-    func promptStartsStableTurnAndEarlierAssistantDemotesInOrder() throws {
+    func promptKeepsInterleavedAssistantProseAndActivityInOrder() throws {
         let rows = projector.project(TranscriptProjectionInput(entries: [
             Self.user(seq: 1, text: "prompt"),
             Self.agent(seq: 2, text: "draft"),
@@ -54,11 +54,57 @@ struct TranscriptProjectorTests {
         #expect(summaryRow.turnID == expectedTurn)
         guard case .activitySummary(let summary) = summaryRow.rowKind else { return }
         #expect(summary.items.map(\.id) == [
-            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2)),
             .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 3)),
         ])
+        #expect(rows.reversed().map(\.rowID) == [
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 1)),
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2)),
+            .activitySummary(expectedTurn),
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 4)),
+        ])
+        #expect(rows.row(seq: 2)?.agentText == "draft")
         #expect(rows.row(seq: 4)?.turnID == expectedTurn)
         #expect(rows.row(seq: 4)?.endsTurn == true)
+    }
+
+    @Test
+    func adjacentAssistantProseBlocksBothRenderAsProseRows() {
+        let rows = projector.project(TranscriptProjectionInput(entries: [
+            Self.user(seq: 1, text: "prompt"),
+            Self.agent(seq: 2, text: "prose A"),
+            Self.agent(seq: 3, text: "prose B"),
+        ])).rows
+
+        #expect(rows.row(seq: 2)?.agentText == "prose A")
+        #expect(rows.row(seq: 3)?.agentText == "prose B")
+        #expect(!rows.contains { if case .activitySummary = $0.rowKind { true } else { false } })
+    }
+
+    @Test
+    func appendingAssistantProseRetainsExistingProseIdentity() throws {
+        let first = projector.project(TranscriptProjectionInput(entries: [
+            Self.user(seq: 1, text: "prompt"),
+            Self.agent(seq: 2, text: "prose A"),
+        ]))
+        let second = projector.project(TranscriptProjectionInput(entries: [
+            Self.user(seq: 1, text: "prompt"),
+            Self.agent(seq: 2, text: "prose A"),
+            Self.agent(seq: 3, text: "prose B"),
+        ]), previousRows: first.rows)
+        let retainedID = TranscriptRowID.entry(
+            journalID: Self.journal,
+            seq: EntrySeq(rawValue: 2)
+        )
+        let appendedID = TranscriptRowID.entry(
+            journalID: Self.journal,
+            seq: EntrySeq(rawValue: 3)
+        )
+
+        #expect(try #require(first.rows.row(seq: 2)).rowID == retainedID)
+        #expect(try #require(second.rows.row(seq: 2)).rowID == retainedID)
+        #expect(second.rows.row(seq: 2)?.agentText == "prose A")
+        #expect(second.diff.removed.isEmpty)
+        #expect(second.diff.inserted[appendedID] != nil)
     }
 
     @Test
