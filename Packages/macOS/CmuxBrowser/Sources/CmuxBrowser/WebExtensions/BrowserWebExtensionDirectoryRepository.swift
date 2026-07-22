@@ -502,7 +502,8 @@ public actor BrowserWebExtensionDirectoryRepository {
             if let directoryDescriptor { Darwin.close(directoryDescriptor) }
         }
 
-        // Package digest format v1:
+        // A single regular-file package uses the standard raw SHA-256 expected
+        // by catalog metadata. Directory trees use package digest format v1:
         //   domain || BE32(version) || BE64(file count) ||
         //   repeated(BE64(path byte count) || UTF-8 path ||
         //            BE64(file byte count) || file bytes)
@@ -510,15 +511,19 @@ public actor BrowserWebExtensionDirectoryRepository {
         // reinterpreted as another path. Empty directories intentionally do not
         // affect the digest because they cannot change WebExtension behavior.
         var hasher = SHA256()
-        hasher.update(data: Self.packageDigestDomain)
-        hasher.update(data: Self.bigEndianBytes(Self.packageDigestFormatVersion))
-        hasher.update(data: Self.bigEndianBytes(UInt64(files.count)))
+        if !isSingleFile {
+            hasher.update(data: Self.packageDigestDomain)
+            hasher.update(data: Self.bigEndianBytes(Self.packageDigestFormatVersion))
+            hasher.update(data: Self.bigEndianBytes(UInt64(files.count)))
+        }
         var actualByteCount = 0
         for entry in files {
             try requireActive()
             let pathBytes = Data(entry.relativePath.utf8)
-            hasher.update(data: Self.bigEndianBytes(UInt64(pathBytes.count)))
-            hasher.update(data: pathBytes)
+            if !isSingleFile {
+                hasher.update(data: Self.bigEndianBytes(UInt64(pathBytes.count)))
+                hasher.update(data: pathBytes)
+            }
             do {
                 let handle: FileHandle
                 if let directoryDescriptor {
@@ -542,7 +547,9 @@ public actor BrowserWebExtensionDirectoryRepository {
                 guard expectedFileByteCount <= UInt64(packageLimits.maximumByteCount) else {
                     throw BrowserWebExtensionInstallError.packageTooLarge
                 }
-                hasher.update(data: Self.bigEndianBytes(expectedFileByteCount))
+                if !isSingleFile {
+                    hasher.update(data: Self.bigEndianBytes(expectedFileByteCount))
+                }
                 var fileByteCount: UInt64 = 0
                 while let chunk = try handle.read(upToCount: Self.copyChunkByteCount), !chunk.isEmpty {
                     try requireActive()
