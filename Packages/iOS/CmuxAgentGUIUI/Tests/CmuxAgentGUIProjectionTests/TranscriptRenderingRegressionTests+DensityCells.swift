@@ -46,11 +46,7 @@ extension TranscriptRenderingRegressionTests {
     }
 
     private static func densityFittingHeight(of cell: TranscriptCollectionCell) -> CGFloat {
-        cell.contentView.systemLayoutSizeFitting(
-            CGSize(width: cell.bounds.width, height: UIView.layoutFittingCompressedSize.height),
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        ).height
+        cell.rowLayoutResult?.height ?? 0
     }
 
     private static func collapsedSummaryRow() -> TranscriptRow {

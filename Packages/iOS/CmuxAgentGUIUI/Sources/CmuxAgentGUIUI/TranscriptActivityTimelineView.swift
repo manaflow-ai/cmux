@@ -1,6 +1,6 @@
 #if os(iOS)
 public import CMUXMobileCore
-public import CmuxAgentGUIProjection
+import CmuxAgentGUIProjection
 public import SwiftUI
 
 /// Sheet content showing the ordered activity timeline for one completed turn.

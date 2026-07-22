@@ -35,6 +35,10 @@ extension TranscriptRenderingRegressionTests {
         ))
         controller.scrollToBottom(animated: false)
         Self.pumpOverlapRunLoop()
+        container.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.collectionView.layoutIfNeeded()
+        CATransaction.flush()
 
         #expect(controller.view.safeAreaInsets.top >= 59)
         #expect(controller.view.safeAreaInsets.bottom >= 34)
@@ -56,8 +60,14 @@ extension TranscriptRenderingRegressionTests {
             )
 
             #expect(abs(layoutHeight - attributes.frame.height) <= tolerance)
-            #expect(renderedRect.minY >= attributeRect.minY - tolerance)
-            #expect(renderedRect.maxY <= attributeRect.maxY + tolerance)
+            #expect(
+                renderedRect.minY >= attributeRect.minY - tolerance,
+                "Rendered row \(row.rowID) starts above its attribute frame"
+            )
+            #expect(
+                renderedRect.maxY <= attributeRect.maxY + tolerance,
+                "Rendered row \(row.rowID) ends below its attribute frame"
+            )
             renderedRects.append((row.rowID, renderedRect))
         }
 
@@ -142,33 +152,7 @@ extension TranscriptRenderingRegressionTests {
     }
 
     private static func renderedContentRect(of cell: TranscriptCollectionCell, in window: UIWindow) -> CGRect {
-        let descendantRects = Self.renderedDescendantRects(in: cell.contentView, window: window)
-        return descendantRects.reduce(CGRect.null) { $0.union($1) }
-    }
-
-    private static func renderedDescendantRects(in view: UIView, window: UIWindow) -> [CGRect] {
-        let ownRect: [CGRect]
-        if view !== view.superview,
-           !view.isHidden,
-           view.alpha > 0.01,
-           view.bounds.width > 0,
-           view.bounds.height > 0,
-           Self.drawsVisibleContent(view) {
-            ownRect = [view.convert(view.bounds, to: window).standardized]
-        } else {
-            ownRect = []
-        }
-        return ownRect + view.subviews.flatMap { Self.renderedDescendantRects(in: $0, window: window) }
-    }
-
-    private static func drawsVisibleContent(_ view: UIView) -> Bool {
-        if view is UILabel || view is UITextView || view is UIImageView || view is UIButton {
-            return true
-        }
-        if let color = view.backgroundColor, color.cgColor.alpha > 0.01 {
-            return true
-        }
-        return view.layer.contents != nil || view.layer.borderWidth > 0 || view.layer.shadowOpacity > 0
+        cell.convert(cell.contentBoundsIncludingSubviews, to: window)
     }
 
     private static func pumpOverlapRunLoop() {

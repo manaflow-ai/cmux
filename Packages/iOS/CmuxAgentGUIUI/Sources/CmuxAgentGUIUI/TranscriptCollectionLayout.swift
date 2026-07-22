@@ -69,9 +69,5 @@ final class TranscriptCollectionLayout: UICollectionViewLayout {
         super.invalidateLayout(with: context)
     }
 
-    func invalidateMeasurements() {
-        needsMeasurement = true
-        invalidateLayout()
-    }
 }
 #endif

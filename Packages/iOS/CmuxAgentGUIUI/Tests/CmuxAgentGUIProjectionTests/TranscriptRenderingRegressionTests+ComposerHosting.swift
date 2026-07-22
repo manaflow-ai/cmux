@@ -75,7 +75,11 @@ extension TranscriptRenderingRegressionTests {
                 #expect(!textView.isEditable)
                 #expect(!textView.isScrollEnabled)
             case .activitySummary:
-                #expect(textViews.isEmpty)
+                let textView = try #require(textViews.first)
+                #expect(textViews.count == 1)
+                #expect(textView.isSelectable)
+                #expect(!textView.isEditable)
+                #expect(!textView.isScrollEnabled)
             default:
                 break
             }

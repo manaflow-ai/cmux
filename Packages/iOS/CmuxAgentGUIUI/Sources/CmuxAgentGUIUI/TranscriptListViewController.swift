@@ -11,9 +11,10 @@ public import UIKit
     private let projector = TranscriptProjector()
     var currentTheme: AgentGUITheme
     var dataSource: UICollectionViewDiffableDataSource<TranscriptListSection, TranscriptRowID>!
-    private let sizingCell = TranscriptCollectionCell(frame: .zero)
     var rowsByID: [TranscriptRowID: TranscriptRow] = [:]
     var spacingByID: [TranscriptRowID: TranscriptRowSpacing] = [:]
+    var heightCache: [TranscriptRowID: TranscriptRowLayoutCacheEntry] = [:]
+    var layoutComputationCount = 0
     var currentRows: [TranscriptRow] = []
     var currentDensity: TranscriptDensity = .comfortable
     var pendingDensity: TranscriptDensity?
@@ -76,6 +77,12 @@ public import UIKit
         configureCollectionView()
         configureDataSource()
         configurePill()
+        registerForTraitChanges([
+            UITraitPreferredContentSizeCategory.self,
+            UITraitDisplayScale.self,
+        ]) { (controller: TranscriptListViewController, _: UITraitCollection) in
+            controller.invalidateAllRowLayouts()
+        }
     }
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -113,7 +120,7 @@ public import UIKit
             dataSource.snapshot(),
             reconfiguring: Set(dataSource.snapshot().itemIdentifiers),
             anchor: anchor,
-            invalidatingLayout: true
+            invalidatingLayout: false
         )
     }
     /// Scrolls to the newest transcript row at the bottom-origin layout rest position.
@@ -250,13 +257,15 @@ public import UIKit
         rowID: TranscriptRowID
     ) -> UICollectionViewCell {
         guard let row = rowsByID[rowID],
-              let spacing = spacingByID[rowID]
+              let spacing = spacingByID[rowID],
+              let layout = layoutForRow(rowID: rowID, width: collectionView.bounds.width)
         else {
             return UICollectionViewCell()
         }
         cell.configure(
             row: row,
             spacing: spacing,
+            layout: layout,
             theme: currentTheme,
             answeringAskID: answeringAskID,
             failedAskID: failedAskID,
@@ -270,21 +279,7 @@ public import UIKit
     func heightForRow(at indexPath: IndexPath, width: CGFloat) -> CGFloat {
         guard currentRows.indices.contains(indexPath.item) else { return 44 }
         let rowID = currentRows[indexPath.item].rowID
-        sizingCell.frame = CGRect(
-            origin: .zero,
-            size: CGSize(width: width, height: 1)
-        )
-        _ = configure(cell: sizingCell, rowID: rowID)
-        let fittedHeight = sizingCell.contentView.systemLayoutSizeFitting(
-            CGSize(
-                width: width,
-                height: UIView.layoutFittingCompressedSize.height
-            ),
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        ).height
-        let scale = view.window?.screen.scale ?? traitCollection.displayScale
-        return (fittedHeight * max(scale, 1)).rounded(.up) / max(scale, 1)
+        return layoutForRow(rowID: rowID, width: width)?.height ?? 44
     }
 
     private func applyRows(

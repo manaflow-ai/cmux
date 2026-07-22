@@ -382,12 +382,14 @@ import UIKit
         let collection = controller.collectionView!
         let cell = collection.visibleCells.first
         let offset = collection.contentOffset
+        let layoutComputationCount = controller.layoutComputationCount
 
         controller.apply(theme: replacement)
 
         #expect(controller.collectionView === collection)
         #expect(cell == nil || controller.collectionView.visibleCells.contains { $0 === cell })
         #expect(controller.collectionView.contentOffset == offset)
+        #expect(controller.layoutComputationCount == layoutComputationCount)
         #expect(controller.currentTheme == replacement)
         #expect(controller.pillHost?.rootView.theme == replacement)
     }
@@ -424,13 +426,7 @@ import UIKit
     }
 
     private static func fittingHeight(of cell: TranscriptCollectionCell) -> CGFloat {
-        cell.setNeedsLayout()
-        cell.layoutIfNeeded()
-        return cell.contentView.systemLayoutSizeFitting(
-            CGSize(width: cell.bounds.width, height: UIView.layoutFittingCompressedSize.height),
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        ).height
+        cell.rowLayoutResult?.height ?? 0
     }
 
     private static func pumpRenderingRunLoop() {

@@ -1,0 +1,118 @@
+#if os(iOS)
+import CmuxAgentGUIProjection
+import UIKit
+
+@MainActor struct TranscriptRowLayout {
+    static func layout(
+        row: TranscriptRow,
+        width: CGFloat,
+        density: TranscriptDensity,
+        scale: CGFloat
+    ) -> TranscriptRowLayoutResult {
+        let spacing = TranscriptRowSpacing.resolved(for: [row], density: density)[row.rowID]
+            ?? TranscriptRowSpacing(top: 0, bottom: 0, density: density)
+        return layout(
+            row: row,
+            width: width,
+            spacing: spacing,
+            scale: scale,
+            askState: .idle
+        )
+    }
+
+    static func layout(
+        row: TranscriptRow,
+        width: CGFloat,
+        spacing: TranscriptRowSpacing,
+        scale: CGFloat,
+        askState: TranscriptAskLayoutState
+    ) -> TranscriptRowLayoutResult {
+        let safeWidth = max(width, 1)
+        switch row.rowKind {
+        case .proseAgent(let text, _):
+            return proseAgent(text, width: safeWidth, spacing: spacing, scale: scale)
+        case .proseUser(let text, _, _):
+            return bubble(text, pending: false, leading: false, width: safeWidth, spacing: spacing, scale: scale)
+        case .status(let code, let detail):
+            return metadata(
+                [AgentGUIL10n.statusCode(code), detail].compactMap(\.self).joined(separator: " - "),
+                width: safeWidth,
+                spacing: spacing,
+                scale: scale
+            )
+        case .dateHeader(let dayKey):
+            return metadata(dayKey, width: safeWidth, spacing: spacing, scale: scale)
+        case .boundary:
+            return metadata(
+                AgentGUIL10n.string(
+                    "agent.transcript.boundary",
+                    defaultValue: "Earlier history is on your Mac"
+                ),
+                width: safeWidth,
+                spacing: spacing,
+                scale: scale
+            )
+        case .hole(let range):
+            return metadata(
+                AgentGUIL10n.hole(
+                    lowerBound: range.lowerBound.rawValue,
+                    upperBound: range.upperBound.rawValue
+                ),
+                width: safeWidth,
+                spacing: spacing,
+                scale: scale
+            )
+        case .pendingTicket(let ticket):
+            return bubble(ticket.text, pending: true, leading: false, width: safeWidth, spacing: spacing, scale: scale)
+        case .pendingAsk(let ask):
+            return pendingAsk(
+                ask,
+                width: safeWidth,
+                spacing: spacing,
+                scale: scale,
+                state: askState
+            )
+        case .streaming(let textTail):
+            return bubble(textTail, pending: false, leading: true, width: safeWidth, spacing: spacing, scale: scale)
+        case .genericActivity(let activity):
+            return genericActivity(activity, width: safeWidth, spacing: spacing, scale: scale)
+        case .activitySummary(let summary):
+            return activitySummary(summary, width: safeWidth, spacing: spacing, scale: scale)
+        case .activityItem(let item):
+            return activityItem(item, width: safeWidth, spacing: spacing, scale: scale)
+        case .unsupported(let rawKind, let summary):
+            return genericActivity(
+                TranscriptGenericActivity(kindLabel: rawKind, summary: summary),
+                width: safeWidth,
+                spacing: spacing,
+                scale: scale
+            )
+        }
+    }
+
+    static func result(
+        height: CGFloat,
+        scale: CGFloat,
+        texts: [TranscriptRowTextElement] = [],
+        backgrounds: [TranscriptRowBackgroundElement] = [],
+        glyphs: [TranscriptRowGlyphElement] = [],
+        buttons: [TranscriptRowButtonElement] = []
+    ) -> TranscriptRowLayoutResult {
+        TranscriptRowLayoutResult(
+            height: pixelCeil(max(height, 1), scale: scale),
+            textElements: texts,
+            backgroundElements: backgrounds,
+            glyphElements: glyphs,
+            buttonElements: buttons
+        )
+    }
+
+    static func pixelCeil(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+        ceil(value * max(scale, 1)) / max(scale, 1)
+    }
+
+    static func pixelFloor(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+        floor(value * max(scale, 1)) / max(scale, 1)
+    }
+}
+#endif

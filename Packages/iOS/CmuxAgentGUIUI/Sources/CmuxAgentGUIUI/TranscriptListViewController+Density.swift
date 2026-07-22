@@ -67,6 +67,13 @@ extension TranscriptListViewController {
             previousSpacing[$0] != spacingByID[$0]
         }
         let reconfiguredIDs = requestedIDs.intersection(retainedIDs).union(spacingChangedIDs)
+        heightCache = heightCache.filter { snapshot.itemIdentifiers.contains($0.key) }
+        let invalidatedHeightIDs = spacingChangedIDs.union(
+            invalidatingLayout ? requestedIDs : []
+        )
+        for rowID in invalidatedHeightIDs {
+            heightCache.removeValue(forKey: rowID)
+        }
         UIView.performWithoutAnimation {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -83,10 +90,7 @@ extension TranscriptListViewController {
                 }
             }
             if invalidatingLayout {
-                // TODO(perf slice): invalidate only dirty rows plus spacing-dependent
-                // neighbors; the current measurement reset is O(N) in transcript rows.
-                (self.collectionView.collectionViewLayout as? TranscriptCollectionLayout)?
-                    .invalidateMeasurements()
+                self.collectionView.collectionViewLayout.invalidateLayout()
                 self.collectionView.layoutIfNeeded()
             }
             if let anchor,
