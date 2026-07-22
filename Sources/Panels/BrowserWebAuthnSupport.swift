@@ -636,9 +636,6 @@ enum BrowserWebAuthnBridgeContract {
     }()
 }
 
-func browserWebAuthnNativeCapabilityPayload() -> [String: Bool] {
-    [:]
-}
 
 @MainActor
 private struct BrowserWebAuthnClientDataContext {
@@ -1753,7 +1750,7 @@ private extension BrowserWebAuthnCoordinator {
     func capabilityReply() -> [String: Any] {
         [
             "ok": true,
-            "capabilities": browserWebAuthnNativeCapabilityPayload(),
+            "capabilities": [String: Bool](),
         ]
     }
 
