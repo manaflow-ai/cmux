@@ -60,6 +60,11 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         }
     }
 
+    override func cancelOperation(_ sender: Any?) {
+        _ = workspaceController?.localReorderCancelOperation()
+        super.cancelOperation(sender)
+    }
+
     /// NSTableView is the dragging source, so this callback continues while
     /// the pointer is outside the sidebar and its destination overlay.
     override func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {

@@ -90,15 +90,15 @@ import Testing
         #expect(explicitGroupId == nil)
     }
 
-    /// A drag already previewing inside the group stays there through the
-    /// next root row's top half, preventing boundary chatter.
-    @Test func groupStickyHoldsThroughNextRootRowTopHalf() throws {
+    /// Once the next root row becomes nearer than the group's last member,
+    /// leave immediately. Immutable live targets prevent boundary chatter.
+    @Test func groupDestinationReleasesWhenNextRootBecomesNearest() throws {
         let plan = try #require(resolvePlan(pointY: 95, sticky: .group(groupId), dragging: top))
         guard case .reorder(_, _, let explicitGroupId) = plan.action else {
             Issue.record("expected reorder action")
             return
         }
-        #expect(explicitGroupId == groupId)
+        #expect(explicitGroupId == nil)
     }
 
     /// Crossing the next root row's midpoint exits the group on the same

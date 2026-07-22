@@ -26,22 +26,31 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func localReorderCorridorClaimsMoveDropsButPreservesEscapeCancellation() {
+    func localReorderCorridorCommitsResolvedDropsButPreservesExplicitCancellation() {
         let band = CGRect(x: 0, y: 0, width: 240, height: 600)
         let outsideSidebarPoint = CGPoint(x: 400, y: 300)
 
         #expect(SidebarWorkspaceTableLocalReorderController.shouldCommitSourceDrop(
-            operation: .move,
+            hasResolvedPlan: true,
+            explicitlyCancelled: false,
             point: outsideSidebarPoint,
             sidebarBand: band
         ))
         #expect(!SidebarWorkspaceTableLocalReorderController.shouldCommitSourceDrop(
-            operation: [],
+            hasResolvedPlan: false,
+            explicitlyCancelled: false,
             point: outsideSidebarPoint,
             sidebarBand: band
         ))
         #expect(!SidebarWorkspaceTableLocalReorderController.shouldCommitSourceDrop(
-            operation: .move,
+            hasResolvedPlan: true,
+            explicitlyCancelled: true,
+            point: outsideSidebarPoint,
+            sidebarBand: band
+        ))
+        #expect(!SidebarWorkspaceTableLocalReorderController.shouldCommitSourceDrop(
+            hasResolvedPlan: true,
+            explicitlyCancelled: false,
             point: CGPoint(x: 600, y: 300),
             sidebarBand: band
         ))

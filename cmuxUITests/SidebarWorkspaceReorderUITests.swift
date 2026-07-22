@@ -3,10 +3,12 @@ import XCTest
 
 final class SidebarWorkspaceReorderUITests: XCTestCase {
     private let workspaceTitlePrefix = "reorder-ui-"
+    private let debugLogPath = "/tmp/cmux-sidebar-reorder-xcui.log"
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        try? FileManager.default.removeItem(atPath: debugLogPath)
     }
 
     func testReordersWhenDraggedRowCenterCrossesNeighborCenter() throws {
@@ -17,19 +19,13 @@ final class SidebarWorkspaceReorderUITests: XCTestCase {
         let draggedTitle = titles[3]
         let target = try workspaceRow(targetTitle, app: app)
         let dragged = try workspaceRow(draggedTitle, app: app)
-        let window = try XCTUnwrap(app.windows.firstMatch)
-
         // Grab near the bottom. The pointer remains below the target midpoint,
         // while the floating row's midpoint has already crossed it.
-        let destination = windowCoordinate(
-            window,
-            point: CGPoint(
-                x: dragged.frame.midX,
-                y: target.frame.midY + target.frame.height * 0.2
-            )
-        )
-        dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
-            .click(forDuration: 0.25, thenDragTo: destination, withVelocity: .slow, thenHoldForDuration: 0.35)
+        let targetPoint = target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).screenPoint
+        let destination = fixedCoordinate(at: targetPoint, app: app)
+        let startPoint = dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).screenPoint
+        fixedCoordinate(at: startPoint, app: app)
+            .press(forDuration: 0.25, thenDragTo: destination)
 
         addScreenshot(named: "center-crossing")
         XCTAssertTrue(
@@ -44,7 +40,9 @@ final class SidebarWorkspaceReorderUITests: XCTestCase {
         let titles = try createRootWorkspaces(count: 5, app: app)
         let memberTitle = titles[1]
         let draggedTitle = titles[3]
-        let followingRootTitle = titles[4]
+        // Workspace 3 is the first root after the newly created group. The
+        // dragged workspace starts below it, then becomes the group's tail.
+        let followingRootTitle = titles[2]
 
         let member = try workspaceRow(memberTitle, app: app)
         member.rightClick()
@@ -55,12 +53,18 @@ final class SidebarWorkspaceReorderUITests: XCTestCase {
 
         let groupedMember = try workspaceRow(memberTitle, app: app)
         let dragged = try workspaceRow(draggedTitle, app: app)
-        dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .click(
+        let entryStart = fixedCoordinate(
+            at: dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint,
+            app: app
+        )
+        let entryDestination = fixedCoordinate(
+            at: groupedMember.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.8)).screenPoint,
+            app: app
+        )
+        entryStart
+            .press(
                 forDuration: 0.25,
-                thenDragTo: groupedMember.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.8)),
-                withVelocity: .slow,
-                thenHoldForDuration: 0.35
+                thenDragTo: entryDestination
             )
 
         XCTAssertTrue(
@@ -70,12 +74,17 @@ final class SidebarWorkspaceReorderUITests: XCTestCase {
 
         let groupedDragged = try workspaceRow(draggedTitle, app: app)
         let followingRoot = try workspaceRow(followingRootTitle, app: app)
-        groupedDragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .click(
+        let exitPoint = followingRoot.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.3, dy: 0.8)
+        ).screenPoint
+        let exitStart = fixedCoordinate(
+            at: groupedDragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint,
+            app: app
+        )
+        exitStart
+            .press(
                 forDuration: 0.25,
-                thenDragTo: followingRoot.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.8)),
-                withVelocity: .slow,
-                thenHoldForDuration: 0.35
+                thenDragTo: fixedCoordinate(at: exitPoint, app: app)
             )
 
         addScreenshot(named: "group-tail-entry-exit")
@@ -88,30 +97,37 @@ final class SidebarWorkspaceReorderUITests: XCTestCase {
     func testReordersWhilePointerIsOutsideSidebar() throws {
         let app = launchFixture()
         defer { app.terminate() }
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5), "Expected main window")
+        app.typeKey("f", modifierFlags: [.control, .command])
+        XCTAssertTrue(
+            pollUntil(timeout: 5) { window.frame.width > 600 },
+            "Expected a wide full-screen window for the outside-sidebar gesture. frame=\(window.frame)"
+        )
         let titles = try createRootWorkspaces(count: 4, app: app)
         let targetTitle = titles[2]
         let draggedTitle = titles[3]
         let target = try workspaceRow(targetTitle, app: app)
         let dragged = try workspaceRow(draggedTitle, app: app)
-        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
-        let window = app.windows.firstMatch
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 5), "Expected sidebar accessibility element")
-        XCTAssertTrue(window.waitForExistence(timeout: 5), "Expected main window")
-
-        let destination = windowCoordinate(
-            window,
-            point: CGPoint(
-                x: min(window.frame.maxX - 24, sidebar.frame.maxX + 100),
-                y: target.frame.midY - 3
-            )
+        let start = fixedCoordinate(
+            at: dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint,
+            app: app
         )
-        dragged.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .click(forDuration: 0.25, thenDragTo: destination, withVelocity: .slow, thenHoldForDuration: 0.35)
+        let targetY = target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint.y - 3
+        let normalizedY = (targetY - window.frame.minY) / window.frame.height
+        // The destination is 100 points beyond the 240-point sidebar and
+        // remains inside the source reorder corridor.
+        let destination = window.coordinate(
+            withNormalizedOffset: CGVector(dx: 340 / window.frame.width, dy: normalizedY)
+        )
+        start.press(forDuration: 0.25, thenDragTo: destination)
 
         addScreenshot(named: "outside-sidebar-drop")
         XCTAssertTrue(
             waitForWorkspace(draggedTitle, immediatelyBefore: targetTitle, app: app),
-            "Expected the reorder to commit after the pointer left the sidebar. order=\(workspaceOrder(app: app))"
+            "Expected the reorder to commit after the pointer left the sidebar. " +
+                "start=\(start.screenPoint) destination=\(destination.screenPoint) " +
+                "window=\(window.frame) order=\(workspaceOrder(app: app))"
         )
     }
 
@@ -124,6 +140,7 @@ final class SidebarWorkspaceReorderUITests: XCTestCase {
         ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = "uisr-\(UUID().uuidString.prefix(8).lowercased())"
+        app.launchEnvironment["CMUX_DEBUG_LOG"] = debugLogPath
         app.launch()
         if !app.wait(for: .runningForeground, timeout: 10) {
             app.activate()
@@ -232,14 +249,19 @@ final class SidebarWorkspaceReorderUITests: XCTestCase {
         return grouped
     }
 
-    private func workspaceTitle(from label: String) -> String {
-        label.split(separator: ",", maxSplits: 1).first.map(String.init) ?? label
-    }
-
-    private func windowCoordinate(_ window: XCUIElement, point: CGPoint) -> XCUICoordinate {
-        window.coordinate(withNormalizedOffset: .zero).withOffset(
+    /// Captures an absolute destination before the drag starts. Coordinates
+    /// rooted in a row follow that row while the live preview moves it, which
+    /// shortens the gesture and never reaches the intended midpoint.
+    private func fixedCoordinate(at point: CGPoint, app: XCUIApplication) -> XCUICoordinate {
+        let window = app.windows.firstMatch
+        let origin = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+        return origin.withOffset(
             CGVector(dx: point.x - window.frame.minX, dy: point.y - window.frame.minY)
         )
+    }
+
+    private func workspaceTitle(from label: String) -> String {
+        label.split(separator: ",", maxSplits: 1).first.map(String.init) ?? label
     }
 
     private func pollUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {

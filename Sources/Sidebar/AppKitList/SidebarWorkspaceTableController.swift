@@ -495,6 +495,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         workspaceDragSessionDidEnd()
     }
 
+    func localReorderCancelOperation() -> Bool {
+        localReorder.cancelOperation()
+    }
+
     func workspaceDragSessionDidBegin() {
         // A drag consumes the press: the click action never fires, so no
         // authoritative selection apply will reconcile the optimistic press

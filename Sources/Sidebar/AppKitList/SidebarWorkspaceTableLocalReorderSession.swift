@@ -32,6 +32,14 @@ protocol SidebarWorkspaceTableLocalReorderDelegate: AnyObject {
 /// only mutated once, on drop, from the same resolved plan the preview shows.
 @MainActor
 final class SidebarWorkspaceTableLocalReorderController {
+    /// Immutable pickup-time row data. Live table rows are animated preview
+    /// output, so feeding their geometry back into resolution creates a
+    /// planner/UI feedback loop. The session lays this snapshot out itself.
+    private struct PickupRow {
+        let configuration: SidebarWorkspaceTableRowConfiguration
+        let height: CGFloat
+    }
+
     private enum Phase {
         case idle
         /// Drag in flight. `insideSidebar` tracks whether the preview or the
@@ -55,11 +63,18 @@ final class SidebarWorkspaceTableLocalReorderController {
         var destinationGroupId: UUID?
         var blockRowIds: [SidebarWorkspaceRenderItemID]
         var originalOrder: [SidebarWorkspaceRenderItemID]
+        let pickupRows: [PickupRow]
+        let logicalContentMinY: CGFloat
+        let rowSpacing: CGFloat
+        /// The order currently previewed by the table. This and `lastPlan`
+        /// are the coordinator's state; animated table geometry is output.
+        var previewOrder: [SidebarWorkspaceRenderItemID]
         var grabOffsetY: CGFloat
         var blockHeight: CGFloat
         var lastPlan: SidebarWorkspaceReorderDropPlan?
         var lastPoint: CGPoint?
         var floatingView: SidebarWorkspaceReorderFloatingRowView?
+        var explicitlyCancelled = false
         var sourceDragImageHidden = false
         var sourceDragImageProviders: [(() -> [NSDraggingImageComponent])?]
 
@@ -130,13 +145,20 @@ final class SidebarWorkspaceTableLocalReorderController {
         }
 
         let baseGroupId = rows[block[0]].isGroupHeader ? nil : rows[block[0]].groupId
+        let originalOrder = rows.map(\.id)
         var next = Session(
             draggedWorkspaceId: draggedWorkspaceId,
             isGroupBlock: rows[block[0]].isGroupHeader,
             baseGroupId: baseGroupId,
             destinationGroupId: baseGroupId,
             blockRowIds: block.map { rows[$0].id },
-            originalOrder: rows.map(\.id),
+            originalOrder: originalOrder,
+            pickupRows: rows.indices.map { row in
+                PickupRow(configuration: rows[row], height: table.rect(ofRow: row).height)
+            },
+            logicalContentMinY: rows.isEmpty ? 0 : table.rect(ofRow: 0).minY,
+            rowSpacing: table.intercellSpacing.height,
+            previewOrder: originalOrder,
             grabOffsetY: min(max(pointerY - blockRect.minY, 0), blockRect.height),
             blockHeight: blockRect.height,
             sourceDragImageProviders: sourceDragImageProviders(
@@ -263,6 +285,7 @@ final class SidebarWorkspaceTableLocalReorderController {
         )
         session?.lastPlan = nil
         session?.destinationGroupId = current.baseGroupId
+        session?.previewOrder = current.originalOrder
     }
 
     /// Drop landed on this sidebar: commit the previewed plan and settle the
@@ -272,12 +295,12 @@ final class SidebarWorkspaceTableLocalReorderController {
         point: CGPoint,
         targets: [SidebarWorkspaceReorderDropOverlayTarget]
     ) -> Bool {
-        guard let current = session, case .dragging = phase, let delegate else { return false }
-        let plan = current.lastPlan ?? delegate.localReorderResolvePlan(
-            point: hitTestPoint(forPointer: point),
-            targets: targets,
-            stickyDestination: current.stickyDestination
-        )
+        guard session != nil, case .dragging = phase, let delegate else { return false }
+        // The same transition owns the final pointer update and the commit.
+        // This prevents a destination callback from committing a stale plan.
+        resolveAndApplyPreview(point: point, targets: targets)
+        guard let current = session else { return false }
+        let plan = current.lastPlan
         guard let plan else {
             cancelAndRestore()
             return true
@@ -306,32 +329,46 @@ final class SidebarWorkspaceTableLocalReorderController {
         operation: NSDragOperation
     ) {
         guard session != nil else { return }
+        // For a source-side release over a view that declines the drop,
+        // NSTableView reports the drag origin as `endedAt`. The global mouse
+        // location remains the real release point and is therefore the final
+        // input to the coordinator. Explicit Escape is tracked separately.
+        let releaseScreenPoint = NSEvent.mouseLocation
 #if DEBUG
-        let debugPoint = overlayPoint(fromScreen: screenPoint)
+        let debugPoint = overlayPoint(fromScreen: releaseScreenPoint)
         let debugInside = debugPoint.map { point in
             guard let overlay = delegate?.localReorderContainerView?.reorderDropView else { return false }
             return Self.reorderCorridor(for: sidebarBand(in: overlay)).contains(point)
         } ?? false
         cmuxDebugLog(
-            "sidebar.localReorder.end screen=(\(screenPoint.x),\(screenPoint.y)) " +
+            "sidebar.localReorder.end reported=(\(screenPoint.x),\(screenPoint.y)) " +
+            "mouse=(\(releaseScreenPoint.x),\(releaseScreenPoint.y)) " +
             "point=\(String(describing: debugPoint)) inside=\(debugInside ? 1 : 0) " +
             "operation=\(operation.rawValue)"
         )
 #endif
         switch phase {
         case .dragging:
-            if let point = overlayPoint(fromScreen: screenPoint),
-               let overlay = delegate?.localReorderContainerView?.reorderDropView,
-               Self.shouldCommitSourceDrop(
-                   operation: operation,
-                   point: point,
-                   sidebarBand: sidebarBand(in: overlay)
-               ) {
-                // The underlying outside-sidebar destination reports `.move`,
-                // but does not mutate order. The local preview owns this drop.
-                draggingSession.animatesToStartingPositionsOnCancelOrFail = false
+            if let point = overlayPoint(fromScreen: releaseScreenPoint),
+               let overlay = delegate?.localReorderContainerView?.reorderDropView {
+                // Resolve the final source point first. AppKit may report no
+                // destination operation even for a normal mouse-up, so the
+                // coordinator's valid plan is the local-drop authority.
                 _ = handleDragUpdate(point: point, targets: overlay.targets)
-                _ = handlePerformDrop(point: point, targets: overlay.targets)
+                let current = session
+                let explicitlyCancelled = current?.explicitlyCancelled == true
+                    || Self.isEscapeCancellationEvent(NSApp.currentEvent)
+                if Self.shouldCommitSourceDrop(
+                    hasResolvedPlan: current?.lastPlan != nil,
+                    explicitlyCancelled: explicitlyCancelled,
+                    point: point,
+                    sidebarBand: sidebarBand(in: overlay)
+                ) {
+                    draggingSession.animatesToStartingPositionsOnCancelOrFail = false
+                    _ = handlePerformDrop(point: point, targets: overlay.targets)
+                } else {
+                    cancelAndRestore()
+                }
             } else {
                 cancelAndRestore()
             }
@@ -388,15 +425,34 @@ final class SidebarWorkspaceTableLocalReorderController {
         )
     }
 
-    /// A content-area release reports `.move` from the existing
-    /// outside-sidebar destination. Escape reports no operation, so requiring
-    /// `.move` preserves cancellation even when the pointer is in the corridor.
+    /// The coordinator's resolved plan owns local commit intent. AppKit can
+    /// report `.none` for a normal source-side release, so cancellation is
+    /// represented explicitly instead of inferred from the drag operation.
     static func shouldCommitSourceDrop(
-        operation: NSDragOperation,
+        hasResolvedPlan: Bool,
+        explicitlyCancelled: Bool,
         point: CGPoint,
         sidebarBand: CGRect
     ) -> Bool {
-        operation.contains(.move) && reorderCorridor(for: sidebarBand).contains(point)
+        hasResolvedPlan
+            && !explicitlyCancelled
+            && reorderCorridor(for: sidebarBand).contains(point)
+    }
+
+    /// AppKit normally routes Escape through `cancelOperation`, but retain the
+    /// terminating key event as a second explicit signal for older macOS.
+    static func isEscapeCancellationEvent(_ event: NSEvent?) -> Bool {
+        guard let event, event.type == .keyDown || event.type == .keyUp else { return false }
+        return event.keyCode == 53
+    }
+
+    /// Records user cancellation while the AppKit drag loop still owns input.
+    /// The session ends normally afterward and restores instead of committing.
+    @discardableResult
+    func cancelOperation() -> Bool {
+        guard session != nil, case .dragging = phase else { return false }
+        session?.explicitlyCancelled = true
+        return true
     }
 
     private func sidebarBand(in overlay: NSView) -> CGRect {
@@ -460,31 +516,22 @@ final class SidebarWorkspaceTableLocalReorderController {
 
     private func resolveAndApplyPreview(
         point: CGPoint,
-        targets: [SidebarWorkspaceReorderDropOverlayTarget]
+        targets _: [SidebarWorkspaceReorderDropOverlayTarget]
     ) {
         guard let delegate, var current = session else { return }
         let blockPoint = hitTestPoint(forPointer: point)
-        guard let plan = delegate.localReorderResolvePlan(
+        let targets = logicalTargets(for: current)
+        let plan = delegate.localReorderResolvePlan(
             point: blockPoint,
             targets: targets,
             stickyDestination: current.stickyDestination
-        ) else {
-            // A nil plan is the planner's no-op suppression: the drop would
-            // land the block at its model position. Two very different zones
-            // produce it, and conflating them oscillates (restore moves a
-            // neighbor under the pointer, which re-previews, which restores…):
-            // - Pointer inside the block's own preview frame — the gap under
-            //   the pointer IS the block; the resting state of every drag.
-            //   Keep the preview exactly as it is.
-            // - Pointer outside the block — it crossed into the original
-            //   slot's dead zone (or an illegal one). Preview the original
-            //   order and forget the plan so the drop restores; this is what
-            //   lets a drag be returned exactly where it started.
-            if pointerIsInsideBlockPreviewFrame(pointerY: blockPoint.y) {
-                return
-            }
+        )
+        guard let plan else {
+            // With the dragged block absent from logical hit targets, nil has
+            // one meaning: this is the original/invalid slot. Restore it.
             current.lastPlan = nil
             current.destinationGroupId = current.baseGroupId
+            current.previewOrder = current.originalOrder
             session = current
             delegate.localReorderApplyOrder(
                 current.originalOrder,
@@ -499,12 +546,11 @@ final class SidebarWorkspaceTableLocalReorderController {
         // a group scope while committing a top-level move.
         guard case .reorder(_, _, let explicitGroupId) = plan.action else { return }
         current.lastPlan = plan
-        let rows = delegate.localReorderRows
-        let previewRows = rows.map {
+        let previewRows = current.pickupRows.map {
             SidebarWorkspaceReorderPreviewRow(
-                workspaceId: $0.workspaceId,
-                groupId: $0.groupId,
-                isGroupHeader: $0.isGroupHeader
+                workspaceId: $0.configuration.workspaceId,
+                groupId: $0.configuration.groupId,
+                isGroupHeader: $0.configuration.isGroupHeader
             )
         }
         if let indicator = plan.indicator,
@@ -516,9 +562,12 @@ final class SidebarWorkspaceTableLocalReorderController {
                destinationGroupId: explicitGroupId
            ) {
             current.destinationGroupId = preview.destinationGroupId
+            current.previewOrder = preview.order.map {
+                current.pickupRows[$0].configuration.id
+            }
             session = current
             delegate.localReorderApplyOrder(
-                preview.order.map { rows[$0].id },
+                current.previewOrder,
                 movedRowIds: current.blockRowIds,
                 animated: true
             )
@@ -528,21 +577,41 @@ final class SidebarWorkspaceTableLocalReorderController {
         }
     }
 
-    /// Whether the pointer sits within the dragged block's rows as the
-    /// preview currently shows them (overlay coordinates).
-    private func pointerIsInsideBlockPreviewFrame(pointerY: CGFloat) -> Bool {
-        guard let current = session,
-              let container = delegate?.localReorderContainerView else { return false }
-        let rows = delegate?.localReorderRows ?? []
+    /// Reconstructs drop targets from the immutable pickup snapshot and the
+    /// coordinator's preview order. The dragged block occupies layout space
+    /// but has no target, producing a real logical gap under the pointer.
+    /// Animated NSTableView frames never become planner input.
+    private func logicalTargets(for current: Session) -> [SidebarWorkspaceReorderDropOverlayTarget] {
+        guard let container = delegate?.localReorderContainerView else { return [] }
         let table = container.tableView
         let overlay = container.reorderDropView
-        let blockRect = rows.indices
-            .filter { current.blockRowIds.contains(rows[$0].id) }
-            .reduce(CGRect.null) { partial, row in
-                partial.union(table.convert(table.rect(ofRow: row), to: overlay))
+        let rowsById = Dictionary(
+            uniqueKeysWithValues: current.pickupRows.map { ($0.configuration.id, $0) }
+        )
+        let blockIds = Set(current.blockRowIds)
+        var y = current.logicalContentMinY
+        var targets: [SidebarWorkspaceReorderDropOverlayTarget] = []
+        targets.reserveCapacity(max(0, current.previewOrder.count - blockIds.count))
+        for id in current.previewOrder {
+            guard let row = rowsById[id] else { continue }
+            let tableFrame = CGRect(
+                x: table.bounds.minX,
+                y: y,
+                width: table.bounds.width,
+                height: row.height
+            )
+            if !blockIds.contains(id) {
+                let configuration = row.configuration
+                targets.append(SidebarWorkspaceReorderDropOverlayTarget(
+                    workspaceId: configuration.workspaceId,
+                    groupId: configuration.groupId,
+                    isGroupHeader: configuration.isGroupHeader,
+                    frame: table.convert(tableFrame, to: overlay)
+                ))
             }
-        guard !blockRect.isNull else { return false }
-        return pointerY >= blockRect.minY && pointerY <= blockRect.maxY
+            y += row.height + current.rowSpacing
+        }
+        return targets
     }
 
     private func positionFloatingView(pointerY: CGFloat) {

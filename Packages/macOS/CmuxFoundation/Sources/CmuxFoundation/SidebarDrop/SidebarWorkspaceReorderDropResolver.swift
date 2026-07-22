@@ -146,12 +146,11 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         switch request.stickyDestination {
         case .group(let stickyGroupId):
             guard stickyGroupId == candidate.groupId else { return nil }
-            // Stickiness holds through the next root row's top half, then
-            // releases when the floating row centers cross. At list end, a
-            // half-row of empty space provides the equivalent exit threshold.
-            if let target = context.target,
-               target.groupId == nil,
-               context.edge == .bottom {
+            // Immutable live-reorder targets do not chatter when the preview
+            // moves, so the nearest row can own the boundary directly. Once
+            // the next root row is nearer than the last group member, leave
+            // the group without requiring a pointer lane or a second half-row.
+            if context.target?.groupId == nil {
                 return nil
             }
             // Stickiness holds through the boundary band, not forever: a
