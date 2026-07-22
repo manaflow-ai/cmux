@@ -425,8 +425,8 @@ extension RemoteTmuxController {
         host: RemoteTmuxHost, sshArgv: [String]
     ) -> [String: Any] {
         [
-            "title": String(
-                format: String(
+            "title": String.localizedStringWithFormat(
+                String(
                     localized: "remoteTmux.reconnectAuth.workspaceTitle",
                     defaultValue: "Sign in to %@"
                 ),
