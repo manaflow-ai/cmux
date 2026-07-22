@@ -78,8 +78,15 @@ struct ArtifactPathResolver: Sendable {
             if usesCaseSensitiveNames { return name == Self.sessionMarkerName }
             return name.caseInsensitiveCompare(Self.sessionMarkerName) == .orderedSame
         }
+        let isReserved: (URL) -> Bool = { url in
+            let path = url.standardizedFileURL.path
+            return reservedPaths.contains { reservedPath in
+                if usesCaseSensitiveNames { return reservedPath == path }
+                return reservedPath.caseInsensitiveCompare(path) == .orderedSame
+            }
+        }
         guard fileManager.fileExists(atPath: proposed.path)
-                || reservedPaths.contains(proposed.standardizedFileURL.path)
+                || isReserved(proposed)
                 || isSessionMarkerName(proposed.lastPathComponent) else {
             return proposed
         }
@@ -90,7 +97,7 @@ struct ArtifactPathResolver: Sendable {
             if !pathExtension.isEmpty { name += ".\(pathExtension)" }
             let candidate = directory.appendingPathComponent(name, isDirectory: false)
             if !fileManager.fileExists(atPath: candidate.path),
-               !reservedPaths.contains(candidate.standardizedFileURL.path),
+               !isReserved(candidate),
                !isSessionMarkerName(candidate.lastPathComponent) {
                 return candidate
             }

@@ -12,6 +12,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
     let decoder: JSONDecoder
     let encoder: JSONEncoder
     let gitCommandRunner: any ArtifactGitCommandRunning
+    let now: @Sendable () -> Date
     private let maximumScanDepth: Int
     let nodeBudget: Int
 
@@ -21,13 +22,16 @@ public actor LocalArtifactRepository: ArtifactStoring {
     ///   - fileManager: Filesystem dependency used by storage and tests.
     ///   - maximumScanDepth: Defensive recursive tree depth.
     ///   - nodeBudget: Defensive number of files and folders scanned at once.
+    ///   - now: Clock seam used to age malformed staging entries.
     public init(
         fileManager: FileManager = .default,
         maximumScanDepth: Int = 32,
-        nodeBudget: Int = 20_000
+        nodeBudget: Int = 20_000,
+        now: @escaping @Sendable () -> Date = { .now }
     ) {
         self.fileManager = fileManager
         self.gitCommandRunner = SystemArtifactGitCommandRunner()
+        self.now = now
         self.maximumScanDepth = max(1, maximumScanDepth)
         self.nodeBudget = max(1, nodeBudget)
         let decoder = JSONDecoder()
@@ -44,10 +48,12 @@ public actor LocalArtifactRepository: ArtifactStoring {
         fileManager: FileManager,
         gitCommandRunner: any ArtifactGitCommandRunning,
         maximumScanDepth: Int = 32,
-        nodeBudget: Int = 20_000
+        nodeBudget: Int = 20_000,
+        now: @escaping @Sendable () -> Date = { .now }
     ) {
         self.fileManager = fileManager
         self.gitCommandRunner = gitCommandRunner
+        self.now = now
         self.maximumScanDepth = max(1, maximumScanDepth)
         self.nodeBudget = max(1, nodeBudget)
         let decoder = JSONDecoder()
@@ -149,10 +155,17 @@ public actor LocalArtifactRepository: ArtifactStoring {
         }
         var attempts = Array<ArtifactImportAttempt?>(repeating: nil, count: candidates.count)
         var preparedByIndex: [Int: PreparedArtifactImport] = [:]
-        let stagedURLs = candidates.map { _ in
-            paths.importStagingRoot
-                .appendingPathComponent("\(UUID().uuidString).artifact-import", isDirectory: false)
+        let stagingLease: ArtifactImportStagingLease
+        do {
+            stagingLease = try ArtifactImportStagingLease.acquire(
+                root: paths.importStagingRoot,
+                fileManager: fileManager
+            )
+        } catch {
+            return candidates.map { _ in .rejected(.pathOutsideStore(paths.importStagingRoot.path)) }
         }
+        defer { stagingLease.finish() }
+        let stagedURLs = candidates.map { _ in stagingLease.makeStagedURL() }
         let automaticIndices = candidates.indices.filter { candidates[$0].provenance != .manual }
         var privacyValidator: ArtifactGitPrivacyValidator?
         if !automaticIndices.isEmpty {
@@ -348,6 +361,8 @@ public actor LocalArtifactRepository: ArtifactStoring {
             from: paths.artifactsRoot,
             through: paths.importStagingRoot
         )
+        ArtifactImportStagingCleaner(fileManager: fileManager, now: now)
+            .reclaimAbandonedBatches(root: paths.importStagingRoot)
         try ArtifactGitIgnoreManager(fileManager: fileManager).ensureIgnored(projectRoot: paths.projectRoot)
     }
 

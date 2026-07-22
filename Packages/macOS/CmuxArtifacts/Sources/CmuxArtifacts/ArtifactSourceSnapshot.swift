@@ -15,20 +15,6 @@ struct ArtifactSourceSnapshotter {
     func snapshot(
         source: URL,
         paths: ArtifactStorePaths,
-        configuration: ArtifactCaptureConfiguration
-    ) throws -> ArtifactSourceSnapshot {
-        try snapshot(
-            source: source,
-            paths: paths,
-            configuration: configuration,
-            stagedURL: paths.importStagingRoot
-                .appendingPathComponent("\(UUID().uuidString).artifact-import", isDirectory: false)
-        )
-    }
-
-    func snapshot(
-        source: URL,
-        paths: ArtifactStorePaths,
         configuration: ArtifactCaptureConfiguration,
         stagedURL: URL
     ) throws -> ArtifactSourceSnapshot {
