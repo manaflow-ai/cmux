@@ -762,61 +762,96 @@ func shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
 }
 
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
-    cmuxOwningGhosttyView(for: responder, includingHostedSurfaceDescendants: false)
+    CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: responder)
 }
 
-func cmuxTerminalFocusOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
-    cmuxOwningGhosttyView(for: responder, includingHostedSurfaceDescendants: true)
-}
-
-func cmuxTerminalKeyEquivalentOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
-    cmuxTerminalFocusOwningGhosttyView(for: responder)
-}
-
-private func cmuxOwningGhosttyView(
-    for responder: NSResponder?,
-    includingHostedSurfaceDescendants: Bool
-) -> GhosttyNSView? {
-    guard let responder else { return nil }
-    if let ghosttyView = responder as? GhosttyNSView {
-        return ghosttyView
+enum CmuxGhosttyResponderResolution {
+    /// Strict owner lookup for direct Ghostty responder chains, sidebar ownership,
+    /// and call sites that must not treat hosted surface descendants as Ghostty.
+    static func strictOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+        owningGhosttyView(for: responder, includingHostedSurfaceDescendants: false)
     }
 
-    if let view = responder as? NSView,
-       let ghosttyView = cmuxOwningGhosttyView(
-           for: view,
-           includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
-       ) {
-        return ghosttyView
+    /// Terminal focus lookup for AppKit responders hosted below
+    /// GhosttySurfaceScrollView, where keyboard focus still belongs to Ghostty.
+    static func terminalFocusOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+        owningGhosttyView(for: responder, includingHostedSurfaceDescendants: true)
     }
 
-    if let textView = responder as? NSTextView {
-        if textView.isFieldEditor,
-           let ownerView = cmuxFieldEditorOwnerView(textView),
-           let ghosttyView = cmuxOwningGhosttyView(
-               for: ownerView,
-               includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
-           ) {
+    /// Terminal key-equivalent routing lookup; hosted surface descendants should
+    /// count as terminal-owned so app shortcuts can be repaired or forwarded.
+    static func terminalKeyEquivalentOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+        terminalFocusOwningGhosttyView(for: responder)
+    }
+
+    private static func owningGhosttyView(
+        for responder: NSResponder?,
+        includingHostedSurfaceDescendants: Bool
+    ) -> GhosttyNSView? {
+        guard let responder else { return nil }
+        if let ghosttyView = responder as? GhosttyNSView {
             return ghosttyView
         }
-    }
 
-    var current = responder.nextResponder
-    while let next = current {
-        if let ghosttyView = next as? GhosttyNSView {
-            return ghosttyView
-        }
-        if let view = next as? NSView,
-           let ghosttyView = cmuxOwningGhosttyView(
+        if let view = responder as? NSView,
+           let ghosttyView = owningGhosttyView(
                for: view,
                includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
            ) {
             return ghosttyView
         }
-        current = next.nextResponder
+
+        if let textView = responder as? NSTextView {
+            if textView.isFieldEditor,
+               let ownerView = cmuxFieldEditorOwnerView(textView),
+               let ghosttyView = owningGhosttyView(
+                   for: ownerView,
+                   includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+               ) {
+                return ghosttyView
+            }
+        }
+
+        var current = responder.nextResponder
+        while let next = current {
+            if let ghosttyView = next as? GhosttyNSView {
+                return ghosttyView
+            }
+            if let view = next as? NSView,
+               let ghosttyView = owningGhosttyView(
+                   for: view,
+                   includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+               ) {
+                return ghosttyView
+            }
+            current = next.nextResponder
+        }
+
+        return nil
     }
 
-    return nil
+    private static func owningGhosttyView(
+        for view: NSView,
+        includingHostedSurfaceDescendants: Bool
+    ) -> GhosttyNSView? {
+        if let ghosttyView = view as? GhosttyNSView {
+            return ghosttyView
+        }
+
+        var current: NSView? = view.superview
+        while let candidate = current {
+            if let ghosttyView = candidate as? GhosttyNSView {
+                return ghosttyView
+            }
+            if includingHostedSurfaceDescendants,
+               let hostedView = candidate as? GhosttySurfaceScrollView {
+                return hostedView.surfaceView
+            }
+            current = candidate.superview
+        }
+
+        return nil
+    }
 }
 
 func cmuxFieldEditorOwnerView(_ editor: NSTextView) -> NSView? {
@@ -831,29 +866,6 @@ func cmuxFieldEditorOwnerView(_ editor: NSTextView) -> NSView? {
     }
 
     return editor.superview
-}
-
-private func cmuxOwningGhosttyView(
-    for view: NSView,
-    includingHostedSurfaceDescendants: Bool
-) -> GhosttyNSView? {
-    if let ghosttyView = view as? GhosttyNSView {
-        return ghosttyView
-    }
-
-    var current: NSView? = view.superview
-    while let candidate = current {
-        if let ghosttyView = candidate as? GhosttyNSView {
-            return ghosttyView
-        }
-        if includingHostedSurfaceDescendants,
-           let hostedView = candidate as? GhosttySurfaceScrollView {
-            return hostedView.surfaceView
-        }
-        current = candidate.superview
-    }
-
-    return nil
 }
 
 #if DEBUG
