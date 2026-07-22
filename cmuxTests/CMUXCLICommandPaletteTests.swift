@@ -11,11 +11,14 @@ extension CMUXCLIErrorOutputRegressionTests {
             response: #"{"ok":true,"result":{"count":1,"commands":[{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":"⌘D","keywords":[],"dismiss_on_run":true,"arguments":[{"name":"path","type":"path","required":true,"allows_empty":false}]}]}}"#
         )
         defer { responder.stop() }
+        var environment = commandPaletteCLIEnvironment()
+        environment["CMUX_WORKSPACE_ID"] = UUID().uuidString
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
 
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["--socket", socketPath, "--window", windowID.uuidString, "palette", "list"],
-            environment: commandPaletteCLIEnvironment(),
+            environment: environment,
             timeout: 5
         )
 
@@ -28,12 +31,15 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(request["method"] as? String == "palette.list")
         let params = try #require(request["params"] as? [String: Any])
         #expect(params["window_id"] as? String == windowID.uuidString)
+        #expect(params["workspace_id"] == nil)
+        #expect(params["surface_id"] == nil)
     }
 
-    @Test func paletteDefaultsToTheCallerWorkspaceInsteadOfTheActiveWindow() throws {
+    @Test func paletteDefaultsToTheExactCallerSurfaceInsteadOfTheActiveWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-palcaller-\(UUID().uuidString.prefix(8)).sock"
         let workspaceID = UUID()
+        let surfaceID = UUID()
         let responder = try UnixSocketResponder(
             path: socketPath,
             response: #"{"ok":true,"result":{"count":0,"commands":[]}}"#
@@ -41,6 +47,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         defer { responder.stop() }
         var environment = commandPaletteCLIEnvironment()
         environment["CMUX_WORKSPACE_ID"] = workspaceID.uuidString
+        environment["CMUX_SURFACE_ID"] = surfaceID.uuidString
         environment["CMUX_WINDOW_ID"] = UUID().uuidString
 
         let result = runProcess(
@@ -55,6 +62,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
         let params = try #require(request["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["surface_id"] as? String == surfaceID.uuidString)
         #expect(params["window_id"] == nil)
     }
 
@@ -263,6 +271,40 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(request["method"] as? String == "vscode.open")
         let params = try #require(request["params"] as? [String: Any])
         #expect(params["path"] as? String == directoryURL.standardizedFileURL.path)
+    }
+
+    @Test func vscodeDefaultsToTheExactCallerSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-vscode-caller-\(UUID().uuidString.prefix(8)).sock"
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vscode-caller-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"path\":\"\(directoryURL.path)\"}}"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = commandPaletteCLIEnvironment()
+        environment["CMUX_WORKSPACE_ID"] = workspaceID.uuidString
+        environment["CMUX_SURFACE_ID"] = surfaceID.uuidString
+        environment["CMUX_WINDOW_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "vscode", directoryURL.path],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        #expect(request["method"] as? String == "vscode.open")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["surface_id"] as? String == surfaceID.uuidString)
+        #expect(params["window_id"] == nil)
     }
 
     @Test func vscodeDoubleDashAllowsPathThatLooksLikeWorkspaceOption() throws {
