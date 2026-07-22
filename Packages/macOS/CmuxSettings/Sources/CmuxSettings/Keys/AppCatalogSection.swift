@@ -72,7 +72,7 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     public let focusHistoryIncludesPanesAndTabs = DefaultsKey<Bool>(
         id: "app.focusHistoryIncludesPanesAndTabs",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "focusHistoryIncludesPanesAndTabs"
     )
 

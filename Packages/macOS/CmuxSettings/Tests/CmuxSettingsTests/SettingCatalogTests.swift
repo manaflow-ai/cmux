@@ -98,6 +98,10 @@ struct SettingCatalogTests {
         #expect(ids.contains("automation.socketPassword"))
     }
 
+    @Test func focusHistoryDefaultsToWorkspacesOnly() {
+        #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
+    }
+
     @Test func keyIdsMatchTheirSectionPrefix() {
         // Each key's dotted id must start with its section's prefix; this is
         // the convention that lets the JSON store use `id` as the JSON path.
