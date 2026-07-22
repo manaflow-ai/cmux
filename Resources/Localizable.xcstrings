@@ -161084,6 +161084,12 @@
             "value": "OK"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "យល់ព្រម"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -186832,25 +186838,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فشل tmux new-session على المضيف البعيد. لم يتم إنشاء مساحة عمل."
+            "value": "لم يتمكن cmux من بدء جلسة tmux جديدة على المضيف البعيد، لذلك لم يتم إنشاء أي مساحة عمل. تحقق من أن المضيف لا يزال قابلاً للوصول ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session nije uspio na udaljenom hostu. Radni prostor nije kreiran."
+            "value": "cmux nije mogao pokrenuti novu tmux sesiju na udaljenom hostu, pa nijedan radni prostor nije kreiran. Provjerite je li host još dostupan i pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session mislykkedes på fjernværten. Der blev ikke oprettet noget arbejdsområde."
+            "value": "cmux kunne ikke starte en ny tmux-session på den eksterne vært, så der blev ikke oprettet noget arbejdsområde. Kontrollér, at værten stadig kan nås, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session ist auf dem entfernten Host fehlgeschlagen. Es wurde kein Arbeitsbereich erstellt."
+            "value": "cmux konnte auf dem Remote-Host keine neue tmux-Sitzung starten, daher wurde kein Arbeitsbereich erstellt. Prüfen Sie, ob der Host noch erreichbar ist, und versuchen Sie es erneut."
           }
         },
         "en": {
@@ -186862,19 +186868,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session falló en el host remoto. No se creó ningún espacio de trabajo."
+            "value": "cmux no pudo iniciar una nueva sesión tmux en el host remoto, por lo que no se creó ningún espacio de trabajo. Comprueba que el host siga siendo accesible e inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session a échoué sur l’hôte distant. Aucun espace de travail n’a été créé."
+            "value": "cmux n’a pas pu démarrer une nouvelle session tmux sur l’hôte distant, donc aucun espace de travail n’a été créé. Vérifiez que l’hôte est toujours accessible, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session non è riuscito sull’host remoto. Non è stata creata alcuna area di lavoro."
+            "value": "cmux non è riuscito ad avviare una nuova sessione tmux sull'host remoto, quindi non è stata creata alcuna area di lavoro. Verifica che l'host sia ancora raggiungibile e riprova."
           }
         },
         "ja": {
@@ -186883,64 +186889,70 @@
             "value": "cmux はリモートホストで新しい tmux セッションを開始できなかったため、ワークスペースは作成されませんでした。ホストに到達できるか確認して、もう一度お試しください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចាប់ផ្តើម tmux session ថ្មីនៅលើម៉ាស៊ីនពីចម្ងាយបានទេ ដូច្នេះគ្មាន workspace ត្រូវបានបង្កើតទេ។ សូមពិនិត្យមើលថាម៉ាស៊ីននៅតែអាចចូលដល់បាន ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 호스트에서 tmux new-session이 실패했습니다. 작업 공간이 생성되지 않았습니다."
+            "value": "cmux가 원격 호스트에서 새 tmux 세션을 시작할 수 없어 작업 공간이 만들어지지 않았습니다. 호스트에 아직 연결할 수 있는지 확인한 후 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session mislyktes på den eksterne verten. Det ble ikke opprettet noe arbeidsområde."
+            "value": "cmux kunne ikke starte en ny tmux-økt på den eksterne verten, så det ble ikke opprettet noe arbeidsområde. Kontroller at verten fortsatt kan nås, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Polecenie tmux new-session nie powiodło się na hoście zdalnym. Nie utworzono przestrzeni roboczej."
+            "value": "cmux nie mógł uruchomić nowej sesji tmux na zdalnym hoście, więc nie utworzono żadnej przestrzeni roboczej. Sprawdź, czy host jest nadal osiągalny, i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session falhou no host remoto. Nenhuma área de trabalho foi criada."
+            "value": "cmux não conseguiu iniciar uma nova sessão tmux no host remoto, então nenhuma área de trabalho foi criada. Verifique se o host ainda está acessível e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Команда tmux new-session завершилась с ошибкой на удалённом хосте. Рабочее пространство не создано."
+            "value": "cmux не удалось запустить новый сеанс tmux на удалённом хосте, поэтому рабочее пространство не создано. Проверьте, доступен ли хост, и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux new-session ล้มเหลวบนโฮสต์ระยะไกล ไม่ได้สร้างเวิร์กสเปซ"
+            "value": "cmux ไม่สามารถเริ่ม tmux session ใหม่บนโฮสต์ระยะไกลได้ จึงไม่มีการสร้างเวิร์กสเปซ ตรวจสอบว่าโฮสต์ยังเข้าถึงได้และลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uzak ana bilgisayarda tmux new-session başarısız oldu. Çalışma alanı oluşturulmadı."
+            "value": "cmux uzak ana makinede yeni bir tmux oturumu başlatamadı, bu nedenle hiçbir çalışma alanı oluşturulmadı. Ana makineye hâlâ erişilebildiğini doğrulayın ve yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Команда tmux new-session завершилася з помилкою на віддаленому хості. Робочу область не створено."
+            "value": "cmux не вдалося запустити новий сеанс tmux на віддаленому хості, тому робочу область не створено. Перевірте, чи хост усе ще доступний, і спробуйте ще раз."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "远程主机上的 tmux new-session 失败。未创建工作区。"
+            "value": "cmux 无法在远程主机上启动新的 tmux 会话，因此没有创建工作区。请确认主机仍可访问，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "遠端主機上的 tmux new-session 失敗。未建立工作區。"
+            "value": "cmux 無法在遠端主機上啟動新的 tmux 工作階段，因此沒有建立工作區。請確認主機仍可連線，然後再試一次。"
           }
         }
       }
@@ -186951,7 +186963,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر إنشاء جلسة tmux على %@"
+            "value": "تعذر إنشاء جلسة tmux على %@"
           }
         },
         "bs": {
@@ -186981,7 +186993,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo crear una sesión de tmux en %@"
+            "value": "No se pudo crear una sesión tmux en %@"
           }
         },
         "fr": {
@@ -187002,10 +187014,16 @@
             "value": "%@ で tmux セッションを作成できませんでした"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបង្កើត tmux session នៅលើ %@ បានទេ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에서 tmux 세션을 만들 수 없습니다"
+            "value": "%@에서 tmux 세션을 만들 수 없음"
           }
         },
         "nb": {
@@ -187023,7 +187041,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível criar uma sessão do tmux em %@"
+            "value": "Não foi possível criar uma sessão tmux em %@"
           }
         },
         "ru": {
@@ -187035,7 +187053,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่สามารถสร้างเซสชัน tmux บน %@ ได้"
+            "value": "ไม่สามารถสร้าง tmux session บน %@ ได้"
           }
         },
         "tr": {
