@@ -41,12 +41,17 @@ public actor LocalArtifactRepository: ArtifactStoring {
         ArtifactProjectLocator().projectRoot(startingAt: url, fileManager: fileManager)
     }
 
-    /// Loads a partial `.cmux/artifacts.json`, falling back safely on errors.
+    /// Loads a partial `.cmux/artifacts.json`, failing closed for automatic capture on errors.
     public func configuration(projectRoot: URL) -> ArtifactCaptureConfiguration {
         let url = ArtifactStorePaths(projectRoot: projectRoot).configurationFile
+        guard fileManager.fileExists(atPath: url.path) else {
+            return .defaultValue
+        }
         guard let data = try? Data(contentsOf: url),
               let configuration = try? decoder.decode(ArtifactCaptureConfiguration.self, from: data) else {
-            return .defaultValue
+            var configuration = ArtifactCaptureConfiguration.defaultValue
+            configuration.automaticCaptureEnabled = false
+            return configuration
         }
         return configuration.normalized
     }
@@ -60,9 +65,14 @@ public actor LocalArtifactRepository: ArtifactStoring {
 
     /// Searches fuzzy filenames and bounded UTF-8 contents from a live scan.
     public func search(projectRoot: URL, query: String) throws -> [ArtifactSearchResult] {
+        try Task.checkCancellation()
         let snapshot = try snapshot(projectRoot: projectRoot)
+        try Task.checkCancellation()
         let configuration = configuration(projectRoot: projectRoot)
-        return ArtifactSearchEngine(configuration: configuration).results(snapshot: snapshot, query: query)
+        return try ArtifactSearchEngine(configuration: configuration).results(
+            snapshot: snapshot,
+            query: query
+        )
     }
 
     /// Imports, deduplicates, or records a file already inside the store.
@@ -251,6 +261,12 @@ public actor LocalArtifactRepository: ArtifactStoring {
             fileManager: fileManager
         )
         try fileManager.moveItem(at: prepared.snapshot.url, to: destination)
+        var keepsDestination = false
+        defer {
+            if !keepsDestination {
+                try? fileManager.removeItem(at: destination)
+            }
+        }
         guard let relativePath = pathResolver.relativePath(destination, root: paths.artifactsRoot) else {
             throw ArtifactStoreError.pathOutsideStore(destination.path)
         }
@@ -265,6 +281,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         )
         try recordProvenance(record, paths: paths)
         existingByDigest[digest] = destination
+        keepsDestination = true
         return .copied(record)
     }
 

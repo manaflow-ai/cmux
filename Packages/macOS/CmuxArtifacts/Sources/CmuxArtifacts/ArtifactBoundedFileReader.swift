@@ -3,7 +3,8 @@ import Foundation
 
 /// Reads one regular artifact through a no-follow descriptor with a hard byte cap.
 struct ArtifactBoundedFileReader {
-    func data(url: URL, artifactsRoot: URL, maximumBytes: Int64) -> Data? {
+    func data(url: URL, artifactsRoot: URL, maximumBytes: Int64) throws -> Data? {
+        try Task.checkCancellation()
         guard maximumBytes >= 0, maximumBytes < Int.max else { return nil }
         let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
         guard descriptor >= 0 else { return nil }
@@ -40,6 +41,7 @@ struct ArtifactBoundedFileReader {
         data.reserveCapacity(min(Int(status.st_size), limit))
         var buffer = [UInt8](repeating: 0, count: min(64 * 1024, limit + 1))
         while data.count <= limit {
+            try Task.checkCancellation()
             let requested = min(buffer.count, limit + 1 - data.count)
             guard requested > 0 else { break }
             let count = buffer.withUnsafeMutableBytes { bytes in

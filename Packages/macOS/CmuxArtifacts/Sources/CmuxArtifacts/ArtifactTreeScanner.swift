@@ -7,6 +7,7 @@ struct ArtifactTreeScanner {
     let nodeBudget: Int
 
     func snapshot(paths: ArtifactStorePaths) throws -> ArtifactSnapshot {
+        try Task.checkCancellation()
         var remaining = nodeBudget
         var truncated = false
         let nodes = try scanDirectory(
@@ -31,6 +32,7 @@ struct ArtifactTreeScanner {
         remaining: inout Int,
         truncated: inout Bool
     ) throws -> [ArtifactNode] {
+        try Task.checkCancellation()
         guard depth <= maximumDepth, remaining > 0,
               fileManager.fileExists(atPath: directory.path) else {
             if remaining <= 0 { truncated = true }
@@ -47,6 +49,7 @@ struct ArtifactTreeScanner {
         ) else { return [] }
         var nodes: [ArtifactNode] = []
         while let url = children.nextObject() as? URL {
+            try Task.checkCancellation()
             guard remaining > 0 else {
                 truncated = true
                 break

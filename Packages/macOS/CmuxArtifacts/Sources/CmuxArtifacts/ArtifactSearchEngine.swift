@@ -4,16 +4,18 @@ import Foundation
 struct ArtifactSearchEngine {
     let configuration: ArtifactCaptureConfiguration
 
-    func results(snapshot: ArtifactSnapshot, query rawQuery: String) -> [ArtifactSearchResult] {
+    func results(snapshot: ArtifactSnapshot, query rawQuery: String) throws -> [ArtifactSearchResult] {
+        try Task.checkCancellation()
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
         let matcher = ArtifactFuzzyMatcher()
         var remainingContentBytes = configuration.contentSearchTotalMaximumBytes
         var results: [ArtifactSearchResult] = []
         for node in snapshot.nodes.flattenedArtifactNodes() where !node.isDirectory {
+            try Task.checkCancellation()
             let nameScore = matcher.score(candidate: node.name, query: query)
             let pathScore = matcher.score(candidate: node.relativePath, query: query).map { $0 - 250 }
-            let contentMatch = contentMatch(
+            let contentMatch = try contentMatch(
                 node: node,
                 artifactsRoot: snapshot.artifactsRoot,
                 query: query,
@@ -28,12 +30,13 @@ struct ArtifactSearchEngine {
                 snippet: contentMatch
             ))
         }
-        return results.sorted {
+        try Task.checkCancellation()
+        let sortedResults = results.sorted {
             if $0.score != $1.score { return $0.score > $1.score }
             return $0.node.relativePath.localizedStandardCompare($1.node.relativePath) == .orderedAscending
         }
-        .prefix(configuration.maximumSearchResults)
-        .map { $0 }
+        try Task.checkCancellation()
+        return sortedResults.prefix(configuration.maximumSearchResults).map { $0 }
     }
 
     private func contentMatch(
@@ -41,18 +44,20 @@ struct ArtifactSearchEngine {
         artifactsRoot: URL,
         query: String,
         remainingBytes: inout Int64
-    ) -> String? {
+    ) throws -> String? {
+        try Task.checkCancellation()
         guard node.fileKind?.isTextSearchable == true, remainingBytes > 0 else {
             return nil
         }
         let maximumBytes = min(configuration.contentSearchMaximumBytes, remainingBytes)
-        guard let data = ArtifactBoundedFileReader().data(
+        guard let data = try ArtifactBoundedFileReader().data(
             url: URL(fileURLWithPath: node.absolutePath),
             artifactsRoot: artifactsRoot,
             maximumBytes: maximumBytes
         ) else {
             return nil
         }
+        try Task.checkCancellation()
         remainingBytes -= Int64(data.count)
         guard
               let text = String(data: data, encoding: .utf8),

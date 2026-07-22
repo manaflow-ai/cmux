@@ -288,6 +288,11 @@ struct LocalArtifactRepositoryTests {
             atomically: true,
             encoding: .utf8
         )
+        try "\(worktree.appendingPathComponent(".git").path)\n".write(
+            to: worktreeGitDirectory.appendingPathComponent("gitdir"),
+            atomically: true,
+            encoding: .utf8
+        )
         try "gitdir: \(worktreeGitDirectory.path)\n".write(
             to: worktree.appendingPathComponent(".git"),
             atomically: true,
