@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import Foundation
+import Observation
 @testable import CmuxAuthRuntime
 
 @MainActor
@@ -92,40 +93,48 @@ struct HostBrowserSignInFlowHarness {
             .value ?? ""
     }
 
-    func waitForSession(count: Int = 1, timeout: Duration = .seconds(2)) async {
-        // The attempt task runs on the same main actor; yielding lets it reach
-        // the browser-session continuation deterministically.
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while factory.sessions.count < count {
-            if clock.now >= deadline {
-                preconditionFailure(
-                    "Timed out waiting for \(count) host-browser session(s); got \(factory.sessions.count)"
-                )
-            }
-            await Task.yield()
+    /// Waits for the attempt to create `count` browser sessions. The factory
+    /// resumes this from the session it creates, so the wait costs no CPU while
+    /// the attempt runs.
+    func waitForSession(count: Int = 1, timeout: Duration = .seconds(30)) async {
+        let watchdog = failAfterDeadline(timeout) { [factory] in
+            "Timed out waiting for \(count) host-browser session(s); got \(factory.sessions.count)"
         }
+        await factory.sessionsDidReach(count)
+        watchdog.cancel()
     }
 
-    func waitForCondition(timeout: Duration = .seconds(2), until condition: @MainActor () -> Bool) async {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
+    /// Waits until `condition` holds.
+    ///
+    /// `condition` has to read observable state on the flow or the coordinator
+    /// (both are `@Observable` and main-actor isolated). The wait registers with
+    /// the observation system and suspends until one of the properties the
+    /// condition read is written, then re-checks; a condition over unobserved
+    /// state would never be woken and would hit the deadline below.
+    func waitForCondition(timeout: Duration = .seconds(30), until condition: @MainActor () -> Bool) async {
+        let watchdog = failAfterDeadline(timeout) {
+            "Timed out waiting for host-browser condition; it must read observable flow or coordinator state"
+        }
         while !condition() {
-            if clock.now >= deadline {
-                preconditionFailure("Timed out waiting for host-browser condition")
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                withObservationTracking {
+                    _ = condition()
+                } onChange: {
+                    // Fires from the write itself, before the new value lands.
+                    // Resuming here queues the re-check as a separate main-actor
+                    // job, which cannot run until the write has finished.
+                    continuation.resume()
+                }
             }
-            await Task.yield()
         }
+        watchdog.cancel()
     }
 
-    func waitForPendingUserRequest(timeout: Duration = .seconds(2)) async {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while await client.pendingUserRequests == 0 {
-            if clock.now >= deadline {
-                preconditionFailure("Timed out waiting for a pending user request")
-            }
-            await Task.yield()
-        }
+    /// Waits for a `currentUser` read to park on the closed user gate. The fake
+    /// client resumes this as it parks.
+    func waitForPendingUserRequest(timeout: Duration = .seconds(30)) async {
+        let watchdog = failAfterDeadline(timeout) { "Timed out waiting for a pending user request" }
+        await client.pendingUserRequestDidPark()
+        watchdog.cancel()
     }
 }
