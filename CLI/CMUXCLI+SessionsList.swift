@@ -555,13 +555,7 @@ extension CMUXCLI {
                     outputNode["hook_session_id"] = rawRecord.sessionId
                 }
                 guard candidateNodes.count < maximumNodes else {
-                    throw CLIError(message: String(
-                        format: String(
-                            localized: "cli.agents.tree.error.nodeLimit",
-                            defaultValue: "agents tree: more than %lld nodes matched; narrow the filters or raise --max-nodes"
-                        ),
-                        maximumNodes
-                    ))
+                    throw agentSessionNodeLimitError(maximumNodes)
                 }
                 candidateNodes.append((
                     node: outputNode,
@@ -581,19 +575,29 @@ extension CMUXCLI {
 
         func resolvedParent(for node: [String: Any]) -> [String: Any]? {
             guard let agent = node["agent"] as? String else { return nil }
-            let sessionParents = (node["parent_session_id"] as? String).map {
+            let parentSessionID = node["parent_session_id"] as? String
+            let parentRunID = node["parent_run_id"] as? String
+            let sessionParents = parentSessionID.map {
                 nodesBySessionKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
             } ?? []
-            let runParents = (node["parent_run_id"] as? String).map {
+            let runParents = parentRunID.map {
                 nodesByRunKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
             } ?? []
-            let sessionParent = sessionParents.count == 1 ? sessionParents[0] : nil
-            let runParent = runParents.count == 1 ? runParents[0] : nil
-            if let sessionParent, let runParent,
-               sessionParent["node_id"] as? String != runParent["node_id"] as? String {
-                return nil
+            if parentSessionID != nil, parentRunID != nil {
+                let runParentNodeIDs = Set(runParents.compactMap { $0["node_id"] as? String })
+                let intersection = sessionParents.filter { parent in
+                    guard let nodeID = parent["node_id"] as? String else { return false }
+                    return runParentNodeIDs.contains(nodeID)
+                }
+                return intersection.count == 1 ? intersection[0] : nil
             }
-            return sessionParent ?? runParent
+            if parentSessionID != nil {
+                return sessionParents.count == 1 ? sessionParents[0] : nil
+            }
+            if parentRunID != nil {
+                return runParents.count == 1 ? runParents[0] : nil
+            }
+            return nil
         }
 
         var selectedNodeIDs = Set(candidateNodes.compactMap { candidate -> String? in
@@ -620,24 +624,12 @@ extension CMUXCLI {
                 continue
             }
             guard selectedNodeIDs.count <= maximumNodes else {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.agents.tree.error.nodeLimit",
-                        defaultValue: "agents tree: more than %lld nodes matched; narrow the filters or raise --max-nodes"
-                    ),
-                    maximumNodes
-                ))
+                throw agentSessionNodeLimitError(maximumNodes)
             }
             ancestorQueue.append(parent)
         }
         guard selectedNodeIDs.count <= maximumNodes else {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.agents.tree.error.nodeLimit",
-                    defaultValue: "agents tree: more than %lld nodes matched; narrow the filters or raise --max-nodes"
-                ),
-                maximumNodes
-            ))
+            throw agentSessionNodeLimitError(maximumNodes)
         }
 
         var nodes = candidateNodes.compactMap { candidate -> [String: Any]? in
@@ -837,6 +829,19 @@ extension CMUXCLI {
             nodeID += "hook:\(hookSessionID.utf8.count):\(hookSessionID)"
         }
         return nodeID
+    }
+
+    private func agentSessionNodeLimitError(_ maximumNodes: Int) -> CLIError {
+        let format = maximumNodes == 1
+            ? String(
+                localized: "cli.agents.tree.error.nodeLimitSingular",
+                defaultValue: "agents tree: more than %lld node matched; narrow the filters or raise --max-nodes"
+            )
+            : String(
+                localized: "cli.agents.tree.error.nodeLimit",
+                defaultValue: "agents tree: more than %lld nodes matched; narrow the filters or raise --max-nodes"
+            )
+        return CLIError(message: String(format: format, maximumNodes))
     }
 
     private func agentSessionGraphKey(agent: String, identifier: String) -> String {
