@@ -482,6 +482,7 @@ struct RegistryFixture: Sendable {
         targetLastSeenAt: Date? = nil,
         relayFleet: [String]? = nil,
         localAppInstanceID: String = "123e4567-e89b-42d3-a456-426614174005",
+        targetBindingID: String? = nil,
         targetDeviceID: String? = nil,
         includeTarget: Bool = true
     ) throws -> CmxIrohDiscoveryResponse {
@@ -496,7 +497,7 @@ struct RegistryFixture: Sendable {
         if includeTarget {
             var target = try bindingObject(
                 peer: CmxIrohGrantPeer(
-                    bindingID: acceptor.bindingID,
+                    bindingID: targetBindingID ?? acceptor.bindingID,
                     deviceID: targetDeviceID ?? acceptor.deviceID,
                     tag: acceptor.tag,
                     platform: acceptor.platform,

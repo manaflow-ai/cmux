@@ -4,14 +4,15 @@ public import Foundation
 extension CmxIrohClientRuntime {
     func resolvePolicy(
         expectedEndpointID: CmxIrohPeerIdentity,
-        revision: UInt64,
-        allowRegistrationDiscoveryFallback: Bool = false
+        revision: UInt64
     ) async throws -> ResolvedPolicy {
         try await pendingRevocations.revokePending(
             accountID: configuration.accountID,
             beforeRegisteringTag: configuration.tag,
             using: broker
         )
+        try requireCurrent(revision)
+        try await broker.preflight(operation: .discovery)
         try requireCurrent(revision)
         let endpoint = try await supervisor.activeEndpoint()
         let address = await endpoint.address()
@@ -65,60 +66,41 @@ extension CmxIrohClientRuntime {
             endpointID: expectedEndpointID.endpointID
         )
         let prepared = try signer.prepare(payload: payload)
-        let registration: CmxIrohRegistrationResponse
+        let registration: CmxIrohRegistrationResponse?
         do {
             registration = try await broker.register(prepared: prepared, signer: signer)
         } catch {
-            if allowRegistrationDiscoveryFallback,
-               Self.canResolveRegistrationFromDiscovery(error) {
-                let discovery = try await broker.discover()
-                try requireCurrent(revision)
-                guard discovery.routeContractVersion == payload.routeContractVersion else {
-                    throw CmxIrohClientRuntimeError.routeContractMismatch
-                }
-                try validateRelayFleet(discovery.relayFleet)
-                let localMatches = discovery.bindings.filter(expectation.matches)
-                guard localMatches.count == 1,
-                      let discovered = localMatches.first else {
-                    throw CmxIrohClientRuntimeError.localBindingMissingFromDiscovery
-                }
+            if CmxIrohBrokerCooldown.directiveSeconds(for: error) != nil {
+                // Registration backpressure blocks mutation, while a fresh
+                // authenticated discovery can still confirm an existing tuple.
+                registration = nil
+            } else {
+                guard Self.isConnectivity(error),
+                      let cached = try await offlineBootstrap(
+                          expectation: offlineExpectation,
+                          confirmedLocalBinding: nil
+                      ) else { throw error }
                 return ResolvedPolicy(
-                    registration: CmxIrohRegistrationResponse(
-                        binding: discovered,
-                        relay: .unavailable
-                    ),
-                    discovery: discovery,
-                    binding: discovered,
+                    registration: nil,
+                    discovery: nil,
+                    binding: cached.localBinding,
                     expectation: expectation,
                     offlineExpectation: offlineExpectation,
-                    cachedTargetBindings: [],
-                    cachedLANRendezvous: nil
+                    cachedTargetBindings: cached.targetBindings,
+                    cachedLANRendezvous: cached.lanRendezvous
                 )
             }
-            guard Self.isConnectivity(error),
-                  let cached = try await offlineBootstrap(
-                      expectation: offlineExpectation,
-                      confirmedLocalBinding: nil
-                  ) else { throw error }
-            return ResolvedPolicy(
-                registration: nil,
-                discovery: nil,
-                binding: cached.localBinding,
-                expectation: expectation,
-                offlineExpectation: offlineExpectation,
-                cachedTargetBindings: cached.targetBindings,
-                cachedLANRendezvous: cached.lanRendezvous
-            )
         }
         try requireCurrent(revision)
-        guard expectation.matches(registration.binding) else {
+        if let registration, !expectation.matches(registration.binding) {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
         }
         let discovery: CmxIrohDiscoveryResponse
         do {
             discovery = try await broker.discover()
         } catch {
-            guard Self.isConnectivity(error),
+            guard let registration,
+                  Self.isConnectivity(error),
                   let cached = try await offlineBootstrap(
                       expectation: offlineExpectation,
                       confirmedLocalBinding: registration.binding
@@ -140,8 +122,11 @@ extension CmxIrohClientRuntime {
         try validateRelayFleet(discovery.relayFleet)
         let localMatches = discovery.bindings.filter(expectation.matches)
         guard localMatches.count == 1,
-              let discovered = localMatches.first,
-              discovered.bindingID == registration.binding.bindingID else {
+              let discovered = localMatches.first else {
+            throw CmxIrohClientRuntimeError.localBindingMissingFromDiscovery
+        }
+        if let registration,
+           registration.binding.bindingID != discovered.bindingID {
             throw CmxIrohClientRuntimeError.localBindingMissingFromDiscovery
         }
         return ResolvedPolicy(
@@ -153,25 +138,6 @@ extension CmxIrohClientRuntime {
             cachedTargetBindings: [],
             cachedLANRendezvous: nil
         )
-    }
-
-    private static func canResolveRegistrationFromDiscovery(_ error: any Error) -> Bool {
-        guard let brokerError = error as? CmxIrohTrustBrokerClientError else {
-            return false
-        }
-        switch brokerError {
-        case .rateLimited:
-            return true
-        case let .rejected(statusCode, _):
-            return statusCode == 429
-        case .connectivity,
-             .invalidBaseURL,
-             .missingAuthentication,
-             .invalidAuthentication,
-             .nonHTTPResponse,
-             .invalidResponse:
-            return false
-        }
     }
 
     func offlineBootstrap(
@@ -250,8 +216,7 @@ extension CmxIrohClientRuntime {
                 automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
                 credentialDidInstall: { [handleRelayCredential] response in
                     await handleRelayCredential(response, policy.binding)
-                },
-                rateLimitedDirective: handleRelayRateLimit
+                }
             )
             relayCoordinator = coordinator
         }
@@ -265,8 +230,7 @@ extension CmxIrohClientRuntime {
                     bindingID: policy.binding.bindingID,
                     endpointIdentity: policy.binding.endpointID,
                     bootstrap: bootstrap,
-                    waitForInitialCredential: requiresRelayReadiness,
-                    mintNotBefore: configuration.relayCredentialMintNotBefore
+                    waitForInitialCredential: requiresRelayReadiness
                 )
             } catch {
                 if requiresRelayReadiness { throw error }

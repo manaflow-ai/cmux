@@ -183,7 +183,10 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 now: clock
             )
         } catch {
-            guard Self.isConnectivity(error),
+            // Backpressure may reuse an existing signed grant only after this
+            // discovery has re-confirmed both exact endpoint authorities.
+            guard Self.isConnectivity(error)
+                    || CmxIrohBrokerCooldown.directiveSeconds(for: error) != nil,
                   let cached = try await cachedPolicy(
                       for: request,
                       confirmedDiscovery: discovery,
