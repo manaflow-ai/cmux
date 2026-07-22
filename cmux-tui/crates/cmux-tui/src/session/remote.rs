@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 use super::tree::{TreeView, parse_tree};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 7;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 9;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -30,6 +30,19 @@ const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+
+fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
+    if ident.get("app").and_then(Value::as_str) != Some("cmux-tui") {
+        anyhow::bail!("socket endpoint is not a cmux-tui session");
+    }
+    let protocol = ident.get("protocol").and_then(Value::as_u64).unwrap_or(0);
+    if protocol != SUPPORTED_PROTOCOL_VERSION {
+        anyhow::bail!(
+            "unsupported cmux-tui protocol {protocol}; this client requires protocol {SUPPORTED_PROTOCOL_VERSION}; restart the cmux-tui server"
+        );
+    }
+    Ok(())
+}
 
 pub(crate) type RemoteResizeReservation = (SurfaceId, (u16, u16), Option<u64>);
 
@@ -436,15 +449,7 @@ impl RemoteSession {
 
         // Identify (validates the endpoint) and subscribe to events.
         let ident = session.request(json!({"cmd": "identify"}))?;
-        if ident.get("app").and_then(|v| v.as_str()) != Some("cmux-tui") {
-            anyhow::bail!("socket endpoint is not a cmux-tui session");
-        }
-        let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
-        if protocol != SUPPORTED_PROTOCOL_VERSION {
-            anyhow::bail!(
-                "unsupported cmux-tui protocol {protocol}; this client requires protocol 7; restart the cmux-tui server"
-            );
-        }
+        validate_remote_identity(&ident)?;
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
@@ -1247,6 +1252,26 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn stack_layouts_require_protocol_9() {
+        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 9);
+    }
+
+    #[test]
+    fn protocol_8_identity_is_rejected_before_workspace_loading() {
+        let error =
+            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 8})).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "unsupported cmux-tui protocol 8; this client requires protocol 9; restart the cmux-tui server"
+        );
+    }
+
+    #[test]
+    fn protocol_9_identity_is_accepted() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap();
+    }
 
     #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {

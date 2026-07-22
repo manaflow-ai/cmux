@@ -88,19 +88,58 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         }
     }
 
+    /// A broker-authenticated Mac available for device-local path settings.
+    public struct PrivateNetworkMac: Identifiable, Equatable, Sendable {
+        public let id: String
+        public let displayName: String
+
+        public init(id: String, displayName: String) {
+            self.id = id
+            self.displayName = displayName
+        }
+    }
+
+    /// One device-local, per-Mac custom private-path configuration.
+    public struct CustomPrivateNetwork: Identifiable, Equatable, Sendable {
+        public var id: String { macDeviceID }
+        public let macDeviceID: String
+        public let macDisplayName: String
+        public let addresses: [String]
+        public let isEnabled: Bool
+
+        public init(
+            macDeviceID: String,
+            macDisplayName: String,
+            addresses: [String],
+            isEnabled: Bool
+        ) {
+            self.macDeviceID = macDeviceID
+            self.macDisplayName = macDisplayName
+            self.addresses = addresses
+            self.isEnabled = isEnabled
+        }
+    }
+
     public let runtimeStatus: RuntimeStatus
     /// Redacted selected-path attribution, independent from lifecycle status.
     public let selectedTransportPath: CmxIrohSelectedTransportPath
     public let preference: CmxIrohRelayPreferenceDraft
     public let managedRelays: [ManagedRelay]
     public let customRelays: [CustomRelay]
+    public let privateNetworkMacs: [PrivateNetworkMac]
+    public let customPrivateNetworks: [CustomPrivateNetwork]
     public let policySource: PolicySource
     public let policySequence: Int64?
     public let policyExpiresAt: Date?
     public let staleRelayIDs: Set<String>
     public let failureDescription: String?
-    /// Debug-only relay-path override, or `nil` when the current app cannot control it.
-    public let debugRelayOnlyEnabled: Bool?
+    /// Debug-only path constraint, or `nil` when the current app cannot control it.
+    public let debugTransportVerificationMode: CmxIrohTransportVerificationMode?
+
+    /// Compatibility projection for the existing macOS relay-only toggle.
+    public var debugRelayOnlyEnabled: Bool? {
+        debugTransportVerificationMode.map { $0 == .relayOnly }
+    }
 
     public init(
         runtimeStatus: RuntimeStatus,
@@ -108,24 +147,28 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         preference: CmxIrohRelayPreferenceDraft,
         managedRelays: [ManagedRelay],
         customRelays: [CustomRelay],
+        privateNetworkMacs: [PrivateNetworkMac] = [],
+        customPrivateNetworks: [CustomPrivateNetwork] = [],
         policySource: PolicySource,
         policySequence: Int64? = nil,
         policyExpiresAt: Date? = nil,
         staleRelayIDs: Set<String> = [],
         failureDescription: String? = nil,
-        debugRelayOnlyEnabled: Bool? = nil
+        debugTransportVerificationMode: CmxIrohTransportVerificationMode? = nil
     ) {
         self.runtimeStatus = runtimeStatus
         self.selectedTransportPath = selectedTransportPath
         self.preference = preference
         self.managedRelays = managedRelays
         self.customRelays = customRelays
+        self.privateNetworkMacs = privateNetworkMacs
+        self.customPrivateNetworks = customPrivateNetworks
         self.policySource = policySource
         self.policySequence = policySequence
         self.policyExpiresAt = policyExpiresAt
         self.staleRelayIDs = staleRelayIDs
         self.failureDescription = failureDescription
-        self.debugRelayOnlyEnabled = debugRelayOnlyEnabled
+        self.debugTransportVerificationMode = debugTransportVerificationMode
     }
 
     public static let unavailable = CmxIrohSettingsSnapshot(

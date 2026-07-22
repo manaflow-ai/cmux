@@ -91,15 +91,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
 
-    /// cmux renderer reclamation: whether the current runtime surface's GPU
-    /// renderer (Metal swap chain / IOSurface, ~40MB) is realized. A freshly
-    /// created runtime surface is always realized, so this starts `true` and is
-    /// reset to `true` in `createSurface`. `RendererRealizationController`
-    /// releases it (`releaseRenderer`) while the surface is offscreen and idle;
-    /// `setVisibleInUI(true)` re-realizes it (`realizeRenderer`) before the next
-    /// draw. It mirrors Ghostty's swap-chain `defunct` flag so realize/unrealize
-    /// strictly alternate (Ghostty's `displayRealized` asserts `defunct`).
-    var rendererRealized = true
+    /// Presentation state for the current runtime renderer. This distinguishes a
+    /// renderer Ghostty created from one cmux has actually presented in a real
+    /// window, while preserving strict native unrealize/realize alternation.
+    var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
 
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
@@ -155,6 +150,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let portOrdinal: Int
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
+    var lastKnownFontSizeLineage: TerminalFontSizeLineage?
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.
@@ -189,6 +185,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Remote tmux manual-I/O resize and runtime-readiness hooks.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
+    /// Called after durable font-size lineage changes.
+    @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
     @MainActor var manualSizeReportPendingWindowAttach = false
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
@@ -236,10 +234,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
-    /// Runtime font size to restore when mobile viewport fitting clears.
-    var mobileFitBaseFontPointSize: Float?
-    /// Last runtime font size applied by mobile viewport fitting.
-    var mobileFittedFontPointSize: Float?
+    /// Temporary runtime font-size ownership while a mobile viewport is fitted.
+    var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.
@@ -479,10 +475,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
+        self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.portOrdinal = portOrdinal
-        let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
+        self.initialCommand = initialCommand.flatMap {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+        }
         let trimmedTmuxStartCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.tmuxStartCommand = (trimmedTmuxStartCommand?.isEmpty == false) ? trimmedTmuxStartCommand : nil
         let trimmedInput = initialInput?.isEmpty == false ? initialInput : nil

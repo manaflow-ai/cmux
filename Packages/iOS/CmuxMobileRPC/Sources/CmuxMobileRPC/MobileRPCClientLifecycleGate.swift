@@ -8,6 +8,10 @@ final class MobileRPCClientLifecycleGate: Sendable {
         fileprivate let revision: UInt64
     }
 
+    struct ArtifactLaneAdmission: Sendable {
+        fileprivate let revision: UInt64
+    }
+
     private struct State: Sendable {
         var retired = false
         var revision: UInt64 = 0
@@ -76,6 +80,29 @@ final class MobileRPCClientLifecycleGate: Sendable {
             throw MobileShellConnectionError.connectionClosed
         }
         return stream
+    }
+
+    func beginArtifactLaneAdmission() throws -> ArtifactLaneAdmission {
+        try state.withLock { state in
+            guard !state.retired else {
+                throw MobileShellConnectionError.connectionClosed
+            }
+            return ArtifactLaneAdmission(revision: state.revision)
+        }
+    }
+
+    func finishArtifactLaneAdmission(
+        _ admission: ArtifactLaneAdmission,
+        connection: any MobileArtifactLaneConnection
+    ) async throws -> any MobileArtifactLaneConnection {
+        let accepted = state.withLock { state in
+            !state.retired && state.revision == admission.revision
+        }
+        guard accepted else {
+            await connection.close()
+            throw MobileShellConnectionError.connectionClosed
+        }
+        return connection
     }
 
     func retire() {

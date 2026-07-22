@@ -17,7 +17,7 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             appInstanceID: appInstanceID
         )
-        let deviceID = MobileHostIdentity.deviceID().lowercased()
+        let deviceID = cmxCanonicalDeviceID(MobileHostIdentity.deviceID())
         let cachedBinding = try await brokerCredentials.loadBinding(
             accountID: accountID,
             appInstanceID: appInstanceID
@@ -202,28 +202,38 @@ extension MobileHostIrohRuntime {
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
                 )
-                let laneRouter = MobileHostIrohApplicationLaneRouter(session: session)
-                await withTaskGroup(of: Void.self) { group in
-                    group.addTask {
+                let artifactTransfers = MobileHostIrohArtifactTransferRegistry()
+                let laneRouter = MobileHostIrohApplicationLaneRouter(
+                    session: session,
+                    artifactHandler: MobileHostIrohArtifactLaneHandler(
+                        registry: artifactTransfers
+                    )
+                )
+                let connectionSupervisor = CmxIrohAdmittedConnectionSupervisor(
+                    runControl: {
                         await MobileHostService.acceptTransport(
                             session.controlTransport,
                             authorization: .irohAdmission(session.peer),
+                            artifactTransfers: artifactTransfers,
                             independentEventWriter: eventWriter,
                             isCurrent: isCurrent
                         )
-                    }
-                    group.addTask {
+                    },
+                    runApplicationLanes: {
                         await laneRouter.run(isCurrent: isCurrent)
+                    },
+                    closeConnection: {
+                        await session.close()
+                    },
+                    stopApplicationLanes: {
+                        await laneRouter.stop()
                     }
-                    _ = await group.next()
-                    group.cancelAll()
-                    await session.close()
-                    await laneRouter.stop()
-                    diagnosticLog.record(DiagnosticEvent(
-                        .sessionClosed,
-                        a: DiagnosticTransportKind.iroh.rawValue
-                    ))
-                }
+                )
+                await connectionSupervisor.run()
+                diagnosticLog.record(DiagnosticEvent(
+                    .sessionClosed,
+                    a: DiagnosticTransportKind.iroh.rawValue
+                ))
             },
             handleBinding: { [weak self] registration, discovery, attestation in
                 let binding = registration.binding
