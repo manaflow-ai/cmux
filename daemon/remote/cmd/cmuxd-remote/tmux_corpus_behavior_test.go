@@ -185,6 +185,8 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 		}}}
 	case "pane.resize":
 		resp["result"] = map[string]any{"ok": true}
+	case "surface.respawn":
+		resp["result"] = map[string]any{"ok": true}
 	default:
 		resp["ok"] = false
 		resp["error"] = map[string]any{"code": "unsupported", "message": method}
@@ -292,6 +294,128 @@ func TestTmuxCorpusNewSessionAndNewWindowCommandsDispatchShellText(t *testing.T)
 			t.Fatalf("tmux detached/no-client creation should use focus=false, got %v in %+v", got, req.Params)
 		}
 	}
+}
+
+// Regression: Claude Code agent-team teammate panes respawn with
+// `respawn-pane -k -t %<paneID> <command>`. The Swift/local `__tmux-compat`
+// path supports this, but the Go relay path used for SSH sessions did not,
+// so the first teammate spawn failed with "unsupported tmux command:
+// respawn-pane" and Claude Code fell back to headless for the session.
+func TestTmuxCorpusRespawnPaneDispatchesSurfaceRespawn(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", t.TempDir())
+	defer os.Setenv("HOME", origHome)
+
+	const paneTarget = "%33333333-3333-4333-8333-333333333333"
+	const wantSurface = "44444444-4444-4444-8444-444444444444"
+
+	t.Run("explicit command wraps in sh and keeps raw start command", func(t *testing.T) {
+		recorder := startTmuxCorpusRPCRecorder(t)
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{
+			"-k", "-t", paneTarget, "cd /tmp && env FOO=1 claude",
+		})
+		if err != nil {
+			t.Fatalf("respawn-pane: %v", err)
+		}
+
+		requests := recorder.requestsFor("surface.respawn")
+		if len(requests) != 1 {
+			t.Fatalf("surface.respawn requests = %d, want 1", len(requests))
+		}
+		params := requests[0].Params
+		if got := params["surface_id"]; got != wantSurface {
+			t.Errorf("surface_id = %v, want %v", got, wantSurface)
+		}
+		if got := params["tmux_start_command"]; got != "cd /tmp && env FOO=1 claude" {
+			t.Errorf("tmux_start_command = %q", got)
+		}
+		if got := params["command"]; got != "/bin/sh -c 'cd /tmp && env FOO=1 claude'" {
+			t.Errorf("command = %q", got)
+		}
+	})
+
+	t.Run("respawnp alias with terminator", func(t *testing.T) {
+		recorder := startTmuxCorpusRPCRecorder(t)
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawnp", []string{
+			"-k", "-t", paneTarget, "--", "echo hi",
+		})
+		if err != nil {
+			t.Fatalf("respawnp: %v", err)
+		}
+		requests := recorder.requestsFor("surface.respawn")
+		if len(requests) != 1 {
+			t.Fatalf("surface.respawn requests = %d, want 1", len(requests))
+		}
+		if got := requests[0].Params["command"]; got != "/bin/sh -c 'echo hi'" {
+			t.Errorf("command = %q", got)
+		}
+	})
+
+	t.Run("no command falls back to login shell", func(t *testing.T) {
+		recorder := startTmuxCorpusRPCRecorder(t)
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{"-k", "-t", paneTarget})
+		if err != nil {
+			t.Fatalf("respawn-pane: %v", err)
+		}
+		requests := recorder.requestsFor("surface.respawn")
+		if len(requests) != 1 {
+			t.Fatalf("surface.respawn requests = %d, want 1", len(requests))
+		}
+		params := requests[0].Params
+		if got := params["tmux_start_command"]; got != "exec ${SHELL:-/bin/sh} -l" {
+			t.Errorf("tmux_start_command = %q", got)
+		}
+		if got := params["command"]; got != "/bin/sh -c 'exec ${SHELL:-/bin/sh} -l'" {
+			t.Errorf("command = %q", got)
+		}
+	})
+
+	t.Run("claude-teams sandbox opt-in prepends env export", func(t *testing.T) {
+		t.Setenv("CMUX_CLAUDE_TEAMS_SANDBOXED", "1")
+		recorder := startTmuxCorpusRPCRecorder(t)
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{
+			"-k", "-t", paneTarget, "claude --resume",
+		})
+		if err != nil {
+			t.Fatalf("respawn-pane: %v", err)
+		}
+		requests := recorder.requestsFor("surface.respawn")
+		if len(requests) != 1 {
+			t.Fatalf("surface.respawn requests = %d, want 1", len(requests))
+		}
+		params := requests[0].Params
+		want := `/bin/sh -c 'export CLAUDE_CODE_SANDBOXED='"'"'1'"'"'; claude --resume'`
+		if got := params["command"]; got != want {
+			t.Errorf("command = %q, want %q", got, want)
+		}
+		if got := params["tmux_start_command"]; got != "claude --resume" {
+			t.Errorf("tmux_start_command = %q (must stay raw for persistence)", got)
+		}
+	})
+
+	t.Run("missing -k is rejected", func(t *testing.T) {
+		recorder := startTmuxCorpusRPCRecorder(t)
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{"-t", paneTarget})
+		if err == nil {
+			t.Fatal("respawn-pane without -k should fail")
+		}
+		if !strings.Contains(err.Error(), "-k") {
+			t.Errorf("error = %q, want mention of -k", err.Error())
+		}
+		if len(recorder.requestsFor("surface.respawn")) != 0 {
+			t.Error("surface.respawn should not be called without -k")
+		}
+	})
 }
 
 func TestTmuxCorpusHasSessionReturnSemantics(t *testing.T) {
