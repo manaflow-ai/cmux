@@ -72,14 +72,14 @@ impl PtyChild {
     fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
         let mut master = -1;
         let mut slave = -1;
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+        let size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
         let opened = unsafe {
             libc::openpty(
                 &mut master,
                 &mut slave,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                &mut size,
+                &size,
             )
         };
         assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
