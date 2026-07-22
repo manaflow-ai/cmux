@@ -168,9 +168,30 @@ struct CmuxActionRegistryTests {
         #expect(result == .dispatched)
     }
 
+    @Test func legacyActionAccessorRetainsMainActorFunctionType() {
+        var didRun = false
+        let command = CommandPaletteCommand(
+            id: "palette.test",
+            rank: 0,
+            title: "Test",
+            subtitle: "Tests",
+            shortcutHint: nil,
+            kindLabel: nil,
+            keywords: [],
+            dismissOnRun: true,
+            action: { didRun = true }
+        )
+
+        let action: @MainActor () -> Void = command.action
+        action()
+
+        #expect(didRun)
+    }
+
     @Test func typedHandlersPreserveReportedOutcomes() {
         let expectedResults: [CmuxActionExecutionResult] = [
             .completed,
+            .queued,
             .presented,
             .failed(code: "unavailable", message: "Unavailable"),
         ]

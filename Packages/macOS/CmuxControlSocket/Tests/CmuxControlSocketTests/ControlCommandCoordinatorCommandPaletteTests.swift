@@ -32,6 +32,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         )))
 
         #expect(context.listRouting?.workspaceID == workspaceID)
+        #expect(context.listRouting?.hasWorkspaceIDParam == true)
         guard case .ok(.object(let payload)) = result else {
             Issue.record("expected palette.list payload")
             return
@@ -52,6 +53,64 @@ struct ControlCommandCoordinatorCommandPaletteTests {
                 "allows_empty": .bool(false),
             ])]),
         ])]))
+    }
+
+    @Test func listPreservesUnresolvedSelectorPresenceForAppRouting() throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        context.listResolution = .listed(windowID: UUID(), commands: [])
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = try #require(coordinator.handle(request(
+            method: "palette.list",
+            params: [
+                "group_id": .string("workspace_group:missing"),
+                "workspace_id": .string("workspace:missing"),
+                "surface_id": .string("surface:missing"),
+                "pane_id": .string("pane:missing"),
+            ]
+        )))
+
+        let routing = try #require(context.listRouting)
+        #expect(routing.hasGroupIDParam)
+        #expect(routing.groupID == nil)
+        #expect(routing.hasWorkspaceIDParam)
+        #expect(routing.workspaceID == nil)
+        #expect(routing.hasSurfaceIDParam)
+        #expect(routing.surfaceID == nil)
+        #expect(routing.hasPaneIDParam)
+        #expect(routing.paneID == nil)
+    }
+
+    @Test func routingSelectorInitializerInfersPresenceForExistingCallers() {
+        let groupID = UUID()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let paneID = UUID()
+        let selected = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: groupID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            paneID: paneID
+        )
+        #expect(selected.hasGroupIDParam)
+        #expect(selected.hasWorkspaceIDParam)
+        #expect(selected.hasSurfaceIDParam)
+        #expect(selected.hasPaneIDParam)
+
+        let omitted = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: nil,
+            surfaceID: nil,
+            paneID: nil
+        )
+        #expect(!omitted.hasGroupIDParam)
+        #expect(!omitted.hasWorkspaceIDParam)
+        #expect(!omitted.hasSurfaceIDParam)
+        #expect(!omitted.hasPaneIDParam)
     }
 
     @Test func runInvokesTheRequestedLiveAction() throws {
@@ -94,12 +153,13 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(payload["status"] == .string("completed"))
     }
 
-    @Test func runDistinguishesDispatchedAndPresentedActions() throws {
+    @Test func runDistinguishesQueuedDispatchedAndPresentedActions() throws {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let command = testCommand()
         let coordinator = ControlCommandCoordinator(context: context)
         let cases: [(ControlCommandPaletteRunResolution, String)] = [
+            (.queued(windowID: windowID, command: command), "queued"),
             (.dispatched(windowID: windowID, command: command), "dispatched"),
             (.presented(windowID: windowID, command: command), "presented"),
         ]

@@ -55,6 +55,34 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["command_id"] as? String == "palette.demo")
     }
 
+    @Test func paletteRunReportsQueuedOutcomeTruthfully() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-palqueue-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"status":"queued","command":{"id":"palette.openFolderInVSCodeInline","title":"Open Folder in VS Code (Inline)","subtitle":"Open","shortcut_hint":null,"keywords":[],"dismiss_on_run":true}}}"#
+        )
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "palette", "run", "palette.openFolderInVSCodeInline",
+                "--arg", "path=.",
+            ],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        #expect(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "Queued command palette action: palette.openFolderInVSCodeInline"
+        )
+    }
+
     @Test func paletteListSanitizesTerminalControlsWithoutChangingJSON() throws {
         let cliPath = try bundledCLIPath()
         let response = #"""

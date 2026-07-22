@@ -94,22 +94,30 @@ struct ControlCommandCoordinatorInlineVSCodeTests {
         #expect(payload["path"] == .string(directoryURL.path))
     }
 
-    @Test func unresolvedExplicitPaneFailsClosedBeforeCrossingTheAppSeam() throws {
+    @Test func unresolvedExplicitSelectorsFailClosedBeforeCrossingTheAppSeam() throws {
         let context = FakeCommandPaletteControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
         let directoryURL = FileManager.default.temporaryDirectory
 
-        let result = try #require(workerResult(coordinator, context: context, params: [
-            "path": .string(directoryURL.path),
-            "pane_id": .string("pane:999999"),
-        ]))
+        let selectors = [
+            (key: "group_id", value: "workspace_group:999999"),
+            (key: "workspace_id", value: "workspace:999999"),
+            (key: "surface_id", value: "surface:999999"),
+            (key: "pane_id", value: "pane:999999"),
+        ]
+        for selector in selectors {
+            let result = try #require(workerResult(coordinator, context: context, params: [
+                "path": .string(directoryURL.path),
+                selector.key: .string(selector.value),
+            ]))
 
-        guard case .err(let code, let message, _) = result else {
-            Issue.record("expected unresolved-pane error")
-            return
+            guard case .err(let code, let message, _) = result else {
+                Issue.record("expected unresolved-selector error for \(selector.key)")
+                continue
+            }
+            #expect(code == "not_found")
+            #expect(message == "inline workspace not found")
         }
-        #expect(code == "not_found")
-        #expect(message == "inline workspace not found")
         #expect(context.inlineVSCodeCall == nil)
     }
 
