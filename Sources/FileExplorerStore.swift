@@ -710,6 +710,12 @@ enum FileExplorerSelectionRestoration {
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileExplorerNode] = []
+    {
+        willSet {
+            outlineRevision &+= 1
+            rootStructureRevision &+= 1
+        }
+    }
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
@@ -940,7 +946,7 @@ final class FileExplorerStore: ObservableObject {
         #endif
         contentRevision &+= 1
         cancelAllLoads()
-        replaceRootNodes(with: [])
+        rootNodes = []
         nodesByPath = [:]
         guard !rootPath.isEmpty, provider != nil else { return }
         isRootLoading = true
@@ -1081,7 +1087,7 @@ final class FileExplorerStore: ObservableObject {
                     pendingDescendIntoFirstChildPath = nil
                 }
             } else {
-                replaceRootNodes(with: children)
+                rootNodes = children
                 isRootLoading = false
                 setRootStatusMessage(nil)
                 if selectedPath == nil {
@@ -1121,12 +1127,6 @@ final class FileExplorerStore: ObservableObject {
                 objectWillChange.send()
             }
         }
-    }
-
-    private func replaceRootNodes(with nodes: [FileExplorerNode]) {
-        outlineRevision &+= 1
-        rootStructureRevision &+= 1
-        rootNodes = nodes
     }
 
     private func signalOutlineChange() {

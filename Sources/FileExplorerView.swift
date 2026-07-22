@@ -269,17 +269,26 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
+            var row = 0
+            while row < outlineView.numberOfRows {
+                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else {
+                    row += 1
+                    continue
+                }
                 if expandedPaths.contains(node.path) && outlineView.isExpandable(node) {
                     outlineView.expandItem(node)
                 }
+                row += 1
             }
         }
 
         private func refreshLoadedNodes(in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
+            var row = 0
+            while row < outlineView.numberOfRows {
+                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else {
+                    row += 1
+                    continue
+                }
                 if node.isDirectory {
                     let isCurrentlyExpanded = outlineView.isItemExpanded(node)
                     let shouldBeExpanded = store.expandedPaths.contains(node.path)
@@ -296,6 +305,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         )
                     }
                 }
+                row += 1
             }
         }
 

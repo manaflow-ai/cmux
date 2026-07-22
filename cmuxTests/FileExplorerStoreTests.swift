@@ -673,15 +673,9 @@ struct FileExplorerStoreTests {
     }
 
     @Test
-    func testSameCountRootReplacementReloadsOutlineData() async throws {
-        let provider = MockFileExplorerProvider()
-        provider.listings["/project"] = .success([
-            FileExplorerEntry(name: "Old.swift", path: "/project/Old.swift", isDirectory: false),
-        ])
+    func testSameCountRootReplacementReloadsOutlineData() {
         let store = FileExplorerStore()
-        store.setProviderForTesting(provider)
-        store.setRootPath("/project")
-        try await waitFor("initial root loaded") { store.rootNodes.first?.name == "Old.swift" }
+        store.rootNodes = [FileExplorerNode(name: "Old.swift", path: "/project/Old.swift", isDirectory: false)]
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: FileExplorerState(),
@@ -696,11 +690,7 @@ struct FileExplorerStoreTests {
         coordinator.reloadIfNeeded()
         let initialFullReloadCount = outlineView.fullReloadCallCount
 
-        provider.listings["/project"] = .success([
-            FileExplorerEntry(name: "New.swift", path: "/project/New.swift", isDirectory: false),
-        ])
-        store.reload()
-        try await waitFor("replacement root loaded") { store.rootNodes.first?.name == "New.swift" }
+        store.rootNodes = [FileExplorerNode(name: "New.swift", path: "/project/New.swift", isDirectory: false)]
         coordinator.reloadIfNeeded()
 
         #expect(outlineView.fullReloadCallCount > initialFullReloadCount)
@@ -735,6 +725,38 @@ struct FileExplorerStoreTests {
 
         #expect(outlineView.reloadedRowIndexes.contains(0))
         #expect(!outlineView.reloadedRowIndexes.contains(1))
+    }
+
+    @Test
+    func testRestoreExpansionReconcilesShiftedSiblingsAndNestedRows() {
+        let store = FileExplorerStore()
+        let nested = FileExplorerNode(name: "Nested", path: "/project/First/Nested", isDirectory: true)
+        nested.children = []
+        let first = FileExplorerNode(name: "First", path: "/project/First", isDirectory: true)
+        first.children = [nested]
+        let second = FileExplorerNode(name: "Second", path: "/project/Second", isDirectory: true)
+        second.children = []
+        store.rootNodes = [first, second]
+        store.expand(node: first)
+        store.expand(node: nested)
+        store.expand(node: second)
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.isItemExpanded(first))
+        #expect(outlineView.isItemExpanded(nested))
+        #expect(outlineView.isItemExpanded(second))
     }
 
     @Test
