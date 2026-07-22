@@ -107,6 +107,15 @@ final class SidebarRowChecklistItemLine: NSView {
             guard let self, let item = self.item else { return }
             self.actions?.onBeginChecklistItemEdit(item.id)
         }
+        // The overlay is the actionable element for tap-to-edit; without an
+        // explicit identity VoiceOver sees an unnamed press target next to
+        // detached static text.
+        textClickOverlay.setAccessibilityRole(.button)
+        textClickOverlay.setAccessibilityLabel(item.text)
+        textClickOverlay.setAccessibilityHelp(
+            String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")
+        )
+        textLabel.setAccessibilityElement(false)
 
         reconcileEditField(
             item: item,
