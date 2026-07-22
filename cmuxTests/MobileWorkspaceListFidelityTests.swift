@@ -23,7 +23,7 @@ struct MobileWorkspaceListFidelityTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        _ = try #require(workspace.newFilePreviewSurface(
+        let filePreview = try #require(workspace.newFilePreviewSurface(
             inPane: paneId,
             filePath: "/tmp/iosrf-fidelity.txt",
             focus: false
@@ -49,6 +49,18 @@ struct MobileWorkspaceListFidelityTests {
         #expect(legacySurfaces.map { $0["title"] as? String } == sync.surfaces?.map(\.title))
         #expect(legacySurfaces.map { $0["file_path"] as? String } == sync.surfaces?.map(\.filePath))
         #expect(sync.surfaces?.contains { $0.kind == "filePreview" && $0.filePath == "/tmp/iosrf-fidelity.txt" } == true)
+        #expect(controller.panelArtifactAuthorizationStore.authorizedCanonicalPath(
+            workspaceID: workspace.id.uuidString,
+            surfaceID: filePreview.id.uuidString,
+            requestedPath: filePreview.filePath
+        ) != nil)
+
+        #expect(workspace.closePanel(filePreview.id, force: true))
+        #expect(controller.panelArtifactAuthorizationStore.authorizedCanonicalPath(
+            workspaceID: workspace.id.uuidString,
+            surfaceID: filePreview.id.uuidString,
+            requestedPath: filePreview.filePath
+        ) == nil)
     }
 
     /// Builds a workspace with `count` terminals as tabs in a single pane so that

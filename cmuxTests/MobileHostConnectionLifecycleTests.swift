@@ -359,6 +359,7 @@ extension MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.group_actions.v1"))
         #expect(capabilities.contains("workspace.surfaces.v1"))
         #expect(capabilities.contains("surface.focus.v1"))
+        #expect(capabilities.contains("panel.artifact.v1"))
         #expect(Set(capabilities).isSuperset(of: [
             "workspace.task_create.v1",
             "terminal.render_grid.v1",

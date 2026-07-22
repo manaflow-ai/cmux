@@ -14,16 +14,19 @@ import Testing
         ]
         #expect(!store.supportsChatArtifactFolders)
         #expect(!store.supportsTerminalArtifactList)
+        #expect(!store.supportsPanelArtifacts)
         #expect(!store.supportsIrohArtifactLane)
 
         store.supportedHostCapabilities.formUnion([
             "chat.artifact.folders.v1",
             "terminal.artifact.list.v1",
             "iroh.artifact_lane.v1",
+            "panel.artifact.v1",
         ])
         #expect(store.supportsChatArtifactFolders)
         #expect(store.supportsTerminalArtifactList)
         #expect(store.supportsIrohArtifactLane)
+        #expect(store.supportsPanelArtifacts)
     }
 
     @Test func workspaceMutationCapabilitiesAreVersionAndTicketGated() async throws {
