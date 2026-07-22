@@ -144,6 +144,7 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
+    var showPairingScanner: (() -> Void)?
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -152,6 +153,7 @@ struct WorkspaceShellView: View {
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var showingRootSettings = false
+    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
     @State private var rootToolbarMachineSnapshots: WorkspaceMachineSnapshots?
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
@@ -246,10 +248,17 @@ struct WorkspaceShellView: View {
             .onChange(of: presentation.toolbarMachineSnapshots) { _, snapshots in
                 updateRootToolbarMachineSnapshots(snapshots)
             }
-            .sheet(isPresented: $showingRootSettings) {
+            .sheet(isPresented: $showingRootSettings, onDismiss: {
+                settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+            }) {
                 MobileSettingsView(
                     connectedHostName: store.connectedHostName,
                     rescanQR: { store.disconnectAndForgetActiveMac() },
+                    startPairingScanner: {
+                        settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                            isSettingsPresented: $showingRootSettings
+                        )
+                    },
                     signOut: signOut,
                     store: store
                 )
@@ -494,6 +503,7 @@ struct WorkspaceShellView: View {
             signOut: signOut,
             reconnect: reconnectClosure,
             showAddDevice: showAddDevice,
+            showPairingScanner: showPairingScanner,
             store: store,
             renameWorkspace: renameWorkspaceClosure,
             setPinned: setWorkspacePinnedClosure,
