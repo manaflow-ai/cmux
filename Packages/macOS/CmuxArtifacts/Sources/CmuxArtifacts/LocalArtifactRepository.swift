@@ -7,6 +7,7 @@ public import Foundation
 /// content-addressed so user-driven file moves and renames do not invalidate
 /// deduplication or provenance.
 public actor LocalArtifactRepository: ArtifactStoring {
+    private static let maximumConfigurationBytes: Int64 = 64 * 1024
     let fileManager: FileManager
     let decoder: JSONDecoder
     let encoder: JSONEncoder
@@ -65,15 +66,23 @@ public actor LocalArtifactRepository: ArtifactStoring {
 
     /// Loads a partial `.cmux/artifacts.json`, failing closed for automatic capture on errors.
     public func configuration(projectRoot: URL) -> ArtifactCaptureConfiguration {
-        let url = ArtifactStorePaths(projectRoot: projectRoot).configurationFile
-        guard fileManager.fileExists(atPath: url.path) else {
-            return .defaultValue
+        let paths = ArtifactStorePaths(projectRoot: projectRoot)
+        let url = paths.configurationFile
+        let reader = ArtifactBoundedFileReader()
+        var failureConfiguration = ArtifactCaptureConfiguration.defaultValue
+        failureConfiguration.automaticCaptureEnabled = false
+        do {
+            guard try reader.pathEntryExists(url: url) else { return .defaultValue }
+        } catch {
+            return failureConfiguration
         }
-        guard let data = try? Data(contentsOf: url),
+        guard let data = try? reader.data(
+            url: url,
+            allowedRoot: paths.cmuxDirectory,
+            maximumBytes: Self.maximumConfigurationBytes
+        ),
               let configuration = try? decoder.decode(ArtifactCaptureConfiguration.self, from: data) else {
-            var configuration = ArtifactCaptureConfiguration.defaultValue
-            configuration.automaticCaptureEnabled = false
-            return configuration
+            return failureConfiguration
         }
         return configuration.normalized
     }
@@ -104,8 +113,8 @@ public actor LocalArtifactRepository: ArtifactStoring {
         provenance: ArtifactProvenance,
         configuration: ArtifactCaptureConfiguration,
         capturedAt: Date
-    ) throws -> ArtifactImportOutcome {
-        let attempts = importFiles(
+    ) async throws -> ArtifactImportOutcome {
+        let attempts = await importFiles(
             candidates: [ArtifactCandidate(sourceURL: sourceURL, provenance: provenance)],
             context: context,
             configuration: configuration,
@@ -128,7 +137,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         context: ArtifactCaptureContext,
         configuration: ArtifactCaptureConfiguration,
         capturedAt: Date
-    ) -> [ArtifactImportAttempt] {
+    ) async -> [ArtifactImportAttempt] {
         guard !candidates.isEmpty else { return [] }
         let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
         do {
@@ -140,19 +149,30 @@ public actor LocalArtifactRepository: ArtifactStoring {
         }
         var attempts = Array<ArtifactImportAttempt?>(repeating: nil, count: candidates.count)
         var preparedByIndex: [Int: PreparedArtifactImport] = [:]
-        for (index, candidate) in candidates.enumerated() {
-            let source = candidate.sourceURL.standardizedFileURL
-            let stagedURL = paths.importStagingRoot
+        let stagedURLs = candidates.map { _ in
+            paths.importStagingRoot
                 .appendingPathComponent("\(UUID().uuidString).artifact-import", isDirectory: false)
-            if candidate.provenance != .manual,
-               !ArtifactGitIgnoreManager(fileManager: fileManager).permitsAutomaticWrites(
-                   projectRoot: paths.projectRoot,
-                   destinations: [stagedURL],
-                   commandRunner: gitCommandRunner
-               ) {
-                attempts[index] = .rejected(.gitPrivacyUnavailable(paths.artifactsRoot.path))
-                continue
+        }
+        let automaticIndices = candidates.indices.filter { candidates[$0].provenance != .manual }
+        var privacyValidator: ArtifactGitPrivacyValidator?
+        if !automaticIndices.isEmpty {
+            privacyValidator = ArtifactGitIgnoreManager(fileManager: fileManager)
+                .automaticWriteValidator(
+                    projectRoot: paths.projectRoot,
+                    commandRunner: gitCommandRunner
+                )
+            let stagingDestinations = automaticIndices.map { stagedURLs[$0] }
+            if privacyValidator?.permits(destinations: stagingDestinations) != true {
+                for index in automaticIndices {
+                    attempts[index] = .rejected(.gitPrivacyUnavailable(paths.artifactsRoot.path))
+                }
+                privacyValidator = nil
             }
+        }
+        for (index, candidate) in candidates.enumerated() {
+            guard attempts[index] == nil else { continue }
+            let source = candidate.sourceURL.standardizedFileURL
+            let stagedURL = stagedURLs[index]
             do {
                 let snapshot = try ArtifactSourceSnapshotter(fileManager: fileManager).snapshot(
                     source: source,
@@ -205,7 +225,31 @@ public actor LocalArtifactRepository: ArtifactStoring {
             }
         }
         var captureDirectory: URL?
-        for (index, prepared) in preparedByIndex.sorted(by: { $0.key < $1.key }) {
+        var orderedPrepared = preparedByIndex.sorted(by: { $0.key < $1.key })
+        let automaticPrepared = orderedPrepared.filter { $0.value.candidate.provenance != .manual }
+        var automaticWritePlan: ArtifactAutomaticWritePlan?
+        if !automaticPrepared.isEmpty {
+            let plan = ArtifactAutomaticWritePlanner(
+                fileManager: fileManager,
+                encoder: encoder,
+                decoder: decoder,
+                nodeBudget: nodeBudget
+            ).plan(
+                prepared: automaticPrepared.map(\.value),
+                existingByDigest: existingByDigest,
+                context: context,
+                paths: paths
+            )
+            if privacyValidator?.permits(destinations: plan.destinations) != true {
+                for (index, _) in automaticPrepared {
+                    attempts[index] = .rejected(.gitPrivacyUnavailable(paths.artifactsRoot.path))
+                }
+                orderedPrepared.removeAll { $0.value.candidate.provenance != .manual }
+            } else {
+                automaticWritePlan = plan
+            }
+        }
+        for (index, prepared) in orderedPrepared {
             do {
                 attempts[index] = .imported(try importPrepared(
                     prepared,
@@ -213,7 +257,9 @@ public actor LocalArtifactRepository: ArtifactStoring {
                     paths: paths,
                     capturedAt: capturedAt,
                     existingByDigest: &existingByDigest,
-                    captureDirectory: &captureDirectory
+                    captureDirectory: &captureDirectory,
+                    plannedDestination: automaticWritePlan?.copyDestination(for: prepared),
+                    plannedResolution: automaticWritePlan?.captureResolution
                 ))
             } catch let error as ArtifactStoreError {
                 attempts[index] = .rejected(error)

@@ -507,7 +507,7 @@ struct ChatArtifactGalleryTests {
         .toolUse(ChatToolUse(
             toolName: "apply_patch", summary: "patch",
             status: .succeeded,
-            referencedPaths: [path]
+            referencedPaths: [path], artifactMutationAuthorized: true
         ))
     }
 }

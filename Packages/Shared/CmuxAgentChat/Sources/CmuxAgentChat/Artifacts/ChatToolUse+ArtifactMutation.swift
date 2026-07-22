@@ -7,7 +7,8 @@ extension ChatToolUse {
 
     /// Whether this completed tool invocation authorizes created provenance.
     var authorizesCreatedArtifactProvenance: Bool {
-        isArtifactMutation && status == .succeeded
+        guard isArtifactMutation else { return false }
+        return artifactMutationAuthorized == true
     }
 
     private var isArtifactMutation: Bool {

@@ -144,8 +144,8 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifacts.first { $0.path.hasSuffix("/tmp/existing.md") }?.provenance == .referenced)
     }
 
-    @Test("Shell option operands are not inferred as mutation targets")
-    func shellOptionOperandsRemainReferences() throws {
+    @Test("Option-bearing positional shell commands fail closed for mutation provenance")
+    func positionalShellCommandFailsClosed() throws {
         let call = codexLine(type: "response_item", payload: [
             "type": "function_call",
             "name": "exec_command",

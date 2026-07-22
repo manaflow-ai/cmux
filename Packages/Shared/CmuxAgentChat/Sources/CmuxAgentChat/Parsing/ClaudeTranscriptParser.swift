@@ -163,12 +163,14 @@ public struct ClaudeTranscriptParser: Sendable {
             assembler.appendArtifactReferences(paths: artifactText.paths(in: output), seq: seq)
         }
         let isError = block["is_error"]?.bool ?? false
+        let exitCode = parsedExitCode(from: output)
         assembler.resolve(
             key: callID,
             completion: TranscriptToolCompletion(
                 output: output,
                 isError: isError,
-                exitCode: parsedExitCode(from: output)
+                exitCode: exitCode,
+                authorizesArtifactMutation: !isError && (exitCode == nil || exitCode == 0)
             ),
             resultSeq: seq
         )

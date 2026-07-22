@@ -15,6 +15,9 @@ struct TranscriptToolCompletion: Sendable {
     /// Wall-clock duration in seconds, when one was parseable.
     let durationSeconds: Double?
 
+    /// Whether source-specific positive evidence authorizes mutation provenance.
+    let authorizesArtifactMutation: Bool
+
     /// Whether the result proves the pending invocation completed successfully.
     var succeeded: Bool {
         guard !isError else { return false }
@@ -29,16 +32,19 @@ struct TranscriptToolCompletion: Sendable {
     ///   - isError: Whether the result was flagged as an error.
     ///   - exitCode: The parsed exit code, when available.
     ///   - durationSeconds: The parsed duration, when available.
+    ///   - authorizesArtifactMutation: Whether the source proved a mutation succeeded.
     init(
         output: String?,
         isError: Bool,
         exitCode: Int? = nil,
-        durationSeconds: Double? = nil
+        durationSeconds: Double? = nil,
+        authorizesArtifactMutation: Bool
     ) {
         self.output = output
         self.isError = isError
         self.exitCode = exitCode
         self.durationSeconds = durationSeconds
+        self.authorizesArtifactMutation = authorizesArtifactMutation
     }
 
     /// Produces the completed copy of a pending tool message.
@@ -66,7 +72,10 @@ struct TranscriptToolCompletion: Sendable {
                 inputDetail: toolUse.inputDetail,
                 output: output.map { budget.body($0) },
                 status: succeeded ? .succeeded : .failed,
-                referencedPaths: toolUse.referencedPaths
+                referencedPaths: toolUse.referencedPaths,
+                artifactMutationAuthorized: toolUse.artifactMutationPaths.isEmpty
+                    ? nil
+                    : authorizesArtifactMutation
             )
             return message.replacingKind(.toolUse(completed))
         case .question(let question):
