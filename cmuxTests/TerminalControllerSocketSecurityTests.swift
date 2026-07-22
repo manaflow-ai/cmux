@@ -471,6 +471,48 @@ final class TerminalControllerSocketSecurityTests {
         )
     }
 
+    @Test func testRemoteConfigureDisablesPersistentPTYForMoshTerminal() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "terminal_transport": "mosh",
+                "terminal_profile": "tmux",
+                "terminal_tmux_session": "agent-main",
+                "destination": "example.com",
+                "preserve_after_terminal_exit": true,
+                "auto_connect": false,
+            ]
+        )
+
+        #expect(response["ok"] as? Bool == true)
+        let configuration = try #require(workspace.remoteConfiguration)
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.terminalProfile.tmuxSessionName == "agent-main")
+        #expect(!configuration.preserveAfterTerminalExit)
+        #expect(configuration.persistentDaemonSlot == nil)
+        let remotePayload = try #require(response["result"] as? [String: Any])
+        let remote = try #require(remotePayload["remote"] as? [String: Any])
+        #expect(remote["terminal_profile"] as? String == "tmux")
+        #expect(remote["terminal_tmux_session"] as? String == "agent-main")
+    }
+
     @Test func testRemoteConfigureDerivesAgentSocketPathFromForwardAgentOption() throws {
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         let agentSocketPath = try makeExistingAgentSocketPath()
@@ -1471,6 +1513,55 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
         let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
         XCTAssertEqual(error["code"] as? String, "browser_disabled")
+    }
+
+    @Test func browserZoomSetReportsRenderLimitDetailsForOversizedViewportCombination() throws {
+        let manager = TabManager()
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let viewportResponse = try handleV2Request(
+            method: "browser.viewport.set",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": browserPanel.id.uuidString,
+                "width": 4_096,
+                "height": 4_096,
+            ]
+        )
+        XCTAssertEqual(viewportResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(viewportResponse)")
+        XCTAssertTrue(browserPanel.setPageZoomFactor(1.4))
+
+        let response = try handleV2Request(
+            method: "browser.zoom.set",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": browserPanel.id.uuidString,
+                "direction": "in",
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        XCTAssertEqual(data["reason"] as? String, "viewport_zoom_render_geometry_too_large")
+        let requestedPageZoom = try XCTUnwrap(data["requested_page_zoom"] as? Double)
+        let maximumPageZoom = try XCTUnwrap(data["maximum_page_zoom"] as? Double)
+        #expect(abs(requestedPageZoom - 1.5) < 0.000_001)
+        #expect(abs(maximumPageZoom - 2.0.squareRoot()) < 0.000_001)
+        #expect(abs(browserPanel.currentPageZoomFactor() - 1.4) < 0.000_001)
     }
 
     @Test func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {

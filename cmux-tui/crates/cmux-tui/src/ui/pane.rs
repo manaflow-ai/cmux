@@ -6,6 +6,8 @@
 //! pane's border is highlighted — this is also where flashing
 //! notifications will hook in later.
 
+use std::collections::HashMap;
+
 use cmux_tui_core::{BrowserStatus, Rect, SurfaceKind};
 use ghostty_vt::RenderState;
 use ratatui::Frame;
@@ -14,7 +16,7 @@ use ratatui::style::{Color, Modifier, Style};
 use super::{thumb_geometry, truncate};
 use crate::app::{App, Hit, PaneArea, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
-use crate::session::TabNotificationView;
+use crate::session::{ClientInfo, TabNotificationView};
 
 /// Border style for a pane box: active gets the accent color, idle
 /// stays dim. Notification flashing will slot in here as another state
@@ -44,11 +46,45 @@ fn notification_color(theme: &Theme, notification: TabNotificationView) -> Color
     }
 }
 
+pub(crate) fn client_border_labels(clients: &[ClientInfo]) -> HashMap<u64, String> {
+    let use_excluded =
+        !clients.iter().any(|client| client.size_participating && !client.attached.is_empty());
+    let mut visible = HashMap::<u64, Vec<(&ClientInfo, (u16, u16))>>::new();
+    for client in clients {
+        for size in &client.sizes {
+            if let Some(grid) = size.cols.zip(size.rows) {
+                visible.entry(size.surface).or_default().push((client, grid));
+            }
+        }
+    }
+    visible
+        .into_iter()
+        .filter_map(|(surface, viewers)| {
+            if !viewers.iter().any(|(client, _)| client.is_self)
+                || !viewers.iter().any(|(client, _)| !client.is_self)
+            {
+                return None;
+            }
+            let minimum = viewers
+                .iter()
+                .filter(|(client, _)| use_excluded || client.size_participating)
+                .map(|(_, size)| *size)
+                .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)))?;
+            Some((
+                surface,
+                format!(" {} clients · {}×{} min ", viewers.len(), minimum.0, minimum.1),
+            ))
+        })
+        .collect()
+}
+
 /// Draw every pane of the current frame. Returns the terminal cursor
 /// position for the focused pane, if visible.
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
     let areas = app.pane_areas.clone();
+    app.rendered_terminal_bounds
+        .retain(|surface, _| areas.iter().any(|area| area.surface == *surface));
     let mut cursor = None;
     for area in &areas {
         let focused = Some(area.pane) == active_pane;
@@ -100,6 +136,15 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     buf[(x1, y0)].set_symbol("┐").set_style(style);
     buf[(x0, y1)].set_symbol("└").set_style(style);
     buf[(x1, y1)].set_symbol("┘").set_style(style);
+
+    if let Some(label) = app.client_border_labels.get(&area.surface) {
+        let width = label.chars().count() as u16;
+        if width + 2 < rect.width {
+            let hit = Rect { x: x0 + 1, y: y1, width, height: 1 };
+            buf.set_stringn(hit.x, hit.y, label, width as usize, style);
+            app.hits.push((hit, Hit::Clients { surface: area.surface }));
+        }
+    }
 }
 
 /// The top border row: `┌` + tabs + `+` + `─...─` + `┐`, with `‹`/`›`
@@ -288,6 +333,7 @@ fn draw_content(
     focused: bool,
 ) -> Option<(u16, u16)> {
     let rect = area.content;
+    app.rendered_terminal_bounds.remove(&area.surface);
     if rect.width == 0 || rect.height == 0 {
         return None;
     }
@@ -308,14 +354,18 @@ fn draw_content(
         .render_states
         .entry(area.surface)
         .or_insert_with(|| RenderState::new().expect("render state alloc"));
-    if surface.snapshot(rs).is_err() {
-        return None;
-    }
-    rs.set_clean();
+    let render = surface.render_frame(rs).ok()?;
+    let live = super::terminal_grid::rendered_viewport_rect(rect, frame.area(), &render);
+    app.rendered_terminal_bounds.insert(area.surface, live);
 
-    let cursor = super::terminal_grid::draw_render_state(frame, rect, rs, &theme, |col, row| {
-        selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset))
-    });
+    let cursor = super::terminal_grid::draw_render_frame(
+        frame,
+        rect,
+        &render,
+        &theme,
+        &app.chrome,
+        |col, row| selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
+    );
     focused.then_some(cursor).flatten()
 }
 
@@ -474,4 +524,62 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
         ));
     }
     app.hits.extend(hits);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::client_border_labels;
+    use crate::session::{ClientInfo, ClientSizeInfo};
+
+    fn client(id: u64, surface: u64, size: Option<(u16, u16)>) -> ClientInfo {
+        ClientInfo {
+            client: id,
+            transport: "unix".to_string(),
+            name: None,
+            kind: Some("tui".to_string()),
+            connected_seconds: 0,
+            attached: vec![surface],
+            sizes: vec![ClientSizeInfo {
+                surface,
+                cols: size.map(|size| size.0),
+                rows: size.map(|size| size.1),
+            }],
+            is_self: id == 1,
+            size_participating: true,
+        }
+    }
+
+    #[test]
+    fn attached_but_hidden_client_does_not_show_on_pane_border() {
+        let clients = vec![client(1, 9, Some((80, 24))), client(2, 9, None)];
+        assert_eq!(client_border_labels(&clients).get(&9), None);
+    }
+
+    #[test]
+    fn client_button_shows_shared_minimum_after_all_sizes_arrive() {
+        let clients = vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40)))];
+        assert_eq!(
+            client_border_labels(&clients).get(&9).map(String::as_str),
+            Some(" 2 clients · 80×30 min ")
+        );
+    }
+
+    #[test]
+    fn client_button_shows_fallback_minimum_when_every_viewer_is_excluded() {
+        let mut clients = vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40)))];
+        for client in &mut clients {
+            client.size_participating = false;
+        }
+
+        assert_eq!(
+            client_border_labels(&clients).get(&9).map(String::as_str),
+            Some(" 2 clients · 80×30 min ")
+        );
+    }
+
+    #[test]
+    fn client_visible_on_another_tab_does_not_show_on_this_pane_border() {
+        let clients = vec![client(1, 9, Some((120, 30))), client(2, 10, Some((80, 40)))];
+        assert_eq!(client_border_labels(&clients).get(&9), None);
+    }
 }

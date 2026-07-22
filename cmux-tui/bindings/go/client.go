@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,7 +23,18 @@ var (
 	ErrTimeout          = errors.New("cmux-tui timeout")
 	ErrProtocolMismatch = errors.New("cmux-tui protocol mismatch")
 	ErrDecode           = errors.New("cmux-tui decode error")
+	ErrInvalidArgument  = errors.New("cmux-tui invalid argument")
 )
+
+func validateWorkspaceSelector(workspace *uint64, key *string) error {
+	if workspace == nil && (key == nil || strings.TrimSpace(*key) == "") {
+		return fmt.Errorf("%w: workspace or key is required", ErrInvalidArgument)
+	}
+	if key != nil && strings.TrimSpace(*key) == "" {
+		return fmt.Errorf("%w: workspace key cannot be empty", ErrInvalidArgument)
+	}
+	return nil
+}
 
 type CommandError struct {
 	Message string
@@ -68,7 +81,9 @@ type Client struct {
 	conn                  *jsonLineConn
 	mu                    sync.Mutex
 	nextID                atomic.Uint64
+	negotiationMu         sync.RWMutex
 	protocol              *uint32
+	capabilities          map[string]struct{}
 }
 
 type Options struct {
@@ -193,12 +208,61 @@ func (c *Client) nextRequestID() uint64 {
 }
 
 func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
-	var result IdentifyResult
+	var details IdentifyDetails
+	err := c.request(ctx, "identify", nil, &details)
+	if err == nil {
+		capabilities := make(map[string]struct{}, len(details.Capabilities))
+		for _, capability := range details.Capabilities {
+			capabilities[capability] = struct{}{}
+		}
+		protocol := details.Protocol
+		c.negotiationMu.Lock()
+		c.protocol = &protocol
+		c.capabilities = capabilities
+		c.negotiationMu.Unlock()
+	}
+	return IdentifyResult{
+		App:      details.App,
+		Version:  details.Version,
+		Protocol: details.Protocol,
+		Session:  details.Session,
+		PID:      details.PID,
+	}, err
+}
+
+// IdentifyDetailed identifies the server with optional immutable build revisions.
+func (c *Client) IdentifyDetailed(ctx context.Context) (IdentifyDetails, error) {
+	var result IdentifyDetails
 	err := c.request(ctx, "identify", nil, &result)
 	if err == nil {
-		c.protocol = &result.Protocol
+		capabilities := make(map[string]struct{}, len(result.Capabilities))
+		for _, capability := range result.Capabilities {
+			capabilities[capability] = struct{}{}
+		}
+		protocol := result.Protocol
+		c.negotiationMu.Lock()
+		c.protocol = &protocol
+		c.capabilities = capabilities
+		c.negotiationMu.Unlock()
 	}
 	return result, err
+}
+
+func (c *Client) requireProtocol(ctx context.Context, minimum uint32, feature string) error {
+	protocol, identified, _ := c.negotiatedState("")
+	if !identified {
+		if _, err := c.Identify(ctx); err != nil {
+			return err
+		}
+		protocol, _, _ = c.negotiatedState("")
+	}
+	if protocol < minimum {
+		return &protocolError{msg: fmt.Sprintf(
+			"%s requires protocol %d; server uses protocol %d",
+			feature, minimum, protocol,
+		)}
+	}
+	return nil
 }
 
 func (c *Client) ListWorkspaces(ctx context.Context) (Tree, error) {
@@ -247,9 +311,38 @@ func (c *Client) NewWorkspace(ctx context.Context, opts NewWorkspaceOptions) (Su
 	return result, c.request(ctx, "new-workspace", commandMap(opts), &result)
 }
 
+func (c *Client) CreateWorkspace(ctx context.Context, opts CreateWorkspaceOptions) (WorkspacePlacement, error) {
+	var result WorkspacePlacement
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return result, err
+	}
+	return result, c.request(ctx, "create-workspace", commandMap(opts), &result)
+}
+
+func (c *Client) CreateTerminal(ctx context.Context, opts CreateTerminalOptions) (TerminalPlacement, error) {
+	var result TerminalPlacement
+	if err := validateWorkspaceSelector(opts.Workspace, opts.Key); err != nil {
+		return result, err
+	}
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return result, err
+	}
+	return result, c.request(ctx, "create-terminal", commandMap(opts), &result)
+}
+
 func (c *Client) NewScreen(ctx context.Context, opts NewScreenOptions) (SurfaceResult, error) {
 	var result SurfaceResult
 	return result, c.request(ctx, "new-screen", commandMap(opts), &result)
+}
+
+func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) (SurfaceResult, error) {
+	if err := c.requireProtocol(ctx, 9, "new-pane"); err != nil {
+		return SurfaceResult{}, err
+	}
+	params := commandMap(opts)
+	params["pane"] = pane
+	var result SurfaceResult
+	return result, c.request(ctx, "new-pane", params, &result)
 }
 
 func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitOptions) (SurfaceResult, error) {
@@ -262,6 +355,13 @@ func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitO
 
 func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio float32) error {
 	return c.request(ctx, "set-ratio", map[string]any{"pane": pane, "dir": dir, "ratio": ratio}, nil)
+}
+
+func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
+	if err := c.requireProtocol(ctx, 8, "set-split-ratio"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
 }
 
 func (c *Client) SetDefaultColors(ctx context.Context, fg, bg *string) error {
@@ -307,8 +407,10 @@ func (c *Client) RenameWorkspace(ctx context.Context, workspace uint64, name str
 	return c.request(ctx, "rename-workspace", map[string]any{"workspace": workspace, "name": name}, nil)
 }
 
-func (c *Client) ResizeSurface(ctx context.Context, surface uint64, cols, rows uint16) error {
-	return c.request(ctx, "resize-surface", map[string]any{"surface": surface, "cols": cols, "rows": rows}, nil)
+func (c *Client) ResizeSurface(ctx context.Context, surface uint64, cols, rows uint16) (ResizeSurfaceResult, error) {
+	var result ResizeSurfaceResult
+	err := c.request(ctx, "resize-surface", map[string]any{"surface": surface, "cols": cols, "rows": rows}, &result)
+	return result, err
 }
 
 func (c *Client) FocusPane(ctx context.Context, pane uint64) error {
@@ -335,6 +437,43 @@ func (c *Client) MoveWorkspace(ctx context.Context, workspace uint64, index uint
 	return c.request(ctx, "move-workspace", map[string]any{"workspace": workspace, "index": index}, nil)
 }
 
+func (c *Client) MoveWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions, index uint) (WorkspaceMutation, error) {
+	if err := validateWorkspaceSelector(opts.Workspace, opts.Key); err != nil {
+		return WorkspaceMutation{}, err
+	}
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return WorkspaceMutation{}, err
+	}
+	params := commandMap(opts)
+	params["index"] = index
+	var result WorkspaceMutation
+	return result, c.request(ctx, "move-workspace", params, &result)
+}
+
+func (c *Client) RenameWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions, name string) (WorkspaceMutation, error) {
+	if err := validateWorkspaceSelector(opts.Workspace, opts.Key); err != nil {
+		return WorkspaceMutation{}, err
+	}
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return WorkspaceMutation{}, err
+	}
+	params := commandMap(opts)
+	params["name"] = name
+	var result WorkspaceMutation
+	return result, c.request(ctx, "rename-workspace", params, &result)
+}
+
+func (c *Client) CloseWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions) (WorkspaceMutation, error) {
+	var result WorkspaceMutation
+	if err := validateWorkspaceSelector(opts.Workspace, opts.Key); err != nil {
+		return result, err
+	}
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return result, err
+	}
+	return result, c.request(ctx, "close-workspace", commandMap(opts), &result)
+}
+
 func (c *Client) ScrollSurface(ctx context.Context, surface uint64, delta int) error {
 	return c.request(ctx, "scroll-surface", map[string]any{"surface": surface, "delta": delta}, nil)
 }
@@ -343,19 +482,69 @@ func (c *Client) Subscribe(ctx context.Context) (*Stream, error) {
 	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "subscribe"})
 }
 
+type AttachSurfaceOptions struct {
+	Cols *uint16
+	Rows *uint16
+}
+
 func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, error) {
-	protocol := c.protocol
-	if protocol == nil {
-		info, err := c.Identify(ctx)
-		if err != nil {
+	return c.AttachSurfaceWithOptions(ctx, surface, AttachSurfaceOptions{})
+}
+
+func (c *Client) AttachSurfaceWithOptions(ctx context.Context, surface uint64, opts AttachSurfaceOptions) (*Stream, error) {
+	if (opts.Cols == nil) != (opts.Rows == nil) {
+		return nil, fmt.Errorf("%w: attach-surface cols and rows must be supplied together", ErrInvalidArgument)
+	}
+	protocol, identified, _ := c.negotiatedState("")
+	if !identified {
+		if _, err := c.Identify(ctx); err != nil {
 			return nil, err
 		}
-		protocol = &info.Protocol
+		protocol, _, _ = c.negotiatedState("")
 	}
-	if *protocol > 6 || (*protocol > 5 && !c.allowProtocolV6Attach) {
-		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
+	if protocol > 5 && !c.allowProtocolV6Attach {
+		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", protocol)}
 	}
-	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface})
+	if (opts.Cols != nil || opts.Rows != nil) && !c.hasCapability("attach-initial-size") {
+		return nil, &protocolError{msg: "initial attach sizing is not supported by this server"}
+	}
+	params := map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface}
+	if opts.Cols != nil {
+		params["cols"] = *opts.Cols
+	}
+	if opts.Rows != nil {
+		params["rows"] = *opts.Rows
+	}
+	return c.openStream(ctx, params)
+}
+
+func (c *Client) hasCapability(capability string) bool {
+	_, _, supported := c.negotiatedState(capability)
+	return supported
+}
+
+func (c *Client) requireCapability(ctx context.Context, capability, feature string) error {
+	_, identified, supported := c.negotiatedState(capability)
+	if !identified {
+		if _, err := c.Identify(ctx); err != nil {
+			return err
+		}
+		_, _, supported = c.negotiatedState(capability)
+	}
+	if !supported {
+		return &protocolError{msg: feature + " is not supported by this server"}
+	}
+	return nil
+}
+
+func (c *Client) negotiatedState(capability string) (uint32, bool, bool) {
+	c.negotiationMu.RLock()
+	defer c.negotiationMu.RUnlock()
+	if c.protocol == nil {
+		return 0, false, false
+	}
+	_, supported := c.capabilities[capability]
+	return *c.protocol, true, supported
 }
 
 func (c *Client) openStream(ctx context.Context, request map[string]any) (*Stream, error) {
@@ -398,17 +587,24 @@ type Stream struct {
 	conn     *jsonLineConn
 	timeout  time.Duration
 	buffered []Event
+	closed   atomic.Bool
 }
 
 func (s *Stream) Close() error {
+	if !s.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	return s.conn.Close()
 }
 
 func (s *Stream) Recv(ctx context.Context) (Event, error) {
+	if s.closed.Load() {
+		return nil, io.EOF
+	}
 	if len(s.buffered) > 0 {
 		event := s.buffered[0]
 		s.buffered = s.buffered[1:]
-		return event, nil
+		return s.finishTerminal(event), nil
 	}
 	for {
 		value, err := s.conn.Recv(ctx, s.timeout)
@@ -416,9 +612,17 @@ func (s *Stream) Recv(ctx context.Context) (Event, error) {
 			return nil, err
 		}
 		if _, ok := value["event"].(string); ok {
-			return parseEvent(value), nil
+			return s.finishTerminal(parseEvent(value)), nil
 		}
 	}
+}
+
+func (s *Stream) finishTerminal(event Event) Event {
+	switch event.(type) {
+	case DetachedEvent, OverflowEvent:
+		_ = s.Close()
+	}
+	return event
 }
 
 type jsonLineConn struct {

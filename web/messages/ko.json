@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "터미널에서 계속하기",
+    "returnBody": "계속하려면 ssh cmux.cloud를 실행한 터미널로 돌아가세요.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "결제가 완료되었습니다",
+        "body": "구독이 확인되었습니다. 새 한도가 표시되기까지 잠시 걸릴 수 있습니다."
+      },
+      "checkoutCanceled": {
+        "title": "결제가 취소되었습니다",
+        "body": "요금제를 변경하지 않고 결제를 종료했습니다."
+      },
+      "portalReturn": {
+        "title": "결제 포털에서 돌아왔습니다",
+        "body": "결제 포털에서 변경한 내용이 표시되기까지 잠시 걸릴 수 있습니다."
+      },
+      "default": {
+        "title": "결제 절차가 완료되었습니다",
+        "body": "결제 절차가 끝났습니다."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — 멀티태스킹을 위해 만든 터미널",
     "description": "Ghostty 기반 무료 오픈 소스 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환. 세로 탭, 알림 링, 분할 패널, socket API 지원.",
@@ -434,6 +457,19 @@
         "cmuxP1": "cmux에는 내장된 범용 작업 트리 관리자가 필요하지 않습니다. <customCommands>사용자 정의 명령</customCommands>, 프로그래밍 가능한 <api>CLI 및 소켓 API</api>, 재사용 가능한 <skills>skills</skills>를 제공합니다. 더하기 버튼을 사용하면 자체 작업 트리 명령, 다중 저장소 설정, git 없는 샌드박스 또는 원격 환경을 시작할 수 있습니다.",
         "cmuxP2": "이것이 <home>cmux home</home>가 중요한 이유입니다. 최고의 작업 트리 관리자는 워크플로가 변경될 때 에이전트가 변경할 수 있는 관리자이며, 해당 루프에 가장 적합한 터미널은 알림, Cmd+Shift+U 및 Cmd+Control+U를 표면에 연결해 유지합니다."
       },
+      "cmuxFork": {
+        "title": "cmux Fork 소개",
+        "summary": "에이전트 대화를 맥락을 잃지 않고 새 분할, 탭 또는 워크스페이스로 분기합니다.",
+        "date": "2026년 7월 14일",
+        "p1": "코딩 에이전트와 대화하다 보면 분기가 유용한 지점이 생깁니다. 한 접근은 그대로 유지하면서 다른 에이전트가 다른 구현을 시도하거나, 곁가지를 조사하거나, 같은 문제를 새로운 관점에서 검토하게 할 수 있습니다.",
+        "p2": "Fork Conversation은 현재 대화에서 새 에이전트 세션을 만들고 대화 기록과 작업 디렉터리를 유지합니다. Codex, Claude Code, OpenCode, Pi, Hermes와 포크 가능한 세션을 제공하는 다른 에이전트를 지원합니다.",
+        "destinationsTitle": "원하는 위치로 포크",
+        "destinationsP": "터미널이나 탭을 오른쪽 클릭하고 Fork Conversation을 선택하거나 <code>Cmd+Shift+P</code>를 눌러 Fork Conversation을 검색하세요. 어느 방향의 분할, 새 탭 또는 새 워크스페이스로 포크를 보낼 수 있습니다.",
+        "parallelTitle": "여러 방향을 동시에 탐색",
+        "parallelP1": "같은 대화를 여러 번 포크해 구현을 비교하거나, 같은 시작 맥락을 가진 여러 에이전트가 문제를 나눠 맡게 할 수 있습니다. 각 포크는 독립적으로 이어지고 원래 대화도 그대로 남습니다.",
+        "parallelP2": "포크들은 같은 디렉터리에서 작업할 수 있습니다. 동시 편집이 겹칠 수 있다면 서로 다른 작업이나 파일을 맡기세요.",
+        "release": "cmux Fork는 v0.64.19에서 사용할 수 있습니다."
+      },
       "showHnLaunch": {
         "title": "Show HN에서 cmux 출시",
         "summary": "cmux가 Hacker News에서 2위를 달성하고, Mitchell Hashimoto가 공유했으며, 일본에서 화제가 되었습니다.",
@@ -598,6 +634,10 @@
         "에이전트 개발"
       ]
     },
+    "cmuxFork": {
+      "metaTitle": "cmux Fork 소개",
+      "metaDescription": "Codex, Claude Code, OpenCode, Pi, Hermes 또는 다른 지원 에이전트의 대화를 맥락을 잃지 않고 새 분할, 탭 또는 워크스페이스로 포크합니다."
+    },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
       "metaDescription": "cmux와의 상호작용을 바꾸는 새로운 키보드 단축키."
@@ -728,6 +768,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "네트워크 간 로밍에는 cmux mosh-tmux를 사용하세요. 이름 있는 tmux 세션에 연결된 완전한 Mosh 터미널을 열며, SSH tmux 제어 모드가 제공하는 네이티브 워크스페이스·탭·분할 미러를 대체하지는 않습니다."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "시작하기",
@@ -914,6 +957,8 @@
           "globalFontMagnification": "cmux가 소유한 터미널, 탭 제목, 사이드바, 설정, 오버레이, 앱 chrome을 이 비율로 확대/축소합니다. 렌더링된 브라우저 페이지 콘텐츠는 제외됩니다."
         },
         "terminal": {
+          "sessionContentMaxWidth": "터미널 및 내장 에이전트 채팅 콘텐츠의 선택적 최대 너비(포인트)입니다. 전체 패널 너비를 사용하려면 false로 설정하세요.",
+          "sessionContentAlignment": "sessionContentMaxWidth가 활성화된 경우 터미널 및 내장 에이전트 채팅 콘텐츠의 가로 배치입니다.",
           "copyOnSelect": "true이면 선택이 확정될 때 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다. false이면 cmux는 Ghostty copy-on-select 재정의를 내보내지 않으며, 선택 클립보드 동작은 Ghostty 설정과 기본값이 제어합니다.",
           "scrollSpeed": "터미널 스크롤 휠과 트랙패드 이동량에 적용되는 배율입니다. 값이 클수록 빠르게 스크롤되고, 작을수록 느리게 스크롤됩니다.",
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
@@ -939,6 +984,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
         },
         "fileExplorer": {
@@ -1473,10 +1519,16 @@
       "flagName": "깃발",
       "flagDesc": "설명",
       "flagNameVal": "작업공간 제목 설정",
+      "flagCommand": "셸 시작 후 첫 원격 터미널에서 명령 텍스트를 한 번만 실행",
       "flagPort": "SSH 포트(기본값 22)",
       "flagIdentity": "ID 파일 경로",
       "flagSshOption": "임의 SSH 옵션 전달(예: -o StrictHostKeyChecking=no)",
+      "flagTransport": "대화형 터미널 전송 방식: ssh(기본값) 또는 mosh",
       "flagNoFocus": "작업공간으로 전환하지 않고 작업공간 만들기",
+      "moshTitle": "Mosh 터미널 전송 방식",
+      "moshDesc": "Wi-Fi, VPN, 핫스팟 전환이나 잠자기 및 깨우기 후에도 대화형 터미널을 유지하려면 cmux ssh user@remote --transport mosh를 사용하세요. Mosh는 터미널 PTY만 전달하며, 원격 메타데이터, cmux 서비스 설정 및 제어, 브라우저 프록시, 업로드, 재연결은 계속 SSH가 관리합니다.",
+      "moshFallback": "cmux는 로컬에 Mosh 1.4 이상이 필요하며 시작 전에 원격 mosh-server를 확인합니다. 클라이언트가 없거나 호환되지 않거나, 서버가 없거나, 원격 확인에 실패하면 cmux가 이유를 설명하고 SSH로 계속합니다.",
+      "moshTmux": "이름 있는 tmux 세션을 만들거나 연결하는 Mosh 워크스페이스를 만듭니다(기본값: main). tmux 프로필은 재연결 및 앱 세션 복원 후에도 유지됩니다. 이는 로밍 tmux 터미널이며 cmux ssh-tmux의 네이티브 미러가 아닙니다. --session <name>으로 세션을 선택하며 나머지 플래그는 cmux mosh와 같습니다. Mosh가 없으면 같은 프로필을 SSH로 실행합니다.",
       "deepLinksTitle": "SSH 딥링크",
       "deepLinksDesc": "웹사이트나 도구가 cmux에서 열기 버튼을 제공하려는 경우 cmux SSH 딥 링크를 사용하세요. 링크는 cmux를 열고 확인 프롬프트를 표시한 다음 사용자가 확인한 후 해당 cmux ssh 명령을 실행합니다.",
       "deepLinksWebFallbackDesc": "웹사이트 버튼에는 cmux.com 대체 URL을 사용하세요. 기본 링크가 열리고 cmux가 설치되지 않은 경우 다운로드가 표시됩니다.",

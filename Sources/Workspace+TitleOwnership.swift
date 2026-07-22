@@ -74,11 +74,6 @@ extension Workspace {
             didMutatePanelTitle = true
         }
 
-        if panels[panelId] is TerminalPanel,
-           clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) {
-            didMutate = true
-        }
-
         if didMutatePanelTitle,
            let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId],
@@ -153,6 +148,12 @@ extension Workspace {
             customTitleSource = source
             self.title = trimmed
         }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.customTitle.write workspace=\(id.uuidString.prefix(8)) " +
+            "source=\(source) title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 40))\""
+        )
+#endif
         return true
     }
 

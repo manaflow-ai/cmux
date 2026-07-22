@@ -43,6 +43,9 @@ extension RemoteTmuxSessionMirror {
                     windowID: windowId
                 )
             },
+            onPaneSurfaceProgress: { [weak self] paneId in
+                self?.handlePaneSeedSurfaceProgress(paneId: paneId)
+            },
             adoptedPanes: adoptedPanes,
             makePanel: { [weak workspace, weak connection] tmuxPaneId in
                 workspace?.makeRemoteTmuxPanePanel(onInput: { data in
@@ -53,6 +56,11 @@ extension RemoteTmuxSessionMirror {
         mirror.onClosePaneRequest = { [weak workspace, weak mirror] tmuxPaneId in
             guard let mirror else { return }
             workspace?.requestRemoteTmuxPaneClose(windowMirror: mirror, tmuxPaneId: tmuxPaneId)
+        }
+        mirror.onEstablishPaneKeyFocus = { [weak mirror] paneId, panel in
+            RemoteTmuxWindowMirror.establishPaneKeyFocusWhenMounted(
+                paneId: paneId, panel: panel, mirror: mirror
+            )
         }
         // The window can already be zoomed when its first topology publish
         // arrives; apply the full update after seeding the base tree.

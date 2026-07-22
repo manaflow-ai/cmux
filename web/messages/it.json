@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Continua nel terminale",
+    "returnBody": "Per continuare, torna al terminale in cui hai eseguito ssh cmux.cloud.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Pagamento completato",
+        "body": "Il tuo abbonamento è confermato. La visualizzazione dei nuovi limiti potrebbe richiedere qualche istante."
+      },
+      "checkoutCanceled": {
+        "title": "Pagamento annullato",
+        "body": "Il pagamento è stato chiuso senza modificare il tuo piano."
+      },
+      "portalReturn": {
+        "title": "Ritorno dal portale di fatturazione",
+        "body": "La visualizzazione delle modifiche effettuate nel portale di fatturazione potrebbe richiedere qualche istante."
+      },
+      "default": {
+        "title": "Fatturazione completata",
+        "body": "La procedura di fatturazione è terminata."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Il terminale progettato per il multitasking",
     "description": "Terminale macOS nativo open source e gratuito basato su Ghostty. Funziona con Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualsiasi strumento CLI. Tab verticali, anelli di notifica, pannelli divisi e una socket API.",
@@ -415,6 +438,19 @@
         "p3": "I migliori developer hanno sempre costruito i propri strumenti. Nessuno ha ancora trovato il modo migliore per lavorare con gli agenti, e i team che costruiscono prodotti chiusi sicuramente nemmeno. I developer più vicini alle proprie codebase lo troveranno per primi.",
         "p4": "Dai a un milione di developer elementi componibili e troveranno collettivamente i workflow più efficienti più velocemente di qualsiasi team di prodotto potrebbe progettare dall'alto."
       },
+      "cmuxFork": {
+        "title": "Presentazione di cmux Fork",
+        "summary": "Dirama una conversazione con un agente in una nuova divisione, scheda o area di lavoro senza perderne il contesto.",
+        "date": "14 luglio 2026",
+        "p1": "Le conversazioni con gli agenti di programmazione raggiungono punti in cui una diramazione è utile. Puoi conservare un approccio mentre un altro agente prova un’implementazione diversa, esplora una deviazione o esamina lo stesso problema da una nuova prospettiva.",
+        "p2": "Fork Conversation crea una nuova sessione agente dal thread corrente, mantenendo la cronologia della conversazione e la directory di lavoro. Supporta Codex, Claude Code, OpenCode, Pi, Hermes e altri agenti con sessioni diramabili.",
+        "destinationsTitle": "Dirama dove vuoi lavorare",
+        "destinationsP": "Fai clic destro su un terminale o una scheda e scegli Fork Conversation, oppure premi <code>Cmd+Shift+P</code> e cerca Fork Conversation. Invia la diramazione a una divisione su qualsiasi lato, a una nuova scheda o a una nuova area di lavoro.",
+        "parallelTitle": "Esplora più direzioni contemporaneamente",
+        "parallelP1": "Dirama più volte la stessa conversazione per confrontare implementazioni o far suddividere un problema tra più agenti con lo stesso contesto iniziale. Ogni diramazione prosegue in modo indipendente e il thread originale resta disponibile.",
+        "parallelP2": "Le diramazioni possono lavorare nella stessa directory. Assegna attività o file separati quando le modifiche simultanee potrebbero sovrapporsi.",
+        "release": "cmux Fork è disponibile nella versione v0.64.19."
+      },
       "showHnLaunch": {
         "title": "Lancio di cmux su Show HN",
         "summary": "cmux ha raggiunto il 2° posto su Hacker News, è stato condiviso da Mitchell Hashimoto ed è diventato virale in Giappone.",
@@ -583,6 +619,10 @@
       "metaTitle": "Lo Zen di cmux",
       "metaDescription": "cmux è una primitiva, non una soluzione. Ti dà pezzi componibili e il tuo workflow dipende da te."
     },
+    "cmuxFork": {
+      "metaTitle": "Presentazione di cmux Fork",
+      "metaDescription": "Dirama una conversazione di Codex, Claude Code, OpenCode, Pi, Hermes o un altro agente supportato in una nuova divisione, scheda o area di lavoro senza perderne il contesto."
+    },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
       "metaDescription": "La nuova scorciatoia da tastiera che cambia il modo di interagire con cmux."
@@ -728,6 +768,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Per passare da una rete all’altra usa cmux mosh-tmux. Apre un terminale Mosh pienamente integrato collegato a una sessione tmux denominata; non sostituisce il mirror nativo di workspace, schede e suddivisioni offerto dalla modalità di controllo tmux via SSH."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Per iniziare",
@@ -914,6 +957,8 @@
           "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
         },
         "terminal": {
+          "sessionContentMaxWidth": "Larghezza massima facoltativa, in punti, per il contenuto del terminale e della chat agente integrata. Imposta false per usare l’intera larghezza del riquadro.",
+          "sessionContentAlignment": "Posizionamento orizzontale del contenuto del terminale e della chat agente integrata quando sessionContentMaxWidth è abilitato.",
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
           "scrollSpeed": "Moltiplicatore applicato agli spostamenti della rotellina di scorrimento e del trackpad nel terminale. Valori più alti scorrono più velocemente, valori più bassi più lentamente.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
@@ -939,6 +984,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },
         "fileExplorer": {
@@ -1474,10 +1520,16 @@
       "flagName": "Bandiera",
       "flagDesc": "Descrizione",
       "flagNameVal": "Imposta il titolo dell'area di lavoro",
+      "flagCommand": "Esegui il testo del comando una volta nel terminale remoto iniziale dopo l'avvio della shell",
       "flagPort": "Porta SSH (predefinita 22)",
       "flagIdentity": "Percorso del file di identità",
       "flagSshOption": "Passa opzioni SSH arbitrarie (ad esempio -o StrictHostKeyChecking=no)",
+      "flagTransport": "Trasporto del terminale interattivo: ssh (predefinito) o mosh",
       "flagNoFocus": "Crea l'area di lavoro senza passare ad essa",
+      "moshTitle": "Trasporto terminale Mosh",
+      "moshDesc": "Usa cmux ssh user@remote --transport mosh quando il terminale interattivo deve sopravvivere ai cambi di Wi-Fi, VPN o hotspot e alla sospensione o riattivazione. Mosh trasporta solo il PTY del terminale; SSH continua a gestire metadati remoti, configurazione e controllo del servizio cmux, proxy del browser, caricamenti e riconnessioni.",
+      "moshFallback": "cmux richiede Mosh 1.4 o successivo in locale e verifica il mosh-server remoto prima dell’avvio. Se il client manca o non è compatibile, il server manca o la verifica remota non riesce, cmux spiega il motivo e continua tramite SSH.",
+      "moshTmux": "Crea un workspace Mosh che crea o collega una sessione tmux denominata (predefinita: main). Il profilo tmux persiste dopo riconnessione e ripristino della sessione dell’app. È un terminale tmux roaming, non il mirror nativo di cmux ssh-tmux. --session <name> sceglie la sessione; le altre opzioni corrispondono a cmux mosh. Senza Mosh, lo stesso profilo usa SSH.",
       "deepLinksTitle": "Collegamenti diretti SSH",
       "deepLinksDesc": "Utilizza i collegamenti diretti cmux SSH quando un sito Web o uno strumento desidera offrire un pulsante Apri in cmux. Il collegamento apre cmux, mostra una richiesta di conferma, quindi esegue il comando cmux ssh equivalente dopo la conferma dell'utente.",
       "deepLinksWebFallbackDesc": "Utilizzare l'URL di fallback cmux.com per i pulsanti del sito Web. Apre il collegamento nativo e mostra il download se cmux non è installato.",

@@ -120,8 +120,8 @@ struct CMUXAuthStateTests {
         )
     }
 
-    @Test("Primed state authenticates cached user while validating tokens")
-    func primedStateAuthenticatesCachedUserWhileValidatingTokens() {
+    @Test("Primed cached user remains restoring while validating tokens")
+    func primedCachedUserRemainsRestoringWhileValidatingTokens() {
         let user = CMUXAuthUser(id: "user_123", primaryEmail: "user@example.com", displayName: "Test User")
         let state = CMUXAuthState.primed(
             clearAuthRequested: false,
@@ -135,7 +135,7 @@ struct CMUXAuthStateTests {
 
         #expect(state.isAuthenticated)
         #expect(state.currentUser == user)
-        #expect(!state.isRestoringSession)
+        #expect(state.isRestoringSession)
     }
 
     @Test("Primed state restores when tokens exist without a cached user")
@@ -188,7 +188,7 @@ struct CMUXAuthStateTests {
 
         #expect(state.isAuthenticated)
         #expect(state.currentUser == user)
-        #expect(!state.isRestoringSession)
+        #expect(state.isRestoringSession)
     }
 
     @Test("Primed state does not authenticate from cached user alone")

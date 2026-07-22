@@ -7,6 +7,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case textBox
     case sleepyMode
     case mobile
+    case networking
     case sidebarAppearance
     case customSidebars
     case betaFeatures
@@ -35,6 +36,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
+        case .networking:
+            return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -74,6 +77,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "moon.zzz"
         case .mobile:
             return "iphone"
+        case .networking:
+            return "network"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -113,6 +118,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
             return "\(title) ios iphone ipad mobile pairing local network sync"
+        case .networking:
+            return "\(title) iroh relay server private network tailscale vpn direct peer custom provider region"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -373,6 +380,8 @@ enum SettingsSearchIndex {
         setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
+        setting(.terminal, "session-content-width", String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"), "terminal.sessionContentMaxWidth terminal agent chat max width readable line length narrow wide"),
+        setting(.terminal, "session-content-alignment", String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"), "terminal.sessionContentAlignment left center right align terminal agent chat"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "shift-right-click-shows-menu", String(localized: "settings.terminal.shiftRightClickShowsMenu", defaultValue: "Shift+Right-Click Opens Menu in TUIs"), "terminal.shiftRightClickShowsMenu right click context menu mouse capture tui tmux claude shift bypass"),
         setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
@@ -392,7 +401,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "sidebar-branch-layout", String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), "branch directory vertical inline"),
         setting(.sidebarAppearance, "stack-branch-directory", String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"), "branch directory cwd path stack two rows separate lines"),
         setting(.sidebarAppearance, "path-last-segment-only", String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"), "cwd path directory truncate last segment basename viewport"),
-        setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"),
+        setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"), setting(.sidebarAppearance, "notification-message-line-limit", String(localized: "settings.app.notificationMessageLineLimit", defaultValue: "Notification Preview Lines"), "sidebar.notificationMessageLineLimit workspace latest notification lines limit"),
         setting(.sidebarAppearance, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
         setting(.sidebarAppearance, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
         setting(.sidebarAppearance, "watch-git-status", String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"), "git status branch watcher index lock"),
@@ -412,6 +421,8 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
+        setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
+        setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
@@ -468,7 +479,6 @@ enum SettingsSearchIndex {
     ] + terminalScrollSpeedSettingEntries
 
     private static let allEntries = sectionEntries + settingEntries
-
     private static let entriesByID: [String: SettingsSearchEntry] = Dictionary(
         uniqueKeysWithValues: allEntries.map { ($0.id, $0) }
     )
@@ -519,10 +529,13 @@ enum SettingsSearchIndex {
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
         "sidebar.wrapWorkspaceTitles": settingID(for: .sidebarAppearance, idSuffix: "wrap-workspace-titles"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),
+        "sidebar.beta.workspaceTodos.controls.enabled": settingID(for: .betaFeatures, idSuffix: "workspace-todo-controls"),
+        "sidebar.beta.workspaceTodos.checklistStyle": settingID(for: .betaFeatures, idSuffix: "workspace-todos-checklist-style"),
         "sidebar.branchLayout": settingID(for: .sidebarAppearance, idSuffix: "sidebar-branch-layout"),
         "sidebar.stackBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "stack-branch-directory"),
         "sidebar.pathLastSegmentOnly": settingID(for: .sidebarAppearance, idSuffix: "path-last-segment-only"),
         "sidebar.showNotificationMessage": settingID(for: .sidebarAppearance, idSuffix: "show-notification-message"),
+        "sidebar.notificationMessageLineLimit": settingID(for: .sidebarAppearance, idSuffix: "notification-message-line-limit"),
         "sidebar.showBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "show-branch-directory"),
         "sidebar.showPullRequests": settingID(for: .sidebarAppearance, idSuffix: "show-pull-requests"),
         "sidebar.watchGitStatus": settingID(for: .sidebarAppearance, idSuffix: "watch-git-status"),
@@ -547,6 +560,8 @@ enum SettingsSearchIndex {
         "terminal.textBoxMaxLines": settingID(for: .textBox, idSuffix: "textbox-max-lines"),
         "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
         "terminal.shiftRightClickShowsMenu": settingID(for: .terminal, idSuffix: "shift-right-click-shows-menu"),
+        "terminal.sessionContentMaxWidth": settingID(for: .terminal, idSuffix: "session-content-width"),
+        "terminal.sessionContentAlignment": settingID(for: .terminal, idSuffix: "session-content-alignment"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
         "terminal.agentHibernation.enabled": settingID(for: .terminal, idSuffix: "agent-hibernation"),
         "terminal.agentHibernation.idleSeconds": settingID(for: .terminal, idSuffix: "agent-hibernation"),

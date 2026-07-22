@@ -551,6 +551,29 @@
           "descriptionKey": "schemaDescriptions.terminal.scrollSpeed",
           "description": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower."
         },
+        "sessionContentMaxWidth": {
+          "oneOf": [
+            {
+              "type": "boolean",
+              "const": false
+            },
+            {
+              "type": "number",
+              "minimum": 320,
+              "multipleOf": 20
+            }
+          ],
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.sessionContentMaxWidth",
+          "description": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width."
+        },
+        "sessionContentAlignment": {
+          "type": "string",
+          "enum": ["left", "center", "right"],
+          "default": "center",
+          "descriptionKey": "schemaDescriptions.terminal.sessionContentAlignment",
+          "description": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled."
+        },
         "copyOnSelect": {
           "type": "boolean",
           "default": false,
@@ -981,6 +1004,26 @@
           "default": true,
           "description": "Show custom workspace descriptions in the sidebar."
         },
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Experimental sidebar features.",
+          "properties": {
+            "workspaceTodos": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Workspace todos checklist presentation.",
+              "properties": {
+                "checklistStyle": {
+                  "type": "string",
+                  "enum": ["popover", "inline"],
+                  "default": "popover",
+                  "description": "How a row's checklist opens from its summary line: an anchored popover or inline expansion."
+                }
+              }
+            }
+          }
+        },
         "branchLayout": {
           "type": "string",
           "enum": ["vertical", "inline"],
@@ -991,6 +1034,14 @@
           "type": "boolean",
           "default": true,
           "description": "Show the latest notification text in the sidebar."
+        },
+        "notificationMessageLineLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 12,
+          "description": "Maximum lines shown for the latest notification below each workspace title.",
+          "descriptionKey": "schemaDescriptions.sidebar.notificationMessageLineLimit"
         },
         "showBranchDirectory": {
           "type": "boolean",
@@ -1403,6 +1454,20 @@
         }
       }
     },
+    "mobile": {
+      "title": "mobile",
+      "description": "Mac-side settings for cmux on iOS.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifactFolderAccess": {
+          "type": "string",
+          "enum": ["subtree", "oneLevel"],
+          "default": "subtree",
+          "description": "Controls whether a referenced or terminal-visible directory authorizes its full canonical subtree or only immediate children."
+        }
+      }
+    },
     "markdown": {
       "title": "markdown",
       "description": "Built-in markdown viewer settings.",
@@ -1549,15 +1614,22 @@
               "triggerFlash",
               "nextSurface",
               "prevSurface",
+              "moveSurfaceLeft",
+              "moveSurfaceRight",
               "selectSurfaceByNumber",
               "nextSidebarTab",
               "prevSidebarTab",
+              "moveWorkspaceUp",
+              "moveWorkspaceDown",
               "focusHistoryBack",
               "focusHistoryForward",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",
               "editWorkspaceDescription",
+              "markWorkspaceDone",
+              "cycleWorkspaceStatus",
+              "toggleChecklistItemComplete",
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
@@ -1622,13 +1694,20 @@
               "toggleBrowserDeveloperTools",
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
+              "toggleBrowserDesignMode",
               "toggleReactGrab",
               "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
+              "diffViewerScrollHalfPageDown",
+              "diffViewerScrollHalfPageUp",
+              "diffViewerScrollDownEmacs",
+              "diffViewerScrollUpEmacs",
               "diffViewerScrollToBottom",
               "diffViewerScrollToTop",
-              "diffViewerOpenFileSearch"
+              "diffViewerOpenFileSearch",
+              "diffViewerNextFile",
+              "diffViewerPreviousFile"
             ]
           },
           "properties": {
@@ -1644,6 +1723,18 @@
             "diffViewerScrollUp": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
+            "diffViewerScrollHalfPageDown": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollHalfPageUp": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollDownEmacs": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollUpEmacs": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
             "diffViewerScrollToBottom": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
@@ -1651,6 +1742,12 @@
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextFile": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousFile": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },

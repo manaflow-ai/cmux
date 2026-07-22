@@ -18,6 +18,10 @@ import {
   cloudVms,
   deviceTokens,
   devices,
+  irohRelayPreferences,
+  irohAccountSecurityStates,
+  irohEndpointBindings,
+  irohRegistrationChallenges,
   notificationSendEvents,
   stripeCustomers,
   stripeSubscriptions,
@@ -44,8 +48,10 @@ import {
 import { deleteObject } from "../../../services/vault/storage";
 import { withVaultUserQuotaLock } from "../../../services/vault/usage";
 import {
+  AccountDeletionAnalyticsForwardInProgressError,
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
+  assertNoAccountAnalyticsForwardInProgress,
   isBlockingAccountDeletionTombstone,
 } from "../../../services/account/deletionLock";
 import { unauthorized } from "../../../services/vms/auth";
@@ -69,6 +75,8 @@ export const dynamic = "force-dynamic";
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
+const POSTHOG_DEFAULT_API_HOST = "https://us.posthog.com";
+const POSTHOG_PERSON_DELETE_TIMEOUT_MS = 10_000;
 
 type DeletableStackUser = {
   readonly id: string;
@@ -86,6 +94,12 @@ type AccountDeletionStackTeam = {
 type RetainedTeamBillingOwner = {
   readonly stackTeamId: string;
   readonly stackUserId: string;
+};
+
+type PostHogPersonDeletionConfig = {
+  readonly apiHost: string;
+  readonly environmentId: string;
+  readonly personalApiKey: string;
 };
 
 type StackPaginationOptions = {
@@ -112,6 +126,7 @@ export async function DELETE(request: Request): Promise<Response> {
   let stackMetadataMarked = false;
   let accountDeletionTombstoneStarted = false;
   let cmuxOwnedRowsDeleted = false;
+  let analyticsCleanupStarted = false;
   let destructiveCleanupStarted = false;
   let destroyedVms = 0;
   let restoreBillingEntitlementsOnFailure = true;
@@ -126,11 +141,35 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     if (tombstoneStart.kind === "cleanupIncomplete") {
       const accountScope = await accountDeletionScopeForUser(stackUser);
-      await finishPostStackAccountCleanup(userId, accountScope.teamIds);
+      // PostHog deletion completed before the Stack user was removed. A
+      // cleanup-incomplete tombstone represents only the idempotent cmux-owned
+      // cleanup that follows Stack deletion, so retrying PostHog here can block
+      // tombstone completion after the account itself is already gone.
+      await finishPostStackAccountCleanup(userId, accountScope.teamIds, {
+        deletePostHogPerson: false,
+      });
       await markAccountDeletionTombstoneCompleted(userId);
       return jsonResponse({ ok: true, destroyedVms: 0 }, 200);
     }
+    // Validate required production configuration before metadata, billing,
+    // access, VM, vault, or tenant cleanup can mutate the account. Pass the
+    // validated snapshot to the later request so environment changes cannot
+    // introduce a second validation failure after destructive work begins.
+    const postHogDeletionConfig = postHogPersonDeletionConfig();
     const accountScope = await accountDeletionScopeForUser(stackUser);
+    // The tombstone blocks new forwards before this fail-prone external call.
+    // Complete analytics deletion before billing, access, VM, vault, tenant,
+    // or Stack cleanup so a retryable PostHog failure leaves those resources
+    // intact and the signed-in user can safely retry.
+    await deletePostHogPersonForAccountDeletion(userId, {
+      config: postHogDeletionConfig,
+      beforeExternalRequest: () => {
+        analyticsCleanupStarted = true;
+      },
+      afterExternalMutation: async () => {
+        await markAccountDeletionTombstoneAnalyticsDeleted(userId);
+      },
+    });
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
     await resolveUserBillingForAccountDeletion(
@@ -213,7 +252,9 @@ export async function DELETE(request: Request): Promise<Response> {
       }, 500);
     }
     try {
-      await finishPostStackAccountCleanup(userId, accountScope.teamIds);
+      await finishPostStackAccountCleanup(userId, accountScope.teamIds, {
+        deletePostHogPerson: false,
+      });
       await markAccountDeletionTombstoneCompleted(userId);
     } catch (error) {
       logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
@@ -248,6 +289,16 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     if (accountDeletionTombstoneStarted) await markAccountDeletionTombstoneFailed(userId, error);
     logAccountDeleteError("account.delete.failed", error);
+    if (
+      analyticsCleanupStarted ||
+      error instanceof AccountDeletionAnalyticsForwardInProgressError
+    ) {
+      return jsonResponse({
+        error: "account_delete_retryable",
+        retryable: true,
+        destroyedVms,
+      }, 500);
+    }
     return jsonResponse({ error: "account_delete_failed" }, 500);
   }
 }
@@ -327,6 +378,14 @@ async function markAccountDeletionTombstoneCompleted(userId: string): Promise<vo
       completedAt: now,
       errorMessage: null,
     })
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
+}
+
+async function markAccountDeletionTombstoneAnalyticsDeleted(userId: string): Promise<void> {
+  const now = new Date();
+  await cloudDb()
+    .update(accountDeletionTombstones)
+    .set({ analyticsDeletedAt: now, updatedAt: now })
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
 }
 
@@ -600,9 +659,113 @@ async function deleteVaultRowsAndObjectsForAccountLocked(
   }
 }
 
-async function finishPostStackAccountCleanup(userId: string, accountTeamIds: readonly string[]): Promise<void> {
+async function finishPostStackAccountCleanup(
+  userId: string,
+  accountTeamIds: readonly string[],
+  options: { readonly deletePostHogPerson?: boolean } = {},
+): Promise<void> {
   await deleteVaultRowsAndObjectsForAccount(userId);
+  if (options.deletePostHogPerson !== false) {
+    await deletePostHogPersonForAccountDeletion(userId);
+  }
   await deleteCmuxOwnedAccountRows(userId, accountTeamIds);
+}
+
+async function deletePostHogPersonForAccountDeletion(
+  userId: string,
+  options: {
+    readonly config?: PostHogPersonDeletionConfig | null;
+    readonly beforeExternalRequest?: () => void;
+    readonly afterExternalMutation?: () => Promise<void>;
+  } = {},
+): Promise<void> {
+  const config = options.config === undefined
+    ? postHogPersonDeletionConfig()
+    : options.config;
+  if (!config) return;
+
+  // The deletion tombstone already blocks new reservations. Reject an older
+  // in-flight forward before asking PostHog to delete, so every accepted event
+  // is ordered before the bulk-delete request without holding a DB connection
+  // across either external request.
+  await assertNoAccountAnalyticsForwardInProgress(cloudDb(), userId);
+  options.beforeExternalRequest?.();
+  const response = await fetch(
+    `${config.apiHost}/api/environments/${encodeURIComponent(config.environmentId)}/persons/bulk_delete/`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${config.personalApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        distinct_ids: [userId],
+        delete_events: true,
+        delete_recordings: true,
+        keep_person: false,
+      }),
+      signal: AbortSignal.timeout(POSTHOG_PERSON_DELETE_TIMEOUT_MS),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`PostHog account deletion failed with status ${response.status}`);
+  }
+  const summary: unknown = await response.json().catch(() => null);
+  if (!isCompletePostHogPersonDeletion(summary)) {
+    throw new Error("PostHog account deletion returned an incomplete result");
+  }
+  await options.afterExternalMutation?.();
+}
+
+function isCompletePostHogPersonDeletion(summary: unknown): boolean {
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) return false;
+  const result = summary as Record<string, unknown>;
+  const personsFound = result.persons_found;
+  const personsDeleted = result.persons_deleted;
+  const eventsQueuedForDeletion = result.events_queued_for_deletion;
+  const recordingsQueuedForDeletion = result.recordings_queued_for_deletion;
+  const deletionErrors = result.deletion_errors;
+  const hasNoDeletionErrors = deletionErrors === undefined ||
+    (Array.isArray(deletionErrors) && deletionErrors.length === 0);
+  if (
+    !Number.isSafeInteger(personsFound) ||
+    !Number.isSafeInteger(personsDeleted) ||
+    (personsFound as number) < 0 ||
+    personsFound !== personsDeleted ||
+    !hasNoDeletionErrors
+  ) return false;
+
+  // No matching person is already the requested deletion state. PostHog has
+  // nothing to enqueue in that case, so both queue flags are legitimately false.
+  return personsFound === 0 ||
+    (eventsQueuedForDeletion === true && recordingsQueuedForDeletion === true);
+}
+
+function postHogPersonDeletionConfig(): PostHogPersonDeletionConfig | null {
+  const personalApiKey = process.env.POSTHOG_PERSONAL_API_KEY?.trim();
+  if (!personalApiKey) {
+    if (
+      process.env.VERCEL_ENV === "production" ||
+      process.env.CMUX_REQUIRE_POSTHOG_PERSON_DELETE === "1"
+    ) {
+      throw new Error("POSTHOG_PERSONAL_API_KEY is required for account deletion");
+    }
+    return null;
+  }
+
+  const apiHost = (
+    process.env.POSTHOG_API_HOST ??
+    POSTHOG_DEFAULT_API_HOST
+  ).replace(/\/$/, "");
+  const environmentId = (
+    process.env.POSTHOG_ENVIRONMENT_ID ??
+    process.env.POSTHOG_PROJECT_ID ??
+    ""
+  ).trim();
+  if (!environmentId) {
+    throw new Error("POSTHOG_ENVIRONMENT_ID is required for account deletion");
+  }
+  return { apiHost, environmentId, personalApiKey };
 }
 
 async function resolveUserBillingForAccountDeletion(
@@ -891,6 +1054,10 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
 
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
+    await tx.delete(irohRelayPreferences).where(eq(irohRelayPreferences.accountId, userId));
+    await tx.delete(irohRegistrationChallenges).where(eq(irohRegistrationChallenges.userId, userId));
+    await tx.delete(irohEndpointBindings).where(eq(irohEndpointBindings.userId, userId));
+    await tx.delete(irohAccountSecurityStates).where(eq(irohAccountSecurityStates.userId, userId));
 
     await tx.delete(billingEmailClaims).where(or(
       eq(billingEmailClaims.stackUserId, userId),

@@ -25,6 +25,9 @@ struct PanelContentView: View {
     /// Explicit browser pane-ownership signal for hosts whose panels live outside
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
     var paneOwnershipOverride: Bool? = nil
+    /// Live terminal pane ownership. Portal callbacks invoke this again instead
+    /// of trusting the SwiftUI snapshot captured before a cross-container move.
+    var terminalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
@@ -48,6 +51,7 @@ struct PanelContentView: View {
                     paneId: paneId,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    portalPaneOwnershipResolver: terminalPaneOwnershipResolver,
                     portalPriority: portalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
@@ -70,6 +74,10 @@ struct PanelContentView: View {
                     paneOwnershipOverride: paneOwnershipOverride,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
+                // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
+                // structural slot when a pane selects another browser, so bind its lifetime
+                // to the panel instead of carrying the prior panel's omnibar draft forward.
+                .id(browserPanel.id)
             }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
@@ -145,6 +153,14 @@ struct PanelContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .workspaceTodo:
+            if let workspaceTodoPanel = panel as? WorkspaceTodoPanel {
+                WorkspaceTodoPanelView(
+                    panel: workspaceTodoPanel,
+                    isFocused: isFocused,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .cloudVMLoading:
             if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
@@ -167,7 +183,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
             return true
         case .terminal, .browser:
             return false

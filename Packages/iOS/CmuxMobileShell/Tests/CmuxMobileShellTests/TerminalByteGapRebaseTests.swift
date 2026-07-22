@@ -68,7 +68,7 @@ import Testing
     #expect(firstDelivered)
 
     await router.holdNextReplayResponses()
-    store.resyncTerminalOutput(reason: "test_inflight_before_gap", restartEventStream: false, surfaceIDs: [surfaceID])
+    store.requestTerminalReplay(surfaceID: surfaceID)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
     #expect(store.terminalReplaySurfaceIDsInFlight.contains(surfaceID))
 

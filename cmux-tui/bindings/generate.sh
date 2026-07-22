@@ -41,7 +41,7 @@ assemble_prompt() {
     echo "- This is a temporary output directory. The harness swaps it into cmux-tui/bindings/$lang/ only after generation succeeds."
     echo "- Regeneration must overwrite stale generated files inside the temporary output directory."
     echo "- Follow the style sheet exactly."
-    echo "- Implement protocol-v5 commands marked implemented, plus consumer-side implemented move commands."
+    echo "- Implement protocol-v9 commands and events marked implemented, plus consumer-side implemented move commands."
     echo "- Preserve command names, params, result shapes, event names, and error behavior from the spec."
     echo "- Do not implement proposed commands unless the style sheet explicitly asks for version-gated stubs."
     echo

@@ -1327,6 +1327,58 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
     }
 
+    func testSettingsFileStoreParsesWorkspaceTodoControlsBetaSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().betaFeatures.workspaceTodoControls.userDefaultsKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "beta": {
+                  "workspaceTodos": {
+                    "controls": {
+                      "enabled": true
+                    }
+                  }
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: managedKey) as? Bool, true)
+    }
+
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
@@ -4461,24 +4513,22 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
 
 @MainActor
 final class WorkspaceTeardownTests: XCTestCase {
-    func testTeardownAllPanelsClearsPanelMetadataCaches() {
+    func testTeardownAllPanelsClearsPanelMetadataCaches() throws {
         let workspace = Workspace()
-        guard let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected focused panel in new workspace")
-            return
-        }
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
 
         workspace.setPanelCustomTitle(panelId: initialPanelId, title: "Initial custom title")
         workspace.setPanelPinned(panelId: initialPanelId, pinned: true)
 
-        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split panel to be created")
-            return
-        }
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal)
+        )
 
         workspace.setPanelCustomTitle(panelId: splitPanel.id, title: "Split custom title")
         workspace.setPanelPinned(panelId: splitPanel.id, pinned: true)
         workspace.markPanelUnread(initialPanelId)
+        workspace.agentListeningPorts = [4200]
+        workspace.recomputeListeningPorts()
 
         XCTAssertFalse(workspace.panels.isEmpty)
         XCTAssertFalse(workspace.panelTitles.isEmpty)
@@ -4493,6 +4543,8 @@ final class WorkspaceTeardownTests: XCTestCase {
         XCTAssertTrue(workspace.panelCustomTitles.isEmpty)
         XCTAssertTrue(workspace.pinnedPanelIds.isEmpty)
         XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
+        XCTAssertTrue(workspace.agentListeningPorts.isEmpty)
+        XCTAssertFalse(workspace.listeningPorts.contains(4200))
     }
 
     func testDisabledPortalRenderingDoesNotRestoreTerminalVisibility() throws {
@@ -4510,6 +4562,19 @@ final class WorkspaceTeardownTests: XCTestCase {
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
+    }
+
+    func testSelectingWorkspaceTodoPaneHidesDeselectedTerminalPortal() throws {
+        let workspace = Workspace()
+        let terminalPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: terminalPanelId))
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        let todoPanel = try XCTUnwrap(workspace.newWorkspaceTodoSurface(inPane: paneId, focus: true))
+
+        XCTAssertEqual(workspace.focusedPanelId, todoPanel.id)
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
     }
 }
 

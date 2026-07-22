@@ -15,11 +15,13 @@ final class RemoteTmuxConnectionObservers {
     typealias Token = UUID
 
     private var paneOutputObservers: [Token: (_ paneId: Int, _ data: Data) -> Void] = [:]
+    private var paneSeedObservers: [Token: (_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void] = [:]
     private var paneCwdObservers: [Token: (_ paneId: Int, _ path: String) -> Void] = [:]
     private var paneReflowObservers: [Token: (_ paneId: Int, _ noReflow: Bool) -> Void] = [:]
     private var activePaneObservers: [Token: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
     private var sessionChangedObservers: [Token: (_ oldName: String, _ newName: String) -> Void] = [:]
     private var topologyObservers: [Token: () -> Void] = [:]
+    private var reconnectReadyObservers: [Token: () -> Void] = [:]
     private var exitObservers: [Token: () -> Void] = [:]
     private var stateObservers: [Token: (RemoteTmuxControlConnection.ConnectionState) -> Void] = [:]
 
@@ -32,6 +34,7 @@ final class RemoteTmuxConnectionObservers {
     ///
     /// - Parameters:
     ///   - onPaneOutput: receives every `%output` (raw, octal-unescaped bytes).
+    ///   - onPaneSeed: receives an authoritative snapshot and its ordered live cutover.
     ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
     ///     both the initial value and live changes.
     ///   - onPaneReflow: receives a pane's reflow classification (`true` =
@@ -45,6 +48,7 @@ final class RemoteTmuxConnectionObservers {
     ///     `%session-changed` or `%session-renamed`; consumers must treat this as
     ///     the authoritative point for re-keying session-owned state.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
+    ///   - onReconnectReady: fires after reconnect attach drainage and reseeding.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss
     ///     does NOT fire this — the connection reconnects instead.
@@ -54,21 +58,25 @@ final class RemoteTmuxConnectionObservers {
     /// - Returns: a ``Token`` to pass to ``remove(_:)``.
     func add(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?,
+        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
         onTopologyChanged: (() -> Void)?,
+        onReconnectReady: (() -> Void)?,
         onExit: (() -> Void)?,
         onConnectionStateChanged: ((RemoteTmuxControlConnection.ConnectionState) -> Void)?
     ) -> Token {
         let token = Token()
         if let onPaneOutput { paneOutputObservers[token] = onPaneOutput }
+        if let onPaneSeed { paneSeedObservers[token] = onPaneSeed }
         if let onPaneCwd { paneCwdObservers[token] = onPaneCwd }
         if let onPaneReflow { paneReflowObservers[token] = onPaneReflow }
         if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
         if let onSessionChanged { sessionChangedObservers[token] = onSessionChanged }
         if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
+        if let onReconnectReady { reconnectReadyObservers[token] = onReconnectReady }
         if let onExit { exitObservers[token] = onExit }
         if let onConnectionStateChanged { stateObservers[token] = onConnectionStateChanged }
         return token
@@ -77,11 +85,13 @@ final class RemoteTmuxConnectionObservers {
     /// Deregisters the callbacks registered under `token`.
     func remove(_ token: Token) {
         paneOutputObservers[token] = nil
+        paneSeedObservers[token] = nil
         paneCwdObservers[token] = nil
         paneReflowObservers[token] = nil
         activePaneObservers[token] = nil
         sessionChangedObservers[token] = nil
         topologyObservers[token] = nil
+        reconnectReadyObservers[token] = nil
         exitObservers[token] = nil
         stateObservers[token] = nil
     }
@@ -91,6 +101,16 @@ final class RemoteTmuxConnectionObservers {
         // Snapshot before iterating: a callback may unregister an observer (mutating
         // the dict) synchronously, which would trap on the live collection.
         for callback in Array(paneOutputObservers.values) { callback(paneId, data) }
+    }
+
+    /// Fans a typed seed to seed-aware observers. Output-only observers receive
+    /// one compatibility write, never both paths.
+    func emitPaneSeed(_ paneId: Int, _ seed: RemoteTmuxPaneSeed) {
+        for callback in Array(paneSeedObservers.values) { callback(paneId, seed) }
+        for (token, callback) in Array(paneOutputObservers)
+        where paneSeedObservers[token] == nil {
+            callback(paneId, seed.renderedBytes)
+        }
     }
 
     /// Fans a pane's working directory out to every cwd observer.
@@ -116,6 +136,11 @@ final class RemoteTmuxConnectionObservers {
     /// Notifies every topology observer that the window/pane layout changed.
     func notifyTopologyChanged() {
         for callback in Array(topologyObservers.values) { callback() }
+    }
+
+    /// Notifies observers that reconnect commands are safe and the prior claims were reseeded.
+    func notifyReconnectReady() {
+        for callback in Array(reconnectReadyObservers.values) { callback() }
     }
 
     /// Notifies every exit observer that the connection permanently ended.

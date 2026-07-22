@@ -35,6 +35,7 @@ struct ChatBlockDetailBuilder {
             id: id,
             title: String(localized: "chat.detail.code.title", defaultValue: "Code Block", bundle: .module),
             subtitle: language?.isEmpty == false ? language : nil,
+            artifactPaths: [],
             sections: [
                 ChatBlockDetailSection(id: "code", title: sectionTitle, text: code, style: .monospaced),
             ]
@@ -46,6 +47,7 @@ struct ChatBlockDetailBuilder {
             id: id,
             title: String(localized: "chat.thought.title", defaultValue: "Thought", bundle: .module),
             subtitle: nil,
+            artifactPaths: [],
             sections: [
                 ChatBlockDetailSection(
                     id: "reasoning",
@@ -92,6 +94,7 @@ struct ChatBlockDetailBuilder {
                 defaultValue: "\(toolUse.toolName) - \(status)",
                 bundle: .module
             ),
+            artifactPaths: toolUse.referencedPaths ?? [],
             sections: sections
         )
     }
@@ -117,6 +120,7 @@ struct ChatBlockDetailBuilder {
             id: id,
             title: String(localized: "chat.detail.terminal.title", defaultValue: "Terminal Output", bundle: .module),
             subtitle: command.isEmpty ? nil : command,
+            artifactPaths: [],
             sections: sections
         )
     }
@@ -142,6 +146,7 @@ struct ChatBlockDetailBuilder {
             id: id,
             title: String(localized: "chat.detail.file.title", defaultValue: "File Change", bundle: .module),
             subtitle: subtitle,
+            artifactPaths: [edit.filePath],
             sections: [
                 ChatBlockDetailSection(
                     id: "diff",

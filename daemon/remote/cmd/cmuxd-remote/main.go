@@ -172,7 +172,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		ws := fs.Bool("ws", false, "serve terminal PTY transport over WebSocket")
 		persistent := fs.Bool("persistent", false, "proxy stdio to a persistent per-slot daemon")
 		persistentServer := fs.Bool("persistent-server", false, "run the persistent per-slot daemon")
+		persistentStop := fs.Bool("persistent-stop", false, "stop the persistent per-slot daemon")
 		persistentSlot := fs.String("slot", "", "persistent daemon slot")
+		persistentLeasePort := fs.Int("persistent-lease-port", 0, "relay port whose slot file leases the persistent daemon")
 		listen := fs.String("listen", "127.0.0.1:7777", "address for --ws")
 		authLeaseFile := fs.String("auth-lease-file", "", "required lease JSON path for --ws")
 		rpcAuthLeaseFile := fs.String("rpc-auth-lease-file", "", "optional daemon RPC lease JSON path for --ws /rpc")
@@ -182,17 +184,36 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
+		if *persistentLeasePort < 0 || *persistentLeasePort > 65535 {
+			_, _ = fmt.Fprintln(stderr, "serve --persistent-lease-port must be 0 or between 1 and 65535")
+			return 2
+		}
 		if *persistentServer {
-			if *stdio || *ws || *persistent {
-				_, _ = fmt.Fprintln(stderr, "serve --persistent-server cannot be combined with --stdio, --ws, or --persistent")
+			if *stdio || *ws || *persistent || *persistentStop {
+				_, _ = fmt.Fprintln(stderr, "serve --persistent-server cannot be combined with --stdio, --ws, --persistent, or --persistent-stop")
 				return 2
 			}
 			if strings.TrimSpace(*persistentSlot) == "" {
 				_, _ = fmt.Fprintln(stderr, "serve --persistent-server requires --slot")
 				return 2
 			}
-			if err := runPersistentDaemonServer(strings.TrimSpace(*persistentSlot), stderr); err != nil {
+			if err := runPersistentDaemonServer(strings.TrimSpace(*persistentSlot), *persistentLeasePort, stderr); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve --persistent-server failed: %v\n", err)
+				return 1
+			}
+			return 0
+		}
+		if *persistentStop {
+			if *stdio || *ws || *persistent || *persistentLeasePort != 0 {
+				_, _ = fmt.Fprintln(stderr, "serve --persistent-stop cannot be combined with --stdio, --ws, --persistent, or --persistent-lease-port")
+				return 2
+			}
+			if strings.TrimSpace(*persistentSlot) == "" {
+				_, _ = fmt.Fprintln(stderr, "serve --persistent-stop requires --slot")
+				return 2
+			}
+			if err := stopPersistentDaemon(strings.TrimSpace(*persistentSlot)); err != nil {
+				_, _ = fmt.Fprintf(stderr, "serve --persistent-stop failed: %v\n", err)
 				return 1
 			}
 			return 0
@@ -207,6 +228,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		if strings.TrimSpace(*persistentSlot) != "" && !*persistent {
 			_, _ = fmt.Fprintln(stderr, "serve --slot requires --persistent")
+			return 2
+		}
+		if *persistentLeasePort != 0 && !*persistent {
+			_, _ = fmt.Fprintln(stderr, "serve --persistent-lease-port requires --persistent")
 			return 2
 		}
 		if *ws {
@@ -235,7 +260,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				_, _ = fmt.Fprintln(stderr, "serve --persistent requires --slot")
 				return 2
 			}
-			if err := runPersistentStdioProxy(stdin, stdout, stderr, strings.TrimSpace(*persistentSlot)); err != nil {
+			if err := runPersistentStdioProxy(stdin, stdout, stderr, strings.TrimSpace(*persistentSlot), *persistentLeasePort); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve --stdio --persistent failed: %v\n", err)
 				return 1
 			}
@@ -283,7 +308,7 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 	defer server.closeAll()
 
 	reader := bufio.NewReaderSize(stdin, 64*1024)
-	defer writer.writer.Flush()
+	defer writer.flush()
 
 	for {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
@@ -358,6 +383,8 @@ const (
 type persistentDaemonServerConfig struct {
 	emptyIdleTimeout time.Duration
 	acceptPollStep   time.Duration
+	slotLeasePresent func() (bool, error)
+	slotLeaseRemoved func()
 }
 
 func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error) {
@@ -668,7 +695,7 @@ func readPersistentDaemonTokenFile(tokenFile string) (string, error) {
 	return token, nil
 }
 
-func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot string) error {
+func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot string, leasePort int) error {
 	paths, err := persistentDaemonPathsForSlot(slot)
 	if err != nil {
 		return err
@@ -681,7 +708,7 @@ func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot str
 	if err != nil {
 		return err
 	}
-	if err := ensurePersistentDaemonRunning(paths, token, stderr); err != nil {
+	if err := ensurePersistentDaemonRunning(paths, token, leasePort, stderr); err != nil {
 		return err
 	}
 	conn, err := dialPersistentDaemon(paths.socket, token)
@@ -733,7 +760,7 @@ func persistentProxyCopyError(err error) error {
 	return err
 }
 
-func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, stderr io.Writer) error {
+func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, leasePort int, stderr io.Writer) error {
 	if conn, err := dialPersistentDaemon(paths.socket, token); err == nil {
 		_ = conn.Close()
 		return nil
@@ -760,7 +787,8 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 	defer readyReader.Close()
 	defer readyWriter.Close()
 
-	cmd := exec.Command(executable, "serve", "--persistent-server", "--slot", paths.slot)
+	serverArguments := persistentDaemonServerArguments(paths.slot, leasePort)
+	cmd := exec.Command(executable, serverArguments...)
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -795,6 +823,14 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 	return err
 }
 
+func persistentDaemonServerArguments(slot string, leasePort int) []string {
+	arguments := []string{"serve", "--persistent-server", "--slot", slot}
+	if leasePort > 0 {
+		arguments = append(arguments, "--persistent-lease-port", strconv.Itoa(leasePort))
+	}
+	return arguments
+}
+
 func shouldRemovePersistentSocketAfterDialError(err error) bool {
 	return errors.Is(err, os.ErrNotExist) ||
 		errors.Is(err, syscall.ENOENT) ||
@@ -826,7 +862,7 @@ func waitPersistentDaemonReady(reader *os.File, logFile string) error {
 	}
 }
 
-func runPersistentDaemonServer(slot string, stderr io.Writer) error {
+func runPersistentDaemonServer(slot string, leasePort int, stderr io.Writer) error {
 	paths, err := persistentDaemonPathsForSlot(slot)
 	if err != nil {
 		return err
@@ -859,12 +895,28 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 	_ = os.Chmod(paths.socket, 0o600)
 
 	signalPersistentDaemonReady()
-	return servePersistentDaemonWithVerifierConfig(
+	config := persistentDaemonServerConfig{emptyIdleTimeout: persistentDaemonEmptyIdleTimeout}
+	leaseRemoved := false
+	if leasePort > 0 {
+		config.slotLeasePresent = func() (bool, error) {
+			return persistentDaemonSlotLeasePresent(paths.slot, leasePort)
+		}
+		config.slotLeaseRemoved = func() {
+			leaseRemoved = true
+		}
+	}
+	err = servePersistentDaemonWithVerifierConfig(
 		listener,
 		persistentDaemonFileTokenVerifier(token, paths.tokenFile),
 		stderr,
-		persistentDaemonServerConfig{emptyIdleTimeout: persistentDaemonEmptyIdleTimeout},
+		config,
 	)
+	if err == nil && leaseRemoved {
+		if cleanupErr := removePersistentDaemonRelayShellDirectoryIfUnleased(leasePort); cleanupErr != nil {
+			return cleanupErr
+		}
+	}
+	return err
 }
 
 func signalPersistentDaemonReady() {
@@ -928,9 +980,31 @@ func servePersistentDaemonWithVerifierConfig(
 	defer hub.closeAll()
 	var activeConnections int64
 	var idleSince time.Time
+	var slotLeaseObserved bool
+	var shutdownOnce sync.Once
+	requestShutdown := func() {
+		shutdownOnce.Do(func() {
+			_ = listener.Close()
+		})
+	}
 	for {
+		now := time.Now()
+		var acceptDeadline time.Time
+		if config.slotLeasePresent != nil {
+			present, err := config.slotLeasePresent()
+			if err == nil {
+				if present {
+					slotLeaseObserved = true
+				} else if slotLeaseObserved && atomic.LoadInt64(&activeConnections) == 0 {
+					if config.slotLeaseRemoved != nil {
+						config.slotLeaseRemoved()
+					}
+					return nil
+				}
+			}
+			acceptDeadline = now.Add(persistentDaemonAcceptPollStep(config))
+		}
 		if config.emptyIdleTimeout > 0 {
-			now := time.Now()
 			isEmpty := atomic.LoadInt64(&activeConnections) == 0 && hub.activeSessionCount() == 0
 			if isEmpty {
 				if idleSince.IsZero() {
@@ -940,14 +1014,21 @@ func servePersistentDaemonWithVerifierConfig(
 				if remaining <= 0 {
 					return nil
 				}
-				setPersistentDaemonAcceptDeadline(listener, now.Add(minDuration(
+				idleDeadline := now.Add(minDuration(
 					remaining,
 					persistentDaemonAcceptPollStep(config),
-				)))
+				))
+				acceptDeadline = earliestNonzeroTime(acceptDeadline, idleDeadline)
 			} else {
 				idleSince = time.Time{}
-				setPersistentDaemonAcceptDeadline(listener, now.Add(persistentDaemonAcceptPollStep(config)))
+				acceptDeadline = earliestNonzeroTime(
+					acceptDeadline,
+					now.Add(persistentDaemonAcceptPollStep(config)),
+				)
 			}
+		}
+		if !acceptDeadline.IsZero() {
+			setPersistentDaemonAcceptDeadline(listener, acceptDeadline)
 		}
 		conn, err := listener.Accept()
 		if err != nil {
@@ -962,7 +1043,7 @@ func servePersistentDaemonWithVerifierConfig(
 		atomic.AddInt64(&activeConnections, 1)
 		go func() {
 			defer atomic.AddInt64(&activeConnections, -1)
-			handlePersistentDaemonConn(conn, verifier, hub)
+			handlePersistentDaemonConn(conn, verifier, hub, requestShutdown)
 		}()
 	}
 }
@@ -1006,11 +1087,28 @@ func isClosedListenerError(err error) bool {
 	return strings.Contains(err.Error(), "use of closed network connection")
 }
 
-func handlePersistentDaemonConn(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub) {
-	handlePersistentDaemonConnWithAuthTimeout(conn, verifier, hub, persistentDaemonAuthTimeout)
+func handlePersistentDaemonConn(
+	conn net.Conn,
+	verifier persistentDaemonTokenVerifier,
+	hub *wsPTYHub,
+	requestShutdown func(),
+) {
+	handlePersistentDaemonConnWithAuthTimeout(
+		conn,
+		verifier,
+		hub,
+		persistentDaemonAuthTimeout,
+		requestShutdown,
+	)
 }
 
-func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub, timeout time.Duration) {
+func handlePersistentDaemonConnWithAuthTimeout(
+	conn net.Conn,
+	verifier persistentDaemonTokenVerifier,
+	hub *wsPTYHub,
+	timeout time.Duration,
+	requestShutdown func(),
+) {
 	defer conn.Close()
 	if timeout > 0 {
 		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
@@ -1027,7 +1125,7 @@ func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, verifier persisten
 			return
 		}
 	}
-	_ = runRPCServerWithReader(reader, writer, hub, false)
+	_ = runRPCServerWithReader(reader, writer, hub, false, requestShutdown)
 }
 
 func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) bool {
@@ -1088,7 +1186,13 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 	return true
 }
 
-func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyHub *wsPTYHub, ownsPTYHub bool) error {
+func runRPCServerWithReader(
+	reader *bufio.Reader,
+	writer *stdioFrameWriter,
+	ptyHub *wsPTYHub,
+	ownsPTYHub bool,
+	requestShutdown func(),
+) error {
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
@@ -1099,7 +1203,7 @@ func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyH
 		frameWriter:   writer,
 	}
 	defer server.closeAll()
-	defer writer.writer.Flush()
+	defer writer.flush()
 
 	for {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
@@ -1139,6 +1243,19 @@ func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyH
 				return err
 			}
 			continue
+		}
+		if req.Method == persistentDaemonShutdownMethod && requestShutdown != nil {
+			if err := writer.writeResponse(rpcResponse{
+				ID: req.ID,
+				OK: true,
+				Result: map[string]any{
+					"shutting_down": true,
+				},
+			}); err != nil {
+				return err
+			}
+			requestShutdown()
+			return nil
 		}
 
 		if err := server.handleRequestAndWriteResponse(req); err != nil {
@@ -1273,6 +1390,12 @@ func (w *stdioFrameWriter) writeResponse(resp rpcResponse) error {
 
 func (w *stdioFrameWriter) writeEvent(event rpcEvent) error {
 	return w.writeJSONFrame(event)
+}
+
+func (w *stdioFrameWriter) flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Flush()
 }
 
 func (w *stdioFrameWriter) writeJSONFrame(payload any) error {

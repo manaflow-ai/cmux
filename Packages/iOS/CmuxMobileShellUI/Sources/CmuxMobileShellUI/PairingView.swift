@@ -13,9 +13,10 @@ import AppKit
 
 struct PairingView: View {
     @Binding var pairingCode: String
+    let initialPresentation: PairingPresentation
     let connectionError: String?
     /// A shorter, actionable next-step line shown beneath ``connectionError``
-    /// (for example "Check that both devices are on the same Tailscale"). `nil`
+    /// (for example "Check that the selected private route is active"). `nil`
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
     let versionWarning: String?
@@ -25,31 +26,47 @@ struct PairingView: View {
     let cancelPairing: () -> Void
     let cancel: () -> Void
 
-    @State private var isShowingScanner = false
+    @State private var isShowingScanner: Bool
     @State private var deviceName = UITestConfig.addDeviceName
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
     @State private var host = UITestConfig.addDeviceHost ?? ""
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
-    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
     @State private var validationError: String?
     @State private var isPairing = false
     @State private var pairingTaskID: UUID?
     @State private var pairingTask: Task<Void, Never>?
     @FocusState private var focusedField: AddDeviceField?
 
+    init(
+        pairingCode: Binding<String>,
+        initialPresentation: PairingPresentation = .manual,
+        connectionError: String?,
+        connectionErrorGuidance: String?,
+        versionWarning: String?,
+        connectPairingCode: @escaping () async -> Void,
+        acceptVersionWarning: @escaping () async -> Void,
+        connectManualHost: @escaping (String, String, Int) async -> Void,
+        cancelPairing: @escaping () -> Void,
+        cancel: @escaping () -> Void
+    ) {
+        _pairingCode = pairingCode
+        self.initialPresentation = initialPresentation
+        self.connectionError = connectionError
+        self.connectionErrorGuidance = connectionErrorGuidance
+        self.versionWarning = versionWarning
+        self.connectPairingCode = connectPairingCode
+        self.acceptVersionWarning = acceptVersionWarning
+        self.connectManualHost = connectManualHost
+        self.cancelPairing = cancelPairing
+        self.cancel = cancel
+        _isShowingScanner = State(initialValue: initialPresentation.showsScanner)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                // Warn before the user burns a pair attempt: without an active
-                // tailnet, the Mac's QR/tailnet route is normally unreachable.
-                if tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
-                    Section {
-                        TailscaleInactiveCallout(context: .pairing)
-                    }
-                }
-
                 Section {
                     TextField(
                         L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
@@ -61,7 +78,7 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobileAddDeviceNameField")
 
                     TextField(
-                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "your-mac.tailnet.ts.net"),
+                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
                         text: $host
                     )
                     .focused($focusedField, equals: .host)
@@ -80,7 +97,10 @@ struct PairingView: View {
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                 } footer: {
-                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path."))
+                    Text(L10n.string(
+                        "mobile.addDevice.help",
+                        defaultValue: "Scan the Mac's Iroh QR. Manual host and port is only for loopback development in the simulator."
+                    ))
                 }
                 .overlay(alignment: .topLeading) {
                     #if DEBUG
@@ -235,34 +255,81 @@ struct PairingView: View {
                 #endif
             }
         }
+        .accessibilityIdentifier("MobilePairingView")
         #if os(iOS)
         .sheet(isPresented: $isShowingScanner) {
-            MobilePairingScannerSheet { scannedCode in
-                pairingCode = scannedCode
-                isShowingScanner = false
-                startPairingTask {
-                    await connectPairingCode()
-                }
-            }
+            scannerSheet
         }
         .onAppear {
-            analytics.capture("ios_pairing_screen_viewed", ["entry": .string("post_sign_in")])
+            analytics.capture(
+                "ios_pairing_screen_viewed",
+                ["entry": .string(initialPresentation.analyticsEntry)]
+            )
+        }
+        .onChange(of: initialPresentation) { _, presentation in
+            if isPairing {
+                cancelActivePairingTask()
+                cancelPairing()
+            }
+            isShowingScanner = presentation.showsScanner
+            analytics.capture(
+                "ios_pairing_screen_viewed",
+                ["entry": .string(presentation.analyticsEntry)]
+            )
         }
         #endif
     }
 
     private var cancelButton: some View {
         Button {
-            pairingTask?.cancel()
-            pairingTaskID = nil
-            pairingTask = nil
-            isPairing = false
+            cancelActivePairingTask()
             cancelPairing()
             cancel()
         } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
     }
+
+    private func cancelActivePairingTask() {
+        pairingTask?.cancel()
+        pairingTaskID = nil
+        pairingTask = nil
+        isPairing = false
+    }
+
+    #if os(iOS)
+    private var scannerSheet: some View {
+        MobilePairingScannerSheet(
+            previewEnabled: scannerPreviewEnabled,
+            onCancel: scannerCancelAction,
+            onEnterManually: scannerManualEntryAction
+        ) { scannedCode in
+            pairingCode = scannedCode
+            isShowingScanner = false
+            startPairingTask {
+                await connectPairingCode()
+            }
+        }
+    }
+
+    private var scannerCancelAction: (() -> Void)? {
+        guard initialPresentation.showsScanner else { return nil }
+        return { cancelDirectScanner() }
+    }
+
+    private var scannerManualEntryAction: (() -> Void)? {
+        guard initialPresentation.showsScanner else { return nil }
+        return { isShowingScanner = false }
+    }
+
+    private var scannerPreviewEnabled: Bool {
+        #if DEBUG
+        return UITestConfig.pairingScannerPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+    #endif
 
     private var errorText: String? {
         validationError ?? connectionError
@@ -285,7 +352,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "This will connect directly to that address. Use this only on a trusted LAN, VPN, or device you control."
+            defaultValue: "Manual host and port bypasses Iroh. Account credentials are allowed only over simulator loopback; use the Mac's Iroh QR for physical devices."
         )
     }
 
@@ -355,6 +422,10 @@ struct PairingView: View {
             await operation()
         }
         pairingTask = task
+    }
+
+    private func cancelDirectScanner() {
+        cancel()
     }
 }
 

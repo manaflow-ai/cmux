@@ -1,6 +1,12 @@
 # Transport Contract
 
-The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. HTTP and SSE remain proposals.
+The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 leaves both framing contracts unchanged and adds render-mode negotiation at the command layer. HTTP and SSE remain proposals.
+
+## Protocol Negotiation
+
+The current server reports `protocol:9` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9.
+
+There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
 ## Unix Socket
 
@@ -93,27 +99,39 @@ The equivalent config is:
 
 ### Framing
 
-Each client request is one UTF-8 JSON object in one WebSocket text frame. Each response or event is one complete JSON object in one WebSocket text frame. Do not append a newline. Responses and events may be interleaved after `subscribe` or `attach-surface`, exactly as on the Unix socket. The request/response envelopes, command names, event payloads, protocol version, attach ordering, and base64 encoding are unchanged.
+Each client request is one UTF-8 JSON object in one WebSocket text frame. Each response or event is one complete JSON object in one WebSocket text frame. Do not append a newline. Responses and events may be interleaved after `subscribe` or `attach-surface`, exactly as on the Unix socket. For a selected protocol feature, the request/response envelopes, command names, event payloads, attach ordering, and base64 encoding are identical across Unix and WebSocket transports.
+
+WebSocket `permessage-deflate` may be negotiated as optional transport compression. Compression is hop-by-hop WebSocket behavior, not part of the cmux-tui protocol: clients cannot require it for correctness, payload schemas remain JSON text, and intermediaries may enable or disable it independently.
 
 Binary frames are not protocol messages and cause the connection to close. The server accepts a normal WebSocket upgrade on any request path and does not require a WebSocket subprotocol.
 
 This framing exactly matches the TypeScript SDK's `WebSocketTransport`: `send(json)` sends that string as one text frame, and every received text frame is delivered as one complete JSON message.
 
-### Authentication Preamble
+### Authentication and Pairing
 
-Authentication is optional. Set it with `--ws-token <token>` or `server.ws_token`; the command-line flag takes precedence over config:
+Every WebSocket authenticates before protocol commands are dispatched. Interactive clients request pairing as their first frame:
+
+```json
+{"pair":{"request":true}}
+```
+
+The server returns a 60-second six-digit challenge. It sends the same challenge to trusted Unix-socket subscribers as `pairing-requested`. A local or attached TUI approves or denies it. Approval authorizes the waiting socket and returns an eight-hour reconnect credential. The comparison code is not a secret.
+
+Set `--ws-token <token>` or `server.ws_token` to add a non-interactive static-token bypass; the command-line flag takes precedence over config:
 
 ```json
 {"server":{"ws":"127.0.0.1:7681","ws_token":"replace-with-a-secret"}}
 ```
 
-When a token is configured, the first WebSocket frame must be this transport-level preamble:
+Static and server-issued reconnect credentials use this transport-level preamble:
 
 ```json
 {"auth":{"token":"replace-with-a-secret"}}
 ```
 
-The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, or incorrect preamble closes the connection with WebSocket policy code `1008` before dispatch. When no token is configured, the first text frame is a normal protocol request.
+The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, oversized, or incorrect authentication or pairing frame closes the connection with WebSocket policy code `1008` before dispatch. Pre-authentication frames are capped at 4 KiB, and authenticated protocol frames are capped at 4 MiB.
+
+The listener permits one pending request per source address, five starts per minute per address, 16 pending challenges, 64 total sockets, and 4 MiB frames. Pairing expires after 60 seconds and at most 64 reconnect credentials remain valid in memory.
 
 ### Bind Security
 
@@ -124,7 +142,7 @@ By default the listener accepts only an IP loopback address such as `127.0.0.1` 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 10 |
 
 HTTP is opt-in. The server binds localhost by default when enabled:
 
@@ -188,16 +206,16 @@ Attach streams use WebSocket:
 GET /api/v1/attach/{surface}
 ```
 
-`{surface}` accepts an implemented numeric id or, when protocol v6 short ids are enabled, a short id. WebSocket messages are text JSON objects using the same `vt-state`, `output`, and `detached` event schemas from `events.md`.
+`{surface}` accepts an implemented numeric id or, when protocol v6 short ids are enabled, a short id. WebSocket messages are text JSON objects using the same `vt-state`, `resized`, `output`, `colors-changed`, and `detached` event schemas from `events.md`.
 
-The attach ordering contract is identical to the socket `attach-surface` command for the negotiated protocol. Protocol v5 sends `vt-state`, then live `output`, then `detached`. Protocol v6 sends `vt-state`, then zero or more `resized` or `output` events, then `detached`; each `resized` event carries a fresh replay and requires the client to replace its mirror before applying later output.
+The attach ordering contract is identical to the socket `attach-surface` command for the negotiated protocol. Protocol v5 sends `vt-state`, then live `output`, then `detached`. Protocol v6 sends `vt-state`, then zero or more `resized`, `output`, or `colors-changed` events, then `detached`; each `resized` event carries a fresh replay and requires the client to replace its mirror before applying later output. The additive `vt-state.colors` object and `colors-changed` event have the same schema on every transport.
 
 ## HTTP Auth
 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 10 |
 
 When HTTP is enabled securely, the server mints one token per mux session at:
 

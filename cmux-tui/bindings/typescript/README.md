@@ -1,7 +1,7 @@
 # cmux TypeScript Client
 
 The typed client library for cmux-tui frontends. It exposes every implemented
-command and event in protocol v6, transport-independent request handling,
+command and event in protocol v9, transport-independent request handling,
 browser-safe attach streams, and Node.js Unix-socket defaults.
 
 ## Install and build
@@ -24,7 +24,9 @@ Attach payloads are decoded to `Uint8Array`, which xterm.js accepts directly.
 import { Terminal } from "@xterm/xterm";
 import { CmuxClient, WebSocketTransport } from "cmux";
 const terminal = new Terminal();
-const transport = new WebSocketTransport("ws://127.0.0.1:9000/api/v1/ws");
+const transport = new WebSocketTransport("ws://127.0.0.1:9000/api/v1/ws", {
+  onPairingChallenge: ({ code }) => showCode(code),
+});
 const client = new CmuxClient({ transport });
 const info = await client.identify();
 console.log(`cmux protocol ${info.protocol}`);
@@ -43,9 +45,10 @@ void (async () => {
 await client.send(surface, { bytes: new TextEncoder().encode("ls\r") });
 ```
 
-For a server started with `--ws-token`, pass the token to the transport. It
-sends the required authentication preamble as the first frame, before any
-queued protocol request:
+Without `authToken`, the transport requests a short-lived pairing code and
+holds protocol requests until a trusted TUI approves it. The approval issues a
+credential through `onPairingCredential` for reconnects. For automation, a
+server started with `--ws-token` accepts that static token instead:
 
 ```ts
 const transport = new WebSocketTransport("ws://127.0.0.1:7681", {
@@ -81,7 +84,12 @@ await client.close();
 
 `new CmuxClient()` uses `CMUX_TUI_SOCKET`, then legacy `CMUX_MUX_SOCKET`, then
 the default session socket. Unix subscribe and attach streams retain dedicated
-connections; an injected transport can multiplex them on its main connection.
+connections. An injected transport can multiplex attach streams and one
+subscription on its main connection; concurrent subscriptions require a
+`streamTransportFactory` because overflow events are terminal to one stream.
+Each stream retains at most 256 unread events, and each encoded attach payload
+is limited to 16 MiB by default. `maxBufferedEvents` and
+`maxAttachEncodedChars` may lower those limits for constrained clients.
 
 ## Raw typed requests
 

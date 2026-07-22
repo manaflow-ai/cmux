@@ -35,6 +35,42 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
 
+    /// Returns exact-session runtime identities that still match their recorded process generation.
+    func confirmedRuntimeAgentProcessIdentities(
+        for agent: SessionRestorableAgentSnapshot,
+        panelId: UUID,
+        currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
+    ) -> Set<AgentPIDProcessIdentity> {
+        confirmedRuntimeAgentProcessIdentities(
+            kind: agent.kind,
+            sessionId: agent.sessionId,
+            panelId: panelId,
+            currentProcessIdentity: currentProcessIdentity
+        )
+    }
+
+    /// Returns exact-session runtime identities that still match their recorded process generation.
+    func confirmedRuntimeAgentProcessIdentities(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        panelId: UUID,
+        currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
+    ) -> Set<AgentPIDProcessIdentity> {
+        // Claude's `claude_code` key identifies only a panel, not a session, so it
+        // cannot prove that a live process supersedes this cached session generation.
+        guard kind != .claude else { return [] }
+        let key = "\(kind.rawValue).\(sessionId)"
+        guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
+              let pid = agentPIDs[key],
+              pid > 0,
+              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+              recordedIdentity.pid == pid,
+              currentProcessIdentity(Int(pid)) == recordedIdentity else {
+            return []
+        }
+        return [recordedIdentity]
+    }
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
@@ -183,12 +219,17 @@ extension Workspace {
     }
 
     func clearAllAgentPIDs(refreshPorts: Bool = true) {
-        let hadAgentPIDs = !agentPIDs.isEmpty
         agentPIDs.removeAll()
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
-        if hadAgentPIDs, refreshPorts { refreshTrackedAgentPorts() }
+        if refreshPorts {
+            refreshTrackedAgentPorts()
+        } else {
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+            PortScanner.shared.unregisterAgentWorkspace(workspaceId: id)
+        }
     }
 
     private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
@@ -292,10 +333,27 @@ extension Workspace {
     }
 
     func refreshTrackedAgentPorts() {
-        agentListeningPorts.removeAll(keepingCapacity: false)
-        let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
-        recomputeListeningPorts()
+        // Preserve the published snapshot until PortScanner reconciles the new
+        // process tree; eagerly clearing here made every PID refresh flicker.
+        let remainingAgentRoots = Set(agentPIDs.compactMap { key, pid -> AgentPortRootIdentity? in
+            guard pid > 0 else { return nil }
+            return AgentPortRootIdentity(
+                pid: Int(pid),
+                processIdentity: agentPIDProcessIdentitiesByKey[key]
+            )
+        })
+        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
+    }
+
+    func recomputeListeningPorts() {
+        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
+            .union(agentListeningPorts)
+            .union(remoteDetectedPorts)
+            .union(remoteForwardedPorts)
+        let next = unique.sorted()
+        if listeningPorts != next {
+            listeningPorts = next
+        }
     }
 
     @discardableResult
@@ -419,16 +477,13 @@ extension Workspace {
         clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
-        terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
-        if lastTerminalConfigInheritancePanelId == panelId {
-            lastTerminalConfigInheritancePanelId = nil
-        }
+        removeTerminalConfigInheritanceSource(panelId: panelId)
         if clearSurfaceNotifications {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
-            Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
+            requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         return transferredRemoteCleanupConfiguration
     }

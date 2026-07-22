@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Nastavite u terminalu",
+    "returnBody": "Za nastavak se vratite u terminal u kojem ste pokrenuli ssh cmux.cloud.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Plaćanje je završeno",
+        "body": "Vaša pretplata je potvrđena. Može potrajati dok se nova ograničenja ne prikažu."
+      },
+      "checkoutCanceled": {
+        "title": "Plaćanje je otkazano",
+        "body": "Plaćanje je zatvoreno bez promjene vašeg plana."
+      },
+      "portalReturn": {
+        "title": "Povratak s portala za naplatu",
+        "body": "Može potrajati dok se promjene s portala za naplatu ne prikažu."
+      },
+      "default": {
+        "title": "Naplata je završena",
+        "body": "Postupak naplate je završen."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Terminal napravljen za multitasking",
     "description": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
@@ -415,6 +438,19 @@
         "p3": "Najbolji programeri su oduvijek pravili vlastite alate. Niko još nije otkrio najbolji način rada sa agentima, a timovi koji grade zatvorene proizvode to definitivno nisu. Programeri koji su najbliži svojim bazama koda će to prvi otkriti.",
         "p4": "Dajte milionu programera sastavive primitive i oni će kolektivno pronaći najefikasnije tokove rada brže nego što bi bilo koji produktni tim mogao osmisliti odozgo prema dolje."
       },
+      "cmuxFork": {
+        "title": "Predstavljamo cmux Fork",
+        "summary": "Razgranajte razgovor agenta u novi podijeljeni prikaz, karticu ili radni prostor bez gubitka konteksta.",
+        "date": "14. juli 2026.",
+        "p1": "Razgovori s programerskim agentima dolaze do korisnih tačaka grananja. Možete sačuvati jedan pristup dok drugi agent isprobava drugačiju implementaciju, istražuje sporedni pravac ili sagledava isti problem iz nove perspektive.",
+        "p2": "Fork Conversation pravi novu sesiju agenta iz trenutnog razgovora i zadržava historiju razgovora i radni direktorij. Podržava Codex, Claude Code, OpenCode, Pi, Hermes i druge agente sa sesijama koje se mogu razgranati.",
+        "destinationsTitle": "Razgranajte tamo gdje želite raditi",
+        "destinationsP": "Kliknite desnim tasterom na terminal ili karticu i odaberite Fork Conversation, ili pritisnite <code>Cmd+Shift+P</code> i potražite Fork Conversation. Pošaljite granu u podijeljeni prikaz na bilo kojoj strani, novu karticu ili novi radni prostor.",
+        "parallelTitle": "Istražite više pravaca odjednom",
+        "parallelP1": "Razgranajte isti razgovor više puta da uporedite implementacije ili da više agenata podijeli problem sa istim početnim kontekstom. Svaka grana nastavlja nezavisno, a izvorni razgovor ostaje dostupan.",
+        "parallelP2": "Grane mogu raditi u istom direktoriju. Dodijelite im odvojene zadatke ili datoteke kada bi se istovremene izmjene mogle preklopiti.",
+        "release": "cmux Fork je dostupan u verziji v0.64.19."
+      },
       "showHnLaunch": {
         "title": "Lansiranje cmux-a na Show HN",
         "summary": "cmux je dostigao #2 na Hacker News-u, podijelio ga Mitchell Hashimoto, i postao viralan u Japanu.",
@@ -583,6 +619,10 @@
       "metaTitle": "Zen cmux-a",
       "metaDescription": "cmux je primitiv, ne rješenje. Daje vam komposabilne dijelove i vaš radni tok je na vama."
     },
+    "cmuxFork": {
+      "metaTitle": "Predstavljamo cmux Fork",
+      "metaDescription": "Razgranajte razgovor u Codexu, Claude Codeu, OpenCodeu, Piju, Hermesu ili drugom podržanom agentu u novi podijeljeni prikaz, karticu ili radni prostor bez gubitka konteksta."
+    },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
       "metaDescription": "Nova prečica na tastaturi koja mijenja način interakcije s cmux-om."
@@ -728,6 +768,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Za roaming između mreža koristite cmux mosh-tmux. Otvara punopravni Mosh terminal spojen na imenovanu tmux sesiju; ne zamjenjuje izvorno preslikavanje radnih prostora, kartica i podjela koje pruža SSH tmux kontrolni režim."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Početak rada",
@@ -914,6 +957,8 @@
           "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen."
         },
         "terminal": {
+          "sessionContentMaxWidth": "Opcionalna maksimalna širina, u tačkama, za sadržaj terminala i ugrađenog razgovora s agentom. Postavite false za korištenje pune širine okna.",
+          "sessionContentAlignment": "Horizontalni položaj sadržaja terminala i ugrađenog razgovora s agentom kada je sessionContentMaxWidth omogućen.",
           "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",
           "scrollSpeed": "Množitelj koji se primjenjuje na pomak točkića miša i dodirne plohe u terminalu. Veće vrijednosti pomiču brže, a manje sporije.",
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
@@ -939,6 +984,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
         "fileExplorer": {
@@ -1474,10 +1520,16 @@
       "flagName": "Zastava",
       "flagDesc": "Opis",
       "flagNameVal": "Postavite naslov radnog prostora",
+      "flagCommand": "Pokrenite tekst naredbe jednom u početnom udaljenom terminalu nakon pokretanja ljuske",
       "flagPort": "SSH port (zadano 22)",
       "flagIdentity": "Put do datoteke identiteta",
       "flagSshOption": "Proslijedi proizvoljne SSH opcije (npr. -o StrictHostKeyChecking=no)",
+      "flagTransport": "Transport interaktivnog terminala: ssh (zadano) ili mosh",
       "flagNoFocus": "Kreirajte radni prostor bez prelaska na njega",
+      "moshTitle": "Mosh transport terminala",
+      "moshDesc": "Koristite cmux ssh user@remote --transport mosh kada interaktivni terminal treba preživjeti promjene Wi-Fi mreže, VPN-a, pristupne tačke te uspavljivanje i buđenje. Mosh prenosi samo terminalski PTY; SSH i dalje upravlja udaljenim metapodacima, postavljanjem i kontrolom cmux usluge, proxyjem preglednika, prijenosima i ponovnim povezivanjem.",
+      "moshFallback": "cmux lokalno zahtijeva Mosh 1.4 ili noviji i prije pokretanja provjerava udaljeni mosh-server. Ako klijent nedostaje ili nije kompatibilan, server nedostaje ili udaljena provjera ne uspije, cmux objašnjava razlog i nastavlja putem SSH-a.",
+      "moshTmux": "Kreirajte Mosh workspace koji kreira ili spaja imenovanu tmux sesiju (zadano: main). Tmux profil opstaje kroz ponovno povezivanje i vraćanje sesije aplikacije. Ovo je roaming tmux terminal, a ne izvorni mirror iz cmux ssh-tmux. --session <name> bira sesiju; ostale opcije odgovaraju cmux mosh. Bez Mosha isti profil radi preko SSH-a.",
       "deepLinksTitle": "SSH duboke veze",
       "deepLinksDesc": "Koristite cmux SSH dubinske veze kada web lokacija ili alat želi ponuditi dugme Otvori u cmux. Veza otvara cmux, prikazuje prompt za potvrdu, a zatim pokreće ekvivalentnu cmux ssh naredbu nakon što korisnik potvrdi.",
       "deepLinksWebFallbackDesc": "Koristite zamjenski URL cmux.com za dugmad web stranice. Otvara izvornu vezu i prikazuje preuzimanje ako cmux nije instaliran.",

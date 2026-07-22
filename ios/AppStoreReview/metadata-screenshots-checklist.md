@@ -34,7 +34,7 @@ complete in App Store Connect or in the submitted binary.
 - [ ] Screenshots show the actual app in use, not only splash, login, title art, or marketing copy.
 - [ ] Include signed-in workspace list, pairing/computers, terminal detail, input bar, and notification opt-in surfaces.
 - [ ] Use fictional workspace names, terminal text, email addresses, device names, and account data.
-- [ ] Include required iPhone screenshots, at minimum `IPHONE_65`.
+- [ ] Include required iPhone screenshots, at minimum `IPHONE_69`.
 - [ ] Include required iPad screenshots if the binary remains universal (`TARGETED_DEVICE_FAMILY = 1,2`), at minimum `IPAD_PRO_3GEN_129`.
 - [ ] Local screenshot assets pass `asc screenshots validate` before upload.
 
@@ -43,6 +43,7 @@ complete in App Store Connect or in the submitted binary.
 - [ ] The iOS App Store build exposes no Stripe, Stack checkout, external purchase, external upgrade, or billing-management link.
 - [ ] `/app-pricing?cmux_app=1&cmux_distribution=appstore` renders without `/api/billing/checkout`, `/api/billing/portal`, or enterprise sales CTAs.
 - [ ] `/api/billing/checkout?cmux_distribution=appstore` redirects before creating Stack or Stripe checkout state.
+- [ ] `/api/billing/portal?cmux_distribution=appstore` redirects before resolving Stack users or creating Stripe portal state.
 - [ ] Existing paid entitlement state is read-only in iOS. If an iOS purchase flow is added later, it must use StoreKit and restore purchases.
 
 ## Permissions and Privacy
@@ -53,6 +54,10 @@ complete in App Store Connect or in the submitted binary.
 - [ ] Photo library purpose string says attaching photos to terminal-agent messages.
 - [ ] Permissions are requested only when the user starts the relevant feature.
 - [ ] Push notifications are opt-in and can be disabled after enabling.
+- [x] iPhone and iPad analytics collection is disabled until the user consents, and Settings exposes a control that withdraws consent for the same telemetry gate used by analytics and crash reporting.
+- [x] In-app Delete Account deletes the account-linked PostHog person and requests deletion of its events and recordings before deleting the Stack user.
+- [ ] Production web env has `POSTHOG_PERSONAL_API_KEY` with `person:write` scope and an explicit `POSTHOG_ENVIRONMENT_ID` (or `POSTHOG_PROJECT_ID`) for that key. Destructive deletion has no default project fallback.
+- [ ] Every `reviewer-setup.md` placeholder is replaced only in ASC with working demo credentials, concrete Tailscale access, concrete host, port, and monitored contact. These live values stay out of git.
 
 ## ASC Validation Commands
 
@@ -74,6 +79,6 @@ asc metadata validate --dir ios/AppStoreReview/metadata --output table
 ```
 
 ```bash
-asc screenshots validate --path ios/AppStoreReview/screenshots --device-type IPHONE_65 --output table
-asc screenshots validate --path ios/AppStoreReview/screenshots --device-type IPAD_PRO_3GEN_129 --output table
+asc screenshots validate --path ios/AppStoreReview/screenshots/en-US/iphone --device-type IPHONE_69 --output table
+asc screenshots validate --path ios/AppStoreReview/screenshots/en-US/ipad --device-type IPAD_PRO_3GEN_129 --output table
 ```

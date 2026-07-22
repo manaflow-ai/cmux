@@ -16,6 +16,7 @@ import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 public final class CmuxClient implements AutoCloseable {
     private final String socketPath;
@@ -24,6 +25,7 @@ public final class CmuxClient implements AutoCloseable {
     private final JsonLineConnection connection;
     private long nextId = 1;
     private Integer protocol;
+    private Set<String> capabilities = Set.of();
 
     private CmuxClient(Builder builder) throws CmuxException {
         this.socketPath = builder.socketPath != null ? builder.socketPath : resolvedSocketPath(builder.session);
@@ -81,7 +83,17 @@ public final class CmuxClient implements AutoCloseable {
         Map<String, Object> data = request("identify", new LinkedHashMap<>());
         IdentifyResult result = IdentifyResult.from(data);
         protocol = result.protocol();
+        capabilities = Set.copyOf(result.capabilities());
         return result;
+    }
+
+    private void requireProtocol(int minimum, String feature) throws CmuxException {
+        int negotiated = protocol != null ? protocol : identify().protocol();
+        if (negotiated < minimum) {
+            throw new CmuxProtocolMismatchException(
+                feature + " requires protocol " + minimum + "; server uses protocol " + negotiated
+            );
+        }
     }
 
     public Tree listWorkspaces() throws CmuxException {
@@ -145,12 +157,44 @@ public final class CmuxClient implements AutoCloseable {
         return new SurfaceResult(asLong(request("new-workspace", request.toMap()).get("surface")));
     }
 
+    public WorkspacePlacement createWorkspace(CreateWorkspaceRequest createRequest) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
+        Map<String, Object> data = request("create-workspace", createRequest.toMap());
+        return new WorkspacePlacement(
+            asLong(data.get("workspace")),
+            asString(data.get("key")),
+            (int) asLong(data.get("index")),
+            asLong(data.get("workspace_revision"))
+        );
+    }
+
+    public TerminalPlacement createTerminal(CreateTerminalRequest createRequest) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
+        Map<String, Object> data = request("create-terminal", createRequest.toMap());
+        return new TerminalPlacement(
+            asLong(data.get("surface")),
+            asLong(data.get("pane")),
+            asLong(data.get("screen")),
+            asLong(data.get("workspace")),
+            asString(data.get("key"))
+        );
+    }
+
     public SurfaceResult newScreen(Long workspace, Integer cols, Integer rows) throws CmuxException {
         Map<String, Object> params = new LinkedHashMap<>();
         putIfNotNull(params, "workspace", workspace);
         putIfNotNull(params, "cols", cols);
         putIfNotNull(params, "rows", rows);
         return new SurfaceResult(asLong(request("new-screen", params).get("surface")));
+    }
+
+    public SurfaceResult newPane(long pane, Integer cols, Integer rows) throws CmuxException {
+        requireProtocol(9, "new-pane");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pane", pane);
+        putIfNotNull(params, "cols", cols);
+        putIfNotNull(params, "rows", rows);
+        return new SurfaceResult(asLong(request("new-pane", params).get("surface")));
     }
 
     public SurfaceResult split(long pane, String dir, Integer cols, Integer rows) throws CmuxException {
@@ -168,6 +212,14 @@ public final class CmuxClient implements AutoCloseable {
         params.put("dir", dir);
         params.put("ratio", ratio);
         request("set-ratio", params);
+    }
+
+    public void setSplitRatio(long split, double ratio) throws CmuxException {
+        requireProtocol(8, "set-split-ratio");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("split", split);
+        params.put("ratio", ratio);
+        request("set-split-ratio", params);
     }
 
     public void setDefaultColors(String fg, String bg) throws CmuxException {
@@ -220,17 +272,29 @@ public final class CmuxClient implements AutoCloseable {
         request("rename-workspace", params);
     }
 
-    public void resizeSurface(long surface, int cols, int rows) throws CmuxException {
+    public WorkspaceMutation renameWorkspaceRegistry(WorkspaceSelectorRequest selector, String name) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
+        Map<String, Object> params = selector.toMap();
+        params.put("name", name);
+        return workspaceMutation(request("rename-workspace", params));
+    }
+
+    public ResizeSurfaceResult resizeSurface(long surface, int cols, int rows) throws CmuxException {
         Map<String, Object> params = surfaceParams(surface);
         params.put("cols", cols);
         params.put("rows", rows);
-        request("resize-surface", params);
+        return ResizeSurfaceResult.from(request("resize-surface", params));
     }
 
     public void closeWorkspace(long workspace) throws CmuxException {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("workspace", workspace);
         request("close-workspace", params);
+    }
+
+    public WorkspaceMutation closeWorkspaceRegistry(WorkspaceSelectorRequest selector) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
+        return workspaceMutation(request("close-workspace", selector.toMap()));
     }
 
     public void focusPane(long pane) throws CmuxException {
@@ -275,6 +339,21 @@ public final class CmuxClient implements AutoCloseable {
         request("move-workspace", params);
     }
 
+    public WorkspaceMutation moveWorkspaceRegistry(WorkspaceSelectorRequest selector, int index) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
+        Map<String, Object> params = selector.toMap();
+        params.put("index", index);
+        return workspaceMutation(request("move-workspace", params));
+    }
+
+    private static WorkspaceMutation workspaceMutation(Map<String, Object> data) {
+        return new WorkspaceMutation(
+            asLong(data.get("workspace")),
+            asString(data.get("key")),
+            asLong(data.get("workspace_revision"))
+        );
+    }
+
     public void scrollSurface(long surface, int delta) throws CmuxException {
         Map<String, Object> params = surfaceParams(surface);
         params.put("delta", delta);
@@ -289,15 +368,40 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public CmuxStream attachSurface(long surface) throws CmuxException {
+        return attachSurface(surface, null, null);
+    }
+
+    public CmuxStream attachSurface(long surface, Integer cols, Integer rows) throws CmuxException {
+        if ((cols == null) != (rows == null)) {
+            throw new IllegalArgumentException(
+                "attach-surface cols and rows must be supplied together"
+            );
+        }
         int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 6 || (negotiated > 5 && !allowProtocolV6Attach)) {
+        if (negotiated > 5 && !allowProtocolV6Attach) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
+        }
+        if ((cols != null || rows != null) && !capabilities.contains("attach-initial-size")) {
+            throw new CmuxProtocolMismatchException(
+                "initial attach sizing is not supported by this server"
+            );
         }
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("cmd", "attach-surface");
         params.put("surface", surface);
+        if (cols != null) params.put("cols", cols);
+        if (rows != null) params.put("rows", rows);
         params.put("id", nextId());
         return CmuxStream.open(socketPath, timeout, params);
+    }
+
+    private void requireCapability(String capability, String feature) throws CmuxException {
+        if (protocol == null) {
+            identify();
+        }
+        if (!capabilities.contains(capability)) {
+            throw new CmuxProtocolMismatchException(feature + " is not supported by this server");
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -520,6 +624,7 @@ public final class CmuxClient implements AutoCloseable {
     public static final class CmuxStream implements AutoCloseable {
         private final JsonLineConnection connection;
         private final ArrayDeque<CmuxEvent> buffered;
+        private boolean finished;
 
         private CmuxStream(JsonLineConnection connection, ArrayDeque<CmuxEvent> buffered) {
             this.connection = connection;
@@ -554,15 +659,26 @@ public final class CmuxClient implements AutoCloseable {
         }
 
         public CmuxEvent next(Duration timeout) throws CmuxException {
+            if (finished) {
+                throw new CmuxException("stream is closed");
+            }
             if (!buffered.isEmpty()) {
-                return buffered.removeFirst();
+                return finishTerminal(buffered.removeFirst());
             }
             while (true) {
                 Map<String, Object> response = connection.recv(timeout);
                 if (response.containsKey("event")) {
-                    return CmuxEvent.from(response);
+                    return finishTerminal(CmuxEvent.from(response));
                 }
             }
+        }
+
+        private CmuxEvent finishTerminal(CmuxEvent event) throws CmuxException {
+            if (event instanceof OverflowEvent || "detached".equals(event.event())) {
+                finished = true;
+                connection.close();
+            }
+            return event;
         }
 
         @Override

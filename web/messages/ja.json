@@ -936,6 +936,19 @@
         "p3": "優れた開発者は常に自分のツールを構築してきました。エージェントとの最適な作業方法はまだ誰も見つけていませんし、クローズドな製品を作っているチームも見つけていません。自分のコードベースに最も近い開発者が最初に見つけるでしょう。",
         "p4": "100万人の開発者にコンポーザブルなプリミティブを与えれば、どんなプロダクトチームがトップダウンで設計するよりも速く、最も効率的なワークフローを集合的に見つけ出すでしょう。"
       },
+      "cmuxFork": {
+        "title": "cmux Forkの紹介",
+        "summary": "エージェントの会話を、文脈を失わずに新しい分割、タブ、ワークスペースへ分岐できます。",
+        "date": "2026年7月14日",
+        "p1": "コーディングエージェントとの会話では、分岐したくなる場面があります。一つの方針を残したまま、別のエージェントに異なる実装、派生調査、同じ問題への別の視点を試してもらえます。",
+        "p2": "Fork Conversationは、現在の会話履歴と作業ディレクトリを引き継いだ新しいエージェントセッションを作成します。Codex、Claude Code、OpenCode、Pi、Hermesなど、フォーク可能なセッションを持つエージェントに対応しています。",
+        "destinationsTitle": "作業したい場所へフォーク",
+        "destinationsP": "ターミナルまたはタブを右クリックしてFork Conversationを選ぶか、<code>Cmd+Shift+P</code>を押してFork Conversationを検索します。上下左右の分割、新しいタブ、新しいワークスペースへフォークできます。",
+        "parallelTitle": "複数の方向を同時に試す",
+        "parallelP1": "同じ会話を複数回フォークして実装を比較したり、同じ開始文脈を持つ複数のエージェントに問題を分担させたりできます。各フォークは独立して続き、元の会話もそのまま残ります。",
+        "parallelP2": "フォークは同じディレクトリでも動かせます。同時編集が重なる可能性がある場合は、別々のタスクやファイルを割り当ててください。",
+        "release": "cmux Forkはv0.64.19で利用できます。"
+      },
       "claudeCodeBestWorktreeManager": {
         "title": "Claude Code は最高のワークツリー マネージャーです",
         "summary": "Claude Code、Codex、スクリプト、cmux プリミティブを使用して、コードベースが実際に必要とするワークツリー ワークフローを構築します。",
@@ -1156,6 +1169,10 @@
       "metaTitle": "cmuxの禅",
       "metaDescription": "cmuxはソリューションではなくプリミティブ。組み合わせ可能なパーツを提供し、ワークフローはあなた次第。"
     },
+    "cmuxFork": {
+      "metaTitle": "cmux Forkの紹介",
+      "metaDescription": "Codex、Claude Code、OpenCode、Pi、Hermesなどの対応エージェントの会話を、文脈を失わずに新しい分割、タブ、ワークスペースへフォークできます。"
+    },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code は最高のワークツリー マネージャーです",
       "metaDescription": "エージェント、スーパー リポジトリ、cmux カスタム コマンド、プログラマブル ターミナル プリミティブが実際のコードベースの組み込みワークツリー マネージャーに勝る理由。",
@@ -1311,6 +1328,7 @@
       "metaDescription": "tmux のコントロールモードを使い、SSH 経由でリモートの tmux セッションを cmux から操作します。セッションはワークスペースに、ウィンドウはタブに、ウィンドウ内のペインはネイティブな cmux の分割になります。",
       "intro": "リモート tmux は、リモートマシンで動作している tmux セッションを、tmux のコントロールモード（tmux -CC）を使って SSH 経由で cmux にミラーリングします。単なる SSH ターミナルではなく、リモートセッションを cmux のネイティブな UI（ワークスペース・タブ・分割・スクロールバック・コピー）として再投影し、その裏で cmux が実際の tmux サーバーを操作します。ベータ機能フラグであり、ローカルのターミナルには影響しません。",
       "betaNote": "ベータ機能です。オプトインで、まだ安定化の途中です。下記の制限事項を参照してください。",
+      "moshContrast": "ネットワークをまたいだローミングには cmux mosh-tmux を使用します。これは名前付き tmux セッションに接続する第一級の Mosh ターミナルであり、SSH の tmux 制御モードが提供するネイティブなワークスペース／タブ／分割ミラーを置き換えるものではありません。",
       "mappingTitle": "tmux と cmux の対応",
       "mappingIntro": "cmux と tmux はレイアウトの入れ子が逆向きです。cmux ではペインがタブの列を持ちます（各タブが 1 つのターミナル）。tmux ではウィンドウがペインの分割を持ちます。リモート tmux は、tmux の構造を cmux の構造へ投影することで両者を橋渡しします。",
       "mapTmux": "tmux",
@@ -1325,6 +1343,7 @@
       "enableDesc": "設定 → ベータ機能 を開き、「リモート tmux」をオンにします。デフォルトはオフなので、オプトインするまでローカルのターミナルには何も影響しません。",
       "attachTitle": "接続する",
       "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションを現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
+      "attachNewWindow": "--new-window を指定すると、現在のウィンドウの代わりに専用の新しいウィンドウでミラーを開きます。",
       "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。remote.tmux.mirror がミラーリングのエントリポイントで、ウィンドウや呼び出し元のルーティングを受け取り、必要に応じてミラーワークスペースを選択できます。",
       "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後 cmux が現在のウィンドウにミラーリングします。--port、--identity、--no-focus を指定できます。",
       "troubleshootTitle": "「Permission denied」が出る場合",
@@ -1536,10 +1555,10 @@
       "cliTitle": "CLI",
       "cliDesc": "すべてのグループ操作は cmux workspace-group サブコマンドでスクリプト化できます。ハイフン形式が先に提供されます。より広い cmux workspace コマンド名前空間が登場すると、cmux workspace group が正式な形式となり、ハイフン形式は今後ずっとエイリアスとして残ります。",
       "cliSubcommandsTitle": "サブコマンド",
-      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。完全な構造化ペイロードを得るには --json を渡してください。",
-      "cliFlagsNote": "set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。delete は元に戻せません。すべてのメンバーワークスペースを閉じます。",
+      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。--from を省略するとアンカーのみのグループを作成し、選択状態や呼び出し元のコンテキストから既存のワークスペースを推測しません。完全な構造化ペイロードを得るには --json を渡してください。",
+      "cliFlagsNote": "delete はデフォルトでグループを解除し、ワークスペースを保持します。すべてのメンバーワークスペースを閉じてプロセスを終了する場合にのみ --close-workspaces を渡してください。レスポンスには操作内容と対象数が含まれます。set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。",
       "cliExamplesTitle": "例",
-      "cliExampleGroup": "現在選択しているワークスペースを名前を付けてグループ化します。",
+      "cliExampleGroup": "明示的に選んだ 2 つのワークスペースを名前を付けてグループ化します。",
       "cliExampleNew": "既存のグループ内に新しいワークスペースを作成します（例: worktree スクリプトと連携）。",
       "cliExampleList": "フォーカスされているウィンドウ内のグループを一覧表示します。",
       "configTitle": "設定",
@@ -1627,6 +1646,8 @@
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "shiftRightClickShowsMenu": "true の場合、マウスをキャプチャしているプログラム（tmux、Claude Code など）の実行中でも、shift+右クリックで cmux のコンテキストメニューを開きます。バイパスされたクリックはプログラムに転送されません。false の場合、マウスキャプチャ中はすべての右クリックがプログラムに転送されます。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
+          "sessionContentMaxWidth": "ターミナルと組み込みエージェントチャットのコンテンツ幅の上限をポイント単位で指定します。ペインの全幅を使うには false を設定します。",
+          "sessionContentAlignment": "sessionContentMaxWidth が有効な場合の、ターミナルと組み込みエージェントチャットの水平方向の配置です。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
           "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",
@@ -1666,6 +1687,7 @@
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
         },
         "sidebar": {
+          "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
         },
         "fileExplorer": {
@@ -2308,7 +2330,7 @@
       "whatYouGetDesc": "フック拡張により、ompはライフサイクルとセッション情報をcmuxへ報告できます：",
       "whatYouGet1": "ompのターン境界にもとづくワークスペースの実行中・アイドル状態",
       "whatYouGet2": "cmux内のターン終了通知",
-      "whatYouGet3": "閉じたペインをセッションインデックスからomp --session SESSION_IDで再開でき、フォーク時は--forkを追加できるセッション追跡",
+      "whatYouGet3": "閉じたペインをセッションインデックスからomp --session SESSION_IDで再開でき、omp --fork SESSION_IDでフォークできるセッション追跡",
       "whatYouGet4": "ompを要約モデルとして使えるワークスペース自動命名",
       "whatYouGet5": "ompプロセスのタスクマネージャ識別",
       "directories": "ディレクトリ",
@@ -2427,10 +2449,16 @@
       "flagName": "旗",
       "flagDesc": "説明",
       "flagNameVal": "ワークスペースのタイトルを設定する",
+      "flagCommand": "シェル起動後、最初のリモートターミナルでコマンドテキストを一度だけ実行する",
       "flagPort": "SSH ポート (デフォルトは 22)",
       "flagIdentity": "ID ファイルへのパス",
       "flagSshOption": "任意の SSH オプションを渡します (例: -o StrictHostKeyChecking=no)",
+      "flagTransport": "対話型ターミナルのトランスポート: ssh（デフォルト）または mosh",
       "flagNoFocus": "ワークスペースに切り替えずに作成する",
+      "moshTitle": "Mosh ターミナルトランスポート",
+      "moshDesc": "Wi-Fi、VPN、ホットスポット、スリープ／復帰によるネットワーク変更をまたいで対話型ターミナルを維持するには、cmux ssh user@remote --transport mosh を使用します。Mosh が運ぶのはターミナル PTY のみで、リモートメタデータ、デーモンのブートストラップと制御、ブラウザプロキシ、アップロード、再接続操作の管理経路には引き続き SSH を使用します。",
+      "moshFallback": "cmux はローカルに Mosh 1.4 以降を必要とし、起動前にリモートの mosh-server を確認します。クライアントがないか非対応、サーバーがない、またはリモート確認に失敗した場合は、理由を表示して SSH で接続を続行します。",
+      "moshTmux": "名前付き tmux セッションを作成またはアタッチする Mosh ワークスペースを作成します（デフォルト: main）。tmux プロファイルは再接続とアプリセッション復元後も保持されます。これはローミング可能な tmux ターミナルであり、cmux ssh-tmux のネイティブミラーではありません。--session <name> でセッションを選び、その他のフラグは cmux mosh と同じです。Mosh がなければ同じプロファイルを SSH で実行します。",
       "deepLinksTitle": "SSHディープリンク",
       "deepLinksDesc": "Web サイトまたはツールで [cmux で開く] ボタンを提供する必要がある場合は、cmux SSH ディープ リンクを使用します。リンクにより cmux が開き、確認プロンプトが表示され、ユーザーが確認した後に同等の cmux ssh コマンドが実行されます。",
       "deepLinksWebFallbackDesc": "Web サイトのボタンには cmux.com フォールバック URL を使用します。 cmux がインストールされていない場合は、ネイティブ リンクが開き、ダウンロードが表示されます。",
@@ -2719,6 +2747,29 @@
         "title": "cmux iOS アプリ",
         "body": "スマートフォンで cmux を使用できます。",
         "action": "iOS ベータに参加"
+      }
+    }
+  },
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "ターミナルに戻る",
+    "returnBody": "続けるには、ssh cmux.cloud を実行したターミナルに戻ってください。",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "お支払いが完了しました",
+        "body": "サブスクリプションが確認されました。新しい利用上限が反映されるまで少し時間がかかる場合があります。"
+      },
+      "checkoutCanceled": {
+        "title": "お支払いはキャンセルされました",
+        "body": "プランを変更せずにチェックアウトを終了しました。"
+      },
+      "portalReturn": {
+        "title": "請求ポータルから戻りました",
+        "body": "請求ポータルでの変更が反映されるまで少し時間がかかる場合があります。"
+      },
+      "default": {
+        "title": "請求手続きが完了しました",
+        "body": "請求フローが完了しました。"
       }
     }
   },

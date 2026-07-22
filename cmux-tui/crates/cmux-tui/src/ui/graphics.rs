@@ -26,7 +26,11 @@ pub struct GraphicsState {
 
 impl GraphicsState {
     pub fn frame_batches(&mut self, placements: &[GraphicPlacement]) -> Vec<Vec<u8>> {
-        let now_visible = placements.iter().map(|p| p.surface).collect::<HashSet<_>>();
+        let visible_placements = placements
+            .iter()
+            .filter(|placement| placement.rect.width > 0 && placement.rect.height > 0)
+            .collect::<Vec<_>>();
+        let now_visible = visible_placements.iter().map(|p| p.surface).collect::<HashSet<_>>();
         let mut out = Vec::new();
 
         for old in self.visible.difference(&now_visible) {
@@ -34,7 +38,7 @@ impl GraphicsState {
             self.transmitted.remove(old);
         }
 
-        for placement in placements {
+        for placement in visible_placements {
             let mut batch = Vec::new();
             let already_sent =
                 self.transmitted.get(&placement.surface).is_some_and(|seq| *seq == placement.seq);
@@ -128,6 +132,11 @@ fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     Some((w, h))
 }
 
+#[cfg(not(unix))]
+fn ioctl_cell_pixels() -> Option<(u16, u16)> {
+    None
+}
+
 fn query_cell_pixels() -> Option<(u16, u16)> {
     let (cols, rows) = crossterm::terminal::size().ok()?;
     if cols == 0 || rows == 0 {
@@ -145,11 +154,6 @@ fn query_cell_pixels() -> Option<(u16, u16)> {
     let height = parts.next()?.parse::<u32>().ok()?;
     let width = parts.next()?.parse::<u32>().ok()?;
     Some((((width / cols as u32).max(1)) as u16, ((height / rows as u32).max(1)) as u16))
-}
-
-#[cfg(not(unix))]
-fn ioctl_cell_pixels() -> Option<(u16, u16)> {
-    None
 }
 
 #[cfg(unix)]
@@ -227,5 +231,21 @@ mod tests {
     fn deletes_by_image_id_quietly() {
         let bytes = String::from_utf8(delete_image(41)).unwrap();
         assert_eq!(bytes, "\x1b_Ga=d,d=i,i=42,q=2;\x1b\\");
+    }
+
+    #[test]
+    fn zero_sized_placement_hides_a_previously_visible_image() {
+        let visible = GraphicPlacement {
+            surface: 7,
+            rect: Rect { x: 4, y: 6, width: 80, height: 24 },
+            seq: 1,
+            data_b64: "frame".to_string(),
+        };
+        let collapsed =
+            GraphicPlacement { rect: Rect { height: 0, ..visible.rect }, ..visible.clone() };
+        let mut state = GraphicsState::default();
+
+        assert!(!state.frame_batches(&[visible]).is_empty());
+        assert_eq!(state.frame_batches(&[collapsed]), vec![delete_image(7)]);
     }
 }

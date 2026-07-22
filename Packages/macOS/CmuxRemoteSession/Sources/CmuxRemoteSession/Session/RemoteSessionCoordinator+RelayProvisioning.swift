@@ -5,17 +5,106 @@ public import Foundation
 // (the CmuxCore SSH-option-normalization precedent); the script text is
 // wire/process behavior pinned by tests — do not alter.
 extension RemoteSessionCoordinator {
-    /// Script that removes the relay metadata files for `relayPort` and the
-    /// `socket_addr` pointer when it still points at that relay.
-    public static func remoteRelayMetadataCleanupScript(relayPort: Int) -> String {
+    /// Builds a direct persistent-slot shutdown script when no relay metadata exists.
+    static func remotePersistentDaemonStopScript(
+        daemonRemotePath: String,
+        persistentDaemonSlot: String?
+    ) -> String? {
+        let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRemotePath.isEmpty,
+              let persistentDaemonSlot = normalizedPersistentDaemonSlotForRemoteCleanup(persistentDaemonSlot) else {
+            return nil
+        }
+        let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
+        return """
+        daemon_path=\(daemonPathExpression)
+        [ -x "$daemon_path" ] || exit 1
+        "$daemon_path" serve --persistent-stop --slot \(persistentDaemonSlot.shellSingleQuoted)
         """
+    }
+
+    /// Script that stops the expected persistent daemon slot and removes its owned relay state.
+    ///
+    /// - Parameters:
+    ///   - relayPort: The reverse-relay port whose metadata is being removed.
+    ///   - persistentDaemonSlot: The slot expected in the relay metadata, or `nil` for a nonpersistent relay.
+    /// - Returns: A fail-closed shell script that removes state only after ownership is verified.
+    public static func remoteRelayMetadataCleanupScript(
+        relayPort: Int,
+        persistentDaemonSlot: String?
+    ) -> String {
+        let normalizedSlot = normalizedPersistentDaemonSlotForRemoteCleanup(persistentDaemonSlot)
+        guard persistentDaemonSlot == nil || normalizedSlot != nil else { return "exit 64" }
+        let ownershipCheck = remoteRelayOwnershipCheckScript(
+            persistentDaemonSlot: normalizedSlot
+        )
+        let persistentStop: String
+        if normalizedSlot != nil {
+            persistentStop = """
+            persistent_stop_succeeded=0
+            if [ -r "$daemon_path_file" ]; then
+              daemon_path="$(tr -d '\\r\\n' < "$daemon_path_file")"
+              if [ -x "$daemon_path" ]; then
+                if "$daemon_path" serve --persistent-stop --slot "$persistent_slot" >/dev/null 2>&1; then
+                  persistent_stop_succeeded=1
+                fi
+              fi
+            fi
+            [ "$persistent_stop_succeeded" -eq 1 ] || exit 1
+            """
+        } else {
+            persistentStop = ""
+        }
+
+        return """
         relay_socket='127.0.0.1:\(relayPort)'
+        relay_directory="$HOME/.cmux/relay"
+        daemon_path_file="$relay_directory/\(relayPort).daemon_path"
+        slot_file="$relay_directory/\(relayPort).slot"
+        \(ownershipCheck)
+        \(persistentStop)
         socket_addr_file="$HOME/.cmux/socket_addr"
         if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
           rm -f "$socket_addr_file"
         fi
-        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path" "$HOME/.cmux/relay/\(relayPort).slot" "$HOME/.cmux/relay/\(relayPort).tty"
+        rm -f "$relay_directory/\(relayPort).auth" "$daemon_path_file" "$slot_file" "$relay_directory/\(relayPort).tty"
+        rm -rf "$relay_directory/\(relayPort).shell"
         """
+    }
+
+    /// Removes transport-scoped relay metadata while preserving the persistent
+    /// daemon slot and shell state across reconnect and system-sleep churn.
+    static func remoteRelayTransportMetadataCleanupScript(
+        relayPort: Int,
+        persistentDaemonSlot: String?
+    ) -> String {
+        let normalizedSlot = normalizedPersistentDaemonSlotForRemoteCleanup(persistentDaemonSlot)
+        guard persistentDaemonSlot == nil || normalizedSlot != nil else { return "exit 64" }
+        let ownershipCheck = remoteRelayOwnershipCheckScript(
+            persistentDaemonSlot: normalizedSlot
+        )
+        return """
+        relay_socket='127.0.0.1:\(relayPort)'
+        relay_directory="$HOME/.cmux/relay"
+        slot_file="$relay_directory/\(relayPort).slot"
+        \(ownershipCheck)
+        socket_addr_file="$HOME/.cmux/socket_addr"
+        if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
+          rm -f "$socket_addr_file"
+        fi
+        rm -f "$relay_directory/\(relayPort).auth" "$relay_directory/\(relayPort).tty"
+        """
+    }
+
+    private static func remoteRelayOwnershipCheckScript(persistentDaemonSlot: String?) -> String {
+        if let persistentDaemonSlot {
+            return """
+            [ -r "$slot_file" ] || exit 64
+            persistent_slot="$(tr -d '\\r\\n' < "$slot_file")"
+            [ "$persistent_slot" = \(persistentDaemonSlot.shellSingleQuoted) ] || exit 64
+            """
+        }
+        return "[ ! -e \"$slot_file\" ] || exit 64"
     }
 
     /// Script that kills a stale sshd listener (and its persistent

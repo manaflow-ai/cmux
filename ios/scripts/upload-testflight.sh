@@ -64,8 +64,9 @@ verify_ipa_bundle_identity() {
   local ipa="$1"
   local expected_bundle_id="$2"
   local team_id="$3"
+  local expected_crash_reporting="${4:-}"
   local expected_app_id="$team_id.$expected_bundle_id"
-  local workdir app plist_bundle_id profile_plist profile_app_id ent ent_app_id
+  local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id ent ent_app_id
 
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
@@ -85,6 +86,14 @@ verify_ipa_bundle_identity() {
     echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $app" >&2
     rm -rf "$workdir"
     return 1
+  fi
+  if [[ -n "$expected_crash_reporting" ]]; then
+    plist_crash_reporting="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$app/Info.plist" 2>/dev/null || true)"
+    if [[ "$plist_crash_reporting" != "$expected_crash_reporting" ]]; then
+      echo "error: signed IPA CMUXCrashReportingEnabled is '${plist_crash_reporting:-<absent>}', expected '$expected_crash_reporting': $app" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
   fi
 
   profile_plist="$workdir/profile.plist"
@@ -113,6 +122,93 @@ verify_ipa_bundle_identity() {
     rm -rf "$workdir"
     return 1
   fi
+
+  rm -rf "$workdir"
+  return 0
+}
+
+# App Store Connect rejects embedded iOS frameworks whose bundle metadata omits
+# MinimumOSVersion (90530/90360). Validate the final IPA, after export and any
+# re-sign, so a malformed binary Swift package fails here with its framework
+# name instead of after a slow upload.
+verify_ipa_framework_minimum_os_versions() {
+  local ipa="$1"
+  local workdir app framework plist minimum framework_name major
+
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify framework metadata: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify framework metadata: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  while IFS= read -r -d '' framework; do
+    framework_name="$(basename "$framework")"
+    # ASC validates the framework BINARY, not just Info.plist: an embedded
+    # framework whose executable is a static archive, a stripped-out shell
+    # (Info.plist with no binary — Xcode's export processing leaves these
+    # behind for static SPM binaryTargets), or any other non-dylib blob is
+    # rejected in processing (ITMS-90208) even when its Info.plist declares
+    # MinimumOSVersion. The manual re-sign path strips those, so reaching
+    # this check with one still embedded is a hard error: an embedded
+    # framework must be a dynamically linked Mach-O, full stop.
+    framework_exec_name="$("$PLISTBUDDY" -c 'Print :CFBundleExecutable' "$framework/Info.plist" 2>/dev/null || basename "$framework" .framework)"
+    framework_binary="$framework/$framework_exec_name"
+    if [[ ! -f "$framework_binary" ]]; then
+      echo "error: $framework_name is embedded in the app bundle but has no executable ($framework_exec_name); ASC rejects invalid framework shells (ITMS-90208). Strip it from Frameworks/." >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    if ! file -b "$framework_binary" | grep -q 'dynamically linked shared library'; then
+      echo "error: $framework_name is embedded in the app bundle but its executable is not a dynamic library ($(file -b "$framework_binary")); ASC rejects this (ITMS-90208). Strip it from Frameworks/ (static code is already linked into the app executable)." >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    plist="$framework/Info.plist"
+    if [[ ! -f "$plist" ]]; then
+      echo "error: $framework_name is missing Info.plist" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    minimum="$("$PLISTBUDDY" -c 'Print :MinimumOSVersion' "$plist" 2>/dev/null || true)"
+    if [[ -z "$minimum" ]]; then
+      echo "error: $framework_name is missing MinimumOSVersion" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    if [[ ! "$minimum" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
+      echo "error: $framework_name has invalid MinimumOSVersion '$minimum'" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    major="${minimum%%.*}"
+    if (( major < 8 )); then
+      echo "error: $framework_name MinimumOSVersion '$minimum' must be 8.0 or later" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    # The plist must not claim a LOWER minimum than the binary actually
+    # supports: ASC rejects that internal inconsistency as ITMS-90208 ("the
+    # bundle does not support the minimum OS Version specified in the
+    # Info.plist"). This is exactly how Xcode-synthesized dylibs for static
+    # SPM binaryTargets shipped broken (binary minos = app deployment target,
+    # plist copied from the xcframework).
+    binary_minos="$(xcrun vtool -show-build "$framework_binary" 2>/dev/null | awk '/^ *minos /{print $2; exit}')"
+    if [[ -n "$binary_minos" && "$binary_minos" != "$minimum" ]]; then
+      lowest="$(printf '%s\n%s\n' "$minimum" "$binary_minos" | sort -V | head -n 1)"
+      if [[ "$lowest" == "$minimum" ]]; then
+        echo "error: $framework_name Info.plist MinimumOSVersion '$minimum' is lower than its binary's minos '$binary_minos'; ASC rejects this (ITMS-90208)" >&2
+        rm -rf "$workdir"
+        return 1
+      fi
+    fi
+  done < <(find "$app" -type d -name '*.framework' -print0)
 
   rm -rf "$workdir"
   return 0
@@ -421,14 +517,16 @@ done
 
 case "$LANE" in
   beta)
-    PRODUCT_BUNDLE_IDENTIFIER="dev.cmux.app.beta"
+    PRODUCT_BUNDLE_IDENTIFIER="${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}"
     PROVISIONING_PROFILE_NAME="${IOS_BETA_PROVISIONING_PROFILE_NAME:-cmux Beta Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_BETA_DISPLAY_NAME:-cmux BETA}"
+    CRASH_REPORTING_ENABLED="YES"
     ;;
   appstore)
     PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}"
     PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux App Store Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_APPSTORE_DISPLAY_NAME:-cmux}"
+    CRASH_REPORTING_ENABLED="NO"
     ;;
   *)
     echo "error: unsupported lane '$LANE'" >&2
@@ -724,6 +822,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGNING_ALLOWED=YES \
@@ -745,6 +844,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
@@ -769,6 +869,13 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
   if [[ -n "$ARCHIVE_APP_BUNDLE_IDENTIFIER" && "$ARCHIVE_APP_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
     echo "error: archive app CFBundleIdentifier is '$ARCHIVE_APP_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
     exit 1
+  fi
+  if [[ "$LANE" == "appstore" ]]; then
+    ARCHIVE_CRASH_REPORTING_ENABLED="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
+    if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "NO" ]]; then
+      echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected 'NO'; refusing to export" >&2
+      exit 1
+    fi
   fi
 fi
 
@@ -920,6 +1027,73 @@ if [[ "$SIGNING" == "manual" ]]; then
     exit 1
   fi
 
+  # Xcode embeds SPM binaryTarget frameworks into Frameworks/ even when the
+  # framework's binary is a STATIC archive (ar), e.g. iroh-ffi's Iroh.framework.
+  # The linker already folded that code into the app executable, so the embedded
+  # copy is inert — and App Store Connect rejects it in processing with
+  # ITMS-90208 regardless of the app's deployment target or the framework's
+  # Info.plist. Depending on the Xcode version, export-time distribution
+  # processing may also strip the static executable and leave an INVALID SHELL
+  # (Info.plist with no binary), which ASC rejects the same way; build
+  # 20260716043221 shipped exactly that past an ar-archive-only check here.
+  # So the keep policy is a whitelist, not a blacklist: an embedded framework
+  # stays ONLY if its executable exists and is a dynamically linked Mach-O.
+  # Everything else is stripped, gated on the app executable not referencing
+  # the framework in its dynamic load commands. Every framework's state is
+  # logged first so a future ASC rejection comes with ground truth.
+  RESIGN_APP_EXECUTABLE="$RESIGN_APP/$("$PLISTBUDDY" -c 'Print :CFBundleExecutable' "$RESIGN_APP/Info.plist")"
+  if [[ -d "$RESIGN_APP/Frameworks" ]]; then
+    echo "embedded Frameworks/ contents before static-framework strip:"
+    find "$RESIGN_APP/Frameworks" -maxdepth 2 -print | sed "s|$RESIGN_APP/||"
+  fi
+  while IFS= read -r -d '' embedded_fw; do
+    embedded_fw_name="$(basename "$embedded_fw" .framework)"
+    embedded_fw_exec_name="$("$PLISTBUDDY" -c 'Print :CFBundleExecutable' "$embedded_fw/Info.plist" 2>/dev/null || echo "$embedded_fw_name")"
+    embedded_fw_bin="$embedded_fw/$embedded_fw_exec_name"
+    if [[ -f "$embedded_fw_bin" ]]; then
+      embedded_fw_kind="$(file -b "$embedded_fw_bin")"
+    else
+      embedded_fw_kind="<executable missing>"
+    fi
+    echo "embedded framework ${embedded_fw_name}.framework binary: $embedded_fw_kind"
+    if [[ "$embedded_fw_kind" == *"dynamically linked shared library"* ]]; then
+      # ROOT CAUSE of the ITMS-90208 rejections (proven by build
+      # 20260716050845's diagnostics): Xcode synthesizes the embedded dylib
+      # for a static SPM binaryTarget at build time and stamps it with the
+      # APP's deployment target (minos 18.4), but copies the xcframework's
+      # Info.plist unchanged (MinimumOSVersion 17.5). ASC rejects the
+      # internally inconsistent bundle: its binary cannot run on the minimum
+      # OS its own Info.plist declares. Reconcile the plist to the binary's
+      # actual minos, then re-sign the framework (its seal covers Info.plist);
+      # the app itself is force-re-signed right after this block.
+      embedded_fw_minos="$(xcrun vtool -show-build "$embedded_fw_bin" 2>/dev/null | awk '/^ *minos /{print $2; exit}')"
+      embedded_fw_plist_min="$("$PLISTBUDDY" -c 'Print :MinimumOSVersion' "$embedded_fw/Info.plist" 2>/dev/null || true)"
+      echo "embedded framework ${embedded_fw_name}.framework: binary minos=${embedded_fw_minos:-<none>} Info.plist MinimumOSVersion=${embedded_fw_plist_min:-<absent>}"
+      if [[ -n "$embedded_fw_minos" ]]; then
+        embedded_fw_lowest="$(printf '%s\n%s\n' "${embedded_fw_plist_min:-0}" "$embedded_fw_minos" | sort -V | head -n 1)"
+        if [[ -z "$embedded_fw_plist_min" || ( "$embedded_fw_plist_min" != "$embedded_fw_minos" && "$embedded_fw_lowest" == "$embedded_fw_plist_min" ) ]]; then
+          echo "reconciling ${embedded_fw_name}.framework Info.plist MinimumOSVersion ${embedded_fw_plist_min:-<absent>} -> $embedded_fw_minos (must match the binary or ASC rejects with ITMS-90208)"
+          if [[ -z "$embedded_fw_plist_min" ]]; then
+            "$PLISTBUDDY" -c "Add :MinimumOSVersion string $embedded_fw_minos" "$embedded_fw/Info.plist"
+          else
+            "$PLISTBUDDY" -c "Set :MinimumOSVersion $embedded_fw_minos" "$embedded_fw/Info.plist"
+          fi
+          codesign --force --sign "$RESIGN_IDENTITY" --timestamp "$embedded_fw"
+        fi
+      fi
+      continue
+    fi
+    if otool -L "$RESIGN_APP_EXECUTABLE" | grep -qF "/${embedded_fw_name}.framework/"; then
+      echo "error: app executable dynamically links ${embedded_fw_name}.framework but the embedded copy is not a valid dynamic library ($embedded_fw_kind); refusing to strip or upload" >&2
+      exit 1
+    fi
+    echo "stripping embedded framework without a valid dynamic-library executable ($embedded_fw_kind); its code is statically linked into the app executable and ASC rejects the leftover bundle (ITMS-90208): Frameworks/${embedded_fw_name}.framework"
+    rm -rf "$embedded_fw"
+  done < <(find "$RESIGN_APP/Frameworks" -maxdepth 1 -type d -name '*.framework' -print0 2>/dev/null)
+  # An empty Frameworks/ dir after stripping is pointless; remove it so the
+  # bundle matches the historical no-Frameworks layout.
+  rmdir "$RESIGN_APP/Frameworks" 2>/dev/null || true
+
   # Start from the exported app's current (profile-baseline) entitlements, then
   # MERGE the profile's authorized Entitlements dict, then every key from the
   # Release entitlements file. The merge is GENERIC: PlistBuddy Merge copies all
@@ -1028,9 +1202,17 @@ else
   echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
 fi
 
+if ! verify_ipa_framework_minimum_os_versions "$IPA_PATH"; then
+  echo "error: signed IPA contains invalid framework deployment metadata; refusing to upload" >&2
+  exit 1
+fi
+echo "signed IPA framework deployment metadata verified"
+
 echo "IPA_PATH=$IPA_PATH"
 
-if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM"; then
+EXPECTED_IPA_CRASH_REPORTING=""
+[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="NO"
+if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM" "$EXPECTED_IPA_CRASH_REPORTING"; then
   echo "error: signed IPA bundle identity does not match lane '$LANE'; refusing to upload" >&2
   exit 1
 fi

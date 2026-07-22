@@ -235,6 +235,7 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
+        #expect(coordinator.activeSignInFlows.isEmpty)
     }
 
     @Test func staleAutoLoginCancellationDoesNotWipeANewerSession() async throws {
@@ -289,5 +290,133 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
+    }
+
+    @Test func tokenReadDuringAutoLoginDoesNotCancelTheSessionTransition() async throws {
+        // The app can ask for a bearer token while launch auto-login still owns
+        // the initially empty token store (analytics flush is one real caller).
+        // Empty storage is transient in that window, not proof that the session
+        // is dead. A token read must fail retryably without clearing coordinator
+        // state, so the in-flight auto-login remains the sole session writer.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_STACK_EMAIL": "auto@b.com",
+                    "CMUX_UITEST_STACK_PASSWORD": "pw",
+                ],
+                includesDevAuth: false
+            )
+        )
+
+        await client.armCredentialGate()
+        coordinator.start()
+        await client.credentialDidPark()
+
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.accessToken()
+        }
+
+        await client.releaseParkedCredential()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() != nil)
+        #expect(await client.refreshToken() != nil)
+        #expect(coordinator.activeSignInFlows.isEmpty)
+    }
+
+    @Test func tokenReadsDuringManualSignInDoNotCancelTheSessionTransition() async throws {
+        // Interactive sign-in owns the same store boundary as launch auto-login.
+        // Both normal and forced access-token readers must stay retryable until
+        // that owner either publishes the session or fails it.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+
+        await client.armCredentialGate()
+        let signIn = Task {
+            try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        }
+        await client.credentialDidPark()
+
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.accessToken()
+        }
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.forceRefreshAccessToken()
+        }
+
+        await client.releaseParkedCredential()
+        try await signIn.value
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() != nil)
+        #expect(await client.refreshToken() != nil)
+        #expect(coordinator.activeSignInFlows.isEmpty)
+    }
+
+    @Test func signOutInvalidatesParkedSignInOwnershipForTokenReads() async throws {
+        // A parked sign-in stops owning the store as soon as sign-out advances
+        // the generation and sign-out epoch. Token reads after local-first clear
+        // must report the definitive signed-out state, not stay retryable until
+        // the stale exchange happens to quiesce.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+
+        await client.armCredentialGate()
+        let signIn = Task {
+            try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        }
+        await client.credentialDidPark()
+
+        await coordinator.signOut()
+
+        await #expect(throws: AuthError.unauthorized) {
+            _ = try await coordinator.accessToken()
+        }
+
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.cancelled) {
+            try await signIn.value
+        }
+
+        #expect(!coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == nil)
+        #expect(!store.bool(forKey: "has_tokens"))
+        #expect(coordinator.activeSignInFlows.isEmpty)
     }
 }

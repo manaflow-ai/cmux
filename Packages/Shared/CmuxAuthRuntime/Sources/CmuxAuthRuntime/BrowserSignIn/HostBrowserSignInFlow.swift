@@ -28,6 +28,9 @@ public final class HostBrowserSignInFlow {
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
+    private let signOutCoordinator: HostBrowserSignOutCoordinator
+    private let callbackStateGenerator = HostBrowserCallbackStateGenerator()
+    private let deadline: HostBrowserDeadline
     private let log = AuthDebugLog()
 
     @ObservationIgnored private var activeSession: (any HostBrowserAuthSession)?
@@ -54,7 +57,12 @@ public final class HostBrowserSignInFlow {
         openExternalURL: @escaping @MainActor (URL) -> Bool,
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
-        slowSignInThreshold: TimeInterval = 30
+        slowSignInThreshold: TimeInterval = 30,
+        beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
+        onSignedOut: @escaping @Sendable (
+            _ accessToken: String?,
+            _ refreshToken: String?
+        ) async -> Void = { _, _ in }
     ) {
         self.coordinator = coordinator
         self.tokenStore = tokenStore
@@ -66,6 +74,11 @@ public final class HostBrowserSignInFlow {
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
+        deadline = HostBrowserDeadline(clock: clock)
+        signOutCoordinator = HostBrowserSignOutCoordinator(
+            beginSignOut: beginSignOut,
+            signOut: { await coordinator.signOut(onSignedOut: onSignedOut) }
+        )
     }
 
     /// Start a browser sign-in without awaiting the result (Settings button).
@@ -82,7 +95,7 @@ public final class HostBrowserSignInFlow {
 
     /// The hosted sign-in URL for a manual fallback.
     public var manualSignInURL: URL {
-        let state = makeCallbackState()
+        let state = callbackStateGenerator.make()
         pendingManualCallbackState = state
         return makeSignInURL(state)
     }
@@ -101,7 +114,7 @@ public final class HostBrowserSignInFlow {
             log.log("auth.browser.signIn.result result=alreadySignedIn")
             return true
         }
-        let result = await awaitWithDeadline(startAttempt(), timeout: timeout)
+        let result = await deadline.resolve(startAttempt(), timeout: timeout)
         log.log("auth.browser.signIn.result signedIn=\(result)")
         return result
     }
@@ -147,11 +160,12 @@ public final class HostBrowserSignInFlow {
 
     /// Sign out and prevent a late callback from resurrecting the session.
     public func signOut() async {
+        if await signOutCoordinator.joinActive() { return }
         log.log("auth.browser.signOut.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
         signOutGeneration &+= 1
         lastFailure = nil
         cancelActiveAttempt()
-        await coordinator.signOut()
+        await signOutCoordinator.run()
         log.log("auth.browser.signOut.end generation=\(signOutGeneration)")
     }
 
@@ -162,39 +176,7 @@ public final class HostBrowserSignInFlow {
             await self.signOut()
             return true
         }
-        _ = await awaitWithDeadline(attempt, timeout: timeout)
-    }
-
-    /// Await `attempt`, resolving `false` at the deadline without cancelling it.
-    private func awaitWithDeadline(_ attempt: Task<Bool, Never>, timeout: TimeInterval) async -> Bool {
-        let clamped = max(0, min(timeout, 24 * 60 * 60))
-        let clock = self.clock
-        let stream = AsyncStream<Bool>(bufferingPolicy: .bufferingOldest(1)) { continuation in
-            let deadlineTask = Task {
-                do {
-                    try await clock.sleep(for: .seconds(clamped))
-                } catch {
-                    return
-                }
-                guard !Task.isCancelled else { return }
-                continuation.yield(false)
-                continuation.finish()
-            }
-            let attemptWaitTask = Task {
-                let result = await attempt.value
-                continuation.yield(result)
-                continuation.finish()
-                deadlineTask.cancel()
-            }
-            continuation.onTermination = { @Sendable _ in
-                deadlineTask.cancel()
-                attemptWaitTask.cancel()
-            }
-        }
-        for await result in stream {
-            return result
-        }
-        return false
+        _ = await deadline.resolve(attempt, timeout: timeout)
     }
 
     // MARK: - Attempt lifecycle
@@ -209,7 +191,7 @@ public final class HostBrowserSignInFlow {
         let attemptID = nextAttemptID
         let manualCallbackState = pendingManualCallbackState
         pendingManualCallbackState = nil
-        let callbackState = manualCallbackState ?? makeCallbackState()
+        let callbackState = manualCallbackState ?? callbackStateGenerator.make()
         activeAttemptID = attemptID
         activeCallbackState = callbackState
         // The CLI's manual fallback shares this attempt's state so a late
@@ -247,10 +229,11 @@ public final class HostBrowserSignInFlow {
     }
 
     private func runBrowserSession(attemptID: UInt64) async -> HostBrowserAuthSessionResult? {
-        await withCheckedContinuation { continuation in
+        await withCheckedContinuation {
+            (continuation: CheckedContinuation<HostBrowserAuthSessionResult?, Never>) in
             activeSessionContinuation = continuation
             activeSessionContinuationAttemptID = attemptID
-            let callbackState = activeCallbackState ?? makeCallbackState()
+            let callbackState = activeCallbackState ?? callbackStateGenerator.make()
             let signInURL = makeSignInURL(callbackState)
             let scheme = callbackScheme()
             log.log("auth.browser.session.create id=\(attemptID) signInURL=\(signInURL.absoluteString) callbackScheme=\(scheme)")
@@ -455,9 +438,11 @@ public final class HostBrowserSignInFlow {
         log.log("auth.callback.coordinator.complete.end attempt=\(attemptID.map(String.init) ?? "external") signedIn=\(coordinator.isAuthenticated)")
         guard signOutGeneration == generation else {
             // Sign-out ran while the validation round trip was in flight. The
-            // user's intent wins: tear the just-published session back down.
+            // user's intent wins. Join the prepared flow-level operation so
+            // this rollback cannot clear auth before composition-owned state
+            // has been durably quarantined.
             log.log("auth.callback.coordinator.rollback attempt=\(attemptID.map(String.init) ?? "external") reason=signOutRaced generation=\(signOutGeneration)")
-            await coordinator.signOut()
+            await signOut()
             await tokenStore.clearTokensIfCurrent(
                 accessToken: payload.accessToken,
                 refreshToken: payload.refreshToken
@@ -488,7 +473,4 @@ public final class HostBrowserSignInFlow {
         continuation.resume(returning: result)
     }
 
-    private func makeCallbackState() -> String {
-        UUID().uuidString.lowercased()
-    }
 }

@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+	"unsafe"
 
 	"github.com/creack/pty"
 	"nhooyr.io/websocket"
@@ -189,6 +190,7 @@ type wsPTYSession struct {
 	idleTimer      *time.Timer
 	closed         bool
 	ptyWriteMu     sync.Mutex
+	ptyFileMu      sync.Mutex
 	closeTTYOnce   sync.Once
 	closePTYOnce   sync.Once
 }
@@ -912,6 +914,16 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 		cmd = exec.Command("/bin/sh", "-c", trimmedCommand)
 	}
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
+	if sessionKey.kind == wsPTYPersistentSession {
+		var err error
+		cmd, err = persistentPTYCommand(cmd)
+		if err != nil {
+			if tmpScript != "" {
+				_ = os.Remove(tmpScript)
+			}
+			return nil, err
+		}
+	}
 	ptyFile, ttyFile, err := h.startPTYCommand(cmd, cols, rows)
 	if err != nil {
 		if tmpScript != "" {
@@ -941,6 +953,35 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 	go h.pumpSession(session)
 	go h.writeInputLoop(session)
 	return session, nil
+}
+
+func persistentPTYCommand(command *exec.Cmd) (*exec.Cmd, error) {
+	helperPath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve persistent PTY exec helper: %w", err)
+	}
+	// A persistent PTY outlives every relay attachment. Enter the command
+	// through cmuxd-remote's exec helper so SIGHUP is blocked before exec and
+	// inherited by every shell, foreground job, and background job in the PTY
+	// session. Unlike SIG_IGN, the mask survives programs resetting their own
+	// signal dispositions.
+	arguments := []string{persistentPTYExecHelperArgument, command.Path}
+	arguments = append(arguments, command.Args...)
+	wrapped := exec.Command(helperPath, arguments...)
+	environment := command.Env
+	if environment == nil {
+		environment = os.Environ()
+	}
+	helperEnvironmentPrefix := persistentPTYExecHelperEnvironment + "="
+	wrapped.Env = make([]string, 0, len(environment)+1)
+	for _, value := range environment {
+		if !strings.HasPrefix(value, helperEnvironmentPrefix) {
+			wrapped.Env = append(wrapped.Env, value)
+		}
+	}
+	wrapped.Env = append(wrapped.Env, helperEnvironmentPrefix+helperPath)
+	wrapped.Dir = command.Dir
+	return wrapped, nil
 }
 
 func (h *wsPTYHub) startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, error) {
@@ -1134,9 +1175,7 @@ func (h *wsPTYHub) closeSessionForAttachment(attachment *wsPTYAttachment) {
 	attachment.cancel()
 	h.mu.Unlock()
 
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
-	}
+	session.terminateProcesses()
 	session.closePTYFiles()
 }
 
@@ -1151,9 +1190,7 @@ func (h *wsPTYHub) closeAll() {
 	h.mu.Unlock()
 
 	for _, session := range sessions {
-		if session.cmd != nil && session.cmd.Process != nil {
-			_ = session.cmd.Process.Kill()
-		}
+		session.terminateProcesses()
 		session.closePTYFiles()
 	}
 }
@@ -1211,9 +1248,7 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	session.closed = true
 	h.mu.Unlock()
 
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
-	}
+	session.terminateProcesses()
 	session.closePTYFiles()
 	return true
 }
@@ -1299,12 +1334,89 @@ func (h *wsPTYHub) waitSessionProcess(session *wsPTYSession) {
 	if session.tmpScript != "" {
 		_ = os.Remove(session.tmpScript)
 	}
-	session.closeTTYFile()
+	// The process created by startPTYCommand is the POSIX session leader. Its
+	// exit ends the terminal session even when a shielded background job still
+	// holds the PTY slave open, so tear down every remaining member before
+	// closing the master and allowing pumpSession to finalize hub state.
+	session.terminateProcesses()
+	session.closePTYFiles()
 }
 
 func (session *wsPTYSession) closePTYFiles() {
 	session.closeTTYFile()
 	session.closePTYFile()
+}
+
+func (session *wsPTYSession) terminateProcesses() {
+	session.terminateProcessesWithForegroundGroupLookup(func(ptyFile *os.File) int {
+		rawConn, err := ptyFile.SyscallConn()
+		if err != nil {
+			return 0
+		}
+		var foregroundGroup int32
+		var ioctlErr syscall.Errno
+		if err := rawConn.Control(func(fd uintptr) {
+			_, _, ioctlErr = syscall.Syscall(
+				syscall.SYS_IOCTL,
+				fd,
+				uintptr(syscall.TIOCGPGRP),
+				uintptr(unsafe.Pointer(&foregroundGroup)),
+			)
+		}); err != nil || ioctlErr != 0 {
+			return 0
+		}
+		return int(foregroundGroup)
+	})
+}
+
+func (session *wsPTYSession) terminateProcessesWithForegroundGroupLookup(lookup func(*os.File) int) {
+	foregroundGroup := 0
+	session.withPTYFileLocked(func(ptyFile *os.File) {
+		foregroundGroup = lookup(ptyFile)
+	})
+	sessionLeader := 0
+	if session.cmd != nil && session.cmd.Process != nil {
+		sessionLeader = session.cmd.Process.Pid
+		terminatePTYSessionMembers(sessionLeader)
+	}
+	if foregroundGroup > 0 {
+		_ = syscall.Kill(-foregroundGroup, syscall.SIGKILL)
+	}
+	if sessionLeader > 0 {
+		_ = syscall.Kill(-sessionLeader, syscall.SIGKILL)
+		_ = session.cmd.Process.Kill()
+	}
+}
+
+func terminatePTYSessionMembers(sessionID int) {
+	if sessionID <= 0 {
+		return
+	}
+	// The PTY's OS session is the ownership boundary. A member can fork between
+	// a process-table snapshot and signal delivery, so rescan for previously
+	// unseen members. Once SIGKILL has been sent to a process it cannot create
+	// more descendants, which makes the discovered set converge without waiting
+	// for signaled processes to disappear from the process table. A process that
+	// intentionally created its own session remains outside this lifecycle.
+	signaled := make(map[int]struct{})
+	for {
+		members := ptySessionMemberPIDs(sessionID)
+		newMembers := 0
+		for _, pid := range members {
+			if pid == os.Getpid() {
+				continue
+			}
+			if _, alreadySignaled := signaled[pid]; alreadySignaled {
+				continue
+			}
+			signaled[pid] = struct{}{}
+			newMembers++
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+		if newMembers == 0 {
+			return
+		}
+	}
 }
 
 func (session *wsPTYSession) closeTTYFile() {
@@ -1318,10 +1430,30 @@ func (session *wsPTYSession) closeTTYFile() {
 
 func (session *wsPTYSession) closePTYFile() {
 	session.closePTYOnce.Do(func() {
-		if session.ptyFile != nil {
-			_ = session.ptyFile.Close()
+		session.ptyFileMu.Lock()
+		defer session.ptyFileMu.Unlock()
+		ptyFile := session.ptyFile
+		session.ptyFile = nil
+		if ptyFile != nil {
+			_ = ptyFile.Close()
 		}
 	})
+}
+
+func (session *wsPTYSession) withPTYFileLocked(operation func(*os.File)) bool {
+	session.ptyFileMu.Lock()
+	defer session.ptyFileMu.Unlock()
+	if session.ptyFile == nil {
+		return false
+	}
+	operation(session.ptyFile)
+	return true
+}
+
+func (session *wsPTYSession) ptyFileSnapshot() *os.File {
+	session.ptyFileMu.Lock()
+	defer session.ptyFileMu.Unlock()
+	return session.ptyFile
 }
 
 func (h *wsPTYHub) activeSessionCount() int {
@@ -1345,9 +1477,13 @@ func (h *wsPTYHub) maxScrollbackBytes() int {
 func (h *wsPTYHub) pumpSession(session *wsPTYSession) {
 	defer h.finishSession(session)
 
+	ptyFile := session.ptyFileSnapshot()
+	if ptyFile == nil {
+		return
+	}
 	buffer := make([]byte, 32768)
 	for {
-		n, err := session.ptyFile.Read(buffer)
+		n, err := ptyFile.Read(buffer)
 		if n > 0 {
 			chunk := append([]byte(nil), buffer[:n]...)
 			h.recordAndBroadcast(session, chunk)
@@ -1488,9 +1624,7 @@ func (h *wsPTYHub) reapIdleSession(session *wsPTYSession) {
 	session.idleTimer = nil
 	h.mu.Unlock()
 
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
-	}
+	session.terminateProcesses()
 	session.closePTYFiles()
 }
 
@@ -1530,14 +1664,18 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 	}
 	var lastErr error
 	for attempt := 0; attempt < 8; attempt++ {
-		resizeFile := session.ptyFile
-		lastErr = pty.Setsize(resizeFile, desired)
-		if lastErr != nil {
-			continue
+		var actual *pty.Winsize
+		available := session.withPTYFileLocked(func(resizeFile *os.File) {
+			lastErr = pty.Setsize(resizeFile, desired)
+			if lastErr == nil {
+				actual, lastErr = pty.GetsizeFull(resizeFile)
+			}
+		})
+		if !available {
+			lastErr = os.ErrClosed
+			break
 		}
-		actual, err := pty.GetsizeFull(resizeFile)
-		if err != nil {
-			lastErr = err
+		if lastErr != nil {
 			continue
 		}
 		if int(actual.Cols) == cols && int(actual.Rows) == rows {
@@ -1670,8 +1808,8 @@ func (h *wsPTYHub) writeInputChunkLocked(session *wsPTYSession, chunk wsPTYInput
 	// writeInput still rejects NEW writes from detached attachments.
 	h.mu.Lock()
 	current := h.sessions[session.key] == session && !session.closed
-	ptyFile := session.ptyFile
 	h.mu.Unlock()
+	ptyFile := session.ptyFileSnapshot()
 	if !current || ptyFile == nil {
 		return false, true
 	}

@@ -16,6 +16,18 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var format: String
     public var surfaceID: String
     public var stateSeq: UInt64
+    /// Stable identifier for one producer lifetime of ``renderRevision``.
+    ///
+    /// A surface may be recreated with the same public ID after hibernation or
+    /// a Mac reconnect. Its revision counter then restarts at one under a new
+    /// epoch, so consumers can order the new stream without accepting delayed
+    /// frames from the retired producer.
+    public var renderEpoch: String
+    /// Monotonic producer capture revision for this surface.
+    ///
+    /// Unlike ``stateSeq``, this advances for every captured grid, including
+    /// geometry-only captures that share the same terminal byte sequence.
+    public var renderRevision: UInt64
     public var columns: Int
     public var rows: Int
     public var cursor: Cursor?
@@ -32,11 +44,27 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Delta frames keep only mode state needed to restore after replay-time
     /// coordinate normalization.
     public var modes: [ModeSetting]
-    /// Dynamic default foreground/background/cursor colors (OSC 10/11/12),
-    /// `nil` when the terminal still uses its configured defaults.
+    /// Raw default foreground/background colors for OSC 10/11 replay. DEC
+    /// reverse-video remains represented separately in ``modes``. Legacy
+    /// producers omit configured defaults. The cursor value remains an optional
+    /// dynamic OSC 12 override.
     public var terminalForeground: String?
     public var terminalBackground: String?
     public var terminalCursorColor: String?
+    /// The Mac terminal's resolved theme when this is a full snapshot.
+    ///
+    /// Mobile chrome uses this value to match the mirrored surface. Delta
+    /// frames omit it because the most recent full snapshot remains
+    /// authoritative until another full snapshot replaces it.
+    public var terminalTheme: TerminalTheme?
+    /// The Mac terminal's raw configuration defaults when this is a full snapshot.
+    ///
+    /// Unlike ``terminalTheme``, these colors do not include OSC overrides or
+    /// DEC reverse-video. A mirror installs them as its Ghostty configuration so
+    /// OSC reset commands restore the same defaults as the Mac.
+    public var terminalConfigTheme: TerminalTheme?
+    /// Monotonic producer order for full-frame theme metadata.
+    public var terminalThemeRevision: UInt64?
     /// Count of scrollback lines carried in ``scrollbackSpans`` (rows above the
     /// visible viewport, oldest first). Only meaningful on a full primary-screen
     /// snapshot; the alternate screen has no scrollback.
@@ -49,6 +77,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         format: String = Self.currentFormat,
         surfaceID: String,
         stateSeq: UInt64,
+        renderEpoch: String = "",
+        renderRevision: UInt64 = 0,
         columns: Int,
         rows: Int,
         cursor: Cursor? = nil,
@@ -61,6 +91,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalForeground: String? = nil,
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
+        terminalTheme: TerminalTheme? = nil,
+        terminalConfigTheme: TerminalTheme? = nil,
+        terminalThemeRevision: UInt64? = nil,
         scrollbackRows: Int = 0,
         scrollbackSpans: [RowSpan] = []
     ) throws {
@@ -125,6 +158,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
+        self.renderEpoch = renderEpoch
+        self.renderRevision = renderRevision
         self.columns = columns
         self.rows = rows
         self.cursor = cursor
@@ -137,6 +172,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalForeground = terminalForeground
         self.terminalBackground = terminalBackground
         self.terminalCursorColor = terminalCursorColor
+        self.terminalTheme = full ? terminalTheme?.validatedOrDefault() : nil
+        self.terminalConfigTheme = full ? terminalConfigTheme?.validatedOrDefault() : nil
+        self.terminalThemeRevision = full ? terminalThemeRevision : nil
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
     }
@@ -146,6 +184,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let format = try container.decode(String.self, forKey: .format)
         let surfaceID = try container.decode(String.self, forKey: .surfaceID)
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
+        let renderEpoch = try container.decodeIfPresent(String.self, forKey: .renderEpoch) ?? ""
+        let renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision) ?? 0
         let columns = try container.decode(Int.self, forKey: .columns)
         let rows = try container.decode(Int.self, forKey: .rows)
         let cursor = try container.decodeIfPresent(Cursor.self, forKey: .cursor)
@@ -158,12 +198,17 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalForeground = try container.decodeIfPresent(String.self, forKey: .terminalForeground)
         let terminalBackground = try container.decodeIfPresent(String.self, forKey: .terminalBackground)
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
+        let terminalTheme = try container.decodeIfPresent(TerminalTheme.self, forKey: .terminalTheme)
+        let terminalConfigTheme = try container.decodeIfPresent(TerminalTheme.self, forKey: .terminalConfigTheme)
+        let terminalThemeRevision = try container.decodeIfPresent(UInt64.self, forKey: .terminalThemeRevision)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
         try self.init(
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -176,6 +221,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: terminalForeground,
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
+            terminalTheme: terminalTheme,
+            terminalConfigTheme: terminalConfigTheme,
+            terminalThemeRevision: terminalThemeRevision,
             scrollbackRows: scrollbackRows,
             scrollbackSpans: scrollbackSpans
         )
@@ -184,6 +232,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public static func fromPlainRows(
         surfaceID: String,
         stateSeq: UInt64,
+        renderEpoch: String = "",
+        renderRevision: UInt64 = 0,
         columns: Int,
         rows: Int,
         text: String,
@@ -209,6 +259,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -275,13 +327,18 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             style.bold, style.faint, style.italic, style.underline, style.blink,
             style.inverse, style.invisible, style.strikethrough, style.overline,
         ].map { $0 ? "1" : "0" }.joined()
-        return "\(style.foreground ?? "-")/\(style.background ?? "-")/\(flags)"
+        let foregroundSource = style.foregroundSource?.rawValue ?? "legacy"
+        let backgroundSource = style.backgroundSource?.rawValue ?? "legacy"
+        return "\(style.foreground ?? "-"):\(foregroundSource):\(style.foregroundPaletteIndex ?? -1)/" +
+            "\(style.background ?? "-"):\(backgroundSource):\(style.backgroundPaletteIndex ?? -1)/\(flags)"
     }
 
     public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -296,6 +353,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: full ? terminalForeground : nil,
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
+            terminalTheme: full ? terminalTheme : nil,
+            terminalConfigTheme: full ? terminalConfigTheme : nil,
+            terminalThemeRevision: full ? terminalThemeRevision : nil,
             scrollbackRows: full ? scrollbackRows : 0,
             scrollbackSpans: full ? scrollbackSpans : []
         )
@@ -386,26 +446,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return String(String.UnicodeScalarView(scalars[..<end]))
     }
 
-    enum CodingKeys: String, CodingKey {
-        case format
-        case surfaceID = "surface_id"
-        case stateSeq = "state_seq"
-        case columns
-        case rows
-        case cursor
-        case full
-        case clearedRows = "cleared_rows"
-        case styles
-        case rowSpans = "row_spans"
-        case activeScreen = "active_screen"
-        case modes
-        case terminalForeground = "terminal_foreground"
-        case terminalBackground = "terminal_background"
-        case terminalCursorColor = "terminal_cursor_color"
-        case scrollbackRows = "scrollback_rows"
-        case scrollbackSpans = "scrollback_spans"
-    }
-
     /// Which terminal screen a full snapshot represents.
     public enum Screen: String, Codable, Equatable, Sendable {
         /// The normal screen, which owns the scrollback history.
@@ -486,67 +526,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             case bar
             case underline
             case blockHollow = "block_hollow"
-        }
-    }
-
-    public struct Style: Codable, Equatable, Sendable {
-        public static let `default` = Style(id: 0)
-
-        public var id: Int
-        public var foreground: String?
-        public var background: String?
-        public var bold: Bool
-        public var faint: Bool
-        public var italic: Bool
-        public var underline: Bool
-        public var blink: Bool
-        public var inverse: Bool
-        public var invisible: Bool
-        public var strikethrough: Bool
-        public var overline: Bool
-
-        public init(
-            id: Int,
-            foreground: String? = nil,
-            background: String? = nil,
-            bold: Bool = false,
-            faint: Bool = false,
-            italic: Bool = false,
-            underline: Bool = false,
-            blink: Bool = false,
-            inverse: Bool = false,
-            invisible: Bool = false,
-            strikethrough: Bool = false,
-            overline: Bool = false
-        ) {
-            self.id = id
-            self.foreground = foreground
-            self.background = background
-            self.bold = bold
-            self.faint = faint
-            self.italic = italic
-            self.underline = underline
-            self.blink = blink
-            self.inverse = inverse
-            self.invisible = invisible
-            self.strikethrough = strikethrough
-            self.overline = overline
-        }
-
-        public init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.id = try container.decode(Int.self, forKey: .id)
-            self.foreground = try container.decodeIfPresent(String.self, forKey: .foreground)
-            self.background = try container.decodeIfPresent(String.self, forKey: .background)
-            self.bold = try container.decodeIfPresent(Bool.self, forKey: .bold) ?? false
-            self.faint = try container.decodeIfPresent(Bool.self, forKey: .faint) ?? false
-            self.italic = try container.decodeIfPresent(Bool.self, forKey: .italic) ?? false
-            self.underline = try container.decodeIfPresent(Bool.self, forKey: .underline) ?? false
-            self.blink = try container.decodeIfPresent(Bool.self, forKey: .blink) ?? false
-            self.inverse = try container.decodeIfPresent(Bool.self, forKey: .inverse) ?? false
-            self.invisible = try container.decodeIfPresent(Bool.self, forKey: .invisible) ?? false
-            self.strikethrough = try container.decodeIfPresent(Bool.self, forKey: .strikethrough) ?? false
-            self.overline = try container.decodeIfPresent(Bool.self, forKey: .overline) ?? false
         }
     }
 

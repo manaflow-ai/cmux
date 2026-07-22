@@ -14,15 +14,35 @@ func parseEvent(raw map[string]any) Event {
 	switch name {
 	case "tree-changed":
 		return TreeChangedEvent{}
+	case "layout-changed":
+		var event LayoutChangedEvent
+		if mustDecode(&event) {
+			return event
+		}
 	case "empty":
 		return EmptyEvent{}
-	case "surface-output", "surface-exited", "title-changed", "bell":
+	case "overflow":
+		var event OverflowEvent
+		if mustDecode(&event) {
+			return event
+		}
+	case "surface-output", "surface-exited", "bell":
 		var event SurfaceEvent
+		if mustDecode(&event) {
+			return event
+		}
+	case "title-changed":
+		var event TitleChangedEvent
 		if mustDecode(&event) {
 			return event
 		}
 	case "surface-resized":
 		var event SurfaceResizedEvent
+		if mustDecode(&event) {
+			return event
+		}
+	case "surface-resize-failed":
+		var event SurfaceResizeFailedEvent
 		if mustDecode(&event) {
 			return event
 		}
@@ -37,6 +57,11 @@ func parseEvent(raw map[string]any) Event {
 			return event
 		}
 	case "resized":
+		if _, ok := raw["replay"]; !ok {
+			if data, ok := raw["data"].(string); ok {
+				raw["replay"] = data
+			}
+		}
 		var event ResizedEvent
 		if mustDecode(&event) {
 			return event

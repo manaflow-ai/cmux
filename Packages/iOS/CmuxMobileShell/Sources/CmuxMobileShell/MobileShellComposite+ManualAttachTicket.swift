@@ -7,7 +7,7 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    func boundedPairingRequestTimeoutNanoseconds(
+    nonisolated static func boundedPairingRequestTimeoutNanoseconds(
         runtime: any MobileSyncRuntime,
         attemptStartedAt: Date
     ) -> UInt64 {
@@ -111,11 +111,13 @@ extension MobileShellComposite {
             allowsStackAuthFallback: true,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
-            stackTokenForceRefreshGate: stackTokenForceRefreshGate
+            stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+            transportConnectObserver: transportConnectDiagnosticObserver,
+            sessionPurpose: .probe
         )
         let timeoutNanoseconds: UInt64
         if let attemptStartedAt {
-            timeoutNanoseconds = boundedPairingRequestTimeoutNanoseconds(
+            timeoutNanoseconds = Self.boundedPairingRequestTimeoutNanoseconds(
                 runtime: runtime,
                 attemptStartedAt: attemptStartedAt
             )
@@ -130,6 +132,7 @@ extension MobileShellComposite {
             params: [
                 "ttl_seconds": 3600,
                 "scope": "mac",
+                "target": "ticket_only",
             ]
         )
         let resultData: Data

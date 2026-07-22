@@ -21,6 +21,7 @@ FIXTURES = Path(__file__).resolve().with_name("fixtures.json")
 sys.path.insert(0, str(PYTHON_BINDING))
 
 from cmux import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
+from cmux.client import _parse_event  # noqa: E402
 
 
 class FixtureFailure(Exception):
@@ -118,7 +119,11 @@ def run_fixture(fixture: Dict[str, Any], defaults: Dict[str, Any], socket_path: 
     variables: Dict[str, Any] = {}
     streams: Dict[str, Any] = {}
     timeout_ms = int(fixture.get("timeout_ms", defaults.get("timeout_ms", 5000)))
-    with CmuxClient(socket_path=socket_path, timeout=max(timeout_ms / 1000.0, 1.0)) as client:
+    with CmuxClient(
+        socket_path=socket_path,
+        timeout=max(timeout_ms / 1000.0, 1.0),
+        allow_protocol_v6_attach=True,
+    ) as client:
         try:
             for step in fixture.get("steps", []):
                 step_timeout = int(step.get("timeout_ms", timeout_ms))
@@ -143,9 +148,12 @@ def run_step(
         bind_variables(response, step.get("bind", {}), variables)
     elif step_type == "stream":
         request = substitute(step["request"], variables)
-        if request.get("cmd") != "subscribe":
+        if request.get("cmd") == "subscribe":
+            stream = client.subscribe_with_request(request)
+        elif request.get("cmd") == "attach-surface":
+            stream = client.attach_surface(int(request["surface"]))
+        else:
             raise FixtureFailure(f"unsupported stream command {request.get('cmd')}")
-        stream = client.subscribe_with_request(request)
         streams[step["name"]] = stream
         response = stream.response
         assert_match(response, substitute(step.get("expect", {}), variables), step.get("match", "partial"))
@@ -156,6 +164,9 @@ def run_step(
     elif step_type == "wait_contains":
         request = substitute(step["request"], variables)
         wait_contains(client, request, step["path"], step["contains"], timeout_ms / 1000.0)
+    elif step_type == "parse_event":
+        event = dataclasses.asdict(_parse_event(substitute(step["event"], variables)))
+        assert_match(event, substitute(step.get("expect", {}), variables), step.get("match", "partial"))
     else:
         raise FixtureFailure(f"unknown step type {step_type}")
 
@@ -205,6 +216,7 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "new-screen": client.new_screen,
         "split": client.split,
         "set-ratio": client.set_ratio,
+        "set-split-ratio": client.set_split_ratio,
         "pane-neighbor": client.pane_neighbor,
         "focus-direction": client.focus_direction,
         "swap-pane": client.swap_pane,
@@ -278,6 +290,8 @@ def assert_match(actual: Any, expected: Any, mode: str) -> None:
 
 
 def partial_match(actual: Any, expected: Any) -> bool:
+    if expected == {"__match__": "nonempty-string"}:
+        return isinstance(actual, str) and bool(actual)
     if isinstance(expected, dict):
         if not isinstance(actual, dict):
             return False

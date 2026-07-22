@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "បន្តនៅក្នុងស្ថានីយ",
+    "returnBody": "ដើម្បីបន្ត សូមត្រឡប់ទៅស្ថានីយដែលអ្នកបានដំណើរការ ssh cmux.cloud។",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "ការទូទាត់បានបញ្ចប់",
+        "body": "ការជាវរបស់អ្នកត្រូវបានបញ្ជាក់។ ដែនកំណត់ថ្មីអាចចំណាយពេលបន្តិចដើម្បីបង្ហាញ។"
+      },
+      "checkoutCanceled": {
+        "title": "ការទូទាត់ត្រូវបានបោះបង់",
+        "body": "ការទូទាត់ត្រូវបានបិទដោយមិនផ្លាស់ប្តូរគម្រោងរបស់អ្នក។"
+      },
+      "portalReturn": {
+        "title": "ត្រឡប់ពីវិបផតថលវិក្កយបត្រ",
+        "body": "ការផ្លាស់ប្តូរនៅក្នុងវិបផតថលវិក្កយបត្រអាចចំណាយពេលបន្តិចដើម្បីបង្ហាញ។"
+      },
+      "default": {
+        "title": "វិក្កយបត្របានបញ្ចប់",
+        "body": "ដំណើរការវិក្កយបត្ររបស់អ្នកបានបញ្ចប់។"
+      }
+    }
+  },
   "meta": {
     "title": "cmux — ស្ថានីយដែលបង្កើតសម្រាប់ពហុកិច្ចការ",
     "description": "ស្ថានីយ macOS ដើមកំណើតប្រភពកូដបើកចំហ និងឥតគិតថ្លៃ បង្កើតលើ Ghostty។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹង, បន្ទះបំបែក, និង socket API។",
@@ -415,6 +438,19 @@
         "p3": "អ្នកអភិវឌ្ឍន៍ល្អបំផុតតែងតែបង្កើតឧបករណ៍ផ្ទាល់ខ្លួន។ គ្មាននរណាបានរកឃើញវិធីល្អបំផុតក្នុងការធ្វើការជាមួយ agent នៅឡើយទេ ហើយក្រុមដែលបង្កើតផលិតផលបិទក៏មិនបានដែរ។ អ្នកអភិវឌ្ឍន៍ដែលជិតបំផុតទៅនឹង codebase ផ្ទាល់ខ្លួនរបស់ពួកគេនឹងរកឃើញវាមុនគេ។",
         "p4": "ផ្ដល់ឱ្យអ្នកអភិវឌ្ឍន៍មួយលាននាក់នូវប្រដាប់មូលដ្ឋានដែលអាចផ្សំបាន ហើយពួកគេនឹងរកឃើញលំហូរការងារដែលមានប្រសិទ្ធភាពបំផុតរួមគ្នា លឿនជាងក្រុមផលិតផលណាមួយអាចរចនាពីលើចុះក្រោម។"
       },
+      "cmuxFork": {
+        "title": "សូមណែនាំ cmux Fork",
+        "summary": "បំបែកការសន្ទនារបស់ agent ទៅជា split, tab ឬ workspace ថ្មី ដោយមិនបាត់បង់បរិបទ។",
+        "date": "14 កក្កដា 2026",
+        "p1": "ការសន្ទនាជាមួយ coding agent មានពេលខ្លះដែលការបំបែកជាសាខាមានប្រយោជន៍។ អ្នកអាចរក្សាវិធីសាស្ត្រមួយ ខណៈដែល agent មួយទៀតសាកល្បង implementation ផ្សេង ស៊ើបអង្កេតទិសដៅបន្ថែម ឬពិនិត្យបញ្ហាដដែលពីមុំថ្មី។",
+        "p2": "Fork Conversation បង្កើត session agent ថ្មីពីការសន្ទនាបច្ចុប្បន្ន ហើយរក្សាប្រវត្តិសន្ទនា និងថតការងារ។ វាគាំទ្រ Codex, Claude Code, OpenCode, Pi, Hermes និង agent ផ្សេងទៀតដែលមាន session អាច fork បាន។",
+        "destinationsTitle": "Fork ទៅកន្លែងដែលអ្នកចង់ធ្វើការ",
+        "destinationsP": "ចុចកណ្ដុរស្ដាំលើ terminal ឬ tab ហើយជ្រើស Fork Conversation ឬចុច <code>Cmd+Shift+P</code> ហើយស្វែងរក Fork Conversation។ ផ្ញើ fork ទៅ split ខាងណាមួយ, tab ថ្មី ឬ workspace ថ្មី។",
+        "parallelTitle": "សាកល្បងទិសដៅច្រើនក្នុងពេលតែមួយ",
+        "parallelP1": "Fork ការសន្ទនាដដែលច្រើនដង ដើម្បីប្រៀបធៀប implementation ឬឱ្យ agent ច្រើនបែងចែកបញ្ហាដោយមានបរិបទចាប់ផ្ដើមដូចគ្នា។ Fork នីមួយៗបន្តដោយឯករាជ្យ ហើយការសន្ទនាដើមនៅតែមាន។",
+        "parallelP2": "Fork អាចធ្វើការក្នុងថតដូចគ្នា។ ផ្ដល់ task ឬ file ដាច់ដោយឡែក នៅពេលការកែប្រែព្រមគ្នាអាចប៉ះទង្គិច។",
+        "release": "cmux Fork មាននៅក្នុង v0.64.19។"
+      },
       "showHnLaunch": {
         "title": "បើកដំណើរការ cmux នៅលើ Show HN",
         "summary": "cmux ឡើងដល់ #2 នៅលើ Hacker News, ត្រូវបានចែករំលែកដោយ Mitchell Hashimoto, និងប្រជាប្រិយនៅជប៉ុន។",
@@ -583,6 +619,10 @@
       "metaTitle": "ហ្សែនរបស់ cmux",
       "metaDescription": "cmux គឺជាបុព្វបទ មិនមែនដំណោះស្រាយទេ។"
     },
+    "cmuxFork": {
+      "metaTitle": "សូមណែនាំ cmux Fork",
+      "metaDescription": "Fork ការសន្ទនា Codex, Claude Code, OpenCode, Pi, Hermes ឬ agent ដែលគាំទ្រផ្សេងទៀត ទៅជា split, tab ឬ workspace ថ្មី ដោយមិនបាត់បង់បរិបទ។"
+    },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
       "metaDescription": "ផ្លូវកាត់ក្តារចុចថ្មីដែលផ្លាស់ប្ដូរវិធីអន្តរកម្មរបស់អ្នកជាមួយ cmux។"
@@ -728,6 +768,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "សម្រាប់ការផ្លាស់ប្តូររវាងបណ្ដាញ សូមប្រើ cmux mosh-tmux។ វាបើកស្ថានីយ Mosh ដែលបានរួមបញ្ចូលពេញលេញ និងភ្ជាប់ទៅ tmux session ដែលមានឈ្មោះ; វាមិនជំនួស native mirror នៃ workspace, tab និង split ដែលផ្ដល់ដោយ SSH tmux control mode ទេ។"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "ចាប់ផ្ដើម",
@@ -914,6 +957,8 @@
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
+          "sessionContentMaxWidth": "ទទឹងអតិបរមាជាជម្រើស គិតជាពិន្ទុ សម្រាប់ខ្លឹមសារស្ថានីយ និងការជជែកជាមួយភ្នាក់ងារដែលភ្ជាប់មកជាមួយ។ កំណត់ false ដើម្បីប្រើទទឹងផ្ទាំងទាំងមូល។",
+          "sessionContentAlignment": "ទីតាំងផ្ដេកនៃខ្លឹមសារស្ថានីយ និងការជជែកជាមួយភ្នាក់ងារដែលភ្ជាប់មកជាមួយ នៅពេលបើក sessionContentMaxWidth។",
           "copyOnSelect": "នៅពេល true អត្ថបទ terminal ដែលបានជ្រើសនឹងត្រូវចម្លងទៅ clipboard របស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់។ នៅពេល false cmux មិនបញ្ចេញការកំណត់ជាន់លើ Ghostty copy-on-select ទេ; ការកំណត់ និងលំនាំដើមរបស់ Ghostty គ្រប់គ្រងអាកប្បកិរិយា clipboard សម្រាប់ការជ្រើស។",
           "scrollSpeed": "មេគុណដែលអនុវត្តចំពោះចលនារមូររបស់កង់រមូរ និងផ្ទាំងប៉ះក្នុង terminal។ តម្លៃកាន់តែខ្ពស់ រមូរកាន់តែលឿន ហើយតម្លៃកាន់តែទាប រមូរកាន់តែយឺត។",
           "showTextBoxOnNewTerminals": "បង្ហាញការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។",
@@ -939,6 +984,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "ចំនួនបន្ទាត់អតិបរមាដែលបង្ហាញសម្រាប់ការជូនដំណឹងចុងក្រោយនៅខាងក្រោមចំណងជើងកន្លែងធ្វើការនីមួយៗ។",
           "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។"
         },
         "fileExplorer": {
@@ -1474,10 +1520,16 @@
       "flagName": "ទង់ជាតិ",
       "flagDesc": "ការពិពណ៌នា",
       "flagNameVal": "កំណត់ចំណងជើងកន្លែងធ្វើការ",
+      "flagCommand": "ដំណើរការអត្ថបទពាក្យបញ្ជាម្តងនៅក្នុងស្ថានីយពីចម្ងាយដំបូង បន្ទាប់ពី shell ចាប់ផ្តើម",
       "flagPort": "ច្រក SSH (លំនាំដើម 22)",
       "flagIdentity": "ផ្លូវទៅកាន់ឯកសារអត្តសញ្ញាណ",
       "flagSshOption": "ឆ្លងកាត់ជម្រើស SSH បំពាន (ឧ. -o StrictHostKeyChecking=no)",
+      "flagTransport": "មធ្យោបាយស្ថានីយអន្តរកម្ម៖ ssh (លំនាំដើម) ឬ mosh",
       "flagNoFocus": "បង្កើតកន្លែងធ្វើការដោយមិនចាំបាច់ប្តូរទៅវា។",
+      "moshTitle": "មធ្យោបាយស្ថានីយ Mosh",
+      "moshDesc": "ប្រើ cmux ssh user@remote --transport mosh នៅពេលស្ថានីយអន្តរកម្មត្រូវបន្តដំណើរការពេលប្តូរ Wi-Fi, VPN, hotspot ឬពេលដេកនិងភ្ញាក់។ Mosh ដឹកតែ PTY របស់ស្ថានីយប៉ុណ្ណោះ ខណៈ SSH នៅតែគ្រប់គ្រងទិន្នន័យពីចម្ងាយ ការរៀបចំនិងគ្រប់គ្រងសេវា cmux ប្រូកស៊ីកម្មវិធីរុករក ការផ្ទុកឡើង និងការតភ្ជាប់ឡើងវិញ។",
+      "moshFallback": "cmux ត្រូវការ Mosh 1.4 ឬថ្មីជាងនេះនៅក្នុងម៉ាស៊ីន និងពិនិត្យ mosh-server ពីចម្ងាយមុនចាប់ផ្តើម។ បើ client បាត់ ឬមិនត្រូវគ្នា server បាត់ ឬការពិនិត្យពីចម្ងាយបរាជ័យ cmux នឹងពន្យល់មូលហេតុ ហើយបន្តតាម SSH។",
+      "moshTmux": "បង្កើត Mosh workspace ដែលបង្កើត ឬភ្ជាប់ tmux session មានឈ្មោះ (លំនាំដើម៖ main)។ tmux profile ត្រូវបានរក្សាទុកពេល reconnect និង restore app session។ វាជា tmux terminal ដែល roam បាន មិនមែន native mirror របស់ cmux ssh-tmux ទេ។ --session <name> ជ្រើស session; flags ផ្សេងទៀតដូច cmux mosh។ បើគ្មាន Mosh profile ដដែលដំណើរការតាម SSH។",
       "deepLinksTitle": "តំណភ្ជាប់ជ្រៅ SSH",
       "deepLinksDesc": "ប្រើតំណភ្ជាប់ជ្រៅ cmux SSH នៅពេលដែលគេហទំព័រ ឬឧបករណ៍ចង់ផ្តល់ប៊ូតុង Open in cmux ។ តំណបើក cmux បង្ហាញប្រអប់បញ្ជាក់ បន្ទាប់មកដំណើរការពាក្យបញ្ជា cmux ssh ដែលសមមូលបន្ទាប់ពីអ្នកប្រើប្រាស់បញ្ជាក់។",
       "deepLinksWebFallbackDesc": "ប្រើ cmux.com fallback URL សម្រាប់ប៊ូតុងគេហទំព័រ។ វាបើកតំណដើម ហើយបង្ហាញការទាញយក ប្រសិនបើ cmux មិនត្រូវបានដំឡើង។",

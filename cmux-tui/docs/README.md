@@ -9,5 +9,5 @@
 - [Keyboard](keyboard.md): prefix model, modeless Alt layer, default bindings, and `cmux-tui.json` key remapping.
 - [Mouse](mouse.md): clickable UI, drag reorder, resize, scrollbars, menus, selection, pointer shape, and dialogs.
 - [Configuration](configuration.md): full `cmux-tui.json` reference with defaults and a worked example.
-- [Control socket protocol](protocol.md): JSON-lines framing, protocol v6 attach streams, events, and compatibility rules.
+- [Control socket protocol](protocol.md): JSON-lines framing, protocol v9 layouts and events, attach streams, and compatibility rules.
 - [Browser panes](browser-panes.md): CDP-backed browser tabs, rendering, input, profiles, and current limitations.

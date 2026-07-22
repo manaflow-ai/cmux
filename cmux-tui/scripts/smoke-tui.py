@@ -217,6 +217,22 @@ def wait_render_contains(needle, seconds=15):
             return last
     raise AssertionError(last[-1200:])
 
+def wait_render_excludes(needle, seconds=15, stable_seconds=0.5):
+    deadline = time.time() + seconds
+    last = ""
+    absent_since = None
+    while time.time() < deadline:
+        drain(0.2)
+        last = render_text_snapshot(output)
+        if needle in last:
+            absent_since = None
+            continue
+        if absent_since is None:
+            absent_since = time.time()
+        elif time.time() - absent_since >= stable_seconds:
+            return last
+    raise AssertionError(last[-1200:])
+
 def render_style_snapshot(data, rows=30, cols=100):
     grid = [[{"bg": None, "bold": False, "dim": False, "reverse": False} for _ in range(cols)] for _ in range(rows)]
     x = y = 0
@@ -359,10 +375,11 @@ assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-tui", ident
-assert ident["data"]["protocol"] == 6, ident
+assert ident["data"]["protocol"] == 9, ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]
+assert ws0["name"] == "0", ws0
 screen0 = active_screen(ws0)
 panes = screen0["panes"]
 assert len(panes) == 1, ws0
@@ -381,7 +398,7 @@ print("initial surface spawned at final size ok")
 # numbered tab and the + button in the top border.
 drain(0.5)
 text = output.decode("utf-8", "replace")
-assert " 1 " in text, text[-500:]
+assert " 0 " in text, text[-500:]
 assert " + " in text, text[-500:]
 print("always-on tab bar with numbered tab ok")
 
@@ -404,7 +421,7 @@ print("prefix-S returns focus to the pane ok")
 with open(config_path, "w", encoding="utf-8") as f:
     json.dump({"sidebar": {"width": 22}}, f)
 assert rpc({"id": 31, "cmd": "reload-config"})["ok"]
-wait_render_contains("workspaces")
+wait_render_excludes("SIDEBAR-MARKER")
 print("sidebar plugin config reload falls back to default workspaces sidebar ok")
 os.write(fd, b"\x02S")
 drain(0.4)
@@ -430,7 +447,7 @@ assert len(tabs) == before_tabs + 1, screen0
 assert tabs[-1]["kind"] == "browser", tabs
 os.write(fd, b"example.com")
 drain(0.5)
-text = output.decode("utf-8", "replace")
+text = render_text_snapshot(output)
 assert "example.com" in text, text[-800:]
 os.write(fd, b"\x1b")
 drain(0.5)
@@ -620,11 +637,13 @@ ws0 = tree()[0]
 assert len(ws0["screens"]) == 2, ws0
 assert ws0["screens"][1]["active"], ws0
 assert len(ws0["screens"][1]["panes"]) == 1, ws0
+status_line = render_text_snapshot(output).splitlines()[-1]
+assert " screens  0  1  + " in status_line, status_line
 print("prefix-c new screen ok")
 
-# The status bar shows both screens; click screen 1's entry to switch
+# The status bar shows both screens; click screen 0's entry to switch
 # back. Status bar row is the last row (30). The bar starts after the
-# sidebar (col 23 SGR) with " screens " (9 cols), so entry 1 starts at
+# sidebar (col 23 SGR) with " screens " (9 cols), so entry 0 starts at
 # col 32.
 os.write(fd, b"\x1b[<0;33;30M\x1b[<0;33;30m")
 drain(1.0)
@@ -666,6 +685,7 @@ drain(1.0)
 workspaces = tree()
 assert len(workspaces) == 2, workspaces
 assert workspaces[1]["active"], workspaces
+assert workspaces[1]["name"] == "1", workspaces
 print("prefix-W new workspace ok")
 
 # Drag the original workspace below the new one. Layout: row 0 header,
@@ -694,6 +714,7 @@ text = output.decode("utf-8", "replace")
 assert "Rename workspace" in text, text[-800:]
 assert "Copy workspace id" in text, text[-800:]
 assert "┌" in text, text[-800:]
+assert "├" in text, text[-800:]
 styles = render_style_snapshot(output)
 overlap = styles[6][2]  # item 1: non-selected menu row over the active workspace subtitle row.
 assert overlap["bg"] == 237 and not overlap["bold"] and not overlap["dim"], (overlap, text[-800:])
@@ -713,9 +734,23 @@ assert "Copy tab id" in text, text[-800:]
 assert "Copy pane id" in text, text[-800:]
 assert "Close tab" in text, text[-800:]
 assert "┌" in text, text[-800:]
+assert "├" in text, text[-800:]
 assert "[ OK ⏎ ]" not in text, text[-800:]
+menu_lines = render_text_snapshot(output).splitlines()
+assert "Rename tab" in menu_lines[5], menu_lines[4:18]
+assert "Close tab" in menu_lines[6], menu_lines[4:18]
+assert "├" in menu_lines[7], menu_lines[4:18]
+assert "New tab" in menu_lines[8], menu_lines[4:18]
+assert "New browser tab" in menu_lines[9], menu_lines[4:18]
+assert "├" in menu_lines[10], menu_lines[4:18]
+assert "Split right" in menu_lines[11], menu_lines[4:18]
+assert "Split down" in menu_lines[12], menu_lines[4:18]
+assert "Close pane" in menu_lines[13], menu_lines[4:18]
+assert "├" in menu_lines[14], menu_lines[4:18]
+assert "Copy tab id" in menu_lines[15], menu_lines[4:18]
+assert "Copy pane id" in menu_lines[16], menu_lines[4:18]
 output = b""
-os.write(fd, b"\x1b[<34;81;7M\x1b[<2;81;7m")
+os.write(fd, b"\x1b[<34;81;16M\x1b[<2;81;16m")
 drain(0.8)
 osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
 assert osc52, "no OSC 52 clipboard write after menu copy"
@@ -780,8 +815,8 @@ tabs_before = sum(
     for s in w["screens"]
     for p in s["panes"]
 )
-# "Close tab" sits below the copy-id and split rows.
-os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;13M\x1b[<2;81;13m")
+# "Close tab" is the second row, directly below "Rename tab".
+os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;7M\x1b[<2;81;7m")
 drain(1.0)
 tabs_after = sum(
     len(p["tabs"])

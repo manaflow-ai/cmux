@@ -32,7 +32,12 @@ struct HostBrowserSignInFlowHarness {
         browserAttemptTimeout: TimeInterval = 5 * 60,
         slowSignInThreshold: TimeInterval = 30,
         clock: (any Clock<Duration>)? = nil,
-        openSucceeds: Bool = true
+        openSucceeds: Bool = true,
+        beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
+        onSignedOut: @escaping @Sendable (
+            _ accessToken: String?,
+            _ refreshToken: String?
+        ) async -> Void = { _, _ in }
     ) {
         let store = FakeKeyValueStore()
         // The fake client reads and clears the SAME token store the flow seeds,
@@ -61,7 +66,9 @@ struct HostBrowserSignInFlowHarness {
             openExternalURL: { openedURLRecorder.append($0) },
             clock: clock ?? ContinuousClock(),
             browserAttemptTimeout: browserAttemptTimeout,
-            slowSignInThreshold: slowSignInThreshold
+            slowSignInThreshold: slowSignInThreshold,
+            beginSignOut: beginSignOut,
+            onSignedOut: onSignedOut
         )
         self.coordinator = coordinator
         self.client = client

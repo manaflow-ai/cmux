@@ -131,17 +131,22 @@ extension TerminalController {
             defaultValue: "Allow Resume Command?"
         )
         let cwd = binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None")
-        alert.informativeText = String(
+        let informativeText = String(
             format: String(
                 localized: "surfaceResumeApproval.proposal.message",
-                defaultValue: "A process wants cmux to keep this resume command for the current terminal:\n\n%@\n\nWorking directory: %@"
+                defaultValue: "A process wants cmux to keep this resume command for the current terminal:\n\nWorking directory: %@\n\n%@"
             ),
-            binding.command,
-            cwd
+            cwd,
+            binding.command
         )
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.auto", defaultValue: "Auto-Restore"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.ask", defaultValue: "Ask Each Time"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.manual", defaultValue: "Keep Manual"))
+        let content = CmuxAlertContent(
+            flattenedText: informativeText,
+            separatingScrollableDetails: binding.command
+        )
+        content.apply(to: alert, presentingWindow: nil)
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
@@ -183,7 +188,22 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
-        let effectiveBinding = surfaceResumeBindingWithApproval(binding)
+        let locatedBinding: SurfaceResumeBindingSnapshot
+        if let remoteWorkspaceID = inputs.remoteWorkspaceID {
+            guard remoteWorkspaceID == target.workspace.id,
+                  let relayParameters = inputs.remoteRelayParameters,
+                  WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
+                      relayParameters.mapValues(\.foundationObject),
+                      remoteRelayTokenHex: target.workspace.remoteConfiguration?.relayToken
+                  ),
+                  let context = target.workspace.persistentSSHResumeContext(panelID: target.surfaceId) else {
+                return .setFailed
+            }
+            locatedBinding = binding.registeredForPersistentSSH(context)
+        } else {
+            locatedBinding = binding
+        }
+        let effectiveBinding = surfaceResumeBindingWithApproval(locatedBinding)
         guard target.workspace.setSurfaceResumeBinding(effectiveBinding, panelId: target.surfaceId) else {
             return .emptyResumeCommand
         }
@@ -439,7 +459,7 @@ extension TerminalController {
 
     /// The byte-faithful twin of the file-private `tabForSidebarMutation(id:)`:
     /// the controller's own TabManager first, then any window's TabManager.
-    private func controlTabForSidebarMutation(id: UUID) -> Workspace? {
+    func controlTabForSidebarMutation(id: UUID) -> Workspace? {
         if let tab = tabManager?.tabs.first(where: { $0.id == id }) {
             return tab
         }
@@ -450,7 +470,7 @@ extension TerminalController {
     }
 
     /// The byte-faithful twin of the file-private `resolveReportedSurfaceId`.
-    private func controlResolveReportedSurfaceId(
+    func controlResolveReportedSurfaceId(
         in workspace: Workspace,
         requestedSurfaceId: UUID?,
         validSurfaceIds: Set<UUID>

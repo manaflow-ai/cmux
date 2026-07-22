@@ -2,7 +2,7 @@
 
 Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
 
-All bindings must expose the implemented protocol v5 commands, events, and socket transport. Proposed protocol v6 APIs may be generated behind explicit version checks or feature gates.
+All bindings must expose the implemented protocol v9 commands, events, transports, stable split ids, stack layouts, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
 
 ## Shared Requirements
 
@@ -12,13 +12,26 @@ Bindings must:
 
 | Requirement | Contract |
 | --- | --- |
-| Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features |
+| Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features; require `attach-initial-size` for initial attach sizing and `workspace-registry-v1` for registry APIs |
 | Error handling | Preserve the server error string and expose a typed transport vs command distinction |
 | Events | Route response lines and event lines correctly on full-duplex connections |
-| Attach | Preserve attach ordering for the negotiated protocol: v5 `vt-state`, then `output`, then `detached`; v6 `vt-state`, then `(resized | output)*`, then `detached` |
+| Attach | Preserve attach ordering for the selected mode: v5 `vt-state`, then `output`, then `detached`; v6 byte mode `vt-state`, then `(resized | output | colors-changed | scroll-changed)*`, then `detached`; v7 render mode `render-state`, then `(render-delta | scroll-changed)*`, then `detached` |
+| Title changes | Decode `title-changed` as a typed event with `surface` and an optional `title`; protocol v7 guarantees the authoritative title, while v5-v6 omit it |
 | JSON mode | Provide a way to send raw command JSON for forward compatibility |
 | Timeouts | Let callers configure request timeout without changing wire schema |
-| Ids | Use numeric ids for v5 and `IdRef` for proposed v6 |
+| Ids | Use numeric ids for v5 and `IdRef` where supported by the negotiated protocol |
+
+## Protocol v7 SDK Expectations
+
+SDKs that expose protocol v7 should provide a version-gated render attachment iterator whose first item is typed `render-state` and whose later union is `render-delta | scroll-changed | detached`; it must preserve plain UTF-8 run text, exact optional fields, resolved colors, row indexes, and unknown-event fallback without routing render events through a VT emulator. Subscribe APIs should default to `tree_events:"coarse"` and expose explicit `"deltas"` opt-in. Delta event unions add every workspace/screen/pane/tab lifecycle event with typed subject and parent ids plus the exact `list-workspaces` entity payload, while retaining `tree-changed` as an explicit resync case rather than an ordinary-change dependency. Detailed per-language API design, generated models, and conformance fixtures are deferred to a later SDK round.
+
+## Protocol v8 SDK Expectations
+
+SDKs must treat `layout.split` and `set-split-ratio` as protocol-v8 features. A client connected to protocol 7 must not require the field or send the command.
+
+## Protocol v9 SDK Expectations
+
+SDKs must treat stack layout nodes and `new-pane` as protocol-v9 features. `new-pane` must fail locally before sending when the identified server reports protocol 8 or older.
 
 ## Rust
 
@@ -58,7 +71,7 @@ interface Transport {
 
 `CmuxRequest` is discriminated by exact wire `cmd`; `CmuxEvent` is discriminated by exact wire `event` and retains an unknown-event fallback. `request({cmd,...params})` infers successful response data from the request member. Typed command methods remain the preferred surface.
 
-`attachSurface()` yields an async iterable. Its `vt-state.data`, `output.data`, and `resized.replay` values are decoded to `Uint8Array` without relying on `Buffer` in shared browser code. Wire event types continue to expose their exact base64 string fields.
+`attachSurface()` yields an async iterable. In byte mode, its `vt-state.data`, `output.data`, and `resized.replay` values are decoded to `Uint8Array` without relying on `Buffer` in shared browser code. In protocol-v7 render mode, run text remains a JavaScript string and is never base64-decoded. Wire event types continue to expose their exact fields.
 
 Generated types must preserve exact field optionality. Unknown event names should be represented as `{ event: string; [key: string]: unknown }` rather than being dropped.
 

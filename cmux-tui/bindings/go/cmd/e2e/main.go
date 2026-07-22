@@ -41,7 +41,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 6 {
+	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 9 {
 		return fmt.Errorf("unexpected identify result: %+v", info)
 	}
 	cols, rows := uint16(80), uint16(24)
@@ -79,7 +79,7 @@ func run() error {
 		return err
 	}
 	defer events.Close()
-	if err := client.ResizeSurface(ctx, created.Surface, 100, 31); err != nil {
+	if _, err := client.ResizeSurface(ctx, created.Surface, 100, 31); err != nil {
 		return err
 	}
 	resized, err := nextResized(events, created.Surface, time.Second)
@@ -89,14 +89,14 @@ func run() error {
 	if resized.Cols != 100 || resized.Rows != 31 {
 		return fmt.Errorf("bad resize event: %+v", resized)
 	}
-	if err := client.ResizeSurface(ctx, created.Surface, 100, 31); err != nil {
+	if _, err := client.ResizeSurface(ctx, created.Surface, 100, 31); err != nil {
 		return err
 	}
 	if _, err := nextResized(events, created.Surface, 500*time.Millisecond); !errors.Is(err, cmux.ErrTimeout) {
 		return fmt.Errorf("same-size resize emitted event or failed oddly: %v", err)
 	}
 
-	attach, err := client.AttachSurface(ctx, created.Surface)
+	attach, err := client.AttachSurfaceWithOptions(ctx, created.Surface, cmux.AttachSurfaceOptions{Cols: &cols, Rows: &rows})
 	if err != nil {
 		return err
 	}

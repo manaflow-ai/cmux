@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use ghostty_vt::{Callbacks, Cell, ColorSpec, Dirty, RenderState, Rgb, Terminal};
+use ghostty_vt::{Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, Terminal};
 
 fn snapshot_cells(term: &mut Terminal) -> Vec<Vec<Cell>> {
     let mut rs = RenderState::new().unwrap();
@@ -86,19 +86,49 @@ fn default_colors_answer_osc_queries() {
     term.vt_write(b"\x1b]11;?\x07");
     assert!(pty_out.lock().unwrap().is_empty());
 
-    term.set_default_colors(None, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+    term.set_default_colors(None, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }), None);
     term.vt_write(b"\x1b]11;?\x07");
     assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]11;rgb:1313/1414/1515\x07");
 
     pty_out.lock().unwrap().clear();
-    term.set_default_colors(Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }), None);
+    term.set_default_colors(Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }), None, None);
     term.vt_write(b"\x1b]10;?\x07");
     assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]10;rgb:0101/0202/0303\x07");
+
+    pty_out.lock().unwrap().clear();
+    term.set_default_colors(None, None, Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }));
+    term.vt_write(b"\x1b]12;?\x07");
+    assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]12;rgb:c0c0/c1c1/b5b5\x07");
 
     pty_out.lock().unwrap().clear();
     term.vt_write(b"\x1b]11;rgb:20/40/60\x07");
     term.vt_write(b"\x1b]11;?\x07");
     assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]11;rgb:2020/4040/6060\x07");
+}
+
+#[test]
+fn ghostty_config_colors_and_palette_defaults_use_engine_parsers() {
+    assert_eq!(ghostty_vt::parse_color("ForestGreen"), Some(Rgb { r: 0x22, g: 0x8b, b: 0x22 }));
+    assert_eq!(
+        ghostty_vt::parse_palette_entry("0xF = #123456"),
+        Some((15, Rgb { r: 0x12, g: 0x34, b: 0x56 }))
+    );
+    assert_eq!(ghostty_vt::parse_palette_entry("256=#ffffff"), None);
+
+    let mut term = Terminal::new(8, 2, 0, Callbacks::default()).unwrap();
+    let mut palette = [None; 256];
+    palette[1] = Some(Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    term.set_default_palette(&palette);
+    term.vt_write(b"\x1b[31mR");
+
+    let mut state = RenderState::new().unwrap();
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(1), Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    assert!(!state.palette_overridden(1));
+    assert_eq!(
+        state.build_frame().unwrap().row_runs(0).unwrap()[0].fg,
+        Some(Rgb { r: 0x44, g: 0x55, b: 0x66 })
+    );
 }
 
 #[test]
@@ -110,6 +140,93 @@ fn alt_screen_and_modes() {
     assert!(!term.mouse_tracking());
     term.vt_write(b"\x1b[?1000h");
     assert!(term.mouse_tracking());
+}
+
+#[test]
+fn render_state_cursor_visual_tracks_defaults_and_decscusr() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.set_default_cursor(Some(CursorShape::Bar), Some(false));
+
+    let mut rs = RenderState::new().unwrap();
+    rs.update(&mut term).unwrap();
+    assert!(!term.cursor_overridden());
+    assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Bar, false));
+
+    term.vt_write(b"\x1b[3");
+    term.vt_write(b" q");
+    rs.update(&mut term).unwrap();
+    assert!(term.cursor_overridden());
+    assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Underline, true));
+
+    term.vt_write(b"\x1b[0 q");
+    rs.update(&mut term).unwrap();
+    assert!(!term.cursor_overridden());
+    assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Bar, false));
+}
+
+#[test]
+fn cursor_override_tracker_matches_control_string_exits() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b]2;not-a-sequence \x1b[3 q\x07");
+    assert!(term.cursor_overridden(), "ESC exits OSC before the following DECSCUSR");
+    term.vt_write(b"\x1bc");
+    assert!(!term.cursor_overridden());
+
+    term.vt_write(b"\x1b[3q");
+    assert!(!term.cursor_overridden());
+
+    term.vt_write(b"\x1b[5 q");
+    assert!(term.cursor_overridden());
+    term.vt_write(b"\x1bc");
+    assert!(!term.cursor_overridden());
+    term.vt_write(b"\x1bPab\x18\x1b[3 q");
+    assert!(term.cursor_overridden(), "CAN must abort DCS before the next DECSCUSR");
+    term.vt_write(b"\x1bc");
+    assert!(!term.cursor_overridden());
+    term.vt_write(b"\x1bPab\x1b[5 q");
+    assert!(term.cursor_overridden(), "ESC must leave DCS before the next DECSCUSR");
+}
+
+#[test]
+fn cursor_override_tracker_survives_utf8_text() {
+    // U+1F44D encodes as f0 9f 91 8d; the 0x9f byte is UTF-8 text in ground
+    // state, not a C1 OSC opener. A tracker that misreads it enters a control
+    // string it never leaves and misses every later DECSCUSR.
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.vt_write("👍".as_bytes());
+    term.vt_write(b"\x1b[5 q");
+    assert!(term.cursor_overridden());
+
+    // Same for 0x9d (e.g. in "\u{275d}" = e2 9d 9d), including inside a
+    // BEL-terminated OSC title that itself contains emoji.
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.vt_write("❝".as_bytes());
+    term.vt_write("\u{1b}]0;title 👍\u{7}".as_bytes());
+    term.vt_write(b"\x1b[3 q");
+    assert!(term.cursor_overridden());
+}
+
+#[test]
+fn vt_replay_restores_cursor_position_after_tabstops() {
+    // The formatter emits tabstop programming after its cursor restore. The
+    // replay wrapper re-asserts the true cursor last so a byte-mode frontend
+    // does not end parked on the final tabstop column.
+    let mut source = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
+    source.vt_write(b"lawrence in ~ \xce\xbb ");
+    let expected = source.cursor_position().unwrap();
+    assert_eq!(expected, (16, 0));
+
+    let full = source.vt_replay().unwrap();
+    let bounded = source.vt_replay_bounded(8 * 1024 * 1024).unwrap();
+    for replay in [&full, &bounded] {
+        let mut mirror = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
+        mirror.vt_write(replay);
+        assert_eq!(
+            mirror.cursor_position().unwrap(),
+            expected,
+            "mirror cursor diverged after replay"
+        );
+    }
 }
 
 #[test]
@@ -255,4 +372,154 @@ fn render_state_reports_palette_overrides() {
     assert!(rs.palette_overridden(1));
     assert_eq!(rs.palette_color(1), Rgb { r: 1, g: 2, b: 3 });
     assert!(!rs.palette_overridden(2));
+}
+
+#[test]
+fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
+    let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    let mut defaults = [None; 256];
+    defaults[1] = Some(Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    term.set_default_palette(&defaults);
+
+    assert!(!term.palette_overridden(1));
+    term.vt_write(b"\x1b]4;1;#445566\x07");
+    assert!(term.palette_overridden(1));
+
+    let mut state = RenderState::new().unwrap();
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(1), Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    assert!(!state.palette_overridden(1), "value equality cannot identify authored state");
+
+    term.vt_write(b"\x1b]4;2;rgb:01/");
+    term.vt_write(b"02/03\x1b\\");
+    assert!(term.palette_overridden(2));
+    term.vt_write(b"\x1b]4;5;#050505;;6;#060606\x1b\\");
+    assert!(term.palette_overridden(5));
+    assert!(term.palette_overridden(6));
+    term.vt_write(b"\x1b]4;3;?\x07");
+    assert!(!term.palette_overridden(3));
+
+    term.vt_write(b"\x1b]21;7=#070707;8=rgb:08/08/08;foreground=#ffffff\x1b\\");
+    assert!(term.palette_overridden(7));
+    assert!(term.palette_overridden(8));
+    term.vt_write(b"\x1b]21;7=;8=?\x1b\\");
+    assert!(!term.palette_overridden(7));
+    assert!(term.palette_overridden(8), "query must not alter authored state");
+
+    term.vt_write(b"\x1b]21;1_8=#112233;_19=#ffffff;20_=#ffffff\x1b\\");
+    assert!(term.palette_overridden(18), "OSC 21 must accept Zig's embedded underscores");
+    assert!(!term.palette_overridden(19), "OSC 21 must reject a leading underscore");
+    assert!(!term.palette_overridden(20), "OSC 21 must reject a trailing underscore");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(18), Rgb { r: 0x11, g: 0x22, b: 0x33 });
+
+    term.vt_write(b"\x1b]4;+19;#223344;-0;#001122;20_;#ffffff\x1b\\");
+    assert!(term.palette_overridden(19), "OSC 4 must accept Zig's positive sign grammar");
+    assert!(term.palette_overridden(0), "OSC 4 must accept Zig's negative zero grammar");
+    assert!(!term.palette_overridden(20), "OSC 4 must reject a trailing underscore");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(19), Rgb { r: 0x22, g: 0x33, b: 0x44 });
+    assert_eq!(state.palette_color(0), Rgb { r: 0x00, g: 0x11, b: 0x22 });
+    let original_nine = state.palette_color(9);
+    term.vt_write(b"\x9d4;9;#090909\x07");
+    assert!(!term.palette_overridden(9), "raw C1 is not dispatched by Ghostty's VT stream");
+    term.vt_write(b"\xc2\x9d4;9;#090909\x07");
+    assert!(!term.palette_overridden(9), "UTF-8 C1 is printable text, not an OSC opener");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(9), original_nine);
+
+    term.vt_write(b"\x1bPab\x18\x1b]4;10;#0a0a0a\x07");
+    assert!(term.palette_overridden(10), "CAN must abort a non-OSC control string");
+    term.vt_write(b"\x1bPab\x1b\x1a\x1b]4;11;#0b0b0b\x07");
+    assert!(term.palette_overridden(11), "SUB must abort after an escape in a control string");
+    term.vt_write(b"\x1b]4;12;#0c0c0c\x1b");
+    assert!(term.palette_overridden(12), "OSC must commit at a split ST's ESC boundary");
+    term.vt_write(b"\\");
+    assert!(term.palette_overridden(12));
+    term.vt_write(b"\x1b]4;13;#0d\x000d0d\x07");
+    assert!(term.palette_overridden(13), "OSC must ignore embedded C0 bytes like Ghostty");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(13), Rgb { r: 13, g: 13, b: 13 });
+
+    term.vt_write(b"\x1b\x07]4;14;#0e0e0e\x07");
+    assert!(term.palette_overridden(14), "C0 controls must preserve Ghostty's ESC state");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(14), Rgb { r: 14, g: 14, b: 14 });
+
+    let mut oversized = b"\x1b]4;16;#101010".to_vec();
+    oversized.extend(std::iter::repeat_n(b';', 2048));
+    oversized.push(0x07);
+    term.vt_write(&oversized);
+    assert!(!term.palette_overridden(16), "Ghostty rejects fixed OSC capture overflow");
+    state.update(&mut term).unwrap();
+    assert_ne!(state.palette_color(16), Rgb { r: 16, g: 16, b: 16 });
+
+    term.vt_write(b"\x1b]4;15;#0f0f0f;bad;#010101\x07");
+    assert!(term.palette_overridden(15), "valid OSC 4 prefix must survive a malformed pair");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(15), Rgb { r: 15, g: 15, b: 15 });
+
+    term.vt_write(b"\x1b]4;21;#212121\x07");
+    term.vt_write(b"\x1b]104;21\x9d4;22;#222222\x07");
+    assert!(term.palette_overridden(21), "Ghostty treats raw C1 as OSC payload in OSC state");
+    assert!(!term.palette_overridden(22), "raw C1 must not begin a nested OSC in OSC state");
+    term.vt_write(b"\x1bPq\x9d4;22;#222222\x07");
+    assert!(term.palette_overridden(22), "C1 OSC must leave DCS and begin an OSC");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(22), Rgb { r: 0x22, g: 0x22, b: 0x22 });
+
+    term.vt_write(b"\x1b]4;23;#232323\x07");
+    term.vt_write(b"\x1b]21;23=\xff\x07");
+    assert!(term.palette_overridden(23), "invalid UTF-8 Kitty values must not become resets");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(23), Rgb { r: 0x23, g: 0x23, b: 0x23 });
+
+    term.vt_write(b"\x1b]4;0;#101010\x07");
+    let mut too_many_kitty_requests = b"\x1b]21;".to_vec();
+    for request in 0..527 {
+        if request > 0 {
+            too_many_kitty_requests.push(b';');
+        }
+        too_many_kitty_requests.extend_from_slice(b"0=");
+    }
+    too_many_kitty_requests.extend_from_slice(b"\x1b\\");
+    term.vt_write(&too_many_kitty_requests);
+    assert!(term.palette_overridden(0), "Ghostty rejects OSC 21 beyond 526 requests");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(0), Rgb { r: 0x10, g: 0x10, b: 0x10 });
+
+    term.vt_write(b"\x1b]4;16;#161616\x18");
+    assert!(term.palette_overridden(16), "CAN dispatches Ghostty's valid OSC prefix");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(16), Rgb { r: 0x16, g: 0x16, b: 0x16 });
+    term.vt_write(b"\x1bPab\x1b]4;17;#171717\x07");
+    assert!(term.palette_overridden(17), "ESC must leave DCS before the next OSC");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(17), Rgb { r: 0x17, g: 0x17, b: 0x17 });
+
+    term.vt_write(b"\x1b]104;1\x1b\\");
+    assert!(!term.palette_overridden(1));
+    assert!(term.palette_overridden(2));
+    term.vt_write(b"\x1b]104\x07");
+    assert!(!term.palette_overridden(2));
+
+    term.vt_write(b"\x1b]4;4;#010203\x07");
+    assert!(term.palette_overridden(4));
+    term.vt_write(b"\x1b]104;260\x1b\\");
+    assert!(
+        term.palette_overridden(4),
+        "resetting Ghostty's italic special color must not clear palette overrides"
+    );
+    let revision_before_ris = term.color_revision();
+    let reapply_before_ris = term.color_reapply_revision();
+    term.vt_write(b"\x1bc");
+    assert!(term.palette_overridden(4), "Ghostty RIS preserves palette overrides");
+    assert_ne!(term.color_revision(), revision_before_ris, "RIS must trigger frontend reapply");
+    assert_ne!(
+        term.color_reapply_revision(),
+        reapply_before_ris,
+        "RIS must advance the forced palette-reapply revision"
+    );
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(4), Rgb { r: 1, g: 2, b: 3 });
 }

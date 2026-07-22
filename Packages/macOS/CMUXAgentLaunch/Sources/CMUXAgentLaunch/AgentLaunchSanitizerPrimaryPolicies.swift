@@ -29,6 +29,7 @@ extension AgentLaunchSanitizer {
             "--output-format",
             "--permission-mode",
             "--plugin-dir",
+            "--plugin-url",
             "--remote-control-session-name-prefix",
             "--resume",
             "-r",
@@ -44,7 +45,38 @@ extension AgentLaunchSanitizer {
             "-w"
         ],
         optionalValueOptions: [
-            "--debug"
+            "--debug",
+            "-d"
+        ],
+        // Claude booleans (from `claude --help`) pinned to width 1 so a following
+        // one-word prompt is never inferred as the flag's value and replayed on
+        // resume. Permission booleans are deliberately preserved for user-owned
+        // restore: resuming your own session continues the original explicit
+        // opt-in (https://github.com/manaflow-ai/cmux/issues/8066). Session-identity
+        // and lifecycle booleans (--continue/-c, --fork-session, --bg) stay listed
+        // in droppedOptions; being width-pinned here only keeps their drop exact.
+        booleanOptions: [
+            "--allow-dangerously-skip-permissions",
+            "--ax-screen-reader",
+            "--background",
+            "--bare",
+            "--bg",
+            "--brief",
+            "--chrome",
+            "--continue",
+            "-c",
+            "--dangerously-skip-permissions",
+            "--disable-slash-commands",
+            "--exclude-dynamic-system-prompt-sections",
+            "--fork-session",
+            "--ide",
+            "--include-hook-events",
+            "--include-partial-messages",
+            "--no-chrome",
+            "--replay-user-messages",
+            "--safe-mode",
+            "--strict-mcp-config",
+            "--verbose"
         ],
         variadicOptions: [
             "--add-dir",
@@ -76,6 +108,10 @@ extension AgentLaunchSanitizer {
             "upgrade"
         ],
         droppedOptions: [
+            // Replaying --bg/--background would turn an interactive pane restore
+            // into a detached background-agent launch.
+            "--background",
+            "--bg",
             "--continue",
             "-c",
             "--file",

@@ -9,17 +9,41 @@ straight from the app), never screenshots.
 
 ## Running it
 
+This suite runs LOCALLY. It is hermetic — no network, no ssh config, no
+pre-existing tmux server, every path unique per run — so it is NOT CI-only;
+run it here, on every change, and read red/green directly. (Do not confuse it
+with the BrowserFixture socket suites, which do fail locally by design.)
+
 ```bash
 xcodebuild test -project cmux.xcodeproj -scheme cmux -configuration Debug \
   -destination 'platform=macOS' -derivedDataPath /tmp/cmux-uitest-dd \
   -only-testing:cmuxUITests/RemoteTmuxSizingUITests
 ```
 
+Scope to one scenario while iterating with
+`-only-testing:cmuxUITests/RemoteTmuxSizingUITests/<testName>`.
+
 Requires a local `tmux` at one of `/opt/homebrew/bin/tmux`,
 `/usr/local/bin/tmux`, or `/usr/bin/tmux` (the exact paths the suite — and
-the `test_exec` allowlist — probe; the suite skips when none exists). The
-suite is hermetic: no network, no ssh config, no pre-existing tmux server,
-and every path it creates is unique per run.
+the `test_exec` allowlist — probe; the suite skips when none exists).
+
+Running it as a sandboxed agent: `xcodebuild` cannot run under the Bash-tool
+sandbox (its SwiftPM resolver's `sandbox-exec` dies with `Operation not
+permitted`). Run it OUTSIDE the sandbox — through the ssh hairpin, exactly
+like the build:
+
+```bash
+ssh cmux-srvA "zsh -lc 'cd <repo> && CMUX_SKIP_ZIG_BUILD=1 xcodebuild test \
+  -project cmux.xcodeproj -scheme cmux -configuration Debug \
+  -destination platform=macOS -derivedDataPath /tmp/cmux-uitest-dd \
+  -only-testing:cmuxUITests/RemoteTmuxSizingUITests/<testName>; echo EXIT=\$?'"
+```
+
+`CMUX_SKIP_ZIG_BUILD=1` skips the Ghostty CLI-helper script phase, which
+otherwise fails the run on its strict zig-version check (same flag the
+`reload.sh` builds use). Reuse the warm `-derivedDataPath` and never
+`xcodebuild clean` (a wiped Build/ forces SwiftPM re-resolution, which needs
+the same sandbox-exec and fails).
 
 ## Architecture (why it is shaped this way)
 

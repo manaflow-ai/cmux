@@ -6,6 +6,26 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellWorkspaceCapabilityTests {
+    @Test func artifactFolderCapabilitiesFailClosedForOlderHosts() {
+        let store = MobileShellComposite.preview()
+        store.supportedHostCapabilities = [
+            "chat.artifact.v1",
+            "terminal.artifact.v1",
+        ]
+        #expect(!store.supportsChatArtifactFolders)
+        #expect(!store.supportsTerminalArtifactList)
+        #expect(!store.supportsIrohArtifactLane)
+
+        store.supportedHostCapabilities.formUnion([
+            "chat.artifact.folders.v1",
+            "terminal.artifact.list.v1",
+            "iroh.artifact_lane.v1",
+        ])
+        #expect(store.supportsChatArtifactFolders)
+        #expect(store.supportsTerminalArtifactList)
+        #expect(store.supportsIrohArtifactLane)
+    }
+
     @Test func workspaceMutationCapabilitiesAreVersionAndTicketGated() async throws {
         let oldMac = try await connectedStore(capabilities: [
             "events.v1",
@@ -118,7 +138,10 @@ import Testing
             lifetime: ticketLifetime
         )))
         #expect(connected, "scripted connect must succeed")
-        let resolved = try await pollUntil { await router.count(of: "mobile.host.status") >= 1 }
+        let expectedCapabilities = Set(capabilities)
+        let resolved = try await pollUntil {
+            store.supportedHostCapabilities == expectedCapabilities
+        }
         #expect(resolved, "scripted connect must resolve host capabilities")
         return (store, router, clock)
     }

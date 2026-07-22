@@ -213,8 +213,8 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement,
-            runtimeSpawnPolicy: runtimeSpawnPolicy
+            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
+            preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)
         if Self.startsAtOwnedPrompt(
@@ -721,6 +721,17 @@ final class TerminalPanel: Panel, ObservableObject {
         viewReattachToken &+= 1
     }
 
+    /// Monotonic model ownership epoch across container transfers and local
+    /// representable reattachments. This takes precedence over host creation
+    /// order when a move rolls back to an earlier view.
+    var portalHostOwnershipGeneration: UInt64 {
+        surface.currentPortalHostOwnershipGeneration() &+ viewReattachToken
+    }
+
+    func recordPortalHostOwnershipChange() {
+        requestViewReattach()
+    }
+
     // MARK: - Terminal-specific methods
 
     @discardableResult
@@ -757,7 +768,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func performBindingAction(_ action: String) -> Bool {
         guard !isAgentHibernated else { return false }
-        return surface.performBindingAction(action)
+        return surface.performExplicitInputBindingAction(action)
     }
 
     @discardableResult

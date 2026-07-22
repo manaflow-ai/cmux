@@ -4,6 +4,7 @@ const LAST_URL_KEY = "cmux-tui.web.lastWebSocketUrl";
 interface LocationInput {
   hostname: string;
   search: string;
+  hash: string;
 }
 
 interface StorageInput {
@@ -29,6 +30,7 @@ export function initialConnectionConfig(
   storage?: Pick<StorageInput, "getItem">,
 ): InitialConnectionConfig {
   const params = new URLSearchParams(location.search);
+  const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
   const queryUrl = params.get("ws")?.trim();
   let rememberedUrl: string | null = null;
   try {
@@ -38,7 +40,7 @@ export function initialConnectionConfig(
   }
   return {
     url: queryUrl || rememberedUrl || defaultWebSocketUrl(location.hostname),
-    token: params.get("token")?.trim() || "",
+    token: fragment.get("token")?.trim() || "",
   };
 }
 
@@ -49,4 +51,3 @@ export function rememberWebSocketUrl(url: string, storage?: Pick<StorageInput, "
     // Connecting should not fail just because localStorage is unavailable.
   }
 }
-

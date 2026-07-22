@@ -11,6 +11,10 @@ final class SecondaryMacSubscription {
     /// The route and ticket this client was dialed on, kept for promotion.
     let route: CmxAttachRoute
     let ticket: CmxAttachTicket
+    /// Paired-row authority captured when this subscription was established.
+    let storedInstanceTag: String?
+    /// Instance identity proven by authenticated host status on this client.
+    let authenticatedInstanceTag: String?
     /// Raw host capabilities reported by this secondary Mac.
     let supportedHostCapabilities: Set<String>
     /// Workspace action capabilities reported by this secondary Mac.
@@ -27,6 +31,8 @@ final class SecondaryMacSubscription {
         client: MobileCoreRPCClient,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
+        storedInstanceTag: String? = nil,
+        authenticatedInstanceTag: String? = nil,
         supportedHostCapabilities: Set<String>,
         actionCapabilities: MobileWorkspaceActionCapabilities
     ) {
@@ -34,6 +40,8 @@ final class SecondaryMacSubscription {
         self.client = client
         self.route = route
         self.ticket = ticket
+        self.storedInstanceTag = storedInstanceTag
+        self.authenticatedInstanceTag = authenticatedInstanceTag
         self.supportedHostCapabilities = supportedHostCapabilities
         self.actionCapabilities = actionCapabilities
         self.streamID = "ios-secondary-events-\(macDeviceID)-\(UUID().uuidString)"

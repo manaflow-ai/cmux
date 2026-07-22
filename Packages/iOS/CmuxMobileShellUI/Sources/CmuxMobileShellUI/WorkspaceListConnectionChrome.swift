@@ -32,4 +32,10 @@ enum WorkspaceListConnectionChrome: Equatable {
             self = .none
         }
     }
+
+    /// Whether the toolbar shows the Mac-update hint indicator. The hint is a
+    /// healthy-connection affordance: while reauth, recovery, or offline chrome
+    /// is on screen, an update suggestion would compete with the recovery
+    /// actions (and could describe a Mac we are no longer talking to).
+    var showsMacUpdateHintIndicator: Bool { self == .none }
 }

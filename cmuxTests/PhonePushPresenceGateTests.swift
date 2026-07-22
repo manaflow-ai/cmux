@@ -84,6 +84,52 @@ import Testing
         #expect(PhonePushClient.shouldForward(mode: .always, presence: decision))
     }
 
+    @Test func phonePayloadOmitsSurfaceForConfinedNotificationsOnly() {
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let confined = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: false,
+            title: "Relay",
+            subtitle: "Completed",
+            body: "Confined to its authorized workspace",
+            createdAt: Self.now,
+            isRead: false
+        )
+        let trusted = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "May follow its live surface",
+            createdAt: Self.now,
+            isRead: false
+        )
+
+        let confinedPayload = PhonePushPayload(
+            notification: confined,
+            macDeviceId: "mac-1",
+            badgeCount: 1,
+            hideContent: false
+        )
+        let trustedPayload = PhonePushPayload(
+            notification: trusted,
+            macDeviceId: "mac-1",
+            badgeCount: 2,
+            hideContent: false
+        )
+
+        #expect(confinedPayload.workspaceId == workspaceId.uuidString)
+        #expect(confinedPayload.surfaceId == surfaceId.uuidString)
+        #expect(!confinedPayload.retargetsToLiveSurfaceOwner)
+        #expect(trustedPayload.workspaceId == workspaceId.uuidString)
+        #expect(trustedPayload.surfaceId == surfaceId.uuidString)
+        #expect(trustedPayload.retargetsToLiveSurfaceOwner)
+    }
+
     // MARK: - Heuristic details
 
     @Test func idleExactlyAtThresholdCountsAsActive() {

@@ -1,15 +1,11 @@
 import Foundation
 
-/// The stable, user-customisable shortcut actions cmux exposes.
-///
-/// Each case is a one-line identifier that maps to one user-facing
-/// behavior. The set is intentionally flat (rather than nested by
-/// category) so the JSON config representation stays readable
-/// (`"shortcuts.bindings": { "openSettings": "cmd+,", ... }`).
-///
-/// Display names + group categorization are metadata derived from the
-/// enum case in extensions below; the raw value is the stable
-/// identifier persisted in cmux.json.
+/// The stable, user-customisable shortcut actions cmux exposes. Each case is a
+/// one-line identifier that maps to one user-facing behavior. The set is
+/// intentionally flat (rather than nested by category) so the JSON config
+/// representation stays readable (`"shortcuts.bindings": { "openSettings": "cmd+,", ... }`).
+/// Display names + group categorization are metadata derived from the enum case in
+/// extensions below; the raw value is the stable identifier persisted in cmux.json.
 public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCodable {
     // MARK: App
     case openSettings
@@ -48,15 +44,29 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Navigation
     case nextSurface
     case prevSurface
+    /// Moves the selected surface one position left.
+    case moveSurfaceLeft
+    /// Moves the selected surface one position right.
+    case moveSurfaceRight
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
+    /// Moves the selected workspace one position up within its pin tier.
+    case moveWorkspaceUp
+    /// Moves the selected workspace one position down within its pin tier.
+    case moveWorkspaceDown
     case focusHistoryBack
     case focusHistoryForward
     case selectWorkspaceByNumber
     case renameTab
     case renameWorkspace
     case editWorkspaceDescription
+    /// Sets the workspace's todo status override to done.
+    case markWorkspaceDone
+    /// Cycles the workspace's todo status override one lane forward.
+    case cycleWorkspaceStatus
+    /// Toggles the highlighted checklist item in the focused todo surface.
+    case toggleChecklistItemComplete
     case closeTab
     case closeOtherTabsInPane
     case closeWorkspace
@@ -142,34 +152,27 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case diffViewerScrollDown
     /// Scrolls the focused diff viewer up one step.
     case diffViewerScrollUp
+    /// Scrolls the focused viewer down half a page.
+    case diffViewerScrollHalfPageDown
+    /// Scrolls the focused viewer up half a page.
+    case diffViewerScrollHalfPageUp
+    /// Scrolls the focused viewer down one smooth step using the Emacs binding.
+    case diffViewerScrollDownEmacs
+    /// Scrolls the focused viewer up one smooth step using the Emacs binding.
+    case diffViewerScrollUpEmacs
     /// Scrolls the focused diff viewer to the bottom.
     case diffViewerScrollToBottom
     /// Scrolls the focused diff viewer to the top.
     case diffViewerScrollToTop
     /// Opens file search inside the focused diff viewer.
     case diffViewerOpenFileSearch
+    /// Jumps to the next file inside the focused diff viewer.
+    case diffViewerNextFile
+    /// Jumps to the previous file inside the focused diff viewer.
+    case diffViewerPreviousFile
 }
 
 extension ShortcutAction {
-    /// Logical grouping used for sectioning the shortcuts pane.
-    public enum Group: String, CaseIterable, Sendable, Hashable {
-        case app
-        case workspace
-        case navigation
-        case panes
-        case browser
-
-        public var title: String {
-            switch self {
-            case .app: return "App"
-            case .workspace: return "Workspace"
-            case .navigation: return "Navigation"
-            case .panes: return "Panes"
-            case .browser: return "Browser & Find"
-            }
-        }
-    }
-
     /// Which group this action belongs to in the settings pane.
     public var group: Group {
         switch self {
@@ -183,10 +186,10 @@ extension ShortcutAction {
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
              .switchRightSidebarToDock, .triggerFlash:
             return .workspace
-        case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
-             .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
+        case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight, .selectSurfaceByNumber,
+             .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
-             .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
+             .editWorkspaceDescription, .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
              .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
@@ -207,8 +210,11 @@ extension ShortcutAction {
              .find, .findInDirectory, .findNext, .findPrevious,
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
              .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab,
-             .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
-             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
+             .diffViewerScrollDown, .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs, .diffViewerScrollToBottom,
+             .diffViewerScrollToTop, .diffViewerOpenFileSearch,
+             .diffViewerNextFile, .diffViewerPreviousFile:
             return .browser
         }
     }
@@ -241,9 +247,15 @@ extension ShortcutAction {
         switch self {
         case .diffViewerScrollDown,
              .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown,
+             .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs,
+             .diffViewerScrollUpEmacs,
              .diffViewerScrollToBottom,
              .diffViewerScrollToTop,
              .diffViewerOpenFileSearch,
+             .diffViewerNextFile,
+             .diffViewerPreviousFile,
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return true
@@ -273,15 +285,21 @@ extension ShortcutAction {
             return .atom(.sidebarFocus)
         case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .atom(.sidebarFocus)
+        case .commandPaletteNext, .commandPalettePrevious:
+            return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
-             .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
-             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
+             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
             return .atom(.browserFocus)
+        case .diffViewerScrollDown, .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs, .diffViewerScrollToBottom,
+             .diffViewerScrollToTop:
+            return .or(.atom(.browserFocus), .atom(.markdownFocus))
         case .browserZoomIn, .browserZoomOut, .browserZoomReset:
             return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
@@ -302,27 +320,6 @@ extension ShortcutAction {
             return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
         default:
             return .always
-        }
-    }
-
-    /// Whether the app's key router consumes this action *before* general
-    /// configured-shortcut matching whenever its context holds.
-    ///
-    /// The right-sidebar mode shortcuts are pre-routed: while the sidebar is
-    /// focused they win their keystroke outright, and every other binding on the
-    /// same stroke keeps firing outside that context. Conflict detection
-    /// (``ShortcutWhenClause/bindingsCollide(_:lhsHasPriority:_:rhsHasPriority:)``)
-    /// uses this to accept such priority-resolved pairs — e.g. the factory
-    /// default Select Surface `⌃1…9` alongside the sidebar's `⌃1…5` — instead of
-    /// rejecting them as colliding. Mirrors the app target's routing order in
-    /// `handleCustomShortcut`; a drift test asserts the two stay aligned.
-    public var hasPriorityShortcutRouting: Bool {
-        switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
-            return true
-        default:
-            return false
         }
     }
 
@@ -363,15 +360,22 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
+        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
+        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"
+        case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
+        case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
         case .focusHistoryBack: return "Focus Back"
         case .focusHistoryForward: return "Focus Forward"
         case .selectWorkspaceByNumber: return "Select Workspace 1…9"
         case .renameTab: return "Rename Tab"
         case .renameWorkspace: return "Rename Workspace"
         case .editWorkspaceDescription: return "Edit Workspace Description"
+        case .markWorkspaceDone: return String(localized: "shortcut.markWorkspaceDone.label", defaultValue: "Mark Workspace as Done")
+        case .cycleWorkspaceStatus: return String(localized: "shortcut.cycleWorkspaceStatus.label", defaultValue: "Cycle Workspace Status")
+        case .toggleChecklistItemComplete: return String(localized: "shortcut.toggleChecklistItemComplete.label", defaultValue: "Toggle Checklist Item Complete")
         case .closeTab: return "Close Tab"
         case .closeOtherTabsInPane: return "Close Other Tabs in Pane"
         case .closeWorkspace: return "Close Workspace"
@@ -462,15 +466,27 @@ extension ShortcutAction {
         case .toggleBrowserFocusMode: return "Enter Browser Focus Mode"
         case .toggleReactGrab: return "Toggle React Grab"
         case .diffViewerScrollDown:
-            return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
+            return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
         case .diffViewerScrollUp:
-            return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
+            return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Viewers: Scroll Up")
+        case .diffViewerScrollHalfPageDown:
+            return String(localized: "shortcut.diffViewerScrollHalfPageDown.label", defaultValue: "Viewers: Scroll Half Page Down")
+        case .diffViewerScrollHalfPageUp:
+            return String(localized: "shortcut.diffViewerScrollHalfPageUp.label", defaultValue: "Viewers: Scroll Half Page Up")
+        case .diffViewerScrollDownEmacs:
+            return String(localized: "shortcut.diffViewerScrollDownEmacs.label", defaultValue: "Viewers: Scroll Down (Emacs)")
+        case .diffViewerScrollUpEmacs:
+            return String(localized: "shortcut.diffViewerScrollUpEmacs.label", defaultValue: "Viewers: Scroll Up (Emacs)")
         case .diffViewerScrollToBottom:
-            return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
+            return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Viewers: Scroll to Bottom")
         case .diffViewerScrollToTop:
-            return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
+            return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Viewers: Scroll to Top")
         case .diffViewerOpenFileSearch:
             return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
+        case .diffViewerNextFile:
+            return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
+        case .diffViewerPreviousFile:
+            return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
         }
     }
 }

@@ -15,6 +15,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.sleepyMode", defaultValue: "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night")
         case .mobile:
             return localized("settings.search.alias.section.mobile", defaultValue: "ios iphone ipad mobile pairing local network permission sync")
+        case .networking:
+            return localized("settings.search.alias.section.networking", defaultValue: "iroh relay relays server fleet provider region custom self hosted private network tailscale vpn direct peer")
         case .sidebarAppearance:
             return localized("settings.search.alias.section.sidebarAppearance", defaultValue: "sidebar left rail navigation details branches badges material terminal background")
         case .customSidebars:
@@ -95,6 +97,8 @@ enum SettingsSearchAliasIndex {
         "app:canvas-pane-gap": localized("settings.search.alias.setting.app.canvas-pane-gap", defaultValue: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         "app:canvas-snapping": localized("settings.search.alias.setting.app.canvas-snapping", defaultValue: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
+        "terminal:session-content-width": localized("settings.search.alias.setting.terminal.session-content-width", defaultValue: "terminal.sessionContentMaxWidth terminal agent chat max width readable line length points pt narrow wide"),
+        "terminal:session-content-alignment": localized("settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position"),
         "terminal:copy-on-select": localized("settings.search.alias.setting.terminal.copy-on-select", defaultValue: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
         "terminal:shift-right-click-shows-menu": localized("settings.search.alias.setting.terminal.shift-right-click-shows-menu", defaultValue: "terminal.shiftRightClickShowsMenu shift right click context menu mouse capture bypass tui tmux claude code"),
         "terminal:tab-bar-font-size": localized("settings.search.alias.setting.terminal.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title"),
@@ -108,6 +112,8 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:hide-sidebar-details": localized("settings.search.alias.setting.app.hide-sidebar-details", defaultValue: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
         "sidebarAppearance:wrap-workspace-titles": localized("settings.search.alias.setting.app.wrap-workspace-titles", defaultValue: "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"),
         "sidebarAppearance:show-workspace-description": localized("settings.search.alias.setting.app.show-workspace-description", defaultValue: "sidebar.showWorkspaceDescription workspace description notes markdown sidebar"),
+        "betaFeatures:workspace-todo-controls": localized("settings.search.alias.setting.betaFeatures.workspace-todo-controls", defaultValue: "sidebar.beta.workspaceTodos.controls.enabled workspace todo todos task status checklist add item controls beta"),
+        "betaFeatures:workspace-todos-checklist-style": localized("settings.search.alias.setting.betaFeatures.workspace-todos-checklist-style", defaultValue: "sidebar.beta.workspaceTodos.checklistStyle workspace todo todos task status checklist popover inline presentation style beta"),
         "sidebarAppearance:sidebar-branch-layout": localized("settings.search.alias.setting.app.sidebar-branch-layout", defaultValue: "sidebar.branchLayout git branch layout vertical inline cwd directory"),
         "sidebarAppearance:stack-branch-directory": localized("settings.search.alias.setting.app.stack-branch-directory", defaultValue: "sidebar.stackBranchDirectory git branch directory cwd path stack stacked separate lines two rows"),
         "sidebarAppearance:path-last-segment-only": localized("settings.search.alias.setting.app.path-last-segment-only", defaultValue: "sidebar.pathLastSegmentOnly cwd path directory last segment basename short truncate folder repo"),
@@ -132,6 +138,13 @@ enum SettingsSearchAliasIndex {
         "mobile:iOSPairingHost": localized("settings.search.alias.setting.mobile.iOSPairingHost", defaultValue: "ios iphone ipad mobile pairing local network permission sync"),
         "mobile:iOSPairingPort": localized("settings.search.alias.setting.mobile.iOSPairingPort", defaultValue: "mobile ios iphone pairing port tcp listener firewall conflict bind"),
         "mobile:iOSPairingDisplayName": localized("settings.search.alias.setting.mobile.iOSPairingDisplayName", defaultValue: "mobile ios iphone pairing display name mac hostname device label"),
+        "mobile:artifactFolderAccess": localized("settings.search.alias.setting.mobile.artifactFolderAccess", defaultValue: "mobile ios iphone files folders directory subtree one level authorization security"),
+        "networking:relayPreference": localized("settings.search.alias.setting.networking.relayPreference", defaultValue: "iroh relay preference automatic managed selected cmux fleet provider region account"),
+        "networking:customRelays": localized("settings.search.alias.setting.networking.customRelays", defaultValue: "iroh custom relay self hosted server url secret credential device authentication"),
+        "networking:privateNetworks": localized("settings.search.alias.setting.networking.privateNetworks", defaultValue: "private network lan vpn direct peer path local address generic provider automatic"),
+        "networking:tailscaleCompatibility": localized("settings.search.alias.setting.networking.tailscaleCompatibility", defaultValue: "tailscale tailnet private ip compatibility vpn legacy tcp automatic"),
+        "networking:status": localized("settings.search.alias.setting.networking.status", defaultValue: "iroh status diagnostics direct peer relay degraded active inactive refresh"),
+        "networking:policy": localized("settings.search.alias.setting.networking.policy", defaultValue: "relay policy signed verified catalog cached server expiry sequence security"),
         "automation:socket-mode": localized("settings.search.alias.setting.automation.socket-mode", defaultValue: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),

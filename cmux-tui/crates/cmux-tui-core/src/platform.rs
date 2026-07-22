@@ -4,12 +4,15 @@ use std::path::{Path, PathBuf};
 
 pub mod transport {
     use std::io::{self, Read, Write};
+    use std::net::Shutdown;
     use std::path::Path;
     use std::time::Duration;
 
-    pub trait Stream: Read + Write + Send {
+    pub trait Stream: Read + Write + Send + Sync {
         fn try_clone_box(&self) -> io::Result<Box<dyn Stream>>;
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+        fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+        fn shutdown(&self, how: Shutdown) -> io::Result<()>;
     }
 
     pub struct Listener {
@@ -66,6 +69,14 @@ pub mod transport {
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
             }
+
+            fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+                UnixStream::set_write_timeout(self, timeout)
+            }
+
+            fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
+                UnixStream::shutdown(self, how)
+            }
         }
     }
 
@@ -104,6 +115,14 @@ pub mod transport {
 
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
+            }
+
+            fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+                UnixStream::set_write_timeout(self, timeout)
+            }
+
+            fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
+                UnixStream::shutdown(self, how)
             }
         }
     }
@@ -265,6 +284,50 @@ pub fn ghostty_config_paths() -> Vec<PathBuf> {
                 .join("config"),
         );
     }
+    candidates
+}
+
+/// Candidate Ghostty executables, in the order cmux-tui should probe them.
+///
+/// `GHOSTTY_BIN` is useful for packaged and development installations; the
+/// remaining paths cover the standard CLI and macOS app bundles.
+pub fn ghostty_binary_paths() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(path) = env_path("GHOSTTY_BIN") {
+        push_unique(&mut candidates, path);
+    }
+    if let Some(path) = find_on_path(&["ghostty"]) {
+        push_unique(&mut candidates, path);
+    }
+    push_unique(&mut candidates, PathBuf::from("/Applications/Ghostty.app/Contents/MacOS/ghostty"));
+    push_unique(
+        &mut candidates,
+        PathBuf::from("/Applications/cmux.app/Contents/Resources/bin/ghostty"),
+    );
+    candidates.retain(|path| is_executable_file(path));
+    candidates
+}
+
+/// Theme directories in Ghostty's resolution order.
+///
+/// A user-supplied theme overrides a bundled one with the same name. Include
+/// cmux's bundled Ghostty resources as well so the headless fallback works
+/// when cmux is installed without the standalone Ghostty app.
+pub fn ghostty_theme_dirs() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(config_home) = env_path("XDG_CONFIG_HOME") {
+        push_unique(&mut candidates, config_home.join("ghostty").join("themes"));
+    } else if let Some(home) = home_dir() {
+        push_unique(&mut candidates, home.join(".config").join("ghostty").join("themes"));
+    }
+    push_unique(
+        &mut candidates,
+        PathBuf::from("/Applications/Ghostty.app/Contents/Resources/ghostty/themes"),
+    );
+    push_unique(
+        &mut candidates,
+        PathBuf::from("/Applications/cmux.app/Contents/Resources/ghostty/themes"),
+    );
     candidates
 }
 

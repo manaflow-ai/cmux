@@ -83,8 +83,8 @@ cmux-tui plugin disable
 | `browser.discover_ports` | integer array | `[9222]` | Local ports to probe for `/json/version` |
 | `browser.user_data_dir` | string | `null` | Persistent profile directory for launched Chrome |
 | `browser.ephemeral` | boolean | `false` | Use a temporary launched Chrome profile and delete it on shutdown |
-| `browser.max_capture_megapixels` | number | `2.0` | Maximum browser capture size before downscaling |
-| `browser.capture_scale` | number or null | `null` | Fixed capture scale from 0.0 through 1.0 |
+| `browser.max_capture_megapixels` | number | `2.0` | Maximum browser capture size before downscaling, from 0.0 through 2.0 |
+| `browser.capture_scale` | number or null | `null` | Maximum capture scale from 0.0 through 1.0, reduced further when needed to stay under the megapixel limit |
 
 When `browser.ephemeral` is true, it takes precedence over `browser.user_data_dir`: launched Chrome uses a fresh temporary profile, and the configured directory is not deleted.
 
@@ -103,9 +103,9 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `server.ws` | socket address string | unset | Enables the WebSocket control listener, for example `127.0.0.1:7681` |
-| `server.ws_token` | string | unset | Requires the first WebSocket text frame to be `{"auth":{"token":"..."}}` |
+| `server.ws_token` | string | unset | Adds a static-token bypass for interactive TUI pairing |
 
-WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
+WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
 ## Keys
 
@@ -115,10 +115,10 @@ WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-
 | `keys.alt_shortcuts` | boolean | `true` | Enables default modeless Alt bindings when true |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
-| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using smart split direction |
+| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
 | `keys.next-tab` | chord string or array or `"none"` | `"tab"` | Next tab |
 | `keys.prev-tab` | chord string or array or `"none"` | `"backtab"` | Previous tab |
-| `keys.select-tab-1` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by visible tab number; use these to restore the old `Ctrl-b 1` through `Ctrl-b 9` tab selectors |
+| `keys.select-tab-0` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by its zero-based visible index |
 | `keys.split-right` | chord string or array or `"none"` | `"%"` | Split right |
 | `keys.split-down` | chord string or array or `"none"` | `"\""` | Split down |
 | `keys.close-pane` | chord string or array or `"none"` | `"x"` | Close active pane |
@@ -130,8 +130,7 @@ WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-
 | `keys.close-screen` | chord string or array or `"none"` | `"&"` | Close active screen |
 | `keys.prev-screen` | chord string or array or `"none"` | `["p","alt+["]` | Previous screen |
 | `keys.next-screen` | chord string or array or `"none"` | `["n","alt+]"]` | Next screen |
-| `keys.select-screen-1` through `keys.select-screen-9` | chord string or array or `"none"` | `"1"` through `"9"` | Select visible screen 1 through 9 |
-| `keys.select-screen-0` | chord string or array or `"none"` | `"0"` | Select visible screen 10 |
+| `keys.select-screen-0` through `keys.select-screen-9` | chord string or array or `"none"` | `"0"` through `"9"` | Select visible screen 0 through 9 |
 | `keys.new-screen` | chord string or array or `"none"` | `"c"` | New screen |
 | `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
@@ -160,7 +159,7 @@ Each action override replaces all default chords for that action. Values may be 
 
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Existing users can restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"`.
 
-Screens are visibly numbered from 1, so `select-screen-1` selects the first visible screen and `select-screen-0` selects the tenth visible screen. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
+Screen and tab positions are zero-based, so each `select-screen-N` or `select-tab-N` action selects index `N`. Generated workspace names also start at `0`. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
 
 Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
 

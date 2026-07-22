@@ -22,7 +22,7 @@ The scrollbar is visible only when a PTY surface can scroll. With the default `s
 
 The thumb is `▕` normally and `▐` while hovered or dragged. Clicking the thumb starts a drag without moving the viewport. Clicking the track outside the thumb jumps to that relative position, then starts a drag from the clicked anchor.
 
-Wheel over a PTY pane focuses that pane first. On the normal screen it scrolls by three rows. On the alternate screen, if the inner app is not tracking mouse input, the TUI sends three up or down arrow keys.
+Wheel over a PTY pane focuses that pane first. When the inner app enables terminal mouse tracking, wheel events are forwarded at the pointer position using the app's requested mouse protocol. Otherwise, the normal screen scrolls by three rows and the alternate screen receives three up or down arrow keys.
 
 ## Resize
 
@@ -32,13 +32,15 @@ Drag the sidebar border to resize the sidebar for the current TUI session. The c
 
 ## Context Menus
 
-Right-click a pane for rename tab, new tab, new browser tab, split right, split down, close tab, and close pane. Right-click a workspace row for rename or close. Right-click a screen in the status bar for rename or close.
+Right-click a pane for rename tab, close tab, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, and ID copying. The menu separates current-tab, creation, browser, pane-layout, and ID actions. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu. Right-click a workspace row for rename, close, or ID copying. Right-click a screen in the status bar for rename or close.
 
-Menus draw bordered overlays. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
+Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
 
 ## Selection and Clipboard
 
-Drag inside a PTY pane to select text. Releasing copies non-empty selected text to the host clipboard with OSC 52. The selection stores absolute scrollback rows, so it remains stable while the viewport scrolls.
+Clicks, releases, and motion inside a PTY pane are forwarded when the inner app enables terminal mouse tracking. cmux uses Ghostty's encoder so X10, UTF-8, SGR, URxvt, and SGR pixel modes follow the app's terminal state. Hold Shift to bypass mouse reporting and use cmux text selection.
+
+Drag inside a PTY pane to select text when mouse tracking is disabled or Shift is held. Releasing copies non-empty selected text to the host clipboard with OSC 52. The selection stores absolute scrollback rows, so it remains stable while the viewport scrolls.
 
 Holding a selection drag at the top or bottom content edge auto-scrolls and extends the selection. Typing clears the selection. If the selected surface exits, the selection is cleared.
 

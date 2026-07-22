@@ -10,6 +10,8 @@ session -> workspaces -> screens -> split-tree panes -> tabs
 
 A session is one mux backend and one control socket. A workspace owns one or more screens. A screen is the layout selected in the status bar. A screen layout is a binary split tree whose leaves are panes. A pane owns an ordered tab list, and each tab is a surface.
 
+Protocol v8 assigns each interior split node a stable `SplitId`. Frontends use it as divider identity and resize that exact node with `set-split-ratio`. The id survives ratio, focus, tab, and leaf-order changes. It disappears only when its node collapses.
+
 The UI uses tmux-style verbs for screens. Prefix `c` creates a screen, prefix `n` and `p` switch screens, prefix `&` closes a screen, and prefix `,` renames a screen. PTY tabs use prefix `t`, tab chips, and tab context menus.
 
 ## Active and Focus State
@@ -46,4 +48,4 @@ Closing a pane closes all tabs in that pane. Closing a screen closes every pane 
 
 A PTY surface parses child-process output with libghostty-vt. Frontends render snapshots of that terminal state. Attach clients receive a VT replay first, then a base64 stream of subsequent PTY bytes, plus ordered resize frames when the surface geometry changes.
 
-A browser surface is a local Chrome/Chromium target controlled through the Chrome DevTools Protocol. The local TUI draws browser frames with kitty graphics and forwards keyboard, mouse, and wheel input over CDP. Browser surfaces are listed in the tree, but `attach-surface` does not stream browser pixels as of protocol v6.
+A browser surface is a local Chrome/Chromium target controlled through the Chrome DevTools Protocol. The local TUI draws browser frames with kitty graphics and forwards keyboard, mouse, and wheel input over CDP. Protocol-v7 attach clients receive an initial `browser-state` event with the latest optional frame, followed by updated `browser-state` and base64 PNG `frame` events.

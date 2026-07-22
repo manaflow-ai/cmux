@@ -44,6 +44,9 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            linkerSettings: [
+                .linkedLibrary("c++"),
             ]
         ),
         // Test-only stand-in for the @_silgen_name libghostty symbol bound by
@@ -65,6 +68,11 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            // GhosttyKit's static lib carries C++ objects (glslang); the
+            // standalone xctest bundle must link the C++ runtime itself.
+            linkerSettings: [
+                .linkedLibrary("c++"),
             ]
         ),
     ]

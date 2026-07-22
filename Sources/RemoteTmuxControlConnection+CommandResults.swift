@@ -9,12 +9,25 @@ extension RemoteTmuxControlConnection {
         // misalign the positional correlation.
         guard !pendingCommands.isEmpty else { return }
         let kind = pendingCommands.removeFirst()
+        #if DEBUG
+        switch kind {
+        case .paneRects, .listWindows, .perWindowSize:
+            cmuxDebugLog(
+                "remote.fifo.dequeue \(kind) depth=\(pendingCommands.count)"
+                    + " err=\(isError ? 1 : 0) lines=\(lines.count)"
+                    + " bytes=\(lines.reduce(0) { $0 + $1.utf8.count })"
+            )
+        default:
+            break
+        }
+        #endif
         defer {
             if case .listWindows = kind {
                 completeWindowListRequest()
             }
         }
         guard !isError else {
+            failPaneSeedCommand(kind, errorLines: lines)
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.
             if case let .activityQuery(token) = kind,
@@ -25,6 +38,10 @@ extension RemoteTmuxControlConnection {
                let completion = newWindowCompletions.removeValue(forKey: token) {
                 completion(nil)
             }
+            if case let .tracked(token) = kind,
+               let completion = trackedSendCompletions.removeValue(forKey: token) {
+                completion(false)
+            }
             // A rejected per-window size normally means the server predates
             // the '@id:WxH' form: degrade to session-wide sizing, visibly.
             // But a "can't find window" error is about ONE dead window (it
@@ -32,7 +49,7 @@ extension RemoteTmuxControlConnection {
             // whole connection.
             if case let .perWindowSize(windowId) = kind {
                 if lines.joined(separator: " ").localizedCaseInsensitiveContains("find window") {
-                    lastWindowSizes[windowId] = nil
+                    removeWindowSizeClaim(windowId: windowId)
                 } else {
                     notePerWindowSizeRejected()
                 }
@@ -167,7 +184,7 @@ extension RemoteTmuxControlConnection {
                 // Per-window sizing state must not outlive the topology: a
                 // stale pin would be replayed by the reconnect reseed, and a
                 // pending debounce could fire at a dead @id.
-                lastWindowSizes = lastWindowSizes.filter { liveIDs.contains($0.key) }
+                retainWindowSizeClaims(for: liveIDs)
                 for (id, task) in windowSizeDebounceTasks where !liveIDs.contains(id) {
                     task.cancel()
                     windowSizeDebounceTasks[id] = nil
@@ -176,8 +193,14 @@ extension RemoteTmuxControlConnection {
                     lastSizeRequestWindowId = nil
                 }
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
-                windowTitleRowsVisible = windowTitleRowsVisible.filter { liveIDs.contains($0.key) }
+                windowTitleRowPlacements = windowTitleRowPlacements.filter { liveIDs.contains($0.key) }
                 prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote.window.snapshot order=\(order)"
+                        + " prior=\(windowOrder)"
+                )
+                #endif
                 windowOrder = shouldApplyWindowOrder
                     ? order
                     : decoding.windowOrder(order, applyingReorder: optimisticLiveOrder)
@@ -254,7 +277,13 @@ extension RemoteTmuxControlConnection {
                 windowOrder = reconciledOrder
                 observers.notifyTopologyChanged()
             }
-        case let .capturePane(paneId):
+        case .paneOutputReset:
+            // Server-side output-cursor barrier only; capture owns the paint.
+            break
+        case .paneOutputContinue:
+            // Server-side cutover edge only; the state result completed the seed.
+            break
+        case let .capturePane(paneId, seedID):
             // capture-pane -e -S output is the pane's history + visible rows (with
             // SGR escapes). Home + clear the VISIBLE SCREEN (ESC[2J — NOT ESC[3J,
             // which would erase the scrollback we are seeding), then write every
@@ -267,16 +296,15 @@ extension RemoteTmuxControlConnection {
             // the visible screen.
             let painted = "\u{1b}[H\u{1b}[2J" + lines.joined(separator: "\r\n")
             if let data = painted.data(using: .utf8) {
-                observers.emitPaneOutput(paneId, data)
+                installPaneSeedCapture(paneId: paneId, seedID: seedID, data: data)
             }
-        case let .paneState(paneId):
+        case let .paneState(paneId, seedID):
             // Restore the pane's terminal state (scroll region + DEC modes + cursor)
             // onto the mirror surface, applied after the capture paint. The scroll
             // region (DECSTBM) is the important one: without it an inline TUI's
             // region-relative redraws land on the wrong rows even at a static size.
-            if let line = lines.first {
-                observers.emitPaneOutput(paneId, decoding.paneStateSeedSequence(from: line))
-            }
+            let state = lines.first.map(decoding.paneStateSeedSequence(from:)) ?? Data()
+            finishPaneSeed(paneId: paneId, seedID: seedID, state: state)
         case let .panePath(paneId):
             if let path = lines.first?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
                 observers.emitPaneCwd(paneId, path)
@@ -296,7 +324,7 @@ extension RemoteTmuxControlConnection {
             // consumers (batch close, workspace close, quit warning) benefit too.
             for (paneId, state) in states { paneForegroundStates[paneId] = state }
             completion(states)
-        case let .paneAltScreen(paneId):
+        case let .paneAltScreen(paneId, seedID):
             // Match the mirror surface to the remote pane's screen (alt = no reflow on
             // resize). Emitted before the capture paint that follows in the FIFO, so the
             // seeded rows land on the right screen. The else branch is load-bearing on a
@@ -304,9 +332,13 @@ extension RemoteTmuxControlConnection {
             // remote pane is now on primary, force it back (1049l) so the capture doesn't
             // paint onto a stale alt screen.
             if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
-                observers.emitPaneOutput(paneId, Self.altScreenEnterSequence)
+                appendPaneSeedPrefix(
+                    paneId: paneId, seedID: seedID, data: Self.altScreenEnterSequence
+                )
             } else {
-                observers.emitPaneOutput(paneId, Self.altScreenExitSequence)
+                appendPaneSeedPrefix(
+                    paneId: paneId, seedID: seedID, data: Self.altScreenExitSequence
+                )
             }
         case .perWindowSize:
             // A successful per-window size push replies with an empty block;
@@ -315,6 +347,8 @@ extension RemoteTmuxControlConnection {
             break
         case let .windowReorder(isLast):
             completeWindowReorderCommand(isLast: isLast, failed: false)
+        case let .tracked(token):
+            trackedSendCompletions.removeValue(forKey: token)?(true)
         case .other:
             break
         }

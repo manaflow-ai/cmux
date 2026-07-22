@@ -4,7 +4,7 @@ import Foundation
 import os
 import Security
 
-nonisolated struct AgentChatActionInFlightGate {
+struct AgentChatActionInFlightGate {
     private struct State {
         var isRunning = false
         var ownedServerSession: AgentChatOwnedServerSession?

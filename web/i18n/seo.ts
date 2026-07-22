@@ -1,4 +1,5 @@
 import { locales } from "./routing";
+import { docsCanonicalOrigin } from "@/app/lib/docs-channel";
 
 const BASE = "https://cmux.com";
 const DEFAULT_OG_IMAGE_PATH = "/opengraph-image";
@@ -381,14 +382,18 @@ export function buildAlternates(
   path: string,
   availableLocales: readonly string[] = locales,
 ) {
+  const base = path === "/docs" || path.startsWith("/docs/")
+    ? docsCanonicalOrigin()
+    : BASE;
   const languages: Record<string, string> = {};
   for (const loc of availableLocales) {
     languages[loc] =
-      loc === "en" ? `${BASE}${path}` : `${BASE}/${loc}${path}`;
+      loc === "en" ? `${base}${path}` : `${base}/${loc}${path}`;
   }
-  languages["x-default"] = `${BASE}${path}`;
+  languages["x-default"] = `${base}${path}`;
 
-  const canonical = canonicalUrl(locale, path);
+  const canonical =
+    locale === "en" ? `${base}${path}` : `${base}/${locale}${path}`;
 
   return { canonical, languages };
 }

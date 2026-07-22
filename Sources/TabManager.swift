@@ -8,6 +8,7 @@ import CmuxBrowser
 import CmuxGit
 import CmuxNotifications
 import CmuxPanes
+import CmuxRemoteSession
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
@@ -391,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -456,6 +458,9 @@ class TabManager: ObservableObject {
     // entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
+    /// GitHub transport state injected process-wide by the app composition root.
+    /// The fallback initializer is retained for isolated `TabManager` tests.
+    let pullRequestProbeService: PullRequestProbeService
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -464,14 +469,17 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
+        pullRequestProbeService: PullRequestProbeService? = nil,
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -492,10 +500,12 @@ class TabManager: ObservableObject {
 #else
         let sidebarGitDebugLog: @Sendable (String) -> Void = { _ in }
 #endif
-        let pullRequestProbeService = PullRequestProbeService(
-            commandRunner: commandRunner,
-            debugLog: sidebarGitDebugLog
-        )
+        let pullRequestProbeService = pullRequestProbeService
+            ?? PullRequestProbeService(
+                commandRunner: commandRunner,
+                debugLog: sidebarGitDebugLog
+            )
+        self.pullRequestProbeService = pullRequestProbeService
         let pullRequestPollService = PullRequestPollService(
             gitMetadataService: gitMetadataService,
             probeService: pullRequestProbeService,
@@ -541,7 +551,7 @@ class TabManager: ObservableObject {
                 guard let change = GhosttyTitleChange(notification: notification),
                       let workspace = workspacesById[change.tabId],
                       workspace.owningTabManager === self,
-                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface else { return }
+                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface, change.matches(sourceSurface: sourceSurface) else { return }
                 enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
             }
         })
@@ -914,7 +924,7 @@ class TabManager: ObservableObject {
 
     func hideFind() {
         if let panel = selectedTerminalPanel {
-            panel.searchState = nil
+            panel.surface.closeSearchFromExplicitInput()
             return
         }
 
@@ -950,7 +960,8 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
-            closeTabWarningDefaults: closeTabWarningDefaults
+            closeTabWarningDefaults: closeTabWarningDefaults,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
 
@@ -1053,12 +1064,14 @@ class TabManager: ObservableObject {
             let dir = inheritWorkingDirectory
                 ? implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
                 : nil
-            let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
+            let fontSizeLineage = inheritedTerminalFontSizeLineageForNewWorkspace(
+                workspace: sourceWorkspace
+            )
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
                 currentSelectedTabId: capturedSelectedTabId,
                 preferredWorkingDirectory: dir,
-                inheritedTerminalFontPoints: font
+                inheritedTerminalFontSizeLineage: fontSizeLineage
             )
             didCaptureWorkspaceCreationSnapshot()
 #if DEBUG
@@ -1069,7 +1082,7 @@ class TabManager: ObservableObject {
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
             let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
             let inheritedConfig = workspaceCreationConfigTemplate(
-                inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
+                inheritedTerminalFontSizeLineage: snapshot.inheritedTerminalFontSizeLineage
             )
             // Resolve placement against the pre-creation snapshot before Workspace init
             // boots terminal state. The ssh/new-workspace path can otherwise crash while
@@ -1250,7 +1263,7 @@ class TabManager: ObservableObject {
     }
 
     func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
-        guard !mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        guard shouldRetainBackgroundWorkspaceMount(for: workspaceId) else { return }
         var updated = mountedBackgroundWorkspaceLoadIds
         updated.insert(workspaceId)
         mountedBackgroundWorkspaceLoadIds = updated
@@ -1305,14 +1318,14 @@ class TabManager: ObservableObject {
     }
 
     /// Build a snapshot using pre-extracted value-type data. The caller is responsible
-    /// for obtaining `preferredWorkingDirectory` and `inheritedTerminalFontPoints` through
+    /// for obtaining `preferredWorkingDirectory` and font-size lineage through
     /// `self` (where `self.tabs` keeps all Workspace objects alive) so that no local
     /// Workspace references are needed here.
     func workspaceCreationSnapshotLite(
         currentTabs: [Workspace],
         currentSelectedTabId: UUID?,
         preferredWorkingDirectory: String?,
-        inheritedTerminalFontPoints: Float?
+        inheritedTerminalFontSizeLineage: TerminalFontSizeLineage?
     ) -> WorkspaceCreationSnapshot {
         var tabSnapshots: [WorkspaceCreationTabSnapshot] = []
         tabSnapshots.reserveCapacity(currentTabs.count)
@@ -1334,7 +1347,7 @@ class TabManager: ObservableObject {
             selectedTabId: currentSelectedTabId,
             selectedTabWasPinned: selectedTabSnapshot?.isPinned ?? false,
             preferredWorkingDirectory: preferredWorkingDirectory,
-            inheritedTerminalFontPoints: inheritedTerminalFontPoints
+            inheritedTerminalFontSizeLineage: inheritedTerminalFontSizeLineage
         )
     }
 
@@ -1343,7 +1356,7 @@ class TabManager: ObservableObject {
             currentTabs: tabs,
             currentSelectedTabId: selectedTabId,
             preferredWorkingDirectory: preferredWorkingDirectoryForNewTab(),
-            inheritedTerminalFontPoints: inheritedTerminalFontPointsForNewWorkspace()
+            inheritedTerminalFontSizeLineage: inheritedTerminalFontSizeLineageForNewWorkspace()
         )
     }
 
@@ -1403,54 +1416,59 @@ class TabManager: ObservableObject {
         inheritedTerminalConfigForNewWorkspace(workspace: selectedWorkspace)
     }
 
-    private func cachedInheritedTerminalFontPointsForNewWorkspace(
+    private func cachedInheritedTerminalFontSizeLineageForNewWorkspace(
         workspace: Workspace?
-    ) -> Float? {
+    ) -> TerminalFontSizeLineage? {
         guard let workspace else { return nil }
-        // New workspace creation only seeds font size into a fresh Swift-owned template.
+        // New workspace creation only seeds font lineage into a fresh Swift-owned template.
         // Avoid reading live panel/surface state here; the arm64 Nightly Cmd+N crash path
         // was repeatedly dereferencing pointer-backed terminal objects while preparing the
         // new workspace. The workspace already caches the rooted font lineage we need.
         return withExtendedLifetime(workspace) {
-            guard let fontPoints = workspace.lastRememberedTerminalFontPointsForConfigInheritance(),
-                  fontPoints > 0 else {
+            guard let lineage = workspace.lastRememberedTerminalFontSizeLineageForConfigInheritance(),
+                  TerminalFontSizePolicy().acceptsPersistedBasePoints(lineage.basePoints) else {
                 return nil
             }
-            return fontPoints
+            return lineage
         }
     }
 
     func inheritedTerminalConfigForNewWorkspace(
         workspace: Workspace?
     ) -> CmuxSurfaceConfigTemplate? {
-        guard let fontPoints = cachedInheritedTerminalFontPointsForNewWorkspace(workspace: workspace) else {
+        guard let fontSizeLineage = cachedInheritedTerminalFontSizeLineageForNewWorkspace(
+            workspace: workspace
+        ) else {
             return nil
         }
         var config = CmuxSurfaceConfigTemplate()
-        config.fontSize = fontPoints
+        config.fontSizeLineage = fontSizeLineage
         return config
     }
 
-    private func inheritedTerminalFontPointsForNewWorkspace() -> Float? {
-        inheritedTerminalFontPointsForNewWorkspace(workspace: selectedWorkspace)
+    private func inheritedTerminalFontSizeLineageForNewWorkspace() -> TerminalFontSizeLineage? {
+        inheritedTerminalFontSizeLineageForNewWorkspace(workspace: selectedWorkspace)
     }
 
-    func inheritedTerminalFontPointsForNewWorkspace(
+    func inheritedTerminalFontSizeLineageForNewWorkspace(
         workspace: Workspace?
-    ) -> Float? {
-        cachedInheritedTerminalFontPointsForNewWorkspace(workspace: workspace)
+    ) -> TerminalFontSizeLineage? {
+        cachedInheritedTerminalFontSizeLineageForNewWorkspace(workspace: workspace)
     }
 
     func workspaceCreationConfigTemplate(
-        inheritedTerminalFontPoints: Float?
+        inheritedTerminalFontSizeLineage: TerminalFontSizeLineage?
     ) -> CmuxSurfaceConfigTemplate? {
-        guard let inheritedTerminalFontPoints, inheritedTerminalFontPoints > 0 else {
+        guard let inheritedTerminalFontSizeLineage,
+              TerminalFontSizePolicy().acceptsPersistedBasePoints(
+                inheritedTerminalFontSizeLineage.basePoints
+              ) else {
             return nil
         }
         // Rebuild a clean Swift-owned template instead of carrying over any pointer-backed
         // inherited config state from the source workspace.
         var config = CmuxSurfaceConfigTemplate()
-        config.fontSize = inheritedTerminalFontPoints
+        config.fontSizeLineage = inheritedTerminalFontSizeLineage
         return config
     }
 
@@ -1994,11 +2012,12 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
-        // User-initiated close of a mirrored remote tmux session kills it on the
-        // remote. (App quit tears down windows without calling closeWorkspace, so
-        // quitting still leaves remote sessions alive.)
+        // Closing a mirrored remote tmux workspace DETACHES from the remote session,
+        // leaving it alive on the server for resume. Killing the session is never a
+        // side effect of closing a tab (PR #7264 review); it is only ever an explicit
+        // disconnect action.
         if workspace.isRemoteTmuxMirror {
-            AppDelegate.shared?.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
+            AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
         }
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
@@ -2147,6 +2166,7 @@ class TabManager: ObservableObject {
             guard confirmClose(
                 title: prompt.title,
                 message: prompt.message,
+                scrollableDetails: prompt.details,
                 acceptCmdD: false
             ) else { return }
         }
@@ -2214,19 +2234,16 @@ class TabManager: ObservableObject {
         sidebarMultiSelection.replaceSelection(with: workspaceIds.intersection(existingIds))
     }
 
-    /// Marks the window's pending close as a tab/session close so a remote-tmux
-    /// mirror among `workspaces` is KILLED (synced with tmux) on the close commit
-    /// rather than detached. The single decision point for every close path that
-    /// closes the whole window directly — the last-workspace branch of
-    /// ``closeWorkspaceIfRunningProcess`` and the batch/anchor paths in
-    /// ``closeWorkspacesWithConfirmation`` — so every explicit tab-close intent kills
-    /// consistently. ``AppDelegate``'s `shouldClose`/`onClose` consume or clear the
-    /// marker (veto vs commit).
-    private func markRemoteTmuxKillOnWindowCloseIfNeeded(for workspaces: [Workspace]) {
-        guard workspaces.contains(where: { $0.isRemoteTmuxMirror }),
-              let windowId = AppDelegate.shared?.windowId(for: self) else { return }
-        AppDelegate.shared?.remoteTmuxController.markKillSessionsOnWindowClose(windowId: windowId)
-    }
+    /// No-op: closing a remote-tmux mirror workspace/tab/window must DETACH from the
+    /// remote session, never kill it. Killing a live tmux session is only ever an
+    /// explicit disconnect action, never a side effect of closing a tab (PR #7264
+    /// review by the ssh-tmux author). This seam formerly set the window
+    /// kill-on-close marker so the close committed a `kill-session`; it is retained
+    /// as a no-op (still called from the last-workspace and batch/anchor close paths)
+    /// so those paths fall through to detach via `AppDelegate`'s window-close handlers
+    /// and the app-quit deferral gate stays empty. The marker machinery is left in
+    /// place for a future explicit "disconnect host" action.
+    func markRemoteTmuxKillOnWindowCloseIfNeeded(for workspaces: [Workspace]) {}
 
     func closeWorkspacesWithConfirmation(_ workspaceIds: [UUID], allowPinned: Bool) {
         let workspaces = orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
@@ -2241,14 +2258,16 @@ class TabManager: ObservableObject {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
+                scrollableDetails: plan.details,
                 acceptCmdD: plan.acceptCmdD
             ) else { return }
         }
 
         if plan.workspaces.count == tabs.count,
            let firstWorkspace = plan.workspaces.first {
-            // Closing every tab is still an explicit tab/session close: kill the
-            // remote-tmux session(s) on commit, not detach.
+            // Closing every tab routes through the window-close path, which DETACHES
+            // the remote-tmux session(s) (kept alive on the server for resume); the
+            // mark seam is a retained no-op (see markRemoteTmuxKillOnWindowCloseIfNeeded).
             markRemoteTmuxKillOnWindowCloseIfNeeded(for: plan.workspaces)
             if let window {
                 window.performClose(nil)
@@ -2279,7 +2298,7 @@ class TabManager: ObservableObject {
                 // Anchor confirmed (or suppressed); skip the inner re-prompt
                 // by closing without going through closeWorkspaceIfRunningProcess.
                 if tabs.count <= 1 {
-                    // Still a tab/session close → kill the remote session on commit.
+                    // Mirror close detaches from the remote session (retained no-op).
                     markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
                     if let window {
                         window.performClose(nil)
@@ -2319,18 +2338,25 @@ class TabManager: ObservableObject {
         }
     }
 
-    func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
+    func confirmClose(
+        title: String,
+        message: String,
+        scrollableDetails: String? = nil,
+        acceptCmdD: Bool
+    ) -> Bool {
         guard beginCloseConfirmationSession() else { return false }
         defer { endCloseConfirmationSession() }
 
+        let content = scrollableDetails.map {
+            CmuxAlertContent(flattenedText: message, separatingScrollableDetails: $0)
+        } ?? CmuxAlertContent(informativeText: message)
         if let confirmCloseHandler {
-            return confirmCloseHandler(title, message, acceptCmdD)
+            return confirmCloseHandler(title, content.flattenedText, acceptCmdD)
         }
         _ = acceptCmdD
 
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
@@ -2352,18 +2378,21 @@ class TabManager: ObservableObject {
         ])
         #endif
 
-        return runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
+        return runCloseConfirmationAlert(alert, content: content) == .alertFirstButtonReturn
     }
 
-    private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
+    private func runCloseConfirmationAlert(
+        _ alert: NSAlert,
+        content: CmuxAlertContent? = nil
+    ) -> NSApplication.ModalResponse {
         // Presentation (activate + sheet-on-main-window, else app-modal) is
-        // shared with every other cmux dialog via `runCmuxModalAlert`. This
+        // shared with every other cmux dialog via `NSAlert.runCmuxModal`. This
         // wrapper only adds the close-confirmation-specific UITest telemetry,
         // recorded from the presenter's actual path so the label can never
         // disagree with how the alert was really shown.
-        return runCmuxModalAlert(
-            alert,
-            presentingWindow: closeConfirmationPresentingWindow()
+        return alert.runCmuxModal(
+            presentingWindow: closeConfirmationPresentingWindow(),
+            content: content
         ) { presentation in
             #if DEBUG
             switch presentation {
@@ -2387,7 +2416,7 @@ class TabManager: ObservableObject {
     }
 
     private func closeConfirmationPresentingWindow() -> NSWindow? {
-        cmuxMainWindowForModalPresentation(preferring: window)
+        NSApp.cmuxMainWindowForModalPresentation(preferring: window)
     }
 
     private struct CloseOtherTabsInFocusedPanePlan {
@@ -2400,6 +2429,7 @@ class TabManager: ObservableObject {
         let workspaces: [Workspace]
         let title: String
         let message: String
+        let details: String
         let acceptCmdD: Bool
     }
 
@@ -2477,6 +2507,7 @@ class TabManager: ObservableObject {
             workspaces: workspaces,
             title: title,
             message: message,
+            details: titleLines,
             acceptCmdD: willCloseWindow
         )
     }
@@ -2524,13 +2555,11 @@ class TabManager: ObservableObject {
             return false
         }
         if tabs.count <= 1 {
-            // Last workspace in this window closes via the window-close path, but it
-            // is still an explicit TAB/session close: for a remote-tmux mirror, mark
-            // the close to KILL the session on commit (synced with tmux), even though
-            // it also closes the app window. The marker is consumed on the (non-vetoed)
-            // close commit, or cleared if the close is vetoed (single-window quit
-            // warning) so a cancelled close never kills. A plain window/quit close
-            // never sets it, so it detaches. Non-last workspaces kill via closeWorkspace.
+            // Last workspace in this window closes via the window-close path. For a
+            // remote-tmux mirror this DETACHES from the remote session (kept alive for
+            // resume); the mark seam is a retained no-op (see
+            // markRemoteTmuxKillOnWindowCloseIfNeeded). Non-last workspaces also detach
+            // via closeWorkspace.
             markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
             if let window {
                 window.performClose(nil)
@@ -2869,7 +2898,7 @@ class TabManager: ObservableObject {
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
-        tabs.first(where: { $0.id == tabId })?.title
+        workspacesById[tabId]?.title
     }
 
     // MARK: - Panel/Surface ID Access
@@ -5579,7 +5608,7 @@ extension TabManager {
             hasher.combine(workspace.panelTitles.count)
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
-            hasher.combine(workspace.surfaceListeningPorts.count)
+            hasher.combine(workspace.surfaceListeningPorts.count); workspace.combineTodoStateIntoSessionAutosaveFingerprint(into: &hasher)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
             Self.hashNotifications(
@@ -5612,6 +5641,12 @@ extension TabManager {
                         panelId: panelId
                     ),
                     into: &hasher
+                )
+                hasher.combine(
+                    restorableAgentIndex.entry(
+                        workspaceId: workspace.id,
+                        panelId: panelId
+                    )?.processLiveness
                 )
                 Self.hashAgentHibernationPanelState(
                     (workspace.panels[panelId] as? TerminalPanel)?.agentHibernationState,
@@ -5668,7 +5703,6 @@ extension TabManager {
             hasher.combine(false)
             return
         }
-
         hasher.combine(true)
         hasher.combine(snapshot.kind.rawValue)
         hasher.combine(snapshot.sessionId)
@@ -5737,6 +5771,7 @@ extension TabManager {
         hashOptionalString(snapshot.source, into: &hasher)
         hashStringMap(snapshot.environment, into: &hasher)
         hasher.combine(snapshot.allowsAutomaticResume)
+        hasher.combine(snapshot.launchFlavor)
         if snapshot.isProcessDetected {
             hasher.combine(false)
         } else {
@@ -5925,19 +5960,12 @@ extension TabManager {
         return (filtered, remappedSelection)
     }
 
-    private static func isCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
-        isManagedCloudVMSessionRestoreWorkspace(snapshot)
-    }
-
-    private static func isManagedCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
-        guard let managedCloudVMID = snapshot.remote?.managedCloudVMID else { return false }
-        return !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
-        remapClosedPanelHistory: Bool = true, excludingStableIdentities: Set<UUID> = []
+        remapClosedPanelHistory: Bool = true,
+        excludingStableIdentities: Set<UUID> = [],
+        workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil
     ) -> [[UUID: UUID]] {
         isRestoringSessionSnapshot = true
         defer { isRestoringSessionSnapshot = false }
@@ -5981,10 +6009,12 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
-                closeTabWarningDefaults: closeTabWarningDefaults
+                closeTabWarningDefaults: closeTabWarningDefaults,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
+            Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)
@@ -5994,7 +6024,12 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal, closeTabWarningDefaults: closeTabWarningDefaults)
+            let fallback = Workspace(
+                title: "Terminal 1",
+                portOrdinal: ordinal,
+                closeTabWarningDefaults: closeTabWarningDefaults,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker
+            )
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)

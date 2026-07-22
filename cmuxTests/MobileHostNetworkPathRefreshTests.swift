@@ -135,23 +135,24 @@ import Testing
 
     @Test func invalidateDropsCachedResolvedHosts() async {
         let resolver = MobileRouteResolver()
-        // Seed the cache through the awaited resolution path with a MagicDNS
-        // name (only MagicDNS results are cached as fresh).
+        // Seed the cache through the awaited resolution path. MagicDNS may be
+        // retained as resolver metadata, but only the numeric tailnet address
+        // may be published to a plaintext compatibility client.
         let seeded = await resolver.routesResolvingTailscaleDNS(
             port: 51000,
             resolveHosts: { ["old-net.tail1234.ts.net", "100.64.0.1"] }
         )
-        #expect(tailscaleHosts(in: seeded).contains("old-net.tail1234.ts.net"))
+        #expect(tailscaleHosts(in: seeded) == ["100.64.0.1"])
 
         // The cache serves the seeded hosts while fresh.
         let cached = resolver.routes(port: 51000, now: Date(), immediateHosts: { [] })
-        #expect(tailscaleHosts(in: cached).contains("old-net.tail1234.ts.net"))
+        #expect(tailscaleHosts(in: cached) == ["100.64.0.1"])
 
         // After invalidation (the network changed), the old-network hosts are
         // gone and only live interface-scan hosts remain.
         resolver.invalidateResolvedTailscaleHostCache()
         let afterInvalidate = resolver.routes(port: 51000, now: Date(), immediateHosts: { [] })
-        #expect(!tailscaleHosts(in: afterInvalidate).contains("old-net.tail1234.ts.net"))
+        #expect(!tailscaleHosts(in: afterInvalidate).contains("100.64.0.1"))
     }
 
     @Test func resolutionRacingInvalidationCannotRepolluteCache() async {
@@ -181,5 +182,109 @@ import Testing
         _ = await staleResolution
         let afterStaleStore = resolver.routes(port: 51000, now: Date(), immediateHosts: { [] })
         #expect(!tailscaleHosts(in: afterStaleStore).contains("stale-old-net.tail1234.ts.net"))
+    }
+}
+
+@Suite(.serialized)
+@MainActor
+struct MobileHostIrohStartupRetryTests {
+    @Test
+    func sameAccountAuthObservationDoesNotSupersedeActivationInFlight() {
+        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: true,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func sameAccountAuthObservationDoesNotRestartActiveRuntime() {
+        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: "same-account",
+            hasRuntime: true,
+            transitionInFlight: false,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func sameAccountAuthObservationRetriesAfterFailedActivation() {
+        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: false,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func accountChangeStillSupersedesActivationInFlight() {
+        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "next-account",
+            previousAccountID: "previous-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: true,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func networkPathRetryDoesNotSupersedeActivationInFlight() async {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalDesiredActive = runtime.desiredActive
+        let originalObservedAccountID = runtime.observedAccountID
+        let originalPreparedSignOut = runtime.preparedSignOut
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalRuntime = runtime.runtime
+        let originalTransitionTask = runtime.transitionTask
+        let originalRevision = runtime.lifecycleRevision
+        let gate = MobileHostIrohStartupRetryGate()
+        let activation = Task { await gate.suspend() }
+        runtime.desiredActive = true
+        runtime.observedAccountID = "network-path-race-account"
+        runtime.preparedSignOut = nil
+        runtime.signOutIntentActive = false
+        runtime.runtime = nil
+        runtime.transitionTask = activation
+
+        runtime.retryIfNeeded()
+
+        #expect(runtime.lifecycleRevision == originalRevision)
+
+        let scheduled = runtime.transitionTask
+        scheduled?.cancel()
+        await gate.resume()
+        await scheduled?.value
+        runtime.transitionTask = originalTransitionTask
+        runtime.runtime = originalRuntime
+        runtime.desiredActive = originalDesiredActive
+        runtime.observedAccountID = originalObservedAccountID
+        runtime.preparedSignOut = originalPreparedSignOut
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+}
+
+private actor MobileHostIrohStartupRetryGate {
+    private var isOpen = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func suspend() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    func resume() {
+        isOpen = true
+        waiter?.resume()
+        waiter = nil
     }
 }

@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "在終端機中繼續",
+    "returnBody": "請返回執行 ssh cmux.cloud 的終端機以繼續。",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "付款已完成",
+        "body": "你的訂閱已確認。新額度可能需要片刻才會顯示。"
+      },
+      "checkoutCanceled": {
+        "title": "付款已取消",
+        "body": "付款流程已關閉，你的方案未發生變更。"
+      },
+      "portalReturn": {
+        "title": "已從帳單入口網站返回",
+        "body": "帳單入口網站中的變更可能需要片刻才會顯示。"
+      },
+      "default": {
+        "title": "帳單流程已完成",
+        "body": "你的帳單流程已結束。"
+      }
+    }
+  },
   "meta": {
     "title": "cmux — 專為多工處理打造的終端",
     "description": "基於 Ghostty 構建的免費開源原生 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直分頁、通知環、分割面板和 socket API。",
@@ -434,6 +457,19 @@
         "cmuxP1": "cmux 不需要內建一個通用 worktree 管理器。它提供<customCommands>自訂命令</customCommands>、可程式化的<api>CLI 和 socket API</api>，以及可重複使用的<skills>技能</skills>。加號按鈕可以啟動你自己的 worktree 命令、多 repo 設定、非 Git 沙盒或遠端環境。",
         "cmuxP2": "這就是 <home>cmux home</home> 重要的原因。最好的 worktree 管理器，是當工作流程改變時你的代理也能修改的那個；而最適合這個循環的終端機，會把通知、Cmd+Shift+U 和 Cmd+Control+U 接到介面裡。"
       },
+      "cmuxFork": {
+        "title": "cmux Fork 正式推出",
+        "summary": "將代理程式對話分叉到新的分割畫面、分頁或工作區，同時保留完整脈絡。",
+        "date": "2026年7月14日",
+        "p1": "與程式設計代理程式的對話經常會遇到適合分叉的節點。你可以保留一種方案，同時讓另一個代理程式嘗試不同實作、調查支線問題，或從新角度檢視同一個問題。",
+        "p2": "Fork Conversation 會根據目前對話建立新的代理程式工作階段，並保留對話記錄和工作目錄。它支援 Codex、Claude Code、OpenCode、Pi、Hermes，以及其他提供可分叉工作階段的代理程式。",
+        "destinationsTitle": "分叉到你想工作的地方",
+        "destinationsP": "在終端機或分頁按右鍵並選擇 Fork Conversation，或按 <code>Cmd+Shift+P</code> 搜尋 Fork Conversation。你可以將分叉放到任一方向的分割畫面、新分頁或新工作區。",
+        "parallelTitle": "同時探索多個方向",
+        "parallelP1": "多次分叉同一段對話，可以比較不同實作，也可以讓多個代理程式從相同的起始脈絡分工處理問題。每個分叉獨立繼續，原始對話仍然保留。",
+        "parallelP2": "多個分叉可以在同一目錄中工作。如果同時編輯可能重疊，請為它們分配不同的工作或檔案。",
+        "release": "cmux Fork 已在 v0.64.19 中推出。"
+      },
       "showHnLaunch": {
         "title": "在 Show HN 上發布 cmux",
         "summary": "cmux 登上 Hacker News 第 2 名，被 Mitchell Hashimoto 分享，並在日本爆紅。",
@@ -598,6 +634,10 @@
         "代理式開發"
       ]
     },
+    "cmuxFork": {
+      "metaTitle": "cmux Fork 正式推出",
+      "metaDescription": "將 Codex、Claude Code、OpenCode、Pi、Hermes 或其他支援代理程式的對話分叉到新的分割畫面、分頁或工作區，同時保留完整脈絡。"
+    },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
       "metaDescription": "改變你與 cmux 互動方式的新鍵盤快捷鍵。"
@@ -728,6 +768,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "如需在網路之間漫遊，請使用 cmux mosh-tmux。它會開啟一個連接到具名 tmux 工作階段的完整 Mosh 終端；不會取代 SSH tmux 控制模式提供的原生工作區、分頁與分割鏡像。"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "入門指南",
@@ -914,6 +957,8 @@
           "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。"
         },
         "terminal": {
+          "sessionContentMaxWidth": "終端機與內建代理程式聊天內容的選用最大寬度，單位為點。設為 false 可使用整個窗格寬度。",
+          "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
@@ -939,6 +984,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "每個工作區標題下方顯示的最新通知最大行數。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。"
         },
         "fileExplorer": {
@@ -1473,10 +1519,16 @@
       "flagName": "旗幟",
       "flagDesc": "描述",
       "flagNameVal": "設定工作區標題",
+      "flagCommand": "在 shell 啟動後於初始遠端終端機中執行一次命令文字",
       "flagPort": "SSH 連接埠（預設 22）",
       "flagIdentity": "身分檔案的路徑",
       "flagSshOption": "傳遞任意 SSH 選項（例如 -o StrictHostKeyChecking=no）",
+      "flagTransport": "互動式終端傳輸方式：ssh（預設）或 mosh",
       "flagNoFocus": "建立工作區而不切換到它",
+      "moshTitle": "Mosh 終端傳輸",
+      "moshDesc": "如果互動式終端需要在切換 Wi-Fi、VPN、熱點或睡眠與喚醒後保持連線，請使用 cmux ssh user@remote --transport mosh。Mosh 只承載終端 PTY；SSH 仍負責遠端中繼資料、cmux 服務的設定與控制、瀏覽器代理、上傳與重新連線。",
+      "moshFallback": "cmux 要求本機安裝 Mosh 1.4 或更新版本，並在啟動前檢查遠端 mosh-server。如果用戶端缺少或不相容、伺服器缺少，或遠端檢查失敗，cmux 會說明原因並繼續使用 SSH。",
+      "moshTmux": "建立 Mosh 工作區，用來建立或附加具名 tmux 工作階段（預設：main）。tmux 設定會在重新連線與 App 工作階段還原後保留。這是可漫遊的 tmux 終端，而不是 cmux ssh-tmux 的原生鏡像。--session <name> 選擇工作階段；其他選項與 cmux mosh 相同。沒有 Mosh 時，同一設定會透過 SSH 執行。",
       "deepLinksTitle": "SSH 深層鏈接",
       "deepLinksDesc": "當網站或工具想要提供「在 cmux 中開啟」按鈕時，請使用 cmux SSH 深層連結。該連結將開啟 cmux，顯示確認提示，然後在使用者確認後執行等效的 cmux ssh 命令。",
       "deepLinksWebFallbackDesc": "使用網站按鈕的 cmux.com 後備 URL。如果未安裝 cmux，它將開啟本機連結並顯示下載。",

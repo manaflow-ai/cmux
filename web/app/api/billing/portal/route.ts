@@ -1,9 +1,13 @@
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
+import type * as StackLib from "../../../lib/stack";
 
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
-import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
+import {
+  appStorePricingUnavailableURL,
+  isAppStoreDistributionMode,
+} from "../../../lib/billing";
 import { captureBillingError } from "../../../../services/errors";
 import { resolveProPlanStatus } from "../../../../services/billing/pro";
 import {
@@ -16,15 +20,29 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
+type GetStackServerApp = typeof StackLib.getStackServerApp;
 
 export async function GET(request: NextRequest) {
+  if (
+    isAppStoreDistributionMode({
+      cmux_distribution: request.nextUrl.searchParams.get("cmux_distribution"),
+      cmux_ios_app_store: request.nextUrl.searchParams.get("cmux_ios_app_store"),
+    })
+  ) {
+    return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl), 302);
+  }
+
+  // Keep Stack deferred until after the App Store distribution gate. lib/stack
+  // eagerly initializes stackServerApp, and this route must not do auth work for
+  // App Store billing-management requests.
+  const { getStackServerApp, isStackConfigured } = await import("../../../lib/stack");
   if (!isStackConfigured() || !isStripeBillingConfigured()) {
     return pricingRedirect(request, "unavailable");
   }
 
   let stackUserId: string | undefined;
   try {
-    const user = await currentStackUser();
+    const user = await currentStackUser(getStackServerApp);
     if (!user) {
       return NextResponse.redirect(new URL("/pricing", request.url), 302);
     }
@@ -71,7 +89,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function currentStackUser() {
+async function currentStackUser(getStackServerApp: GetStackServerApp) {
   const stackServerApp = getStackServerApp();
   return (
     (await stackServerApp.getUser({ or: "return-null" })) ??

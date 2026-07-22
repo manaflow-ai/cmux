@@ -10,6 +10,40 @@ import Testing
 
 @MainActor
 struct WorkspaceSidebarProcessTitleObservationTests {
+    @Test func runtimePublicationPrunesTerminatedObservationBurst() {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        var observations = (0..<2_000).map { _ in model.changes() }
+
+        #expect(model.changeObservers.count == observations.count)
+        observations.removeAll()
+
+        model.setAgentPIDs(["codex": 42])
+
+        #expect(
+            model.changeObservers.count == 0,
+            "A runtime change must reconcile terminated observers instead of retaining and revisiting them on every later event."
+        )
+    }
+
+    @Test func processTitlePublicationPrunesTerminatedObservationBurst() {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let model = WorkspaceSidebarProcessTitleObservationModel(
+            schedule: scheduler.schedule(delay:action:)
+        )
+        var observations = (0..<2_000).map { _ in model.changes() }
+
+        #expect(model.changeObservers.count == observations.count)
+        observations.removeAll()
+
+        model.processTitleDidChange()
+        scheduler.fireAll()
+
+        #expect(
+            model.changeObservers.count == 0,
+            "A settled title publish must reconcile terminated observers instead of retaining and revisiting them on every later title."
+        )
+    }
+
     @Test func defersSustainedChurnUntilSettled() {
         let schedulers = (0..<16).map { _ in ManualProcessTitleSettleScheduler() }
         let models = schedulers.map { scheduler in

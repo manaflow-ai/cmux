@@ -7,7 +7,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "identify" },
-          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 6 } },
+          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 9 } },
           "match": "partial"
         }
       ]
@@ -18,7 +18,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "ping" },
-          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 6 } },
+          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 9 } },
           "match": "partial"
         },
         {
@@ -52,7 +52,9 @@
           "match": "partial",
           "bind": {
             "workspace0": "data.workspaces[0].id",
-            "pane0": "data.workspaces[0].screens[0].panes[0].id"
+            "pane0": "data.workspaces[0].screens[0].panes[0].id",
+            "focused0": "data.workspaces[0].screens[0].panes[0].focused_at",
+            "pane_revision0": "data.pane_revision"
           }
         },
         {
@@ -111,7 +113,7 @@
     },
     {
       "name": "window-manager-layout-ops",
-      "requires": { "commands": ["export-layout", "pane-neighbor", "zoom-pane"] },
+      "requires": { "commands": ["export-layout", "set-split-ratio", "pane-neighbor", "zoom-pane"] },
       "steps": [
         {
           "type": "command",
@@ -137,7 +139,10 @@
           "request": { "id": 4, "cmd": "list-workspaces" },
           "expect": { "id": 4, "ok": true },
           "match": "partial",
-          "bind": { "pane1": "data.workspaces[2].screens[0].panes[1].id" }
+          "bind": {
+            "pane1": "data.workspaces[2].screens[0].panes[1].id",
+            "split0": "data.workspaces[2].screens[0].layout.split"
+          }
         },
         {
           "type": "command",
@@ -146,7 +151,7 @@
             "id": 5,
             "ok": true,
             "data": {
-              "layout": { "type": "split", "dir": "right", "ratio": 0.5 },
+              "layout": { "type": "split", "split": "$split0", "dir": "right", "ratio": 0.5 },
               "panes": [{ "pane": "$pane0" }, { "pane": "$pane1" }]
             }
           },
@@ -154,14 +159,26 @@
         },
         {
           "type": "command",
-          "request": { "id": 6, "cmd": "pane-neighbor", "pane": "$pane0", "dir": "right" },
-          "expect": { "id": 6, "ok": true, "data": { "pane": "$pane1" } },
+          "request": { "id": 6, "cmd": "set-split-ratio", "split": "$split0", "ratio": 0.75 },
+          "expect": { "id": 6, "ok": true, "data": {} },
           "match": "partial"
         },
         {
           "type": "command",
-          "request": { "id": 7, "cmd": "zoom-pane", "pane": "$pane1", "mode": "toggle" },
-          "expect": { "id": 7, "ok": true, "data": { "pane": "$pane1", "zoomed": true, "zoomed_pane": "$pane1" } },
+          "request": { "id": 7, "cmd": "export-layout" },
+          "expect": { "id": 7, "ok": true, "data": { "layout": { "split": "$split0", "ratio": 0.75 } } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 8, "cmd": "pane-neighbor", "pane": "$pane0", "dir": "right" },
+          "expect": { "id": 8, "ok": true, "data": { "pane": "$pane1" } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 9, "cmd": "zoom-pane", "pane": "$pane1", "mode": "toggle" },
+          "expect": { "id": 9, "ok": true, "data": { "pane": "$pane1", "zoomed": true, "zoomed_pane": "$pane1" } },
           "match": "partial"
         }
       ]
@@ -192,6 +209,82 @@
       ]
     },
     {
+      "name": "subscribe-title-changed-carries-title",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-title", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "stream",
+          "name": "events",
+          "request": { "id": 2, "cmd": "subscribe" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "send", "surface": "$surface0", "text": "printf '\\033]2;conformance title\\007'; sleep 30\r" },
+          "expect": { "id": 3, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "expect_events",
+          "stream": "events",
+          "expect": [
+            { "event": "title-changed", "surface": "$surface0", "title": "conformance title" }
+          ]
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "send", "surface": "$surface0", "text": "\u0003" },
+          "expect": { "id": 4, "ok": true },
+          "match": "partial"
+        }
+      ]
+    },
+    {
+      "name": "attach-resize-carries-replay",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-attach-resize", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "stream",
+          "name": "attach",
+          "request": { "cmd": "attach-surface", "surface": "$surface0" },
+          "expect": { "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "resize-surface", "surface": "$surface0", "cols": 100, "rows": 31 },
+          "expect": { "id": 2, "ok": true, "data": { "accepted": true } },
+          "match": "partial"
+        },
+        {
+          "type": "expect_events",
+          "stream": "attach",
+          "expect": [
+            {
+              "event": "resized",
+              "surface": "$surface0",
+              "cols": 100,
+              "rows": 31,
+              "replay": { "__match__": "nonempty-string" }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "send-read-screen-round-trip",
       "steps": [
         {
@@ -213,6 +306,17 @@
           "path": "data.text",
           "contains": "cmux-conformance-marker",
           "timeout_ms": 10000
+        }
+      ]
+    },
+    {
+      "name": "overflow-event-schema",
+      "steps": [
+        {
+          "type": "parse_event",
+          "event": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
+          "expect": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
+          "match": "partial"
         }
       ]
     },

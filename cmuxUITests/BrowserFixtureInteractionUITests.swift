@@ -656,28 +656,39 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         let sid = try openFixture("keyboard-widget")
 
         try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#pad"])
-        XCTAssertTrue(
-            try evalBool("document.activeElement && document.activeElement.id === 'pad'", surfaceID: sid),
-            "browser.focus should make #pad the active element"
-        )
+        XCTAssertTrue(try evalBool("document.activeElement?.id === 'pad'", surfaceID: sid), "browser.focus should focus #pad")
         for _ in 0..<3 {
             try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "ArrowRight"])
         }
-        XCTAssertEqual(
-            try evalString("document.getElementById('pad-status').textContent", surfaceID: sid),
-            "PASS",
-            "three ArrowRight keydowns should be observed on #pad"
-        )
+        XCTAssertEqual(try evalString("document.getElementById('pad-status').textContent", surfaceID: sid), "PASS")
 
         // fill focuses #entry before setting the value; press targets the active element.
         try socketResult(method: "browser.fill", params: ["surface_id": sid, "selector": "#entry", "text": "go"])
         try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "Enter"])
-        XCTAssertEqual(
-            try evalString("document.getElementById('entry-status').textContent", surfaceID: sid),
-            "PASS",
-            "Enter keypress should be observed on #entry"
-        )
+        XCTAssertEqual(try evalString("document.getElementById('entry-status').textContent", surfaceID: sid), "PASS")
 
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#space-button"])
+        try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "Space"])
+        let canonicalSpaceKeyDown = try evalBool(
+            "window.__cmuxLog.filter(e => e.type === 'keydown' && e.target === '#space-button' && e.key === ' ' && e.code === 'Space').length === 1",
+            surfaceID: sid
+        )
+        XCTAssertTrue(canonicalSpaceKeyDown, "Space should emit exactly one canonical keydown")
+        XCTAssertEqual(try evalString("document.getElementById('space-status').textContent", surfaceID: sid), "PASS")
+
+        try socketResult(method: "browser.keydown", params: ["surface_id": sid, "key": " "])
+        try socketResult(method: "browser.keyup", params: ["surface_id": sid, "key": " "])
+        let canonicalRawSpacePair = try evalBool(
+            """
+            window.__cmuxLog
+              .filter(e => e.target === '#space-button' && e.key === ' ' && e.code === 'Space')
+              .slice(-2)
+              .map(e => e.type)
+              .join(',') === 'keydown,keyup'
+            """,
+            surfaceID: sid
+        )
+        XCTAssertTrue(canonicalRawSpacePair, "Raw Space should add one canonical keydown/keyup pair")
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 

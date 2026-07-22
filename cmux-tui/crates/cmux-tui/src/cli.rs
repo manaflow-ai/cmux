@@ -1,17 +1,20 @@
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
+const CAPABILITY_REQUEST_ID: u64 = 0;
+const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 
 type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
 type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;
 type LocalFn = fn(&GlobalArgs, &FlagMap) -> i32;
 
+#[derive(Debug)]
 pub struct UsageError(String);
 
 struct CliArgs {
@@ -60,6 +63,30 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_no_args, print_ping, false),
     },
     VerbSpec {
+        name: "set-client-info",
+        help: "Label this control connection.",
+        allowed: &["name", "kind"],
+        kind: socket(build_set_client_info, print_empty, false),
+    },
+    VerbSpec {
+        name: "list-clients",
+        help: "List connected control clients.",
+        allowed: &[],
+        kind: socket(build_no_args, print_clients, false),
+    },
+    VerbSpec {
+        name: "detach-client",
+        help: "Detach a connected control client.",
+        allowed: &["client"],
+        kind: socket(build_detach_client, print_empty, false),
+    },
+    VerbSpec {
+        name: "set-client-sizing",
+        help: "Include or exclude a client from shared terminal sizing.",
+        allowed: &["client", "enabled"],
+        kind: socket(build_set_client_sizing, print_empty, false),
+    },
+    VerbSpec {
         name: "reload-config",
         help: "Ask a running TUI to reload its config file.",
         allowed: &[],
@@ -92,13 +119,13 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "apply-layout",
         help: "Apply a screen layout.",
-        allowed: &["workspace", "name", "layout"],
+        allowed: &["workspace", "name", "layout", "cols", "rows"],
         kind: socket(build_apply_layout, print_applied_layout, false),
     },
     VerbSpec {
         name: "send",
         help: "Send text or bytes to a surface.",
-        allowed: &["surface", "text", "bytes"],
+        allowed: &["surface", "text", "bytes", "paste"],
         kind: socket(build_send, print_empty, false),
     },
     VerbSpec {
@@ -106,6 +133,12 @@ const VERBS: &[VerbSpec] = &[
         help: "Print visible screen text for a surface.",
         allowed: &["surface"],
         kind: socket(build_surface, print_read_screen, false),
+    },
+    VerbSpec {
+        name: "read-scrollback",
+        help: "Print a styled scrollback page as text.",
+        allowed: &["surface", "start", "count"],
+        kind: socket(build_read_scrollback, print_scrollback, false),
     },
     VerbSpec {
         name: "wait-for",
@@ -186,6 +219,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_new_screen, print_surface, false),
     },
     VerbSpec {
+        name: "new-pane",
+        help: "Create a pane with automatic distribution.",
+        allowed: &["pane", "cols", "rows"],
+        kind: socket(build_new_pane, print_surface, false),
+    },
+    VerbSpec {
         name: "split",
         help: "Split a pane.",
         allowed: &["pane", "dir", "cols", "rows"],
@@ -196,6 +235,12 @@ const VERBS: &[VerbSpec] = &[
         help: "Set a split ratio.",
         allowed: &["pane", "dir", "ratio"],
         kind: socket(build_set_ratio, print_empty, false),
+    },
+    VerbSpec {
+        name: "set-split-ratio",
+        help: "Set a split ratio by stable split id.",
+        allowed: &["split", "ratio"],
+        kind: socket(build_set_split_ratio, print_empty, false),
     },
     VerbSpec {
         name: "pane-neighbor",
@@ -288,6 +333,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_resize_surface, print_empty, false),
     },
     VerbSpec {
+        name: "release-surface-size",
+        help: "Stop this client from sizing a surface.",
+        allowed: &["surface"],
+        kind: socket(build_surface, print_empty, false),
+    },
+    VerbSpec {
         name: "focus-pane",
         help: "Focus a pane.",
         allowed: &["pane"],
@@ -332,14 +383,14 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "subscribe",
         help: "Subscribe to session events.",
-        allowed: &[],
-        kind: socket(build_no_args, print_empty, true),
+        allowed: &["tree-events"],
+        kind: socket(build_subscribe, print_empty, true),
     },
     VerbSpec {
         name: "attach-surface",
         help: "Attach to a surface stream.",
-        allowed: &["surface"],
-        kind: socket(build_surface, print_empty, true),
+        allowed: &["surface", "mode", "cols", "rows"],
+        kind: socket(build_attach_surface, print_empty, true),
     },
     VerbSpec {
         name: "plugin",
@@ -517,7 +568,7 @@ fn run_command(args: CliArgs) -> i32 {
         }
     };
     let socket_path = resolve_socket(&args.global);
-    let mut stream = match transport::connect(&socket_path) {
+    let stream = match transport::connect(&socket_path) {
         Ok(stream) => stream,
         Err(err) => {
             eprintln!("cannot connect to session socket {}: {err}", socket_path.display());
@@ -529,20 +580,26 @@ fn run_command(args: CliArgs) -> i32 {
     } else {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     }
-    let mut line = match serde_json::to_vec(&request) {
-        Ok(line) => line,
-        Err(err) => {
-            eprintln!("failed to encode request: {err}");
-            return 2;
+    let mut reader = BufReader::new(stream);
+    if request.get("cmd").and_then(Value::as_str) == Some("attach-surface")
+        && request.get("cols").is_some()
+    {
+        match server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY) {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!("initial attach sizing is not supported by this server");
+                return 1;
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                return 3;
+            }
         }
-    };
-    line.push(b'\n');
-    if let Err(err) = stream.write_all(&line) {
+    }
+    if let Err(err) = write_json_line(reader.get_mut(), &request) {
         eprintln!("transport error: {err}");
         return 3;
     }
-
-    let mut reader = BufReader::new(stream);
     if stream_mode {
         run_stream(reader)
     } else {
@@ -550,8 +607,62 @@ fn run_command(args: CliArgs) -> i32 {
     }
 }
 
+fn write_json_line(writer: &mut dyn Write, value: &Value) -> io::Result<()> {
+    serde_json::to_writer(&mut *writer, value).map_err(io::Error::other)?;
+    writer.write_all(b"\n")
+}
+
+fn server_supports_capability(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    capability: &str,
+) -> Result<bool, String> {
+    write_json_line(reader.get_mut(), &json!({"id": CAPABILITY_REQUEST_ID, "cmd": "identify"}))
+        .map_err(|err| format!("transport error: {err}"))?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut line = String::new();
+
+    loop {
+        match reader.read_line(&mut line) {
+            Ok(0) => return Err("transport closed before identify response".to_string()),
+            Ok(_) => {}
+            Err(err)
+                if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
+                    && Instant::now() < deadline =>
+            {
+                continue;
+            }
+            Err(err)
+                if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
+            {
+                return Err("timed out waiting for identify response".to_string());
+            }
+            Err(err) => return Err(format!("transport error: {err}")),
+        }
+        let value: Value =
+            serde_json::from_str(&line).map_err(|err| format!("bad identify response: {err}"))?;
+        if value.get("event").is_some()
+            || value.get("id").and_then(Value::as_u64) != Some(CAPABILITY_REQUEST_ID)
+        {
+            line.clear();
+            continue;
+        }
+        if value.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err(value
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("identify failed")
+                .to_string());
+        }
+        return Ok(value
+            .pointer("/data/capabilities")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(capability))));
+    }
+}
+
 fn is_boolean_flag(spec: &VerbSpec, name: &str) -> bool {
     (spec.name == "run" && name == "new-workspace")
+        || (spec.name == "send" && name == "paste")
         || (spec.name == "plugin" && matches!(name, "force" | "builtin"))
 }
 
@@ -704,6 +815,27 @@ fn build_no_args(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({}))
 }
 
+fn build_set_client_info(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({});
+    flags.insert_optional_string(&mut value, "name");
+    flags.insert_optional_string(&mut value, "kind");
+    Ok(value)
+}
+
+fn build_detach_client(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({ "client": flags.required_u64("client")? }))
+}
+
+fn build_set_client_sizing(flags: &FlagMap) -> Result<Value, UsageError> {
+    let enabled_value = flags.required("enabled")?;
+    let enabled = match enabled_value.as_str() {
+        "true" => true,
+        "false" => false,
+        _ => return Err(UsageError("--enabled must be true or false".to_string())),
+    };
+    Ok(json!({ "client": flags.required_u64("client")?, "enabled": enabled }))
+}
+
 fn build_surface(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({ "surface": flags.required_u64("surface")? }))
 }
@@ -728,6 +860,9 @@ fn build_send(flags: &FlagMap) -> Result<Value, UsageError> {
     if let Some(bytes) = flags.optional("bytes") {
         value["bytes"] = json!(bytes);
     }
+    if flags.optional("paste").is_some() {
+        value["paste"] = json!(true);
+    }
     if value.get("text").is_none() && value.get("bytes").is_none() {
         let mut text = String::new();
         io::stdin()
@@ -735,6 +870,41 @@ fn build_send(flags: &FlagMap) -> Result<Value, UsageError> {
             .map_err(|err| UsageError(format!("failed to read stdin: {err}")))?;
         value["text"] = json!(text);
     }
+    Ok(value)
+}
+
+fn build_read_scrollback(flags: &FlagMap) -> Result<Value, UsageError> {
+    let count = flags.required_u32("count")?;
+    if count > u32::from(u16::MAX) {
+        return Err(UsageError("--count must be at most 65535".to_string()));
+    }
+    Ok(json!({
+        "surface": flags.required_u64("surface")?,
+        "start": flags.required_u32("start")?,
+        "count": count,
+    }))
+}
+
+fn build_subscribe(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({});
+    if let Some(tree_events) = flags.optional("tree-events") {
+        if !matches!(tree_events.as_str(), "coarse" | "deltas") {
+            return Err(UsageError("--tree-events must be coarse or deltas".to_string()));
+        }
+        value["tree_events"] = json!(tree_events);
+    }
+    Ok(value)
+}
+
+fn build_attach_surface(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({ "surface": flags.required_u64("surface")? });
+    if let Some(mode) = flags.optional("mode") {
+        if !matches!(mode.as_str(), "bytes" | "render") {
+            return Err(UsageError("--mode must be bytes or render".to_string()));
+        }
+        value["mode"] = json!(mode);
+    }
+    flags.insert_optional_size(&mut value)?;
     Ok(value)
 }
 
@@ -874,6 +1044,12 @@ fn build_new_screen(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(value)
 }
 
+fn build_new_pane(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({ "pane": flags.required_u64("pane")? });
+    flags.insert_optional_size(&mut value)?;
+    Ok(value)
+}
+
 fn build_export_layout(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({});
     flags.insert_optional_u64(&mut value, "screen")?;
@@ -885,6 +1061,7 @@ fn build_apply_layout(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({ "layout": layout });
     flags.insert_optional_u64(&mut value, "workspace")?;
     flags.insert_optional_string(&mut value, "name");
+    flags.insert_optional_size(&mut value)?;
     Ok(value)
 }
 
@@ -898,6 +1075,13 @@ fn build_set_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({
         "pane": flags.required_u64("pane")?,
         "dir": flags.required_dir()?,
+        "ratio": flags.required_f32("ratio")?,
+    }))
+}
+
+fn build_set_split_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({
+        "split": flags.required_u64("split")?,
         "ratio": flags.required_f32("ratio")?,
     }))
 }
@@ -1040,6 +1224,10 @@ impl FlagMap {
         parse_u16(name, &self.required(name)?)
     }
 
+    fn required_u32(&self, name: &str) -> Result<u32, UsageError> {
+        parse_u32(name, &self.required(name)?)
+    }
+
     fn required_usize(&self, name: &str) -> Result<usize, UsageError> {
         parse_usize(name, &self.required(name)?)
     }
@@ -1106,6 +1294,10 @@ fn parse_u16(name: &str, value: &str) -> Result<u16, UsageError> {
     value.parse::<u16>().map_err(|_| UsageError(format!("--{name} must be a uint16")))
 }
 
+fn parse_u32(name: &str, value: &str) -> Result<u32, UsageError> {
+    value.parse::<u32>().map_err(|_| UsageError(format!("--{name} must be a uint32")))
+}
+
 fn parse_usize(name: &str, value: &str) -> Result<usize, UsageError> {
     value.parse::<usize>().map_err(|_| UsageError(format!("--{name} must be a usize")))
 }
@@ -1151,8 +1343,75 @@ fn print_ping(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     )
 }
 
+fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    let Some(clients) = data.as_array() else { return Ok(()) };
+    for client in clients {
+        let attached = client
+            .get("attached")
+            .and_then(Value::as_array)
+            .map(|surfaces| {
+                surfaces
+                    .iter()
+                    .filter_map(Value::as_u64)
+                    .map(|surface| surface.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "-".to_string());
+        let sizes = client
+            .get("sizes")
+            .and_then(Value::as_array)
+            .map(|sizes| {
+                sizes
+                    .iter()
+                    .map(|size| {
+                        let surface = size.get("surface").and_then(Value::as_u64).unwrap_or(0);
+                        match (
+                            size.get("cols").and_then(Value::as_u64),
+                            size.get("rows").and_then(Value::as_u64),
+                        ) {
+                            (Some(cols), Some(rows)) => format!("{surface}:{cols}x{rows}"),
+                            _ => format!("{surface}:null"),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "-".to_string());
+        writeln!(
+            out,
+            "{} {} {} {} connected={}s attached={} sizes={} self={} sizing={}",
+            client.get("client").and_then(Value::as_u64).unwrap_or(0),
+            client.get("transport").and_then(Value::as_str).unwrap_or(""),
+            client.get("name").and_then(Value::as_str).unwrap_or("-"),
+            client.get("kind").and_then(Value::as_str).unwrap_or("-"),
+            client.get("connected_seconds").and_then(Value::as_u64).unwrap_or(0),
+            attached,
+            sizes,
+            client.get("self").and_then(Value::as_bool).unwrap_or(false),
+            client.get("size_participating").and_then(Value::as_bool).unwrap_or(true),
+        )?;
+    }
+    Ok(())
+}
+
 fn print_read_screen(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     write!(out, "{}", data.get("text").and_then(Value::as_str).unwrap_or(""))
+}
+
+fn print_scrollback(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    let Some(rows) = data.get("rows").and_then(Value::as_array) else { return Ok(()) };
+    for row in rows {
+        if let Some(runs) = row.get("runs").and_then(Value::as_array) {
+            for run in runs {
+                write!(out, "{}", run.get("text").and_then(Value::as_str).unwrap_or(""))?;
+            }
+        }
+        writeln!(out)?;
+    }
+    Ok(())
 }
 
 fn print_vt_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
@@ -1346,7 +1605,100 @@ fn atom(value: Option<&Value>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::net::Shutdown;
+
     use super::*;
+
+    struct ScriptedStream {
+        reads: VecDeque<Result<Vec<u8>, io::ErrorKind>>,
+        current: io::Cursor<Vec<u8>>,
+        writes: Vec<u8>,
+    }
+
+    impl Read for ScriptedStream {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.current.position() < self.current.get_ref().len() as u64 {
+                return self.current.read(buf);
+            }
+            match self.reads.pop_front() {
+                Some(Ok(bytes)) => {
+                    self.current = io::Cursor::new(bytes);
+                    self.current.read(buf)
+                }
+                Some(Err(kind)) => Err(io::Error::from(kind)),
+                None => Ok(0),
+            }
+        }
+    }
+
+    impl Write for ScriptedStream {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.writes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for ScriptedStream {
+        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+            Err(io::Error::new(io::ErrorKind::Unsupported, "test stream is not cloneable"))
+        }
+
+        fn set_read_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn set_write_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn shutdown(&self, _how: Shutdown) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn capability_probe_tolerates_polling_timeouts() {
+        let stream = ScriptedStream {
+            reads: VecDeque::from([
+                Err(io::ErrorKind::WouldBlock),
+                Err(io::ErrorKind::TimedOut),
+                Ok(b"{\"id\":0,\"ok\":true,\"data\":{\"capabilities\":[\"attach-initial-size\"]}}\n"
+                    .to_vec()),
+            ]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+        };
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        assert_eq!(
+            server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn capability_probe_preserves_partial_line_across_timeout() {
+        let stream = ScriptedStream {
+            reads: VecDeque::from([
+                Ok(b"{\"id\":0,\"ok\":true,\"data\":".to_vec()),
+                Err(io::ErrorKind::TimedOut),
+                Ok(b"{\"capabilities\":[\"attach-initial-size\"]}}\n".to_vec()),
+            ]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+        };
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        assert_eq!(
+            server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
+            Ok(true)
+        );
+    }
 
     #[test]
     fn plugin_verb_is_registered_as_local_with_help() {
@@ -1361,5 +1713,85 @@ mod tests {
     #[test]
     fn registered_verbs_have_help_text() {
         assert!(VERBS.iter().all(|verb| !verb.help.is_empty()));
+    }
+
+    #[test]
+    fn protocol_v7_cli_builders_emit_render_tree_paste_and_scrollback_fields() {
+        let attach = VERBS.iter().find(|verb| verb.name == "attach-surface").unwrap();
+        assert!(attach.allowed.contains(&"cols"));
+        assert!(attach.allowed.contains(&"rows"));
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("text".to_string(), "hello".to_string()),
+                ("paste".to_string(), "true".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_send(&flags).unwrap(),
+            json!({"surface": 9, "text": "hello", "paste": true})
+        );
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("mode".to_string(), "render".to_string()),
+                ("cols".to_string(), "120".to_string()),
+                ("rows".to_string(), "40".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_attach_surface(&flags).unwrap(),
+            json!({"surface": 9, "mode": "render", "cols": 120, "rows": 40})
+        );
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("cols".to_string(), "120".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_attach_surface(&flags).unwrap_err().0,
+            "--cols and --rows must be supplied together"
+        );
+
+        let flags = FlagMap {
+            values: BTreeMap::from([("tree-events".to_string(), "deltas".to_string())]),
+            ..Default::default()
+        };
+        assert_eq!(build_subscribe(&flags).unwrap(), json!({"tree_events": "deltas"}));
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("start".to_string(), "40".to_string()),
+                ("count".to_string(), "2".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_read_scrollback(&flags).unwrap(),
+            json!({"surface": 9, "start": 40, "count": 2})
+        );
+    }
+
+    #[test]
+    fn scrollback_human_output_flattens_runs_one_row_per_line() {
+        let data = json!({
+            "rows": [
+                {"row": 0, "runs": [{"text": "car"}, {"text": "go"}]},
+                {"row": 1, "runs": [{"text": "ok"}]},
+            ],
+            "start": 0,
+            "total": 2,
+        });
+        let mut output = Vec::new();
+        print_scrollback(&data, &mut output).unwrap();
+        assert_eq!(output, b"cargo\nok\n");
     }
 }

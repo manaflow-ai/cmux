@@ -1,6 +1,8 @@
-import CmuxControlSocket
+@testable import CmuxControlSocket
 import Darwin
+import Dispatch
 import Foundation
+import os
 import Testing
 
 /// A connected `socketpair(2)`; the reader consumes `readEnd`. Close-once
@@ -128,6 +130,67 @@ struct ControlClientLineReaderTests {
         #expect(reader.nextLine(shouldContinueReading: { false }) == nil)
     }
 
+    @Test func authorizationRevocationStopsIdleReaderWithoutPeerTraffic() throws {
+        let pair = try SocketPairFixture()
+        let revocationSignal = SocketAuthorizationRevocationSignal()
+        let enteredBlockingRead = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let readEnd = pair.readEnd
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reader = ControlClientLineReader(
+                socket: readEnd,
+                authorizationRevocationSignal: revocationSignal
+            )
+            _ = reader.nextLine {
+                enteredBlockingRead.signal()
+                return true
+            }
+            finished.signal()
+        }
+
+        #expect(enteredBlockingRead.wait(timeout: .now() + 1.0) == .success)
+        revocationSignal.revoke()
+
+        let stoppedAfterRevocation = finished.wait(timeout: .now() + 1.0)
+        if stoppedAfterRevocation != .success {
+            pair.closeWriteEnd()
+            _ = finished.wait(timeout: .now() + 1.0)
+        }
+        #expect(stoppedAfterRevocation == .success)
+    }
+
+    @Test func configuredReceiveTimeoutStillStopsIdleReader() throws {
+        let pair = try SocketPairFixture()
+        var timeout = timeval(tv_sec: 0, tv_usec: 50_000)
+        let configured = withUnsafePointer(to: &timeout) { pointer in
+            setsockopt(
+                pair.readEnd,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                pointer,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        #expect(configured == 0)
+        guard configured == 0 else { return }
+
+        let finished = DispatchSemaphore(value: 0)
+        let readEnd = pair.readEnd
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reader = ControlClientLineReader(socket: readEnd)
+            _ = reader.nextLine(shouldContinueReading: { true })
+            finished.signal()
+        }
+
+        let stoppedAfterTimeout = finished.wait(timeout: .now() + 1.0)
+        if stoppedAfterTimeout != .success {
+            pair.closeWriteEnd()
+            _ = finished.wait(timeout: .now() + 1.0)
+        }
+        #expect(stoppedAfterTimeout == .success)
+    }
+
     @Test func discardsTrailingBytesWithoutNewlineAtEOF() throws {
         let pair = try SocketPairFixture()
         pair.write("complete\nincomplete")
@@ -136,5 +199,108 @@ struct ControlClientLineReaderTests {
         let reader = ControlClientLineReader(socket: pair.readEnd)
         #expect(reader.nextLine(shouldContinueReading: { true }) == "complete")
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationLimitsRejectOversizedFirstLine() throws {
+        let pair = try SocketPairFixture()
+        pair.write("oversized\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationLimitCountsMalformedUTF8Bytes() throws {
+        let pair = try SocketPairFixture()
+        pair.write([0xFF, 0xFE])
+        pair.write("ok\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 3,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationLimitAccumulatesAcrossBlankLines() throws {
+        let pair = try SocketPairFixture()
+        pair.write("\n\nok\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 2,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "")
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "")
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationDeadlineExpiresWithoutReading() throws {
+        let pair = try SocketPairFixture()
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4_096,
+                timeoutMilliseconds: 0
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationDeadlineAppliesToBufferedLines() throws {
+        let pair = try SocketPairFixture()
+        pair.write("first\nsecond\n")
+        pair.closeWriteEnd()
+        let now = OSAllocatedUnfairLock(initialState: UInt64(1_000_000))
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4_096,
+                timeoutMilliseconds: 1
+            ),
+            monotonicNowNanoseconds: { now.withLock { $0 } }
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "first")
+        now.withLock { $0 = 2_000_000 }
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func clearingPreauthorizationLimitsAllowsLargerCommands() throws {
+        let pair = try SocketPairFixture()
+        pair.write("auth\nsubsequent-command\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 6,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 5,
+                timeoutMilliseconds: 1_000
+            )
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "auth")
+        reader.clearLimits()
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "subsequent-command")
     }
 }

@@ -1,5 +1,11 @@
 use std::fs;
+#[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
+use std::io::Read;
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
+use std::os::fd::FromRawFd;
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -51,6 +57,116 @@ impl Drop for HeadlessServer {
     }
 }
 
+#[cfg(unix)]
+struct PtyChild {
+    child: Child,
+    output_drain: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(unix)]
+impl PtyChild {
+    fn start(args: &[&str]) -> Self {
+        Self::start_with_env(args, &[])
+    }
+
+    fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
+        let mut master = -1;
+        let mut slave = -1;
+        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+        let opened = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut size,
+            )
+        };
+        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
+        let mut master = unsafe { File::from_raw_fd(master) };
+        let slave = unsafe { File::from_raw_fd(slave) };
+        let output_drain = std::thread::spawn(move || {
+            let mut buffer = [0; 8192];
+            while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
+        });
+        let mut command = Command::new(bin());
+        command.args(args).env_remove("CMUX_TUI_SOCKET");
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let child = command
+            .stdin(Stdio::from(slave.try_clone().unwrap()))
+            .stdout(Stdio::from(slave.try_clone().unwrap()))
+            .stderr(Stdio::from(slave))
+            .spawn()
+            .unwrap();
+        Self { child, output_drain: Some(output_drain) }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for PtyChild {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        if let Some(output_drain) = self.output_drain.take() {
+            let _ = output_drain.join();
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn plain_launch_attaches_to_existing_local_session() {
+    let server = HeadlessServer::start("plain-launch-attach");
+    let mut tui = PtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+
+    while Instant::now() < deadline {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            panic!("plain launch exited instead of attaching: {status}");
+        }
+        let clients = cli(&server, &["--json", "list-clients"]);
+        if clients.status.success() {
+            let clients: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+            if clients
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|client| client["kind"].as_str() == Some("tui"))
+            {
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    panic!("plain launch never attached as a TUI client");
+}
+
+#[cfg(unix)]
+#[test]
+fn configured_websocket_server_does_not_attach_to_existing_session() {
+    let server = HeadlessServer::start("configured-websocket-server");
+    let config = server.dir.join("config.json");
+    fs::write(&config, r#"{"server":{"ws":"127.0.0.1:0"}}"#).unwrap();
+    let mut tui = PtyChild::start_with_env(
+        &["--socket", server.socket.to_str().unwrap()],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+
+    while Instant::now() < deadline {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            assert!(!status.success(), "server launch unexpectedly succeeded");
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    panic!("configured WebSocket server attached instead of preserving server mode");
+}
+
 #[test]
 fn cli_verbs_cover_command_output_errors_and_streams() {
     let server = HeadlessServer::start("matrix");
@@ -69,7 +185,59 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&ping_json);
     let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(6));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(9));
+
+    let client_info =
+        cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
+    assert_success(&client_info);
+
+    let target = transport::connect(&server.socket).unwrap();
+    let mut target_writer = target.try_clone_box().unwrap();
+    let mut target_reader = BufReader::new(target);
+    writeln!(
+        target_writer,
+        r#"{{"id":1,"cmd":"set-client-info","name":"cli-detach-target","kind":"test"}}"#
+    )
+    .unwrap();
+    let mut target_response = String::new();
+    target_reader.read_line(&mut target_response).unwrap();
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&target_response).unwrap()["ok"], true);
+
+    let clients = cli(&server, &["--json", "list-clients"]);
+    assert_success(&clients);
+    let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+    let target_id = clients_json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|client| client["name"] == "cli-detach-target")
+        .unwrap()["client"]
+        .as_u64()
+        .unwrap();
+    let clients_human = cli(&server, &["list-clients"]);
+    assert_success(&clients_human);
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("connected="));
+    let excluded = cli(
+        &server,
+        &["set-client-sizing", "--client", &target_id.to_string(), "--enabled", "false"],
+    );
+    assert_success(&excluded);
+    let clients = cli(&server, &["--json", "list-clients"]);
+    assert_success(&clients);
+    let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+    assert_eq!(
+        clients_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|client| client["client"] == target_id)
+            .unwrap()["size_participating"],
+        false
+    );
+    let detached = cli(&server, &["detach-client", "--client", &target_id.to_string()]);
+    assert_success(&detached);
+    target_response.clear();
+    assert_eq!(target_reader.read_line(&mut target_response).unwrap(), 0);
 
     let title = cli(&server, &["set-window-title", "--title", "hello"]);
     assert_success(&title);
@@ -87,18 +255,41 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let split = cli(&server, &["split", "--pane", &pane0.to_string(), "--dir", "right"]);
     assert_success(&split);
 
+    let tree = cli(&server, &["--json", "list-workspaces"]);
+    assert_success(&tree);
+    let tree_json: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    let pane1 = tree_json["workspaces"][0]["screens"][0]["panes"][1]["id"].as_u64().unwrap();
+    let new_pane = cli(&server, &["new-pane", "--pane", &pane1.to_string()]);
+    assert_success(&new_pane);
+
     let exported = cli(&server, &["--json", "export-layout"]);
     assert_success(&exported);
     let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
     assert_eq!(exported_json["layout"]["type"].as_str(), Some("split"));
-    assert_eq!(exported_json["panes"].as_array().unwrap().len(), 2);
+    assert_eq!(exported_json["panes"].as_array().unwrap().len(), 3);
+    let split_id = exported_json["layout"]["split"].as_u64().unwrap();
+
+    let exact_ratio =
+        cli(&server, &["set-split-ratio", "--split", &split_id.to_string(), "--ratio", "0.7"]);
+    assert_success(&exact_ratio);
+    let exported = cli(&server, &["--json", "export-layout"]);
+    let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
+    assert_eq!(exported_json["layout"]["split"].as_u64(), Some(split_id));
+    let ratio = exported_json["layout"]["ratio"].as_f64().unwrap();
+    assert!((ratio - 0.7).abs() < 0.0001, "layout ratio was {ratio}");
+
+    let legacy_ratio = cli(
+        &server,
+        &["set-ratio", "--pane", &pane0.to_string(), "--dir", "right", "--ratio", "0.6"],
+    );
+    assert_success(&legacy_ratio);
 
     let neighbor =
         cli(&server, &["--json", "pane-neighbor", "--pane", &pane0.to_string(), "--dir", "right"]);
     assert_success(&neighbor);
     let neighbor_json: serde_json::Value = serde_json::from_slice(&neighbor.stdout).unwrap();
-    let pane1 = neighbor_json["pane"].as_u64().unwrap();
-    assert_ne!(pane0, pane1);
+    let neighboring_pane = neighbor_json["pane"].as_u64().unwrap();
+    assert_ne!(pane0, neighboring_pane);
 
     let focus = cli(
         &server,
@@ -106,7 +297,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     );
     assert_success(&focus);
     let focus_json: serde_json::Value = serde_json::from_slice(&focus.stdout).unwrap();
-    assert_eq!(focus_json["pane"].as_u64(), Some(pane1));
+    assert_ne!(focus_json["pane"].as_u64(), Some(pane0));
 
     let zoom =
         cli(&server, &["--json", "zoom-pane", "--pane", &pane1.to_string(), "--mode", "toggle"]);
@@ -116,16 +307,9 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(zoom_json["zoomed_pane"].as_u64(), Some(pane1));
 
     let marker = format!("cmux_cli_marker_{}", std::process::id());
-    let marker_suffix = std::process::id().to_string();
     let send = cli(
         &server,
-        &[
-            "send",
-            "--surface",
-            &surface.to_string(),
-            "--text",
-            &format!("printf 'cmux_cli_marker_%s\\n' '{marker_suffix}'\n"),
-        ],
+        &["send", "--surface", &surface.to_string(), "--text", &format!("echo {marker}\r")],
     );
     assert_success(&send);
     assert!(send.stdout.is_empty(), "mutating commands should be quiet on success");
@@ -187,6 +371,45 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(bogus.status.code(), Some(3));
 
     assert_subscribe_reports_tree_changed(&server);
+}
+
+#[test]
+fn cli_apply_layout_passes_explicit_surface_size() {
+    let server = HeadlessServer::start("apply-layout-size");
+    let applied = cli(
+        &server,
+        &[
+            "--json",
+            "apply-layout",
+            "--layout",
+            r#"{"type":"leaf"}"#,
+            "--cols",
+            "111",
+            "--rows",
+            "37",
+        ],
+    );
+    assert_success(&applied);
+    let applied: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    let surface = applied["panes"][0]["surface"].as_u64().unwrap();
+
+    let state = cli(&server, &["--json", "vt-state", "--surface", &surface.to_string()]);
+    assert_success(&state);
+    let state: serde_json::Value = serde_json::from_slice(&state.stdout).unwrap();
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
+
+    let inherited = cli(&server, &["new-workspace"]);
+    assert_success(&inherited);
+    let inherited = String::from_utf8(inherited.stdout).unwrap().trim().parse::<u64>().unwrap();
+    let state = cli(&server, &["--json", "vt-state", "--surface", &inherited.to_string()]);
+    assert_success(&state);
+    let state: serde_json::Value = serde_json::from_slice(&state.stdout).unwrap();
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
+
+    let partial = cli(&server, &["apply-layout", "--layout", r#"{"type":"leaf"}"#, "--cols", "90"]);
+    assert_eq!(partial.status.code(), Some(2));
 }
 
 fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {

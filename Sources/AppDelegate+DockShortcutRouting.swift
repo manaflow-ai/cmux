@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxPanes
 
 /// Routes "create a surface" keyboard shortcuts (New Browser, New Terminal,
@@ -74,5 +75,56 @@ extension AppDelegate {
             sourcePanelId: store.focusedPanelId,
             focus: true
         ) != nil
+    }
+
+    /// Executes a semantic surface/focus command when the Dock owns keyboard
+    /// focus. Callers invoke this from the command's existing dispatcher
+    /// position so configured and compatibility shortcuts keep the same
+    /// conflict precedence as the main area.
+    func performFocusedDockShortcut(_ command: DockShortcutCommand, event: NSEvent) -> Bool {
+        guard let store = focusedDockStoreForShortcut(preferredWindow: event.window) else {
+            return false
+        }
+        if !store.performShortcutCommand(command) { NSSound.beep() }
+        return true
+    }
+
+    func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {
+        matchTabShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)
+        )
+    }
+
+    func matchesLegacyPreviousSurfaceShortcut(event: NSEvent) -> Bool {
+        matchTabShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)
+        )
+    }
+
+    func ghosttyGotoSplitShortcut(for direction: NavigationDirection) -> StoredShortcut? {
+        switch direction {
+        case .left: ghosttyGotoSplitLeftShortcut
+        case .right: ghosttyGotoSplitRightShortcut
+        case .up: ghosttyGotoSplitUpShortcut
+        case .down: ghosttyGotoSplitDownShortcut
+        }
+    }
+
+    func matchesGhosttyGotoSplitShortcut(event: NSEvent, direction: NavigationDirection) -> Bool {
+        guard let shortcut = ghosttyGotoSplitShortcut(for: direction) else { return false }
+        let route: (glyph: String, keyCode: UInt16) = switch direction {
+        case .left: ("←", 123)
+        case .right: ("→", 124)
+        case .up: ("↑", 126)
+        case .down: ("↓", 125)
+        }
+        return matchDirectionalShortcut(
+            event: event,
+            shortcut: shortcut,
+            arrowGlyph: route.glyph,
+            arrowKeyCode: route.keyCode
+        )
     }
 }

@@ -303,15 +303,27 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ///   - sessionId: the session/thread id to resume.
     ///   - executablePath: the captured executable path, if any.
     ///   - arguments: the captured launch arguments (argv, including the executable as element 0).
+    ///   - observedPermissionMode: the hook-observed Claude permission mode the session last ran
+    ///     in, re-applied via ``claudeArgvApplyingObservedPermissionMode(_:observedPermissionMode:)``
+    ///     for user-owned claude restore; ignored for every other kind.
     public func builtInKind(
         kind: String,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        observedPermissionMode: String? = nil
     ) -> [String]? {
         switch kind {
         case "claude":
-            return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            guard let argv = claudeResumeArgv(
+                sessionId: sessionId,
+                executablePath: executablePath,
+                arguments: arguments
+            ) else { return nil }
+            return Self.claudeArgvApplyingObservedPermissionMode(
+                argv,
+                observedPermissionMode: observedPermissionMode
+            )
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
             guard let preserved = preservedCodexForkArguments(
@@ -367,6 +379,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("factory", executable: "droid", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "qoder":
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "kimi":
+            return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         default:
             return nil
         }

@@ -11,6 +11,29 @@ extension RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    /// Sends a command and reports how its `%begin`/`%end` block resolved:
+    /// `true` on `%end`, `false` on `%error` — or `false` if the stream resets
+    /// before the block arrives, since a fresh control stream can never answer
+    /// it. A `false` RETURN means the command never left; the completion is
+    /// then not called. Callers get exactly one edge either way, so state
+    /// machines can anchor on the block resolution instead of a timer.
+    @discardableResult
+    func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool {
+        let token = UUID()
+        trackedSendCompletions[token] = completion
+        guard sendInternal(command, kind: .tracked(token)) else {
+            trackedSendCompletions.removeValue(forKey: token)
+            return false
+        }
+        return true
+    }
+
+    func failPendingTrackedSends() {
+        let completions = Array(trackedSendCompletions.values)
+        trackedSendCompletions.removeAll()
+        completions.forEach { $0(false) }
+    }
+
     /// Atomically enqueues a window-reorder batch and its result correlation.
     func sendWindowReorder(
         _ commands: [String],
@@ -86,14 +109,18 @@ extension RemoteTmuxControlConnection {
     /// `pane-border-format` — exactly the header text a native tmux client
     /// would draw, custom formats included). The layout string is not ground
     /// truth: under `pane-border-status` tmux publishes the pre-title tree
-    /// while the displayed panes sit one row lower and shorter — placement
-    /// must render where the panes actually are, so a quarantined layout is
-    /// published only by this fetch's reply. The expanded format is LAST (it
+    /// while panes touching the configured edge are shorter (and top-edge
+    /// panes also sit lower). Placement must render where panes actually are,
+    /// so a quarantined layout is published only by this fetch's reply. The
+    /// expanded format is LAST (it
     /// may contain spaces) behind a `:` sentinel (it may expand to EMPTY,
     /// and a trailing empty field must survive line splitting).
     @discardableResult
     func requestPaneRects(windowId: Int, generation: Int) -> Bool {
-        sendInternal(
+        #if DEBUG
+        cmuxDebugLog("remote.rects.request @\(windowId) gen=\(generation)")
+        #endif
+        return sendInternal(
             "list-panes -t @\(windowId) -F \"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height} #{pane_active} #{pane-border-status} :#{T:pane-border-format}\"",
             kind: .paneRects(windowId, generation)
         )
@@ -127,7 +154,19 @@ extension RemoteTmuxControlConnection {
     /// and drag in the mirror are forwarded to the remote app — so drag-to-select
     /// becomes the app's own selection/OSC 52 copy, and **Shift+drag** does a native
     /// cmux copy (exactly as a local terminal behaves with a mouse-mode app).
-    func capturePane(paneId: Int) {
+    @discardableResult
+    func capturePane(paneId: Int, clearScrollback: Bool = false) -> UUID? {
+        guard let seedID = beginPaneSeed(
+            paneId: paneId,
+            clearScrollback: clearScrollback,
+            kind: .fullHistory
+        ) else { return nil }
+        // Keep this control client's pane output paused across the capture and
+        // cursor-state query. The five commands are one tmux command queue, so
+        // pane PTY reads cannot interleave between the authoritative snapshot,
+        // its boundary cursor, and the continue edge. Transport chunking may
+        // split the replies but cannot change their order.
+        let outputPauseCommand = Self.paneOutputPauseCommand(paneId: paneId)
         // Match the remote pane's screen (primary vs alternate) BEFORE seeding the
         // captured rows. An alt-screen TUI (e.g. claude) must render on the mirror's
         // alternate screen so resize matches the remote (the alternate screen does
@@ -135,10 +174,7 @@ extension RemoteTmuxControlConnection {
         // pane was already on the alt screen before cmux attached, so its 1049h is
         // not in the live %output — query `#{alternate_on}` and enter alt ourselves.
         // Ordered first so the enter lands before the capture paint in the FIFO.
-        sendInternal(
-            "display-message -p -t %\(paneId) -F \"#{alternate_on}\"",
-            kind: .paneAltScreen(paneId)
-        )
+        let altScreenCommand = Self.paneAltScreenQueryCommand(paneId: paneId)
         // `-S -<N>` seeds scrollback history (not just the visible screen) so the
         // mirrored tab is scrollable immediately on attach/reconnect. On an
         // alternate-screen pane there is no history, so tmux clamps to the visible
@@ -152,42 +188,160 @@ extension RemoteTmuxControlConnection {
         // comes from LIVE %output (which already carries real soft-wraps), not from
         // the seed — so `-J`'s only upside (pre-attach rejoin-on-grow) isn't worth
         // corrupting every TUI seed. Capture faithful visual rows instead.
-        sendInternal("capture-pane -p -e -S -\(Self.scrollbackCaptureLines) -t %\(paneId)", kind: .capturePane(paneId))
+        let captureCommand = "capture-pane -p -e -S -\(Self.scrollbackCaptureLines) -t %\(paneId)"
         // Query the pane's terminal STATE; tmux exposes it all as formats. Sent
         // after capture-pane so it applies on top of the painted rows (the seed
         // escapes are built in `paneStateSeedSequence`). See the doc comment for why
         // restoring this matters.
-        sendInternal(
-            "display-message -p -t %\(paneId) -F \""
-                + "cursor_x=#{cursor_x},cursor_y=#{cursor_y},"
-                + "scroll_region_upper=#{scroll_region_upper},scroll_region_lower=#{scroll_region_lower},"
-                + "cursor_flag=#{cursor_flag},insert_flag=#{insert_flag},"
-                + "keypad_cursor_flag=#{keypad_cursor_flag},keypad_flag=#{keypad_flag},"
-                + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height},"
-                + "mouse_all_flag=#{mouse_all_flag},mouse_button_flag=#{mouse_button_flag},"
-                + "mouse_standard_flag=#{mouse_standard_flag},"
-                + "mouse_sgr_flag=#{mouse_sgr_flag},mouse_utf8_flag=#{mouse_utf8_flag}\"",
-            kind: .paneState(paneId)
-        )
+        guard sendCommandQueueInternal(
+            [
+                outputPauseCommand,
+                altScreenCommand,
+                captureCommand,
+                Self.paneStateQueryCommand(paneId: paneId),
+                Self.paneOutputContinueCommand(paneId: paneId),
+            ],
+            kinds: [
+                .paneOutputReset(paneId, seedID),
+                .paneAltScreen(paneId, seedID),
+                .capturePane(paneId, seedID),
+                .paneState(paneId, seedID),
+                .paneOutputContinue(paneId, seedID),
+            ]
+        ) else {
+            cancelPaneSeed(paneId: paneId, seedID: seedID)
+            return nil
+        }
+        return seedID
+    }
+
+    /// Repaints ONE mirrored pane from tmux's current visible screen, for cells a
+    /// grid grow just granted.
+    ///
+    /// tmux repaints only on change, so cells granted after tmux already streamed
+    /// their rows hold nothing: the surface clipped that content while its grid was
+    /// short. tmux's own grid HAS the rows — only the mirror lost them — so the
+    /// repair is to read tmux's screen, not to make tmux or the remote re-render.
+    /// That is why this replaces the shrink→restore size kick here: the kick forced
+    /// a SIGWINCH by moving the CLIENT size, which made tmux re-round an odd split
+    /// and hand a stacked pane a different row count, which grew a pane again and
+    /// re-fired the kick — an unbounded loop (23k kicks in one fuzz iteration).
+    /// `capture-pane` and `display-message` are reads: no client size moves and
+    /// tmux re-rounds nothing. Every genuine grow therefore requests this repair;
+    /// grows observed while a seed is in flight coalesce into one follow-up so a
+    /// slow control channel cannot accumulate repaint transactions without bound.
+    ///
+    /// No `-S`: the seed's scrollback history is already in the surface, and
+    /// re-emitting it would stack a second copy into the mirror's scrollback. The
+    /// visible screen is exactly what a clipped grow lost. The reply paints
+    /// home+clear+rows (see the `.capturePane` result), so this REPLACES the
+    /// visible screen rather than appending, and the `.paneState` seed that follows
+    /// restores the cursor and scroll region on top. The alternate-screen query
+    /// also precedes the capture so a TUI transition during a slow repaint cannot
+    /// paint the authoritative rows onto the mirror's stale screen.
+    @discardableResult
+    func repaintPaneVisibleScreen(paneId: Int) -> UUID? {
+        guard pendingPaneVisibleRepaintSeedIDs[paneId] == nil else {
+            deferredPaneVisibleRepaints.insert(paneId)
+            return nil
+        }
+        let gatesReconnectReady = pendingPaneSeeds[paneId]?.contains {
+            pendingReconnectSeedIDs.contains($0.id)
+        } == true
+        guard let seedID = beginPaneSeed(
+            paneId: paneId,
+            clearScrollback: false,
+            kind: .visibleRepaint
+        ) else {
+            return nil
+        }
+        guard sendCommandQueueInternal(
+            [
+                Self.paneOutputPauseCommand(paneId: paneId),
+                Self.paneAltScreenQueryCommand(paneId: paneId),
+                "capture-pane -p -e -t %\(paneId)",
+                Self.paneStateQueryCommand(paneId: paneId),
+                Self.paneOutputContinueCommand(paneId: paneId),
+            ],
+            kinds: [
+                .paneOutputReset(paneId, seedID),
+                .paneAltScreen(paneId, seedID),
+                .capturePane(paneId, seedID),
+                .paneState(paneId, seedID),
+                .paneOutputContinue(paneId, seedID),
+            ]
+        ) else {
+            cancelPaneSeed(paneId: paneId, seedID: seedID)
+            return nil
+        }
+        pendingPaneVisibleRepaintSeedIDs[paneId] = seedID
+        if gatesReconnectReady { pendingReconnectSeedIDs.insert(seedID) }
+        return seedID
+    }
+
+    /// Pauses and discards queued output for one pane on this control client.
+    static func paneOutputPauseCommand(paneId: Int) -> String {
+        // tmux parses an unquoted `%pane:state` token as syntax, before -A sees it.
+        "refresh-client -A \"%\(paneId):pause\""
+    }
+
+    /// Resumes pane output after the same command queue captured screen and state.
+    static func paneOutputContinueCommand(paneId: Int) -> String {
+        "refresh-client -A \"%\(paneId):continue\""
+    }
+
+    /// The `display-message` line that reads whether a pane uses the alternate screen.
+    static func paneAltScreenQueryCommand(paneId: Int) -> String {
+        "display-message -p -t %\(paneId) -F \"#{alternate_on}\""
+    }
+
+    /// The `display-message` line that reads a pane's terminal state (cursor,
+    /// scroll region, DEC modes) for the `.paneState` seed. Shared by the attach
+    /// seed and ``repaintPaneVisibleScreen(paneId:)`` so the two cannot drift.
+    static func paneStateQueryCommand(paneId: Int) -> String {
+        "display-message -p -t %\(paneId) -F \""
+            + "cursor_x=#{cursor_x},cursor_y=#{cursor_y},"
+            + "scroll_region_upper=#{scroll_region_upper},scroll_region_lower=#{scroll_region_lower},"
+            + "cursor_flag=#{cursor_flag},insert_flag=#{insert_flag},"
+            + "keypad_cursor_flag=#{keypad_cursor_flag},keypad_flag=#{keypad_flag},"
+            + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height},"
+            + "mouse_all_flag=#{mouse_all_flag},mouse_button_flag=#{mouse_button_flag},"
+            + "mouse_standard_flag=#{mouse_standard_flag},"
+            + "mouse_sgr_flag=#{mouse_sgr_flag},mouse_utf8_flag=#{mouse_utf8_flag}\""
     }
 
     /// Seeds (or re-seeds) a mirrored pane in the one canonical sequence: reflow
     /// classification FIRST (the one-shot query — always works — then the live
     /// subscription for re-classification, e.g. bash → node), then the content
     /// capture, then cwd tracking (initial value + live `cd`). Classification is
-    /// queued before the (3-command) capture because it only matters at the next
+    /// queued before the five-command capture because it only matters at the next
     /// resize — the earlier it lands, the smaller the window in which a resize
     /// hits the conservative no-reflow default on a slow link.
-    func seedPane(paneId: Int) {
+    @discardableResult
+    func seedPane(paneId: Int, clearScrollback: Bool = true) -> UUID? {
         requestPaneReflow(paneId: paneId)
-        subscribePaneReflow(paneId: paneId)
-        capturePane(paneId: paneId)
+        let seedID = capturePane(paneId: paneId, clearScrollback: clearScrollback)
         requestPanePath(paneId: paneId)
-        subscribePanePath(paneId: paneId)
-        subscribePaneHeader(paneId: paneId)
+        // One batched refresh-client for all three live subscriptions
+        // instead of three separate sends — see subscribePaneAll. Under
+        // churn this is the difference between the command FIFO keeping up
+        // with tmux and backing up into minutes-long non-convergence.
+        subscribePaneAll(paneId: paneId)
+        return seedID
     }
 
     func reseedAfterReconnect() {
+        // The fresh ssh client has been sent nothing: the dedup baseline
+        // must reset with it, or requests matching pre-drop sends would be
+        // suppressed against a server that no longer has them.
+        sentWindowSizes.removeAll()
+        // Parity episodes are per connection too: a re-arm budget spent
+        // against the old transport must not suppress re-arms when this
+        // reseed's own resends get lost or raced the same way.
+        windowClaimParityRearmsSpent.removeAll()
+        // The border-status watches were dropped at `beginReconnecting()` — before
+        // this reseed's own list-windows restage, which is what re-issues them.
+        // Clearing them here would be too late: the restage has already run.
         if let size = lastClientSize {
             send("refresh-client -C \(size.columns)x\(size.rows)")
         }
@@ -200,17 +354,19 @@ extension RemoteTmuxControlConnection {
                 sendPerWindowSize(windowId: windowId, columns: size.0, rows: size.1)
             }
         }
-        // The re-applied size is usually a no-op (the server kept the window at our
-        // size across the transport drop), so TUIs get no SIGWINCH — kick them so
-        // they repaint over the re-seeded (possibly stale) frame. FIFO-safe: the
-        // captures below are queued before the kick task's first push can run.
-        scheduleAttachRedrawKickIfNeeded()
-        for window in windowsByID.values {
-            for paneId in window.paneIDsInOrder {
-                observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
-                seedPane(paneId: paneId)
+        pendingReconnectSeedIDs.removeAll(keepingCapacity: true)
+        var seenPaneIDs: Set<Int> = []
+        pendingReconnectPaneIDs = windowsByID.keys.sorted().flatMap { windowId in
+            (windowsByID[windowId]?.paneIDsInOrder ?? []).filter {
+                seenPaneIDs.insert($0).inserted
             }
         }
+        pumpReconnectPaneSeeds()
+        // A batch rejection synchronously begins another reconnect and discards
+        // its seeds. Never resurrect those IDs or announce readiness for the dead
+        // stream after the loop returns.
+        guard connectionState == .connected else { return }
+        notifyReconnectReadyIfSeedBatchDrained()
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),

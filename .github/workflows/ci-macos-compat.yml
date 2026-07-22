@@ -9,16 +9,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-            timeout: 30
+          - os: macos-14-large
+            timeout: 60
+            run_unit_tests: false
             startup_smoke: true
             virtual_display: true
             skip_zig: false
+            expected_arch: x86_64
+            expected_os_major: "14"
+          - os: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+            timeout: 60
+            run_unit_tests: true
+            startup_smoke: true
+            virtual_display: true
+            skip_zig: false
+            expected_arch: ""
+            expected_os_major: ""
           - os: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-            timeout: 30
+            timeout: 60
+            run_unit_tests: true
             startup_smoke: true
             virtual_display: false
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
+            expected_arch: ""
+            expected_os_major: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
     steps:
@@ -28,6 +42,9 @@ jobs:
           submodules: recursive
 
       - name: Select Xcode
+        env:
+          EXPECTED_ARCH: ${{ matrix.expected_arch }}
+          EXPECTED_OS_MAJOR: ${{ matrix.expected_os_major }}
         run: |
           set -euo pipefail
           # Pick the latest Xcode installed on the runner. GitHub-hosted macos-14
@@ -56,6 +73,17 @@ jobs:
           echo "$XCODE_VERSION_OUTPUT"
           xcrun --sdk macosx --show-sdk-path
           sw_vers
+          if [ -n "$EXPECTED_ARCH" ] && [ "$(uname -m)" != "$EXPECTED_ARCH" ]; then
+            echo "Expected runner architecture $EXPECTED_ARCH, got $(uname -m)" >&2
+            exit 1
+          fi
+          if [ -n "$EXPECTED_OS_MAJOR" ]; then
+            OS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
+            if [ "$OS_MAJOR" != "$EXPECTED_OS_MAJOR" ]; then
+              echo "Expected macOS $EXPECTED_OS_MAJOR, got $(sw_vers -productVersion)" >&2
+              exit 1
+            fi
+          fi
 
       - name: Capture Ghostty revision
         id: ghostty-revision
@@ -119,7 +147,20 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Run mobile transport package tests on Intel Sonoma
+        if: matrix.expected_arch == 'x86_64'
+        run: |
+          ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CMUXMobileCore
+          ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CmuxIrohTransport
+
+      - name: Run mobile transport tests in x86_64 iOS Simulator on Intel Sonoma
+        if: matrix.expected_arch == 'x86_64'
+        env:
+          CMUX_EXPECTED_SIMULATOR_ARCH: ${{ matrix.expected_arch }}
+        run: ./scripts/ci/run-iroh-ios-simulator-package-tests.sh
+
       - name: Run unit tests
+        if: matrix.run_unit_tests
         env:
           CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
         run: |
@@ -131,6 +172,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              COMPILER_INDEX_STORE_ENABLE=NO \
               test 2>&1
           }
 
@@ -190,7 +232,9 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build
+            -destination "platform=macOS" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build
 
       - name: Smoke test
         if: matrix.startup_smoke

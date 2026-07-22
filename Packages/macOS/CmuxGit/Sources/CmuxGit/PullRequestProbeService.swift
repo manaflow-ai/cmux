@@ -13,13 +13,13 @@ public import CmuxFoundation
 /// 3. ``resolveRefreshResults(candidates:repoResults:)`` — match candidates
 ///    against the fetched data into per-panel ``WorkspacePullRequestRefreshResult``s.
 ///
-/// Like ``GitMetadataService`` it is a stateless `Sendable` value with
-/// `nonisolated async` reads (off the caller's actor, parallel across calls;
-/// see that type's `Important` note on `NonisolatedNonsendingByDefault`). The
-/// repo cache is owned by the caller and passed in. The service only retains a
-/// short-lived auth-header cache so periodic refreshes do not spawn `gh auth
-/// token` on every pass. Authentication uses `GH_TOKEN`/`GITHUB_TOKEN` or
-/// `gh auth token` via the injected ``CmuxProcess/CommandRunning``.
+/// Like ``GitMetadataService`` it is a `Sendable` value with `nonisolated
+/// async` reads. The caller owns its decoded repo cache; this service shares a
+/// request coordinator across every copy so app windows use one authenticated,
+/// conditional, rate-limit-aware GitHub transport. Authentication uses
+/// `GH_TOKEN`/`GITHUB_TOKEN` or `gh auth token` via the injected
+/// ``CmuxProcess/CommandRunning``. Without credentials, requests fail closed
+/// instead of consuming GitHub's anonymous per-IP pool.
 public struct PullRequestProbeService: Sendable {
     /// Runs `gh auth token` for the API auth header. Injected so tests supply a
     /// fake without spawning a process.
@@ -29,6 +29,10 @@ public struct PullRequestProbeService: Sendable {
     /// the GitHub CLI when the app has no environment token.
     let authHeaderCache: GitHubAuthHeaderCache
 
+    /// Shared transport/cache/backoff policy. Copies of this service retain the
+    /// same actor, which is how every app window coalesces GitHub requests.
+    let requestCoordinator: GitHubPullRequestRequestCoordinator
+
     /// Debug-log sink for probe diagnostics (the app injects its debug logger
     /// in DEBUG builds; defaults to a no-op).
     let debugLog: @Sendable (String) -> Void
@@ -37,13 +41,19 @@ public struct PullRequestProbeService: Sendable {
     ///
     /// - Parameters:
     ///   - commandRunner: Runs `gh auth token`; tests pass a fake.
+    ///   - requestCoordinator: Shared GitHub transport/cache/backoff policy.
+    ///     Defaults to a process-scoped coordinator; injected (like
+    ///     `commandRunner`) so tests can supply one backed by a stub
+    ///     `URLSession` without contacting GitHub.
     ///   - debugLog: Optional diagnostics sink; defaults to a no-op.
     public init(
         commandRunner: any CommandRunning = CommandRunner(),
+        requestCoordinator: GitHubPullRequestRequestCoordinator? = nil,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.commandRunner = commandRunner
         self.authHeaderCache = GitHubAuthHeaderCache()
+        self.requestCoordinator = requestCoordinator ?? GitHubPullRequestRequestCoordinator()
         self.debugLog = debugLog
     }
 
@@ -51,10 +61,8 @@ public struct PullRequestProbeService: Sendable {
 
     /// How long a fetched repo cache entry satisfies periodic refreshes.
     static let repoCacheLifetime: TimeInterval = 15
-    /// REST page size for the recent-PRs fetch.
+    /// REST page size for per-branch `head=` pull-request lookups.
     static let repoPageSize = 100
-    /// Maximum REST pages fetched per repository.
-    static let repoPageLimit = 2
     /// Per-request timeout for GitHub API calls and the `gh auth token` probe.
     static let probeTimeout: TimeInterval = 5.0
     /// Merged PRs older than this no longer earn a badge.

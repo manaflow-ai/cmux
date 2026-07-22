@@ -8,7 +8,7 @@ pub mod graphics_writer;
 pub(crate) mod input;
 pub mod omnibar;
 mod overlay;
-mod pane;
+pub(crate) mod pane;
 mod scrollbar;
 mod sidebar;
 pub(crate) mod terminal_grid;
@@ -38,9 +38,10 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     overlay::draw_toast(app, frame);
     overlay::draw_menu(app, frame);
 
-    // The dialog owns the terminal cursor while it is open (draw_prompt
-    // sets it on the input row).
-    if app.prompt.is_some() {
+    if app.pairing_dialog.is_some() {
+        overlay::draw_pairing_dialog(app, frame);
+    // The rename dialog owns the terminal cursor while it is open.
+    } else if app.prompt.is_some() {
         overlay::draw_prompt(app, frame);
     } else if app.menu.is_none()
         && let Some((x, y)) = cursor

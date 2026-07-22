@@ -7,6 +7,7 @@ extension SessionRestorableAgentSnapshot {
         case workingDirectory
         case launchCommand
         case registration
+        case permissionMode
     }
 
     init(from decoder: Decoder) throws {
@@ -15,13 +16,14 @@ extension SessionRestorableAgentSnapshot {
         let registration = try container.decodeIfPresent(
             CmuxVaultAgentRegistration.self,
             forKey: .registration
-        )
+        )?.migratedPersistedBuiltInRegistration
         // Registry-detected snapshots persist `.custom(id)`, whose raw string
         // collapses to the native case on decode when the id matches a
         // built-in raw value. Restore the write-side identity whenever that
-        // collapse would change restore semantics (relaunch-only natives such
-        // as Ollama), so a stored custom registration keeps owning resume.
-        if kind.restoreMode == .relaunchCommand,
+        // collapse would change command semantics (registry-owned Pi/Kimi or
+        // relaunch-only natives such as Ollama), so the stored registration
+        // keeps owning resume and fork behavior.
+        if (kind.restoreMode == .relaunchCommand || kind == .pi || kind == .kimi),
            let registration,
            registration.id == kind.rawValue {
             kind = .custom(registration.id)
@@ -34,7 +36,9 @@ extension SessionRestorableAgentSnapshot {
                 AgentLaunchCommandSnapshot.self,
                 forKey: .launchCommand
             ),
-            registration: registration
+            registration: registration,
+            // Optional so snapshots persisted before the field decode unchanged.
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode)
         )
     }
 
@@ -51,7 +55,8 @@ extension SessionRestorableAgentSnapshot {
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
-            registrationOverride: registration
+            registrationOverride: registration,
+            observedPermissionMode: permissionMode
         )
     }
 
@@ -62,7 +67,8 @@ extension SessionRestorableAgentSnapshot {
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
-            registrationOverride: registration
+            registrationOverride: registration,
+            observedPermissionMode: permissionMode
         )
     }
 

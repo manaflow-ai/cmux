@@ -18,6 +18,7 @@ import SwiftUI
 struct MacComputerDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let macDeviceID: String
+    let instanceTag: String?
     @Environment(\.dismiss) private var dismiss
 
     @State private var pendingRemoval = false
@@ -44,15 +45,27 @@ struct MacComputerDetailView: View {
     private static let emojiChoices = ["💻", "🖥️", "⚡️", "🔥", "⭐️", "🚀", "🐧", "🍎", "🎮", "👾"]
 
     private var pairedMac: MobilePairedMac? {
-        store.displayPairedMacs.first { $0.macDeviceID == macDeviceID }
+        store.displayPairedMacs.first {
+            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+        }
     }
     private var connectionStatus: MobileMacConnectionStatus? {
         store.macConnectionStatuses[macDeviceID]
     }
     private var presence: PresenceMap.DeviceSummary? {
-        store.presenceSummary(for: macDeviceID)
+        store.presenceSummary(
+            for: macDeviceID,
+            instanceTag: pairedMac?.instanceTag
+        )
     }
-    private var isForeground: Bool { store.connectedMacDeviceID == macDeviceID }
+    private var isForeground: Bool {
+        store.connectedMacDeviceID == macDeviceID
+            && (instanceTag == nil || store.connectedMacInstanceTag == instanceTag)
+    }
+    private var displayTitle: String {
+        let baseName = pairedMac?.resolvedName ?? macDeviceID
+        return MobileIOSBuildScope.current()?.computerDisplayName(baseName) ?? baseName
+    }
     private var workspaceCount: Int {
         store.workspaceCount(for: macDeviceID)
     }
@@ -65,7 +78,7 @@ struct MacComputerDetailView: View {
             identitySection
             actionsSection
         }
-        .navigationTitle(pairedMac?.resolvedName ?? macDeviceID)
+        .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             guard !didLoadEdits else { return }
@@ -80,13 +93,16 @@ struct MacComputerDetailView: View {
             }
         }
         .confirmationDialog(
-            "\(L10n.string("mobile.computers.removeTitlePrefix", defaultValue: "Remove")) \(pairedMac?.displayName ?? macDeviceID)?",
+            "\(L10n.string("mobile.computers.removeTitlePrefix", defaultValue: "Remove")) \(displayTitle)?",
             isPresented: $pendingRemoval,
             titleVisibility: .visible
         ) {
             Button(L10n.string("mobile.computers.remove", defaultValue: "Remove"), role: .destructive) {
                 let id = macDeviceID
-                Task { await store.forgetMac(macDeviceID: id); await store.loadPairedMacs() }
+                Task {
+                    await store.forgetMac(macDeviceID: id, instanceTag: instanceTag)
+                    await store.loadPairedMacs()
+                }
                 dismiss()
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
@@ -217,6 +233,7 @@ struct MacComputerDetailView: View {
         Task {
             await store.updateMacCustomization(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 customName: name,
                 customColor: color,
                 customIcon: icon
@@ -430,7 +447,12 @@ struct MacComputerDetailView: View {
                 // re-dials it specifically. `reconnectOrRefresh()` would instead
                 // refresh/redial the foreground/active Mac and leave the computer
                 // shown here untouched.
-                Task { await store.switchToMac(macDeviceID: macDeviceID) }
+                Task {
+                    await store.switchToMac(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
+                }
             } label: {
                 Label(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"), systemImage: "arrow.clockwise")
             }

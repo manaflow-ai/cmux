@@ -107,6 +107,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let addr = listener.local_addr().unwrap();
     let (seen_tx, seen_rx) = mpsc::channel();
     let (frame_tx, frame_rx) = mpsc::channel();
+    let (attach_resize_started_tx, attach_resize_started_rx) = mpsc::channel();
+    let (attach_resize_release_tx, attach_resize_release_rx) = mpsc::channel();
 
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
@@ -136,8 +138,14 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     let session = target.replace("target", "session");
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": session}}));
                 }
+                "Emulation.setDeviceMetricsOverride" => {
+                    if request["params"]["width"] == 96 && request["params"]["height"] == 96 {
+                        attach_resize_started_tx.send(()).unwrap();
+                        attach_resize_release_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+                    }
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
                 "Page.enable"
-                | "Emulation.setDeviceMetricsOverride"
                 | "Page.stopScreencast"
                 | "Target.activateTarget"
                 | "Page.bringToFront"
@@ -300,6 +308,12 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
+    frame_tx.send(()).unwrap();
+    wait_for(
+        || mux.surface(surface)?.browser_frame().filter(|frame| frame.seq == 1),
+        Duration::from_secs(10),
+    )
+    .expect("initial browser frame before sized attach");
 
     // A second tab in the same pane, sized differently, becomes the active
     // tab. The popup adopted from `surface` below must be sized from
@@ -312,23 +326,92 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let mut attach = UnixStream::connect(&socket_path).unwrap();
     attach
         .write_all(
-            json!({"id": 2, "cmd": "attach-surface", "surface": surface}).to_string().as_bytes(),
+            json!({
+                "id": 2,
+                "cmd": "attach-surface",
+                "surface": surface,
+                "cols": 12,
+                "rows": 6
+            })
+            .to_string()
+            .as_bytes(),
         )
         .unwrap();
     attach.write_all(b"\n").unwrap();
+    attach.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
     let mut attach_reader = BufReader::new(attach);
+    attach_resize_started_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("sized attach reached browser reconfigure");
+    let mut premature = String::new();
+    let error = match attach_reader.read_line(&mut premature) {
+        Err(error) => error,
+        Ok(_) => panic!("browser attach state must wait for its requested resize: {premature}"),
+    };
+    assert!(matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut));
+
+    let mut joined_attach = UnixStream::connect(&socket_path).unwrap();
+    joined_attach
+        .write_all(
+            json!({
+                "id": 3,
+                "cmd": "attach-surface",
+                "surface": surface,
+                "cols": 12,
+                "rows": 6
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+    joined_attach.write_all(b"\n").unwrap();
+    joined_attach.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut joined_reader = BufReader::new(joined_attach);
+    let mut premature = String::new();
+    let error = match joined_reader.read_line(&mut premature) {
+        Err(error) => error,
+        Ok(_) => panic!("joined browser attach must wait for the pending resize: {premature}"),
+    };
+    assert!(matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut));
+
+    for _ in 0..4 {
+        attach_resize_release_tx.send(()).unwrap();
+    }
+    attach_reader.get_ref().set_read_timeout(None).unwrap();
+    joined_reader.get_ref().set_read_timeout(None).unwrap();
     let state = recv_attach_event(&mut attach_reader, "browser-state");
     assert_eq!(state["surface"], surface);
+    assert_eq!(state["cols"], 12);
+    assert_eq!(state["rows"], 6);
     assert_eq!(state["url"], "https://example.test");
     assert!(state["frame"].is_null());
+    let joined_state = recv_attach_event(&mut joined_reader, "browser-state");
+    assert_eq!(joined_state["cols"], 12);
+    assert_eq!(joined_state["rows"], 6);
+    assert!(joined_state["frame"].is_null());
 
-    frame_tx.send(()).unwrap();
-    let frame = recv_attach_event(&mut attach_reader, "frame");
-    assert_eq!(frame["surface"], surface);
-    assert_eq!(frame["seq"], 1);
-    assert_eq!(frame["width"], 100);
-    assert_eq!(frame["height"], 50);
-    assert_eq!(frame["data"], "iVBORw0KGgo=");
+    let mut larger_attach = UnixStream::connect(&socket_path).unwrap();
+    larger_attach
+        .write_all(
+            json!({
+                "id": 4,
+                "cmd": "attach-surface",
+                "surface": surface,
+                "cols": 20,
+                "rows": 10
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+    larger_attach.write_all(b"\n").unwrap();
+    let mut larger_reader = BufReader::new(larger_attach);
+    let mut larger_line = String::new();
+    larger_reader.read_line(&mut larger_line).unwrap();
+    let larger_state: Value = serde_json::from_str(&larger_line).unwrap();
+    assert_eq!(larger_state["event"], "browser-state", "larger viewer attach failed");
+    assert_eq!(larger_state["cols"], 12);
+    assert_eq!(larger_state["rows"], 6);
 
     let navigate = rpc(
         &socket_path,
@@ -425,8 +508,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let mouse_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
     assert_eq!(mouse_request["sessionId"], "session-1");
     assert_eq!(mouse_request["params"]["type"], "mousePressed");
-    assert_eq!(mouse_request["params"]["x"], 15.625);
-    assert_eq!(mouse_request["params"]["y"], 5.625);
+    assert_eq!(mouse_request["params"]["x"], 13.020833333333334);
+    assert_eq!(mouse_request["params"]["y"], 4.6875);
 
     let insert = rpc(
         &socket_path,
@@ -442,12 +525,20 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         json!({"id": 5, "cmd": "set-cell-pixels", "width_px": 11, "height_px": 17}),
     );
     assert_eq!(metrics["ok"], true);
+    assert!(metrics["data"]["resizes"].as_array().is_some_and(|resizes| {
+        resizes.iter().any(|resize| {
+            resize["surface"] == surface
+                && resize["cols"] == 12
+                && resize["rows"] == 6
+                && resize["reservation_id"].as_u64().is_some()
+        })
+    }));
     let metrics_request =
         recv_method_where(&seen_rx, "Emulation.setDeviceMetricsOverride", |value| {
-            value["params"]["width"] == 110 && value["params"]["height"] == 85
+            value["params"]["width"] == 132 && value["params"]["height"] == 102
         });
-    assert_eq!(metrics_request["params"]["width"], 110);
-    assert_eq!(metrics_request["params"]["height"], 85);
+    assert_eq!(metrics_request["params"]["width"], 132);
+    assert_eq!(metrics_request["params"]["height"], 102);
 
     let back = rpc(&socket_path, json!({"id": 6, "cmd": "browser-back", "surface": surface}));
     assert_eq!(back["ok"], true);
