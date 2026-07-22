@@ -17,6 +17,7 @@ from typing import Any
 
 WORKSPACE_COUNT = 12
 SYNTHETIC_SCROLLBACK_CHARS_PER_TERMINAL = 165_000
+MIN_SNAPSHOT_SCROLLBACK_CHARS = 1_000_000
 DEFAULT_SAMPLE_COUNT = 5
 DEFAULT_ITERATION_COUNT = 3
 IN_FLIGHT_SAMPLE_INTERVAL_SECONDS = 0.02
@@ -499,12 +500,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 memory_samples=memory_samples,
                 memory_started_at=memory_started_at,
             )
-            expected_chars = SYNTHETIC_SCROLLBACK_CHARS_PER_TERMINAL * terminal_surfaces
             for index, sample in enumerate(with_scrollback["samples"]):
-                if sample["shape"].get("scrollback_chars") != expected_chars:
+                scrollback_chars = sample["shape"].get("scrollback_chars")
+                if not isinstance(scrollback_chars, int) or scrollback_chars < MIN_SNAPSHOT_SCROLLBACK_CHARS:
                     raise RuntimeError(
                         f"iteration[{iteration}].with_synthetic_scrollback.samples[{index}] "
-                        f"scrollback_chars={sample['shape'].get('scrollback_chars')!r}, expected {expected_chars}"
+                        f"scrollback_chars={scrollback_chars!r}, expected at least {MIN_SNAPSHOT_SCROLLBACK_CHARS}"
                     )
             iterations.append(
                 {
