@@ -2298,6 +2298,34 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/TypedOpaqueReassignedRealClockTests.swift",
+            "var clock: ContinuousClock = .init()\n"
+            "clock = makeClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/TypedDeferredRealClockTests.swift",
+            "let clock: ContinuousClock\n"
+            "clock = .init()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ExhaustiveReassignedRealClockTests.swift",
+            "var clock: any Clock<Duration> = TestRelayClock()\n"
+            "if usePrimary {\n"
+            "    clock = ContinuousClock()\n"
+            "} else {\n"
+            "    clock = ContinuousClock()\n"
+            "}\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/MultilineNamedClockTests.swift",
             "let clock =\n"
             "    ContinuousClock()\n"
@@ -3309,6 +3337,36 @@ def _self_test() -> int:
             "import time as clock_time\n"
             "clock_time = TestClock()\n"
             "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+        ),
+        (
+            "tests/ShadowedTimeModuleTests.py",
+            "time = TestClock()\n"
+            "time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+        ),
+        (
+            "tests/ShadowedAsyncioModuleTests.py",
+            "asyncio = TestClock()\n"
+            "await asyncio.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+        ),
+        (
+            "tests/ShadowedTrioModuleTests.py",
+            "trio = TestClock()\n"
+            "await trio.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+        ),
+        (
+            "tests/ShadowedAnyioModuleTests.py",
+            "anyio = TestClock()\n"
+            "await anyio.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+        ),
+        (
+            "tests/ShadowedGeventModuleTests.py",
+            "gevent = TestClock()\n"
+            "gevent.sleep(0.3)\n"
             "assert widget.is_rendered\n",
         ),
     ]
