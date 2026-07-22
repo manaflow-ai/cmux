@@ -1113,6 +1113,64 @@ mod tests {
     }
 
     #[test]
+    fn legacy_v1_provider_connects_without_receiving_lifecycle_requests() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+            let hello: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(hello.request, protocol::ProviderRequest::Hello(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    hello.id,
+                    protocol::HelloResult {
+                        provider_id: id("legacy-provider"),
+                        provider_name: "Legacy Provider".into(),
+                        negotiated_version: protocol::Version,
+                    },
+                ),
+            );
+
+            let request: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
+            let mut legacy_snapshot =
+                snapshot(1, "Legacy machine", protocol::MachineStatus::Running);
+            legacy_snapshot.machines[0].workspace_create =
+                protocol::WorkspaceCreatePolicy::Provider {
+                    default_mode: protocol::WorkspaceCreateMode::Isolated,
+                    modes: vec![protocol::WorkspaceCreateMode::Isolated],
+                };
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(request.id, legacy_snapshot),
+            );
+
+            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let mut unexpected = String::new();
+            match reader.read_line(&mut unexpected) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Ok(0) => panic!("provider client disconnected during legacy fallback"),
+                Ok(_) => panic!("legacy provider received an unsupported request: {unexpected}"),
+                Err(error) => panic!("legacy provider read failed: {error}"),
+            }
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let ui = runtime.ui_state_for_open_connection();
+        assert!(ui.managed_machines().is_empty());
+        assert!(ui.managed_workspaces().is_empty());
+
+        server.join().unwrap();
+    }
+
+    #[test]
     fn presentation_translation_preserves_provider_permissions_and_fields() {
         let snapshot = protocol::SnapshotResult {
             revision: 1,
