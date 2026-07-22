@@ -2653,6 +2653,13 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/CastRealClockTests.swift",
+            "let clock = makeClock() as ContinuousClock\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/ExplicitInitNamedClockTests.swift",
             "let clock = Swift.SuspendingClock.init()\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
@@ -2929,6 +2936,21 @@ def _self_test() -> int:
             "tests/aliased_asyncio_sleep.py",
             "import asyncio as aio\n"
             "await aio.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/asyncio_submodule_sleep.py",
+            "import asyncio.subprocess\n"
+            "await asyncio.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/keyword_argument_before_sleep.py",
+            "import time\n"
+            "configure(time=fake_clock)\n"
+            "time.sleep(0.3)\n"
             "assert widget.is_rendered\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
