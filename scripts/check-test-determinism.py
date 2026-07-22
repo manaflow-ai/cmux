@@ -480,6 +480,7 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     quote: Optional[str] = None
     block_comment_depth = 0
     line_comment = "#" if path_suffix in (".py", ".sh") else "//"
+    supports_block_comments = path_suffix not in (".py", ".sh")
 
     for line in lines:
         masked = list(line)
@@ -487,7 +488,7 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
         while i < len(line):
             if block_comment_depth:
                 masked[i] = " "
-                if line.startswith("/*", i):
+                if supports_block_comments and line.startswith("/*", i):
                     masked[i : i + 2] = "  "
                     block_comment_depth += 1
                     i += 2
@@ -517,7 +518,7 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
             if line.startswith(line_comment, i):
                 masked[i:] = " " * (len(line) - i)
                 break
-            if line.startswith("/*", i):
+            if supports_block_comments and line.startswith("/*", i):
                 masked[i : i + 2] = "  "
                 block_comment_depth = 1
                 i += 2
@@ -635,11 +636,9 @@ def _closure_header_text(text: str, following_lines: Iterable[str]) -> str:
     return text
 
 
-def _local_receiver_declarations(
-    text: str, receiver: str
-) -> list[tuple[int, str]]:
-    """Return this receiver's individual `let`/`var` declarators on one line."""
-    declarations: list[tuple[int, str]] = []
+def _local_declarations(text: str) -> list[tuple[int, str, str]]:
+    """Return individual `let`/`var` declarators on one line."""
+    declarations: list[tuple[int, str, str]] = []
 
     for keyword in re.finditer(r"\b(?:let|var)\b", text):
         segment_start = keyword.end()
@@ -672,12 +671,29 @@ def _local_receiver_declarations(
         for start, end in segments:
             segment = text[start:end]
             name = re.match(r"\s*([A-Za-z_]\w*)\b", segment)
-            if not name or name.group(1) != receiver:
+            if not name:
                 continue
             name_end = start + name.end()
-            declarations.append((start + name.start(1), text[name_end:end]))
+            declarations.append(
+                (
+                    start + name.start(1),
+                    name.group(1),
+                    text[name_end:end],
+                )
+            )
 
     return declarations
+
+
+def _local_receiver_declarations(
+    text: str, receiver: str
+) -> list[tuple[int, str]]:
+    """Return this receiver's individual `let`/`var` declarators on one line."""
+    return [
+        (position, declaration)
+        for position, name, declaration in _local_declarations(text)
+        if name == receiver
+    ]
 
 
 def _receiver_declaration_kind(
@@ -704,6 +720,19 @@ def _receiver_declaration_inherits_kind(declaration: str, receiver: str) -> bool
             stripped,
         )
     )
+
+
+def _receiver_declaration_alias(
+    declaration: str,
+) -> Optional[tuple[str, bool]]:
+    """Return a simple source binding and whether it is `self`-qualified."""
+    alias = re.fullmatch(
+        r"=\s*(?:(self)\s*\.\s*)?([A-Za-z_]\w*)[?!]?\s*(?:else)?",
+        declaration.strip(),
+    )
+    if not alias:
+        return None
+    return (alias.group(2), alias.group(1) is not None)
 
 
 @dataclass
@@ -753,13 +782,18 @@ def _nearest_receiver_kind(
 
 
 def _has_explicit_real_member(
-    masked_lines: list[str], call_index: int, call_column: int, receiver: str
+    masked_lines: list[str],
+    call_index: int,
+    call_column: int,
+    receiver: str,
+    external_real_members: Optional[dict[str, set[str]]] = None,
 ) -> bool:
     """Find this type's explicit real-clock member, independent of file order."""
     depth = 0
-    pending_type: Optional[str] = None
-    active_types: list[tuple[str, int]] = []
+    pending_type: Optional[tuple[str, bool]] = None
+    active_types: list[tuple[str, int, bool]] = []
     call_type: Optional[str] = None
+    call_is_extension = False
     real_member_types: set[str] = set()
 
     for line_index, candidate in enumerate(masked_lines):
@@ -772,9 +806,8 @@ def _has_explicit_real_member(
                 and "." not in declared_type
                 and active_types
             ):
-                pending_type = f"{active_types[-1][0]}.{declared_type}"
-            else:
-                pending_type = declared_type
+                declared_type = f"{active_types[-1][0]}.{declared_type}"
+            pending_type = (declared_type, type_kind == "extension")
         events: list[tuple[int, str, Optional[str]]] = []
         events.extend(
             (position, "binding", declaration)
@@ -795,10 +828,12 @@ def _has_explicit_real_member(
             if event == "call":
                 if active_types:
                     call_type = active_types[-1][0]
+                    call_is_extension = active_types[-1][2]
             elif event == "{":
                 depth += 1
                 if pending_type is not None:
-                    active_types.append((pending_type, depth))
+                    type_name, is_extension = pending_type
+                    active_types.append((type_name, depth, is_extension))
                     pending_type = None
             elif event == "}":
                 if active_types and active_types[-1][1] == depth:
@@ -814,50 +849,95 @@ def _has_explicit_real_member(
             ):
                 real_member_types.add(active_types[-1][0])
 
-    return call_type is not None and call_type in real_member_types
+    if call_type is None:
+        return False
+    if call_type in real_member_types:
+        return True
+    return bool(
+        call_is_extension
+        and external_real_members is not None
+        and receiver in external_real_members.get(call_type, set())
+    )
 
 
-def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
-    """Resolve a named receiver through Swift-like lexical brace scopes."""
-    current = masked_lines[idx]
-    sleep_match = _NAMED_SLEEP_CALL.search(current)
-    sleep_start: int
-    if sleep_match:
-        self_receiver = sleep_match.group(1) is not None
-        if (
-            not self_receiver
-            and current[: sleep_match.start()].rstrip().endswith(".")
-        ):
-            return False
-        receiver = sleep_match.group(2)
-        sleep_start = sleep_match.start()
-    else:
-        continuation = _CONTINUED_SLEEP_CALL.search(current)
-        if not continuation:
-            return False
-        previous = next(
-            (
-                masked_lines[j].rstrip()
-                for j in range(idx - 1, -1, -1)
-                if masked_lines[j].strip()
-            ),
-            "",
+def _explicit_real_clock_members(
+    masked_lines: list[str],
+) -> dict[str, set[str]]:
+    """Index explicit real-clock members by fully nested Swift type name."""
+    depth = 0
+    pending_type: Optional[str] = None
+    active_types: list[tuple[str, int]] = []
+    real_members: dict[str, set[str]] = {}
+
+    for line_index, candidate in enumerate(masked_lines):
+        type_header = _TYPE_SCOPE_HEADER.search(candidate)
+        if type_header:
+            type_kind = type_header.group(1)
+            declared_type = type_header.group(2)
+            if (
+                type_kind != "extension"
+                and "." not in declared_type
+                and active_types
+            ):
+                declared_type = f"{active_types[-1][0]}.{declared_type}"
+            pending_type = declared_type
+
+        events: list[
+            tuple[int, str, Optional[tuple[str, str]]]
+        ] = []
+        events.extend(
+            (position, "binding", (name, declaration))
+            for position, name, declaration in _local_declarations(candidate)
         )
-        if re.search(
-            r"\b(?:ContinuousClock|SuspendingClock)\s*\(\s*\)\s*$", previous
-        ) or re.search(r"\bTask(?:\s*<[^>\n]+>)?\s*$", previous):
-            return True
-        receiver_match = re.search(r"\b([A-Za-z_]\w*)[?!]?\s*$", previous)
-        if not receiver_match:
-            return False
-        receiver_prefix = previous[: receiver_match.start()].rstrip()
-        self_receiver = bool(re.search(r"\bself\s*\.\s*$", receiver_prefix))
-        if receiver_prefix.endswith(".") and not self_receiver:
-            return False
-        receiver = receiver_match.group(1)
-        sleep_start = continuation.start()
+        events.extend(
+            (position, token, None)
+            for position, token in enumerate(candidate)
+            if token in "{}"
+        )
+        events.sort(key=lambda event: event[0])
 
-    prefix_lines = masked_lines[:idx] + [current[:sleep_start]]
+        for _, event, binding in events:
+            if event == "{":
+                depth += 1
+                if pending_type is not None:
+                    active_types.append((pending_type, depth))
+                    pending_type = None
+            elif event == "}":
+                if active_types and active_types[-1][1] == depth:
+                    active_types.pop()
+                depth = max(0, depth - 1)
+            elif (
+                binding is not None
+                and active_types
+                and depth == active_types[-1][1]
+            ):
+                name, declaration = binding
+                if _receiver_declaration_kind(
+                    declaration, masked_lines[line_index + 1 :]
+                ):
+                    real_members.setdefault(active_types[-1][0], set()).add(name)
+
+    return real_members
+
+
+def _resolve_named_receiver_kind(
+    masked_lines: list[str],
+    call_index: int,
+    call_column: int,
+    receiver: str,
+    self_receiver: bool,
+    external_real_members: Optional[dict[str, set[str]]] = None,
+    resolving: Optional[set[tuple[int, int, str, bool]]] = None,
+) -> bool:
+    """Resolve a receiver's clock kind at a Swift-like lexical position."""
+    resolution_key = (call_index, call_column, receiver, self_receiver)
+    resolving = set(resolving or ())
+    if resolution_key in resolving:
+        return False
+    resolving.add(resolution_key)
+
+    current = masked_lines[call_index]
+    prefix_lines = masked_lines[:call_index] + [current[:call_column]]
     scopes: list[dict[str, bool]] = [{}]
     scope_kinds = ["root"]
     pending_function = False
@@ -968,9 +1048,22 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
                         else False
                     )
                 else:
-                    kind = _receiver_declaration_kind(
-                        declaration, prefix_lines[candidate_index + 1 :]
-                    )
+                    alias = _receiver_declaration_alias(declaration)
+                    if alias is not None:
+                        alias_receiver, alias_is_self = alias
+                        kind = _resolve_named_receiver_kind(
+                            masked_lines,
+                            candidate_index,
+                            pos,
+                            alias_receiver,
+                            alias_is_self,
+                            external_real_members,
+                            resolving,
+                        )
+                    else:
+                        kind = _receiver_declaration_kind(
+                            declaration, prefix_lines[candidate_index + 1 :]
+                        )
                 if pending_conditional is not None:
                     pending_conditional[receiver] = kind
                 else:
@@ -989,16 +1082,80 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     for scope_index in range(search_end - 1, -1, -1):
         if receiver in scopes[scope_index]:
             return scopes[scope_index][receiver]
-    return _has_explicit_real_member(masked_lines, idx, sleep_start, receiver)
+    return _has_explicit_real_member(
+        masked_lines,
+        call_index,
+        call_column,
+        receiver,
+        external_real_members,
+    )
+
+
+def _is_named_real_clock_sleep(
+    masked_lines: list[str],
+    idx: int,
+    external_real_members: Optional[dict[str, set[str]]] = None,
+) -> bool:
+    """Resolve a named receiver through Swift-like lexical brace scopes."""
+    current = masked_lines[idx]
+    sleep_match = _NAMED_SLEEP_CALL.search(current)
+    sleep_start: int
+    if sleep_match:
+        self_receiver = sleep_match.group(1) is not None
+        if (
+            not self_receiver
+            and current[: sleep_match.start()].rstrip().endswith(".")
+        ):
+            return False
+        receiver = sleep_match.group(2)
+        sleep_start = sleep_match.start()
+    else:
+        continuation = _CONTINUED_SLEEP_CALL.search(current)
+        if not continuation:
+            return False
+        previous = next(
+            (
+                masked_lines[j].rstrip()
+                for j in range(idx - 1, -1, -1)
+                if masked_lines[j].strip()
+            ),
+            "",
+        )
+        if re.search(
+            r"\b(?:ContinuousClock|SuspendingClock)\s*\(\s*\)\s*$", previous
+        ) or re.search(r"\bTask(?:\s*<[^>\n]+>)?\s*$", previous):
+            return True
+        receiver_match = re.search(r"\b([A-Za-z_]\w*)[?!]?\s*$", previous)
+        if not receiver_match:
+            return False
+        receiver_prefix = previous[: receiver_match.start()].rstrip()
+        self_receiver = bool(re.search(r"\bself\s*\.\s*$", receiver_prefix))
+        if receiver_prefix.endswith(".") and not self_receiver:
+            return False
+        receiver = receiver_match.group(1)
+        sleep_start = continuation.start()
+
+    return _resolve_named_receiver_kind(
+        masked_lines,
+        idx,
+        sleep_start,
+        receiver,
+        self_receiver,
+        external_real_members,
+    )
 
 
 def detect_sleep_then_assert(
-    lines: list[str], masked_lines: list[str], idx: int, path_suffix: str
+    lines: list[str],
+    masked_lines: list[str],
+    idx: int,
+    path_suffix: str,
+    external_real_members: Optional[dict[str, set[str]]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = masked_lines[idx]
     is_sleep = bool(_SLEEP_CALL.search(line)) or _is_named_real_clock_sleep(
-        masked_lines, idx
+        masked_lines, idx, external_real_members
     )
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
@@ -1043,10 +1200,14 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
     return True
 
 
-def scan_text(rel_posix: str, text: str) -> list[Finding]:
+def scan_text(
+    rel_posix: str,
+    text: str,
+    external_real_members: Optional[dict[str, set[str]]] = None,
+) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
-    code_lines = [_strip_comment(l, suffix) for l in raw_lines]
+    code_lines = [_strip_comment(line, suffix) for line in raw_lines]
     needs_sleep_mask = "sleep" in text or "setTimeout" in text
     masked_lines = (
         [_strip_comment(line, suffix) for line in _mask_noncode(raw_lines, suffix)]
@@ -1067,14 +1228,54 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
-        if detect_sleep_then_assert(code_lines, masked_lines, i, suffix):
+        if detect_sleep_then_assert(
+            code_lines,
+            masked_lines,
+            i,
+            suffix,
+            external_real_members,
+        ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
     return findings
 
 
-def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
+def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
+    """Scan a source bundle, sharing Swift member types within one directory."""
+    source_list = list(sources)
+    directory_members: dict[str, dict[str, set[str]]] = {}
+
+    for rel_posix, text in source_list:
+        suffix = pathlib.PurePosixPath(rel_posix).suffix
+        if suffix != ".swift" or not (
+            "ContinuousClock" in text or "SuspendingClock" in text
+        ):
+            continue
+        raw_lines = text.splitlines()
+        masked_lines = [
+            _strip_comment(line, suffix)
+            for line in _mask_noncode(raw_lines, suffix)
+        ]
+        directory = pathlib.PurePosixPath(rel_posix).parent.as_posix()
+        index = directory_members.setdefault(directory, {})
+        for type_name, member_names in _explicit_real_clock_members(
+            masked_lines
+        ).items():
+            index.setdefault(type_name, set()).update(member_names)
+
     findings: list[Finding] = []
+    for rel_posix, text in source_list:
+        suffix = pathlib.PurePosixPath(rel_posix).suffix
+        external_real_members = None
+        if suffix == ".swift":
+            directory = pathlib.PurePosixPath(rel_posix).parent.as_posix()
+            external_real_members = directory_members.get(directory)
+        findings.extend(scan_text(rel_posix, text, external_real_members))
+    return findings
+
+
+def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
+    source_paths: list[tuple[pathlib.Path, str]] = []
     for root in roots:
         root_path = repo_root / root
         if not root_path.exists():
@@ -1092,11 +1293,42 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
                 continue
             if not _looks_like_test_file(rel_posix, root):
                 continue
-            try:
-                text = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            findings.extend(scan_text(rel_posix, text))
+            source_paths.append((path, rel_posix))
+
+    directory_members: dict[str, dict[str, set[str]]] = {}
+    for path, rel_posix in source_paths:
+        suffix = pathlib.PurePosixPath(rel_posix).suffix
+        if suffix != ".swift":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not ("ContinuousClock" in text or "SuspendingClock" in text):
+            continue
+        masked_lines = [
+            _strip_comment(line, suffix)
+            for line in _mask_noncode(text.splitlines(), suffix)
+        ]
+        directory = pathlib.PurePosixPath(rel_posix).parent.as_posix()
+        index = directory_members.setdefault(directory, {})
+        for type_name, member_names in _explicit_real_clock_members(
+            masked_lines
+        ).items():
+            index.setdefault(type_name, set()).update(member_names)
+
+    findings: list[Finding] = []
+    for path, rel_posix in source_paths:
+        suffix = pathlib.PurePosixPath(rel_posix).suffix
+        external_real_members = None
+        if suffix == ".swift":
+            directory = pathlib.PurePosixPath(rel_posix).parent.as_posix()
+            external_real_members = directory_members.get(directory)
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        findings.extend(scan_text(rel_posix, text, external_real_members))
     findings.sort(key=lambda f: (f.path, f.line, f.rule))
     return findings
 
@@ -2068,13 +2300,64 @@ def _self_test() -> int:
     ]
     cross_file_rules = {
         finding.rule
-        for name, src in cross_file_sources
-        for finding in scan_text(name, src)
+        for finding in scan_sources(cross_file_sources)
     }
     if RULE_SLEEP_THEN_ASSERT not in cross_file_rules:
         failures.append(
             "POSITIVE cross-file real clock member: missing "
             f"{RULE_SLEEP_THEN_ASSERT!r} (got {sorted(cross_file_rules)})"
+        )
+
+    cross_file_negatives = [
+        (
+            "Tests/SplitNestedRealFixture.swift",
+            "enum A {\n"
+            "    struct Fixture {\n"
+            "        let clock: ContinuousClock\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Tests/SplitNestedVirtualFixture.swift",
+            "enum B {\n"
+            "    struct Fixture {\n"
+            "        let clock: TestRelayClock\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Tests/SplitNestedVirtualFixture+Refresh.swift",
+            "extension B.Fixture {\n"
+            "    func verifyRefresh() async {\n"
+            "        try await self.clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Tests/UnrelatedRealFixture.swift",
+            "struct CollisionFixture {\n"
+            "    let clock: ContinuousClock\n"
+            "}\n",
+        ),
+        (
+            "Tests/UnrelatedVirtualFixture.swift",
+            "struct CollisionFixture {\n"
+            "    let clock: TestRelayClock\n"
+            "    func verifyRefresh() async {\n"
+            "        try await self.clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+    ]
+    cross_file_negative_rules = {
+        finding.rule for finding in scan_sources(cross_file_negatives)
+    }
+    if cross_file_negative_rules:
+        failures.append(
+            "NEGATIVE cross-file member identity: unexpected "
+            f"{sorted(cross_file_negative_rules)}"
         )
 
     if failures:
