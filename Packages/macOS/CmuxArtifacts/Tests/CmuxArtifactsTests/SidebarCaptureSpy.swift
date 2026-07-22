@@ -20,25 +20,27 @@ actor SidebarCaptureSpy: ArtifactCapturing {
     }
 
     func add(
-        sourceURL: URL,
+        sourceURLs: [URL],
         context: ArtifactCaptureContext,
         capturedAt: Date
-    ) throws -> ArtifactImportOutcome {
+    ) -> [ArtifactImportAttempt] {
         addCallCount += 1
-        addedSourceURLs.append(sourceURL)
+        addedSourceURLs.append(contentsOf: sourceURLs)
         lastContext = context
-        if rejectedSourceURLs.contains(sourceURL) {
-            throw ArtifactStoreError.unsupportedExtension(sourceURL.pathExtension)
+        return sourceURLs.map { sourceURL in
+            if rejectedSourceURLs.contains(sourceURL) {
+                return .rejected(.unsupportedExtension(sourceURL.pathExtension))
+            }
+            return .imported(.alreadyStored(ArtifactRecord(
+                digest: "digest",
+                sourcePath: sourceURL.path,
+                relativePath: sourceURL.lastPathComponent,
+                workspaceID: context.workspaceID,
+                sessionID: context.sessionID,
+                provenance: .manual,
+                capturedAt: capturedAt,
+                size: 1
+            )))
         }
-        return .alreadyStored(ArtifactRecord(
-            digest: "digest",
-            sourcePath: sourceURL.path,
-            relativePath: sourceURL.lastPathComponent,
-            workspaceID: context.workspaceID,
-            sessionID: context.sessionID,
-            provenance: .manual,
-            capturedAt: capturedAt,
-            size: 1
-        ))
     }
 }

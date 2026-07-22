@@ -14,6 +14,8 @@ public enum ArtifactSkipReason: String, Equatable, Sendable {
     case corruptProvenance
     /// Git does not prove the artifact store is ignored and untracked.
     case gitPrivacyUnavailable
+    /// Another process currently owns the artifact store mutation lease.
+    case storeBusy
     /// The filename extension is not allowlisted.
     case unsupportedExtension
     /// The file exceeds the configured size limit.

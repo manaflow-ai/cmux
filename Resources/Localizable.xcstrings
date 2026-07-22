@@ -242386,6 +242386,40 @@
         }
       }
     },
+    "cli.artifact.error.storeBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The artifact store is busy. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアは使用中です。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.storeBusyPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact store is busy: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアは使用中です: %@"
+          }
+        }
+      }
+    },
     "cli.artifact.error.corruptProvenance": {
       "extractionState": "manual",
       "localizations": {

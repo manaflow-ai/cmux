@@ -186,7 +186,7 @@ actor AgentArtifactCaptureCoordinator {
 
     private func isRetryableBlocker(_ outcome: ArtifactImportOutcome) -> Bool {
         switch outcome {
-        case .skipped(.candidateLimitReached), .skipped(.gitPrivacyUnavailable):
+        case .skipped(.candidateLimitReached), .skipped(.gitPrivacyUnavailable), .skipped(.storeBusy):
             return true
         case .copied, .deduplicated, .alreadyStored, .skipped:
             return false
