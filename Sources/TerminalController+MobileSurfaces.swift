@@ -353,7 +353,7 @@ extension TerminalController {
 
     private func mobilePanelArtifactFileError(
         code: String,
-        key: String.LocalizationValue,
+        key: StaticString,
         defaultValue: String.LocalizationValue,
         path: String?
     ) -> V2CallResult {
