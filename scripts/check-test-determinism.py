@@ -1559,8 +1559,21 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/ExplicitInitQualifiedClockTests.swift",
+            "try await ContinuousClock.init().sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/NamedClockTests.swift",
             "let clock = ContinuousClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ExplicitInitNamedClockTests.swift",
+            "let clock = Swift.SuspendingClock.init()\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
             "#expect(widget.isRendered)\n",
             {RULE_SLEEP_THEN_ASSERT},
