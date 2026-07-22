@@ -1020,6 +1020,23 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/MultilineClosureRealClockParameterTests.swift",
+            "let work = {\n"
+            "    (clock: ContinuousClock) in\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/CaptureListClosureRealClockParameterTests.swift",
+            "let work = { [weak self] (clock: ContinuousClock) in\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/URLBlockCommentBeforeRealClockTests.swift",
             "/* See https://example.test for the fixture contract. */\n"
             "let clock = ContinuousClock()\n"
@@ -1433,6 +1450,27 @@ def _self_test() -> int:
             "func verifyVirtual() async {\n"
             "    let clock = ContinuousClock()\n"
             "    let work = { (clock: TestRelayClock) in\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await clockEvents.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/MultilineClosureParameterVirtualClockTests.swift",
+            "func verifyVirtual() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    let work = {\n"
+            "        (clock: TestRelayClock) in\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await clockEvents.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CaptureListClosureParameterVirtualClockTests.swift",
+            "func verifyVirtual() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    let work = { [weak self] (clock: TestRelayClock) in\n"
             "        try await clock.sleep(until: deadline)\n"
             "        #expect(await clockEvents.next() == expected)\n"
             "    }\n"
