@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 import Testing
 @testable import cmux_DEV
@@ -59,18 +60,19 @@ struct SidebarHiddenPresentationTests {
         #expect(retainedPayload == nil)
     }
 
-#if DEBUG
     @Test
     func inactivePresentationRemovesAnInstalledSpinnerAnimation() {
         let spinner = GPUSpinnerNSView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
-        spinner.installAnimationForTesting()
-        #expect(spinner.hasActiveAnimationForTesting)
+        spinner.contentLayer.add(
+            CABasicAnimation(keyPath: "transform.rotation.z"),
+            forKey: GPUSpinnerNSView.animationKey
+        )
+        #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) != nil)
 
         spinner.isPresentationActive = false
 
-        #expect(!spinner.hasActiveAnimationForTesting)
+        #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) == nil)
     }
-#endif
 
     private func makeRetainingRow(
         workspaceId: UUID,

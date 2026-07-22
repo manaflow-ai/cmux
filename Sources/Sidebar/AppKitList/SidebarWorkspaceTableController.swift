@@ -15,7 +15,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
     private var isPresentationActive = true
-    private var shouldRestoreInteractionsAfterNextApply = false
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
@@ -135,7 +134,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         isPresentationActive = isActive
         if isActive {
             if didChange {
-                shouldRestoreInteractionsAfterNextApply = true
                 mutationScheduler.stageViewportChange()
             }
             return
@@ -230,10 +228,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             previousRows.indices.contains(index)
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
-        if shouldRestoreInteractionsAfterNextApply {
-            contentChanges.formUnion(IndexSet(nextRows.indices))
-            shouldRestoreInteractionsAfterNextApply = false
-        }
         // Optimistically painted rows reconcile even when their model did
         // not change: the preview may not match the authoritative outcome,
         // and this apply cancels the bailout that would otherwise catch it.

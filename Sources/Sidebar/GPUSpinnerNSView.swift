@@ -2,12 +2,12 @@ import AppKit
 import QuartzCore
 
 final class GPUSpinnerNSView: NSView {
-    private static let animationKey = "cmux.gpuSpinner.rotation"
+    static let animationKey = "cmux.gpuSpinner.rotation"
     private static let spokeCount = 8
     private static let cycleDuration: CFTimeInterval = 0.8
     private static let arcDuration: CFTimeInterval = 0.9
 
-    private let contentLayer = CALayer()
+    let contentLayer = CALayer()
     private var spokeLayers: [CALayer] = []
     private let arcLayer = CAShapeLayer()
 
@@ -196,16 +196,6 @@ final class GPUSpinnerNSView: NSView {
             contentLayer.removeAnimation(forKey: Self.animationKey)
         }
     }
-
-#if DEBUG
-    var hasActiveAnimationForTesting: Bool {
-        contentLayer.animation(forKey: Self.animationKey) != nil
-    }
-
-    func installAnimationForTesting() {
-        installAnimationIfNeeded()
-    }
-#endif
 
     /// Anchors `beginTime` to the shared Core Animation media clock so all
     /// spinners of the same duration stay phase-locked, even when their layer
