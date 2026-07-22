@@ -1922,6 +1922,23 @@
         }
       }
     },
+    "agent.kimi.displayName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        }
+      }
+    },
     "agent.ollama.displayName": {
       "extractionState": "manual",
       "localizations": {

@@ -4,7 +4,7 @@ import SwiftUI
 import UIKit
 
 /// A system presentation prepared by an artifact file action.
-public enum ChatArtifactFileActionPresentation: Identifiable, Equatable {
+public enum ChatArtifactFileActionPresentation: Identifiable, Equatable, Sendable {
     /// Presents the standard activity controller for a local file.
     case share(URL)
     /// Presents the Files document picker in export-as-copy mode.

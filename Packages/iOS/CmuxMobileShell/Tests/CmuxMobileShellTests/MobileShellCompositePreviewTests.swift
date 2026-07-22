@@ -15,6 +15,28 @@ import Testing
 /// doubles.
 @MainActor
 @Suite struct MobileShellCompositePreviewTests {
+    @Test func userRetryCoalescesWhileReconnectIsAlreadyInFlight() async {
+        let store = MobileShellComposite.preview()
+        store.isReconnectingStoredMac = true
+        store.didFinishStoredMacReconnectAttempt = false
+
+        let retryStarted = await store.retryActiveMacReconnect(stackUserID: "user-1")
+        #expect(!retryStarted)
+        #expect(store.isReconnectingStoredMac)
+        #expect(!store.didFinishStoredMacReconnectAttempt)
+    }
+
+    @Test func explicitPairingReleasesSupersededStoredReconnectState() {
+        let store = MobileShellComposite.preview()
+        store.isReconnectingStoredMac = true
+        store.didFinishStoredMacReconnectAttempt = false
+        store.pairingCode = "preview-host"
+
+        store.connectPreviewHost()
+
+        #expect(!store.isReconnectingStoredMac)
+    }
+
     @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {
         let store = MobileShellComposite.preview()
         let workspace = MobileWorkspacePreview(

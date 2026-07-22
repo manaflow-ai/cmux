@@ -54,6 +54,7 @@ struct CLIRemoteShellStartupPerformanceTests {
         environment["CMUX_SURFACE_ID"] = "surface-cli-perf"
         environment["CMUX_FAKE_SHELL_MARKER"] = shellMarker.path
         environment["CMUX_FAKE_RELAY_RPC_GATE"] = relayRPCGate.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = root.bin.appendingPathComponent("cmux").path
 
         let running = try launchProcess(
             executablePath: "/bin/sh",
@@ -164,7 +165,10 @@ struct CLIRemoteShellStartupPerformanceTests {
         }
         switch method {
         case "workspace.create":
-            return v2Response(id: id, ok: true, result: ["workspace_id": "workspace-cli-perf"])
+            return v2Response(id: id, ok: true, result: [
+                "workspace_id": "workspace-cli-perf",
+                "surface_id": "surface-cli-perf",
+            ])
         case "workspace.remote.configure":
             return v2Response(
                 id: id,
@@ -188,6 +192,15 @@ struct CLIRemoteShellStartupPerformanceTests {
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         try writeExecutable(at: bin.appendingPathComponent("cmux"), contents: """
         #!/bin/sh
+        if [ "$1" = "--internal-persistent-pty-exec" ]; then
+          shift
+          executable="${1:-}"
+          [ -n "$executable" ] || exit 2
+          shift
+          [ "${1:-}" = "$executable" ] || exit 2
+          shift
+          exec "$executable" "$@"
+        fi
         if [ "$1" = "rpc" ] && [ -n "${CMUX_FAKE_RELAY_RPC_GATE:-}" ]; then
           while [ ! -f "$CMUX_FAKE_RELAY_RPC_GATE" ]; do sleep 0.05; done
         fi

@@ -30,13 +30,13 @@ public struct CMUXMobileAppView: View {
     ///   - store: The shell store backing the workspace UI.
     ///   - browserStore: The phone-local browser surface store injected into the
     ///     environment for workspace detail browser panes.
-    ///   - onboardingStore: The first-run onboarding "seen" flag store. Defaults
-    ///     to a `.standard`-backed store marked already-seen, so SwiftUI previews
-    ///     and ad-hoc construction never present onboarding.
+    ///   - onboardingStore: The first-run onboarding progress store. Defaults to
+    ///     a `.standard`-backed store forced complete, so SwiftUI previews and
+    ///     ad-hoc construction never present onboarding.
     public init(
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
-        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true),
+        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceComplete: true),
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         _store = State(initialValue: store)

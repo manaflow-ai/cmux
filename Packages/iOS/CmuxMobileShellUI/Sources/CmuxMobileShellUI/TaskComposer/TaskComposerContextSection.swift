@@ -9,12 +9,8 @@ struct TaskComposerContextSection: View {
     let selectedMacDeviceID: String
     let directory: String
     let isDisabled: Bool
-    let selectMachine: (MobilePairedMac) -> Void
+    let selectMachine: (String) -> Void
     let selectDirectory: () -> Void
-
-    private var selectedMachine: MobilePairedMac? {
-        machines.first { $0.macDeviceID == selectedMacDeviceID }
-    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -88,48 +84,17 @@ struct TaskComposerContextSection: View {
             }
             .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         } else {
-            Menu {
-                ForEach(machines) { mac in
-                    Button {
-                        selectMachine(mac)
-                    } label: {
-                        Label(mac.resolvedName, systemImage: "desktopcomputer")
-                    }
-                    .accessibilityAddTraits(mac.macDeviceID == selectedMacDeviceID ? .isSelected : [])
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    if let selectedMachine {
-                        machineIcon(selectedMachine)
-                    } else {
-                        contextSymbol("desktopcomputer", tint: .accentColor)
-                    }
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"))
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                        Text(selectedMachine?.resolvedName ?? selectedMacDeviceID)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.tertiary)
-                        .accessibilityHidden(true)
-                }
-                .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .disabled(isDisabled)
-            .accessibilityLabel(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"))
-            .accessibilityValue(selectedMachine?.resolvedName ?? selectedMacDeviceID)
-            .accessibilityHint(TaskComposerSheet.machineAccessibilityHint)
-            .accessibilityIdentifier("MobileTaskComposerMachineMenu")
+            TaskComposerMachineMenu(
+                value: TaskComposerMachineMenuValue(
+                    machines: machines,
+                    selectedMacDeviceID: selectedMacDeviceID,
+                    isDisabled: isDisabled
+                ),
+                actions: TaskComposerMachineMenuActions(
+                    selectMachine: selectMachine
+                )
+            )
+            .equatable()
         }
     }
 
@@ -142,29 +107,5 @@ struct TaskComposerContextSection: View {
             .accessibilityHidden(true)
     }
 
-    private func machineIcon(_ mac: MobilePairedMac) -> some View {
-        ZStack {
-            Circle()
-                .fill(
-                    MachineAvatarColors.gradient(
-                        customColor: mac.customColor,
-                        fallbackIndex: nil,
-                        machineID: mac.macDeviceID,
-                        fallbackID: mac.id
-                    )
-                )
-            switch MacAvatarIcon.resolve(custom: mac.customIcon, defaultSymbol: "desktopcomputer") {
-            case .symbol(let name):
-                Image(systemName: name)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-            case .emoji(let emoji):
-                Text(emoji)
-                    .font(.system(size: 17))
-            }
-        }
-        .frame(width: 28, height: 28)
-        .accessibilityHidden(true)
-    }
 }
 #endif

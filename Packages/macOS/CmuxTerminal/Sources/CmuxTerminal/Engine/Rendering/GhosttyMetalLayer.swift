@@ -19,6 +19,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
     nonisolated(unsafe) private var lastDrawableTime: CFTimeInterval = 0
     nonisolated(unsafe) private weak var frameReceiver: (any TerminalRenderedFrameReceiving)?
     nonisolated(unsafe) private var renderDemand: (any RenderDemandGating)?
+    nonisolated(unsafe) private var localRenderDemand: (any RenderDemandGating)?
 
     /// Injects the rendered-frame demand gate that decides whether vending a
     /// drawable should notify the receiver.
@@ -26,6 +27,24 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         lock.lock()
         self.renderDemand = renderDemand
         lock.unlock()
+    }
+
+    /// Injects receiver-local demand. A drawable notifies when either the
+    /// process-wide gate or this layer-local gate is active.
+    public func setLocalRenderDemand(_ localRenderDemand: (any RenderDemandGating)?) {
+        lock.lock()
+        self.localRenderDemand = localRenderDemand
+        lock.unlock()
+    }
+
+    /// Whether either gate currently requests rendered-frame delivery.
+    /// Kept as one shared predicate so the renderer hot path and its focused
+    /// package regression cannot drift on global-versus-local semantics.
+    static func hasActiveRenderDemand(
+        global: (any RenderDemandGating)?,
+        local: (any RenderDemandGating)?
+    ) -> Bool {
+        global?.isActive == true || local?.isActive == true
     }
 
     /// Attaches the view that receives coalesced rendered-frame updates.
@@ -52,9 +71,12 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         drawableCount += 1
         lastDrawableTime = CACurrentMediaTime()
         let renderDemand = renderDemand
+        let localRenderDemand = localRenderDemand
         let frameReceiver = frameReceiver
         lock.unlock()
-        guard renderDemand?.isActive == true else { return drawable }
+        guard Self.hasActiveRenderDemand(global: renderDemand, local: localRenderDemand) else {
+            return drawable
+        }
         if let frameReceiver {
             // Hop to the main actor exactly like the legacy
             // DispatchQueue.main.async dispatch (the main-actor executor is

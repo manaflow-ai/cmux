@@ -21,6 +21,7 @@ struct MobileSettingsView: View {
     @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
     let rescanQR: (() -> Void)?
+    let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
     /// where the "Switch Mac" entry is hidden.
@@ -133,8 +134,11 @@ struct MobileSettingsView: View {
                         showingOnboarding = true
                     } label: {
                         Label(
-                            L10n.string("mobile.settings.howPairingWorks", defaultValue: "How Pairing Works"),
-                            systemImage: "questionmark.circle"
+                            L10n.string(
+                                "mobile.settings.viewIntroductionAgain",
+                                defaultValue: "View Introduction Again"
+                            ),
+                            systemImage: "sparkles"
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
@@ -433,13 +437,25 @@ struct MobileSettingsView: View {
                 }
             }
             .sheet(isPresented: $showingOnboarding) {
-                // Re-entry from Settings: walk the explainer again. `onComplete`
-                // only dismisses; it never touches the persisted seen flag. No
-                // current blocker is highlighted, since reaching Settings means the
-                // user got past every setup gate.
+                // Re-entry never writes first-run progress. The final scene reads
+                // live connection state and can reopen pairing from offline Settings.
                 OnboardingFlowView(
-                    onComplete: { showingOnboarding = false },
-                    setupHelpHighlight: setupHelpHighlight
+                    initialStage: .agents,
+                    context: .replay,
+                    isAuthenticated: true,
+                    connectionPhase: OnboardingConnectionPhase(
+                        isMacReady: store?.connectionState == .connected,
+                        isSearching: store?.isReconnectingStoredMac == true,
+                        didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
+                    ),
+                    onReachedConnection: {},
+                    onSkip: { showingOnboarding = false },
+                    onRetryConnection: retryAutomaticConnection,
+                    onStartFallbackPairing: {
+                        showingOnboarding = false
+                        startPairingScanner?()
+                    },
+                    onComplete: { showingOnboarding = false }
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
@@ -461,6 +477,14 @@ struct MobileSettingsView: View {
             enabled.caseInsensitiveCompare("NO") != .orderedSame
         default:
             true
+        }
+    }
+
+    private func retryAutomaticConnection() {
+        guard let store else { return }
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
         }
     }
 

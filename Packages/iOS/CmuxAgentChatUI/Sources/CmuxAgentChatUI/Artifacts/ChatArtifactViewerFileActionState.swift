@@ -1,5 +1,5 @@
 /// Immutable system-presentation state owned by one artifact page.
-struct ChatArtifactViewerFileActionState: Equatable {
+struct ChatArtifactViewerFileActionState: Equatable, Sendable {
     #if os(iOS)
     var presentation: ChatArtifactFileActionPresentation? = nil
     #endif

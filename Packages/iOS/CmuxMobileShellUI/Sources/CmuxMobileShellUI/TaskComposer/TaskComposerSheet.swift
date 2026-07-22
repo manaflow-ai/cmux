@@ -442,8 +442,9 @@ struct TaskComposerSheet: View {
         )
     }
 
-    private func selectTemplateFromPicker(_ template: MobileTaskTemplate) {
-        guard !submissionPhase.disablesRequestEditing else { return }
+    private func selectTemplateFromPicker(_ id: MobileTaskTemplate.ID) {
+        guard !submissionPhase.disablesRequestEditing,
+              let template = templates.first(where: { $0.id == id }) else { return }
         withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.2)) {
             selectTemplate(template)
             failureText = nil
@@ -455,10 +456,11 @@ struct TaskComposerSheet: View {
         isEditorPresented = true
     }
 
-    private func selectMachine(_ mac: MobilePairedMac) {
-        guard !submissionPhase.disablesRequestEditing else { return }
+    private func selectMachine(_ macDeviceID: String) {
+        guard !submissionPhase.disablesRequestEditing,
+              machines.contains(where: { $0.macDeviceID == macDeviceID }) else { return }
         updateSubmissionRequest {
-            selectedMacDeviceID = mac.macDeviceID
+            selectedMacDeviceID = macDeviceID
             syncSuggestedDirectory()
         }
         failureText = nil

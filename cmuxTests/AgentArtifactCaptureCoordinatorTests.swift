@@ -56,6 +56,42 @@ struct AgentArtifactCaptureCoordinatorTests {
         #expect(await store.importedPaths == [oldPath, newPath])
     }
 
+    @Test func transcriptTruncationResetsTheCompletedReferenceCursor() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let transcript = projectRoot.appendingPathComponent("transcript.jsonl")
+        let oldPath = projectRoot.appendingPathComponent("old.md").path
+        let newPath = projectRoot.appendingPathComponent("new.md").path
+        try (Array(repeating: "{}", count: 20) + [codexArtifactLine(path: oldPath)])
+            .joined(separator: "\n")
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        let index = AgentChatArtifactIndex()
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = captureRecord(projectRoot: projectRoot, agentKind: .codex)
+
+        let first = try await index.snapshot(
+            sessionID: record.sessionID,
+            agentKind: record.agentKind,
+            transcriptPath: transcript.path,
+            workingDirectory: record.workingDirectory
+        )
+        await coordinator.capture(record: record, snapshot: first)
+        try codexArtifactLine(path: newPath)
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        let truncated = try await index.snapshot(
+            sessionID: record.sessionID,
+            agentKind: record.agentKind,
+            transcriptPath: transcript.path,
+            workingDirectory: record.workingDirectory
+        )
+        await coordinator.capture(record: record, snapshot: truncated)
+
+        #expect(await store.importedPaths == [oldPath, newPath])
+    }
+
     @MainActor
     @Test func sameSnapshotReplacementFinishesActiveBatchBeforePendingWork() async throws {
         let projectRoot = try temporaryProjectRoot()
@@ -286,10 +322,13 @@ struct AgentArtifactCaptureCoordinatorTests {
         return root
     }
 
-    private func captureRecord(projectRoot: URL) -> AgentChatSessionRecord {
+    private func captureRecord(
+        projectRoot: URL,
+        agentKind: ChatAgentKind = .claude
+    ) -> AgentChatSessionRecord {
         AgentChatSessionRecord(
             sessionID: "session",
-            agentKind: .claude,
+            agentKind: agentKind,
             workspaceID: "workspace",
             surfaceID: nil,
             workingDirectory: projectRoot.path,
@@ -299,6 +338,19 @@ struct AgentArtifactCaptureCoordinatorTests {
             title: nil,
             pid: nil
         )
+    }
+
+    private func codexArtifactLine(path: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "timestamp": "2026-07-21T12:00:00.000Z",
+            "type": "response_item",
+            "payload": [
+                "type": "message",
+                "role": "assistant",
+                "content": [["type": "output_text", "text": "Saved artifact to \(path)"]],
+            ],
+        ])
+        return String(decoding: data, as: UTF8.self)
     }
 }
 

@@ -174,38 +174,80 @@ struct WorkspaceDetailView: View {
     }
 
     private var workspaceTitleToolbarMenu: some View {
-        WorkspaceTitleMenu(
+        let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
             hasChatToggle: shouldShowChatToggle,
             isEnabled: hasTitleMenuActions,
-            menuContent: { titleMenuContent }
-        ) {
-            toolbarTitleLabel
-        }
+            workspaceName: workspace.name,
+            hasUnread: workspace.hasUnread,
+            canRenameWorkspace: renameWorkspace != nil,
+            canToggleReadState: setWorkspaceUnread != nil,
+            canCloseWorkspace: closeWorkspace != nil,
+            labelToken: toolbarTitleLabelToken,
+            terminalTheme: store.activeTerminalTheme
+        )
+        return WorkspaceTitleMenu(
+            value: value,
+            menuContent: {
+                WorkspaceTitleMenuContent(
+                    workspaceName: value.workspaceName,
+                    hasUnread: value.hasUnread,
+                    canRenameWorkspace: value.canRenameWorkspace,
+                    canToggleReadState: value.canToggleReadState,
+                    canCloseWorkspace: value.canCloseWorkspace,
+                    presentRename: presentRenameFromMenu,
+                    toggleReadState: toggleWorkspaceReadStateFromMenu,
+                    requestClose: requestCloseWorkspaceFromMenu
+                )
+            },
+            label: {
+                switch value.labelToken {
+                case .chat(
+                    let descriptor,
+                    let agentState,
+                    let isConnected,
+                    let titleOverride,
+                    let subtitle
+                ):
+                    ChatSessionHeaderView(
+                        descriptor: descriptor,
+                        agentState: agentState,
+                        isConnected: isConnected,
+                        titleOverride: titleOverride,
+                        subtitle: subtitle,
+                        style: .toolbarCompact
+                    )
+                case .browser(let title):
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(value.terminalTheme.terminalChromeForegroundColor)
+                case .standard(let title, let subtitle):
+                    WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
+                }
+            }
+        )
+        .equatable()
     }
-    @ViewBuilder
-    private var toolbarTitleLabel: some View {
+
+    private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
         if isChatMode,
            let session = chosenChatSession,
            let conversation = chatConversationStores[session.id] {
-            ChatSessionHeaderView(
+            return .chat(
                 descriptor: conversation.descriptor,
                 agentState: conversation.agentState,
                 isConnected: conversation.isConnected,
                 titleOverride: workspace.name,
-                subtitle: tabName(for: session),
-                style: .toolbarCompact
+                subtitle: tabName(for: session)
             )
         } else if let browser = activeBrowser {
-            Text(browser.title ?? workspace.name)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
+            return .browser(title: browser.title ?? workspace.name)
         } else {
-            WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
+            return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
     }
     #endif
@@ -398,18 +440,6 @@ struct WorkspaceDetailView: View {
                 action: backButtonConfiguration.action
             )
         }
-    }
-
-    var titleMenuContent: some View {
-        WorkspaceTitleMenuContent(
-            workspace: workspace,
-            canRenameWorkspace: renameWorkspace != nil,
-            canToggleReadState: setWorkspaceUnread != nil,
-            canCloseWorkspace: closeWorkspace != nil,
-            presentRename: presentRenameFromMenu,
-            toggleReadState: toggleWorkspaceReadStateFromMenu,
-            requestClose: requestCloseWorkspaceFromMenu
-        )
     }
 
     #endif

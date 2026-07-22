@@ -13,7 +13,7 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
-        let initialReconnectGeneration = fixture.store.storedMacReconnectGenerationForTesting()
+        let initialReconnectGeneration = fixture.store.storedMacReconnectGeneration
         let firstClient = try #require(fixture.store.remoteClient)
         let first = try #require(fixture.box.get())
         await first.close()
@@ -26,7 +26,7 @@ extension ReconnectRouteSelectionTests {
         }
         #expect(recovered)
         #expect(
-            fixture.store.storedMacReconnectGenerationForTesting()
+            fixture.store.storedMacReconnectGeneration
                 == initialReconnectGeneration + 1
         )
         let attemptedKinds = fixture.factory.attemptedKinds()

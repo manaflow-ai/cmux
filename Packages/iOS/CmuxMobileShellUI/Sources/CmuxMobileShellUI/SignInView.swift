@@ -12,6 +12,7 @@ import AppKit
 #endif
 
 struct SignInView: View {
+    private let usesStandaloneChrome: Bool
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
     @State private var email = ""
@@ -24,25 +25,45 @@ struct SignInView: View {
     private let errorPresentation = SignInErrorPresentation()
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                GameOfLifeHeader()
-                    .ignoresSafeArea()
 
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        UIApplication.shared.dismissMobileKeyboard()
+    init(usesStandaloneChrome: Bool = true) {
+        self.usesStandaloneChrome = usesStandaloneChrome
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if usesStandaloneChrome {
+            NavigationStack {
+                ZStack {
+                    GameOfLifeHeader()
+                        .ignoresSafeArea()
+
+                    keyboardDismissSurface
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        signInEntrySwitcher
                     }
-                    .ignoresSafeArea()
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    signInEntrySwitcher
                 }
+                .mobileInlineNavigationTitle()
             }
-            .mobileInlineNavigationTitle()
+        } else {
+            ScrollView {
+                signInEntrySwitcher
+                    .padding(.vertical, 8)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(keyboardDismissSurface)
         }
+    }
+
+    private var keyboardDismissSurface: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture {
+                UIApplication.shared.dismissMobileKeyboard()
+            }
     }
 
     @ViewBuilder

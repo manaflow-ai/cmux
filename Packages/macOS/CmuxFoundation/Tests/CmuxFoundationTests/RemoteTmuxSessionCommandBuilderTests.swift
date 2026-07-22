@@ -21,6 +21,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
                 [
                     "new-session", "-d",
                     "-e", "CMUX_BUNDLED_CLI_PATH=",
+                    "-e", "CMUX_PERSISTENT_PTY_EXEC_HELPER=",
                     "-e", "CMUX_SHELL_INTEGRATION=",
                     "-e", "CMUX_SHELL_INTEGRATION_DIR=",
                     "-e", "CMUX_SOCKET_PATH=",
@@ -32,6 +33,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
                     "-s", "agent main", shellCommand,
                 ],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_BUNDLED_CLI_PATH"],
+                ["set-environment", "-t", "=agent main", "-u", "CMUX_PERSISTENT_PTY_EXEC_HELPER"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_SHELL_INTEGRATION"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_SHELL_INTEGRATION_DIR"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_SOCKET_PATH"],
@@ -59,6 +61,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
             let currentSocket = "127.0.0.1:55272"
             let currentEnvironment = [
                 "CMUX_BUNDLED_CLI_PATH": "/home/dev/.cmux/bin/cmux",
+                "CMUX_PERSISTENT_PTY_EXEC_HELPER": "/home/dev/.cmux/bin/cmux",
                 "CMUX_PANEL_ID": currentSurface,
                 "CMUX_SHELL_INTEGRATION": "1",
                 "CMUX_SHELL_INTEGRATION_DIR": "/home/dev/.cmux/relay/55272.shell",
@@ -79,6 +82,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
             #expect(newSessionCall == [
                 "new-session", "-d",
                 "-e", "CMUX_BUNDLED_CLI_PATH=/home/dev/.cmux/bin/cmux",
+                "-e", "CMUX_PERSISTENT_PTY_EXEC_HELPER=/home/dev/.cmux/bin/cmux",
                 "-e", "CMUX_SHELL_INTEGRATION=1",
                 "-e", "CMUX_SHELL_INTEGRATION_DIR=/home/dev/.cmux/relay/55272.shell",
                 "-e", "CMUX_SOCKET_PATH=\(currentSocket)",
@@ -146,6 +150,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
             let currentSocket = "127.0.0.1:55272"
             let result = try run(builder.remoteShellCommand, environment: environment.merging([
                 "CMUX_BUNDLED_CLI_PATH": "/home/dev/.cmux/bin/cmux",
+                "CMUX_PERSISTENT_PTY_EXEC_HELPER": "/home/dev/.cmux/bin/cmux",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_SHELL_INTEGRATION_DIR": "/home/dev/.cmux/relay/55272.shell",
                 "CMUX_SOCKET_PATH": currentSocket,
@@ -160,6 +165,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
             let attachIndex = try #require(calls.firstIndex(of: ["attach-session", "-t", "=existing"]))
             let expectedBeforeAttach = [
                 ["set-environment", "-t", "=existing", "CMUX_BUNDLED_CLI_PATH", "/home/dev/.cmux/bin/cmux"],
+                ["set-environment", "-t", "=existing", "CMUX_PERSISTENT_PTY_EXEC_HELPER", "/home/dev/.cmux/bin/cmux"],
                 ["set-environment", "-t", "=existing", "CMUX_SHELL_INTEGRATION_DIR", "/home/dev/.cmux/relay/55272.shell"],
                 ["set-environment", "-t", "=existing", "CMUX_SOCKET_PATH", currentSocket],
                 ["set-environment", "-t", "=existing", "CMUX_TAB_ID", currentWorkspace],

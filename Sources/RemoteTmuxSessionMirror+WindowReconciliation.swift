@@ -43,6 +43,9 @@ extension RemoteTmuxSessionMirror {
                     windowID: windowId
                 )
             },
+            onPaneSurfaceProgress: { [weak self] paneId in
+                self?.handlePaneSeedSurfaceProgress(paneId: paneId)
+            },
             adoptedPanes: adoptedPanes,
             makePanel: { [weak workspace, weak connection] tmuxPaneId in
                 workspace?.makeRemoteTmuxPanePanel(onInput: { data in

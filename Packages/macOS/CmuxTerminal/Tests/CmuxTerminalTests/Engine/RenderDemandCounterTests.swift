@@ -54,4 +54,21 @@ struct RenderDemandCounterTests {
         retention.release()
         #expect(!counter.isActive)
     }
+
+    @Test func metalLayerAcceptsEitherGlobalOrLocalDemand() {
+        let global = RenderDemandCounter()
+        let local = RenderDemandCounter()
+
+        #expect(!GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+
+        let globalRetention = global.retain()
+        #expect(GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+        globalRetention.release()
+        #expect(!GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+
+        let localRetention = local.retain()
+        #expect(GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+        localRetention.release()
+        #expect(!GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
+    }
 }

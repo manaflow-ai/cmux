@@ -91,15 +91,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
 
-    /// cmux renderer reclamation: whether the current runtime surface's GPU
-    /// renderer (Metal swap chain / IOSurface, ~40MB) is realized. A freshly
-    /// created runtime surface is always realized, so this starts `true` and is
-    /// reset to `true` in `createSurface`. `RendererRealizationController`
-    /// releases it (`releaseRenderer`) while the surface is offscreen and idle;
-    /// `setVisibleInUI(true)` re-realizes it (`realizeRenderer`) before the next
-    /// draw. It mirrors Ghostty's swap-chain `defunct` flag so realize/unrealize
-    /// strictly alternate (Ghostty's `displayRealized` asserts `defunct`).
-    var rendererRealized = true
+    /// Presentation state for the current runtime renderer. This distinguishes a
+    /// renderer Ghostty created from one cmux has actually presented in a real
+    /// window, while preserving strict native unrealize/realize alternation.
+    var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
 
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
