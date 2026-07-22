@@ -5365,7 +5365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ responder: NSResponder,
         in window: NSWindow
     ) -> Bool {
-        if let ghosttyView = CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: responder) {
+        if let ghosttyView = responder.cmuxStrictOwningGhosttyView() {
             if ghosttyView.window !== window {
                 return false
             }
@@ -6428,7 +6428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func focusedTerminalShortcutContext(preferredWindow: NSWindow? = nil) -> FocusedTerminalShortcutContext? {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let responder = shortcutRoutingFirstResponder(preferredWindow: targetWindow)
-        guard let ghosttyView = CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: responder),
+        guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
               let workspaceId = ghosttyView.tabId,
               let panelId = ghosttyView.terminalSurface?.id,
               let manager = resolveShortcutTabManager(for: workspaceId, preferredWindow: targetWindow) else {
@@ -6730,7 +6730,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isRightSidebarFocusResponder(responder, in: window) { return true }
         if sidebarIntentActive, responder is NSWindow { return true }
         if terminalKeyboardFocusRequest(for: responder) != nil { return false }
-        guard let ghosttyView = CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: responder),
+        guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
               let panelId = ghosttyView.terminalSurface?.id else { return false }
         return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId)
     }
@@ -6760,7 +6760,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     fileprivate func terminalKeyboardFocusRequest(for responder: NSResponder?) -> TerminalKeyboardFocusRequest? {
-        guard let ghosttyView = CmuxGhosttyResponderResolution.terminalFocusOwningGhosttyView(for: responder),
+        guard let ghosttyView = responder.cmuxTerminalFocusOwningGhosttyView(),
               let workspaceId = ghosttyView.tabId,
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil
@@ -10843,8 +10843,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let currentResponder = (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder
         updates["firstResponderTerminalPanelId"] =
-            CmuxGhosttyResponderResolution
-                .strictOwningGhosttyView(for: currentResponder)?
+            currentResponder
+                .cmuxStrictOwningGhosttyView()?
                 .terminalSurface?.id.uuidString ?? ""
 
         updates.merge(cmuxFindResponderSnapshot()) { _, new in new }
@@ -13089,8 +13089,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (e.g., split that doesn't properly blur the address bar). If the first responder
         // is a terminal surface, the address bar can't be focused.
         if browserAddressBarFocusedPanelId != nil,
-           CmuxGhosttyResponderResolution
-               .strictOwningGhosttyView(for: shortcutRoutingKeyWindow?.firstResponder) != nil {
+           (shortcutRoutingKeyWindow?.firstResponder).cmuxStrictOwningGhosttyView() != nil {
 #if DEBUG
             let stalePanelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             let firstResponderType = shortcutRoutingKeyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -13166,8 +13165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // input method. Cmd-based shortcuts (Cmd+T, Cmd+Shift+L, etc.) should still
         // work during composition since Cmd is never part of IME input sequences.
         if !normalizedFlags.contains(.command),
-           let ghosttyView = CmuxGhosttyResponderResolution
-               .strictOwningGhosttyView(for: shortcutRoutingKeyWindow?.firstResponder),
+           let ghosttyView = (shortcutRoutingKeyWindow?.firstResponder).cmuxStrictOwningGhosttyView(),
            ghosttyView.hasMarkedText() {
             return false
         }
@@ -14492,7 +14490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if browserOmnibarPanelId(for: responder) == panel.id {
             return true
         }
-        if CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: responder) != nil {
+        if responder.cmuxStrictOwningGhosttyView() != nil {
             return false
         }
         if responder is NSTextView || responder is NSTextField {
@@ -16489,7 +16487,7 @@ private extension NSApplication {
             let responder = event.window?.firstResponder
                 ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
-            if let ghosttyView = CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: responder) {
+            if let ghosttyView = responder.cmuxStrictOwningGhosttyView() {
                 ghosttyView.keyDown(with: event)
 #if DEBUG
                 cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to terminal")
@@ -16939,8 +16937,8 @@ private extension NSWindow {
         // When a terminal owns first responder, bypass SwiftUI's hosting view:
         // after browser focus churn it can claim key equivalents without firing.
         // Non-Command keys go to Ghostty; Command keys go to the main menu.
-        let firstResponderGhosttyView = CmuxGhosttyResponderResolution
-            .terminalKeyEquivalentOwningGhosttyView(for: self.firstResponder)
+        let firstResponderGhosttyView = self.firstResponder
+            .cmuxTerminalKeyEquivalentOwningGhosttyView()
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
@@ -17601,7 +17599,7 @@ private extension NSWindow {
         guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
             return nil
         }
-        return CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: hitView)
+        return hitView.cmuxTerminalFocusOwningGhosttyView()
     }
 
     private static func cmuxShouldAllowPointerInitiatedTerminalFocus(

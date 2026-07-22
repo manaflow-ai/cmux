@@ -2725,19 +2725,19 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         ghosttyView.addSubview(descendant)
 
-        XCTAssertTrue(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: descendant) === ghosttyView)
+        XCTAssertTrue(descendant.cmuxStrictOwningGhosttyView() === ghosttyView)
     }
 
     func testResolvesGhosttyViewFromGhosttyResponder() {
         let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
-        XCTAssertTrue(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: ghosttyView) === ghosttyView)
+        XCTAssertTrue(ghosttyView.cmuxStrictOwningGhosttyView() === ghosttyView)
     }
 
     func testDoesNotResolveGhosttyViewFromHostedSurfaceContainerResponder() {
         let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
 
-        XCTAssertNil(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: hostedView))
+        XCTAssertNil(hostedView.cmuxStrictOwningGhosttyView())
     }
 
     func testDoesNotResolveGhosttyViewFromHostedSurfaceDescendantResponderByDefault() {
@@ -2746,7 +2746,7 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         hostedView.addSubview(descendant)
 
-        XCTAssertNil(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: descendant))
+        XCTAssertNil(descendant.cmuxStrictOwningGhosttyView())
     }
 
     func testResolvesTerminalKeyEquivalentGhosttyViewFromHostedSurfaceDescendantResponder() {
@@ -2756,7 +2756,7 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         hostedView.addSubview(descendant)
 
         XCTAssertTrue(
-            CmuxGhosttyResponderResolution.terminalKeyEquivalentOwningGhosttyView(for: descendant) === ghosttyView
+            descendant.cmuxTerminalKeyEquivalentOwningGhosttyView() === ghosttyView
         )
     }
 
@@ -2767,19 +2767,19 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         hostedView.addSubview(descendant)
 
         XCTAssertTrue(
-            CmuxGhosttyResponderResolution.terminalFocusOwningGhosttyView(for: descendant) === ghosttyView
+            descendant.cmuxTerminalFocusOwningGhosttyView() === ghosttyView
         )
     }
 
     func testReturnsNilForUnrelatedResponder() {
         let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        XCTAssertNil(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: view))
+        XCTAssertNil(view.cmuxStrictOwningGhosttyView())
     }
 
     func testDoesNotReadTextViewDelegateForGhosttyResponderResolution() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
 
-        XCTAssertNil(CmuxGhosttyResponderResolution.strictOwningGhosttyView(for: textView))
+        XCTAssertNil(textView.cmuxStrictOwningGhosttyView())
         XCTAssertEqual(
             textView.delegateReadCount,
             0,
