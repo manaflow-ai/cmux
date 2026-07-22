@@ -54,6 +54,6 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             args: "codex Running --agent-event-time=not-a-time"
         )
 
-        #expect(response == "ERROR: Invalid agent event time 'not-a-time' — must be a positive finite number")
+        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be a positive finite number")
     }
 }

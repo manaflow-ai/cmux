@@ -87,7 +87,7 @@ extension ControlCommandCoordinator {
         case .valid(let value):
             agentEventTime = value
         case .invalid(let raw):
-            return "ERROR: Invalid agent event time '\(raw)' — must be a positive finite number"
+            return "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
         }
 
         context?.controlSidebarScheduleStatusUpsert(
@@ -396,7 +396,7 @@ extension ControlCommandCoordinator {
         case .valid(let value):
             agentEventTime = value
         case .invalid(let raw):
-            return "ERROR: Invalid agent event time '\(raw)' — must be a positive finite number"
+            return "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
         }
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,

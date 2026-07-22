@@ -132,6 +132,67 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(doneFile, containing: "done", timeout: 8))
     }
 
+    @Test func codexInstalledHookTimestampFallbackDoesNotRequirePerlOrPython() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-timestamp-fallback-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let toolBin = root.appendingPathComponent("tools", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let capturedAt = root.appendingPathComponent("hook-captured-at.txt", isDirectory: false)
+        let doneFile = root.appendingPathComponent("hook-done.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try installMinimalHookToolPath(in: toolBin)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$CMUX_AGENT_HOOK_CAPTURED_AT\" > \"$CMUX_TEST_CAPTURED_AT\"",
+            "cat >/dev/null",
+            "printf done > \"$CMUX_TEST_DONE\"",
+        ])
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let command = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
+        )
+        let run = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": toolBin.path,
+                "TMPDIR": root.path,
+                "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_TEST_CAPTURED_AT": capturedAt.path,
+                "CMUX_TEST_DONE": doneFile.path,
+            ],
+            standardInput: #"{"session_id":"codex-session","prompt":"fallback timestamp"}"#,
+            timeout: 2
+        )
+
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+        #expect(run.stdout == "{}\n")
+        #expect(waitForFile(doneFile, containing: "done", timeout: 3))
+        let rawCapturedAt = try String(contentsOf: capturedAt, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let capturedTime = try #require(Double(rawCapturedAt))
+        #expect(capturedTime >= 946_684_800, Comment(rawValue: rawCapturedAt))
+        #expect(capturedTime <= 4_102_444_800, Comment(rawValue: rawCapturedAt))
+        #expect(rawCapturedAt.contains("."), Comment(rawValue: rawCapturedAt))
+    }
+
     @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -466,6 +527,65 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["agentLifecycle"] as? String == "idle")
         #expect(session["runtimeStatus"] as? String == "idle")
         #expect(session["runtimeStatusEventTime"] as? Double == idleStopEventTime)
+    }
+
+    @Test func codexFarFutureISOEventTimeDoesNotPoisonRuntimeOrdering() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-future-iso-event-time-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("codex-iso")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-future-iso-session"
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 8
+        )
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-future","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","timestamp":"2500-01-01T00:00:00Z","prompt":"future"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let sentCommands = commands.snapshot()
+        #expect(!sentCommands.contains { $0.contains("--agent-event-time") }, "Invalid future ISO timestamp should be dropped: \(sentCommands)")
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: stateURL)
+            ) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        let session = try #require(sessions[sessionId] as? [String: Any])
+        #expect(session["runtimeStatus"] as? String == "running")
+        #expect(session["runtimeStatusEventTime"] == nil)
     }
 
     @Test func codexStopIgnoresLiveStaleSiblingWithoutActiveTurn() throws {
@@ -846,5 +966,20 @@ struct CLICodexHookTimeoutRegressionTests {
 
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+    }
+
+    private func installMinimalHookToolPath(in directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for (name, target) in [
+            ("cat", "/bin/cat"),
+            ("mktemp", "/usr/bin/mktemp"),
+            ("nohup", "/usr/bin/nohup"),
+            ("rm", "/bin/rm"),
+            ("sh", "/bin/sh"),
+            ("sleep", "/bin/sleep"),
+        ] {
+            let link = directory.appendingPathComponent(name, isDirectory: false)
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: target)
+        }
     }
 }

@@ -76,7 +76,10 @@ extension CMUXCLI {
             if let value = Double(trimmed) {
                 return normalizeAgentHookEpochSeconds(value)
             }
-            return parseAgentHookISO8601TimeValue(trimmed)
+            guard let timestamp = parseAgentHookISO8601TimeValue(trimmed) else {
+                return nil
+            }
+            return normalizeAgentHookEpochSeconds(timestamp)
         default:
             return nil
         }
@@ -96,18 +99,12 @@ extension CMUXCLI {
         let fractionalFormatter = ISO8601DateFormatter()
         fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = fractionalFormatter.date(from: value) {
-            let timestamp = date.timeIntervalSince1970
-            return timestamp.isFinite && timestamp > 0 ? timestamp : nil
+            return date.timeIntervalSince1970
         }
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        guard let timestamp = formatter.date(from: value)?.timeIntervalSince1970,
-              timestamp.isFinite,
-              timestamp > 0 else {
-            return nil
-        }
-        return timestamp
+        return formatter.date(from: value)?.timeIntervalSince1970
     }
 
     private func compactClaudeHookObject(_ object: [String: Any]) -> [String: Any] {

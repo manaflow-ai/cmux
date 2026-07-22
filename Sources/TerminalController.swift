@@ -13808,7 +13808,7 @@ class TerminalController {
         case .valid(let value):
             agentEventTime = value
         case .invalid(let raw):
-            return "ERROR: Invalid agent event time '\(raw)' — must be a positive finite number"
+            return "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
         }
 
         scheduleSidebarMutation(target: target) { _, tab in
