@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
     @testable import cmux_DEV
@@ -9,6 +11,19 @@ import Testing
 
 @Suite(.serialized)
 struct AgentSessionWebRendererTests {
+    @Test @MainActor
+    func attachingWebViewDefersHostLayout() {
+        let host = AgentSessionWebHostView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let webView = WKWebView(frame: .zero)
+
+        host.attachWebView(webView)
+
+        #expect(host.geometryRevision == 0)
+        #expect(webView.frame == host.bounds)
+    }
+
     @Test
     func testTrustedShellURLAcceptsOnlyMatchingFileURL() {
         let resources = URL(fileURLWithPath: "/tmp/cmux DEV test.app/Contents/Resources", isDirectory: true)
