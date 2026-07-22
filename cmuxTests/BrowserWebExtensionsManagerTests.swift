@@ -6134,6 +6134,49 @@ struct BrowserWebExtensionsManagerTests {
         #expect(replacement.configuration.webExtensionController === services.webExtensionsManager?.controller)
     }
 
+    @Test func openingExtensionsManagerHidesPortalHostedPage() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        let contentView = try #require(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
+        contentView.addSubview(anchor)
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank"),
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+        BrowserWindowPortalRegistry.bind(
+            webView: panel.webView,
+            to: anchor,
+            visibleInUI: true
+        )
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+
+        let visibleSnapshot = try #require(
+            BrowserWindowPortalRegistry.debugSnapshot(for: panel.webView)
+        )
+        #expect(visibleSnapshot.visibleInUI)
+        #expect(!visibleSnapshot.containerHidden)
+
+        #expect(panel.showBrowserExtensionsManager())
+
+        let hiddenSnapshot = try #require(
+            BrowserWindowPortalRegistry.debugSnapshot(for: panel.webView)
+        )
+        #expect(panel.internalPage == .extensions)
+        #expect(!hiddenSnapshot.visibleInUI)
+        #expect(hiddenSnapshot.containerHidden)
+    }
+
     @available(macOS 15.4, *)
     @Test func dockBrowserUsesDockWindowOwnershipAndUnregisters() async throws {
         let root = try Self.makeExtensionsRoot()
