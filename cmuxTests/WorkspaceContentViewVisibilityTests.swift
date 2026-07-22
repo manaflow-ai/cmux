@@ -25,6 +25,82 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
+    private actor ReleaseRecorder {
+        private var values: [Bool] = []
+        private var waiters: [CheckedContinuation<Bool, Never>] = []
+
+        func record(_ value: Bool) {
+            if waiters.isEmpty {
+                values.append(value)
+            } else {
+                waiters.removeFirst().resume(returning: value)
+            }
+        }
+
+        func next() async -> Bool {
+            if !values.isEmpty {
+                return values.removeFirst()
+            }
+            return await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+
+        func snapshot() -> [Bool] {
+            values
+        }
+    }
+
+    private actor SleepGate {
+        private struct Sleeper {
+            let duration: Duration
+            let continuation: CheckedContinuation<Void, Never>
+        }
+
+        private var sleepers: [UUID: Sleeper] = [:]
+        private var observers: [(Duration, CheckedContinuation<Void, Never>)] = []
+
+        func sleep(for duration: Duration) async throws {
+            try Task.checkCancellation()
+            let id = UUID()
+            await withCheckedContinuation { continuation in
+                sleepers[id] = Sleeper(duration: duration, continuation: continuation)
+                resumeObservers(for: duration)
+            }
+            try Task.checkCancellation()
+        }
+
+        func waitForSleep(duration: Duration) async {
+            if sleepers.values.contains(where: { $0.duration == duration }) {
+                return
+            }
+            await withCheckedContinuation { continuation in
+                observers.append((duration, continuation))
+            }
+        }
+
+        func resume(duration: Duration) {
+            let matchingIds = sleepers
+                .filter { $0.value.duration == duration }
+                .map(\.key)
+            for id in matchingIds {
+                sleepers.removeValue(forKey: id)?.continuation.resume()
+            }
+        }
+
+        private func resumeObservers(for duration: Duration) {
+            var remaining: [(Duration, CheckedContinuation<Void, Never>)] = []
+            for observer in observers {
+                if observer.0 == duration {
+                    observer.1.resume()
+                } else {
+                    remaining.append(observer)
+                }
+            }
+            observers = remaining
+        }
+    }
+
     private static var repoRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -78,30 +154,41 @@ final class WorkspaceContentViewVisibilityTests {
     @Test
     @MainActor
     func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async throws {
-        let scheduler = SidebarResizerCursorReleaseScheduler()
-        var releases: [Bool] = []
+        let gate = SleepGate()
+        let recorder = ReleaseRecorder()
+        let scheduler = SidebarResizerCursorReleaseScheduler(
+            sleep: { duration in
+                try await gate.sleep(for: duration)
+            }
+        )
 
         scheduler.schedule(force: false, delay: .zero) { force in
-            releases.append(force)
+            Task {
+                await recorder.record(force)
+            }
         }
-        #expect(releases.isEmpty)
-        try await Task.sleep(for: .milliseconds(10))
-        #expect(releases == [false])
-        releases.removeAll()
+        #expect(await recorder.next() == false)
 
         scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
-            releases.append(force)
+            Task {
+                await recorder.record(force)
+            }
         }
-        scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
-            releases.append(force)
-        }
+        await gate.waitForSleep(duration: .milliseconds(200))
 
-        try await Task.sleep(for: .milliseconds(80))
-        #expect(releases == [true])
+        scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
+            Task {
+                await recorder.record(force)
+            }
+        }
+        await gate.waitForSleep(duration: .milliseconds(10))
+        await gate.resume(duration: .milliseconds(10))
+        #expect(await recorder.next() == true)
 
         scheduler.cancelPendingRelease()
-        try await Task.sleep(for: .milliseconds(160))
-        #expect(releases == [true])
+        await gate.resume(duration: .milliseconds(200))
+        await Task.yield()
+        #expect(await recorder.snapshot() == [])
     }
 
     @Test

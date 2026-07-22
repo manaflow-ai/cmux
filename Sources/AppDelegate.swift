@@ -3364,12 +3364,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !additionalWindows.isEmpty {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                var excludedStableIdentities = self.liveStableIdentitySet()
+                var excludedWorkspaceIds = self.liveWorkspaceIdSet()
                 for windowSnapshot in additionalWindows {
-                    _ = self.createMainWindow(
+                    let windowId = self.createMainWindow(
                         sessionWindowSnapshot: windowSnapshot,
-                        excludingStableIdentitiesFromSessionSnapshot: self.liveStableIdentitySet(),
-                        excludingWorkspaceIdsFromSessionSnapshot: self.liveWorkspaceIdSet()
+                        excludingStableIdentitiesFromSessionSnapshot: excludedStableIdentities,
+                        excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds
                     )
+                    if let context = self.mainWindowContexts[windowId] {
+                        excludedStableIdentities.formUnion(context.tabManager.liveStableIdentitySet())
+                        excludedWorkspaceIds.formUnion(context.tabManager.liveWorkspaceIdSet())
+                    }
                 }
                 self.completeSessionRestoreOperation(isManualReopen: false)
             }
