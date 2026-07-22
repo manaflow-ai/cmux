@@ -25,6 +25,55 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
+    private static var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private static func sourceText(_ relativePath: String) throws -> String {
+        try String(
+            contentsOf: repoRoot.appendingPathComponent(relativePath),
+            encoding: .utf8
+        )
+    }
+
+    @Test
+    func contentViewDoesNotChainQueuedDispatchWorkItemsThroughSwiftUIState() throws {
+        let source = try Self.sourceText("Sources/ContentView.swift")
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+
+        let stateWorkItemLines = lines.enumerated().compactMap { index, line -> String? in
+            guard line.contains("@State"),
+                  line.contains("DispatchWorkItem") else { return nil }
+            return "\(index + 1): \(line.trimmingCharacters(in: .whitespaces))"
+        }
+        #expect(
+            stateWorkItemLines.isEmpty,
+            """
+            ContentView must not keep DispatchWorkItems in SwiftUI @State. A queued \
+            DispatchWorkItem closure that captures the ContentView value can retain the \
+            previous @State work item, making replacement build an unbounded release chain:
+            \(stateWorkItemLines.joined(separator: "\n"))
+            """
+        )
+
+        let implicitSelfWorkItemLines = lines.enumerated().compactMap { index, line -> String? in
+            guard line.contains("DispatchWorkItem {"),
+                  !line.contains("[") else { return nil }
+            return "\(index + 1): \(line.trimmingCharacters(in: .whitespaces))"
+        }
+        #expect(
+            implicitSelfWorkItemLines.isEmpty,
+            """
+            ContentView DispatchWorkItem closures must use an explicit capture list or be \
+            removed. Implicit self captures can retain the view's @State snapshot and link \
+            queued work items recursively:
+            \(implicitSelfWorkItemLines.joined(separator: "\n"))
+            """
+        )
+    }
+
     @Test
     @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
