@@ -100,6 +100,29 @@ struct AgentGUIRPCHandlerTests {
         #expect(service.watchingJournalPipelineCountForTesting == 0)
     }
 
+    @Test func processDiscoveredSessionProvidesArtifactTranscriptContext() throws {
+        let transcriptPath = "/tmp/agent-gui-artifact/session.jsonl"
+        let service = AgentGUIService(macDeviceID: "mac-artifact")
+        service.ingestProcessObservationsForTesting([
+            ProcessObservation(
+                pid: 41_001,
+                ppid: 1,
+                startTick: 52_001,
+                argvSummary: "claude --resume session-artifact",
+                agentKindGuess: .claude,
+                cwd: "/tmp/agent-gui-artifact",
+                surfaceID: "surface-artifact",
+                openTranscriptPath: transcriptPath
+            ),
+        ])
+
+        let context = try #require(service.artifactSessionContext(sessionID: "session-artifact"))
+        #expect(context.sessionID == "session-artifact")
+        #expect(context.agentKind == .claude)
+        #expect(context.transcriptPath == transcriptPath)
+        #expect(context.workingDirectory == "/tmp/agent-gui-artifact")
+    }
+
     @Test func sendRPCShapesAcceptedAndQueuedResults() async throws {
         let injector = RPCFakeAgentGUITerminalInjector()
         let service = AgentGUIService(macDeviceID: "mac-test", terminalInjector: injector)
