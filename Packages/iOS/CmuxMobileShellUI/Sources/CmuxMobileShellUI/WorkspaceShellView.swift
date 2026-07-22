@@ -165,7 +165,6 @@ struct WorkspaceShellView: View {
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
     @State private var rootToolbarSelectionGeneration: UInt64 = 0
-    @State private var workspaceSearchIsPresented = false
     #endif
     @State private var workspaceSearchText = ""
     @State private var hasPresentedSplitDetail = false
@@ -209,14 +208,6 @@ struct WorkspaceShellView: View {
         store.connectionState == .connected
     }
 
-    #if os(iOS)
-    private var workspaceSearchControlIsVisible: Bool {
-        selectedPrimaryTab == .workspaces
-            && usesCompactStack
-            && compactNavigationPath.isEmpty
-    }
-    #endif
-
     var body: some View {
         #if os(iOS)
         let presentation = workspaceShellRenderPresentation
@@ -251,14 +242,6 @@ struct WorkspaceShellView: View {
                     }
                 }
             }
-            .workspaceListBottomSearch(
-                text: $workspaceSearchText,
-                isPresented: $workspaceSearchIsPresented,
-                isVisible: workspaceSearchControlIsVisible,
-                taskComposerAction: displaySettings.taskComposerEnabled ? {
-                    isTaskComposerPresented = true
-                } : nil
-            )
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
@@ -370,8 +353,9 @@ struct WorkspaceShellView: View {
         NavigationStack(path: $compactNavigationPath) {
             WorkspaceListSearchHost(
                 searchText: $workspaceSearchText,
-                usesBottomControl: true,
-                bottomControlIsPresented: workspaceSearchIsPresented
+                taskComposerAction: displaySettings.taskComposerEnabled ? {
+                    isTaskComposerPresented = true
+                } : nil
             ) { searchText in
                 workspaceList(
                     navigationStyle: .push,
@@ -401,7 +385,7 @@ struct WorkspaceShellView: View {
                     )
                 )
                     #if os(iOS)
-                    .toolbarVisibility(.hidden, for: .tabBar)
+                    .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                     #endif
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
@@ -455,10 +439,7 @@ struct WorkspaceShellView: View {
 
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
-            WorkspaceListSearchHost(
-                searchText: $workspaceSearchText,
-                usesBottomControl: false
-            ) { searchText in
+            WorkspaceListSearchHost(searchText: $workspaceSearchText) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: searchText,
@@ -695,7 +676,7 @@ struct WorkspaceShellView: View {
 
     @ViewBuilder
     private var taskComposerButtonOverlay: some View {
-        if displaySettings.taskComposerEnabled, !workspaceSearchIsPresented {
+        if displaySettings.taskComposerEnabled {
             if #available(iOS 26.0, *) {
                 if !usesCompactStack {
                     TaskComposerButton {

@@ -11816,40 +11816,6 @@
         }
       }
     },
-    "mobile.workspaces.search.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索"
-          }
-        }
-      }
-    },
-    "mobile.workspaces.search.close": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close search"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索を閉じる"
-          }
-        }
-      }
-    },
     "mobile.workspaces.search.placeholder": {
       "extractionState": "manual",
       "localizations": {

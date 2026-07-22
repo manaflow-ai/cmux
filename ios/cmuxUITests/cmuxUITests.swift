@@ -368,9 +368,13 @@ final class cmuxUITests: XCTestCase {
                 .waitForExistence(timeout: 3)
         )
 
-        let minimizedSearch = app.buttons["MobileWorkspaceSearchButton"]
-        XCTAssertTrue(waitForHittable(minimizedSearch, timeout: 3))
-        let searchField = app.textFields["MobileWorkspaceSearchField"]
+        let minimizedSearchMatches = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Search"))
+        XCTAssertEqual(minimizedSearchMatches.count, 1)
+        let minimizedSearch = minimizedSearchMatches
+            .firstMatch
+        XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
+        let searchField = app.searchFields["Search workspaces"]
         guard let minimizedSearchFrame = waitForUsableFrame(of: minimizedSearch, timeout: 3) else {
             XCTFail("Workspace search orb had no usable frame")
             return
@@ -378,9 +382,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThan(
             minimizedSearchFrame.midY,
             app.frame.midY,
-            "Inactive workspace search must sit beside the bottom tab bar"
+            "Workspace search should sit beside the bottom tab bar"
         )
-        minimizedSearch.tap()
+        tap(minimizedSearch, in: app)
 
         XCTAssertTrue(waitForHittable(searchField, timeout: 3))
         XCTAssertTrue(focusTextInput(searchField, in: app))
@@ -405,16 +409,12 @@ final class cmuxUITests: XCTestCase {
             "Pull-to-refresh did not replace the preview workspace snapshot"
         )
 
-        let afterRefreshField = app.textFields["MobileWorkspaceSearchField"]
-        if !afterRefreshField.isHittable {
-            let restoredMinimizedSearch = app.buttons["MobileWorkspaceSearchButton"]
-            XCTAssertTrue(waitForHittable(restoredMinimizedSearch, timeout: 3))
-            restoredMinimizedSearch.tap()
-        }
-        XCTAssertTrue(waitForHittable(afterRefreshField, timeout: 3))
-        XCTAssertEqual(afterRefreshField.value as? String, "Docs")
         XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        let restoredMinimizedSearchMatches = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Search"))
+        XCTAssertEqual(restoredMinimizedSearchMatches.count, 1)
+        XCTAssertTrue(restoredMinimizedSearchMatches.firstMatch.waitForExistence(timeout: 3))
     }
 
     @MainActor
@@ -432,8 +432,11 @@ final class cmuxUITests: XCTestCase {
         let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
 
-        let searchButton = app.buttons["MobileWorkspaceSearchButton"]
-        XCTAssertTrue(waitForHittable(searchButton, timeout: 3))
+        let searchMatches = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Search"))
+        XCTAssertEqual(searchMatches.count, 1)
+        let searchButton = searchMatches.firstMatch
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
 
         let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
         XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
@@ -441,24 +444,26 @@ final class cmuxUITests: XCTestCase {
 
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
         XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForNotHittable(searchButton, timeout: 3))
+        XCTAssertTrue(searchButton.waitForNonExistence(timeout: 3))
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         XCTAssertTrue(waitForHittable(backButton, timeout: 3))
         backButton.tap()
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForHittable(searchButton, timeout: 3))
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        XCTAssertEqual(searchMatches.count, 1)
 
         let notificationsTab = app.tabBars.buttons["Notifications"]
         XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
         notificationsTab.tap()
 
         XCTAssertTrue(app.staticTexts["Notification feed fixture"].waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForNotHittable(searchButton, timeout: 3))
+        XCTAssertTrue(searchButton.waitForNonExistence(timeout: 3))
 
         app.tabBars.buttons["Workspaces"].tap()
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForHittable(searchButton, timeout: 3))
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        XCTAssertEqual(searchMatches.count, 1)
     }
 
     @MainActor

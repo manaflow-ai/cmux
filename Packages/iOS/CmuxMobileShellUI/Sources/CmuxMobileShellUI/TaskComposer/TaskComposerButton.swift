@@ -2,39 +2,26 @@
 import CmuxMobileSupport
 import SwiftUI
 
-enum TaskComposerButtonPresentation: Equatable {
-    case labeled
-    case compact
-}
-
 struct TaskComposerButton: View {
-    var presentation: TaskComposerButtonPresentation = .labeled
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            if presentation == .compact {
+            HStack(spacing: 8) {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 19, weight: .semibold))
-                    .frame(width: 52, height: 52)
+                    .font(.system(size: 16, weight: .semibold))
                     .accessibilityHidden(true)
-            } else {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 16, weight: .semibold))
-                        .accessibilityHidden(true)
-                    Text(
-                        L10n.string(
-                            "mobile.taskComposer.button.title",
-                            defaultValue: "New task"
-                        )
+                Text(
+                    L10n.string(
+                        "mobile.taskComposer.button.title",
+                        defaultValue: "New task"
                     )
-                    .font(.subheadline.weight(.semibold))
-                }
-                .padding(.horizontal, 17)
-                .frame(minHeight: 52)
-                .contentShape(.capsule)
+                )
+                .font(.subheadline.weight(.semibold))
             }
+            .padding(.horizontal, 17)
+            .frame(minHeight: 52)
+            .contentShape(.capsule)
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
