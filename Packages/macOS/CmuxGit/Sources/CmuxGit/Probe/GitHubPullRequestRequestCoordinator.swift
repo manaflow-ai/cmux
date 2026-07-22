@@ -60,8 +60,6 @@ public actor GitHubPullRequestRequestCoordinator {
     /// `PullRequestProbeService(requestCoordinator:)`. The session and cache
     /// tuning knobs stay internal (tests reach that initializer through
     /// `@testable import`), keeping the public surface to a plain default.
-    /// Actor initializers delegate without `convenience` (SE-0327); marking
-    /// one `convenience` is a hard error on current toolchains.
     public init() {
         self.init(session: nil)
     }
