@@ -55,7 +55,9 @@ extension MobileHostService {
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value
             )
-        case "workspace.action", "workspace.close", "mobile.surface.focus":
+        case "workspace.action", "workspace.close", "mobile.surface.focus",
+             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+             "mobile.panel.artifact.thumbnail":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "workspace.group.action", "workspace.group.create":
             return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)

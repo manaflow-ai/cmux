@@ -111,6 +111,29 @@ struct ChatArtifactLoaderTests {
         }
         #expect(await source.listRequestCount() == 1)
     }
+
+    @Test func panelScopeResolvesBytesAndPinsDirectoryBrowsingOff() async throws {
+        let source = CountingTerminalArtifactSource()
+        let loader = ChatArtifactLoader(
+            panelWorkspaceID: "workspace-1",
+            panelSurfaceID: "surface-1",
+            supportsArtifacts: true,
+            stat: { path in try await source.stat(path: path) },
+            fetch: { path, progress in try await source.fetch(path: path, progress: progress) },
+            thumbnail: { path, dimension in
+                try await source.thumbnail(path: path, maxDimension: dimension)
+            }
+        )
+
+        #expect(loader.scope == .panel(workspaceID: "workspace-1", surfaceID: "surface-1"))
+        #expect(loader.supportsArtifacts)
+        #expect(!loader.supportsDirectoryBrowsing)
+        #expect(try await loader.fetch(path: "/tmp/panel.md") == Data([4, 5, 6]))
+        #expect(try await loader.stat(path: "/tmp/panel.md").kind == .image)
+        await #expect(throws: ChatArtifactError.unsupported) {
+            try await loader.list(path: "/tmp")
+        }
+    }
 }
 
 private actor CountingArtifactSource: ChatEventSource {

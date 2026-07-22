@@ -96,6 +96,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
+    static let panelArtifactCapability = "panel.artifact.v1"
     static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"

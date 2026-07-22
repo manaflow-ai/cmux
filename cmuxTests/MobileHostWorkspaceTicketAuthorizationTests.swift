@@ -300,6 +300,12 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             ("workspace.close", ["workspace_id": "other-workspace"], "forbidden"),
             ("mobile.surface.focus", ["workspace_id": "workspace", "surface_id": "surface"], nil),
             ("mobile.surface.focus", ["workspace_id": "other-workspace", "surface_id": "surface"], "forbidden"),
+            ("mobile.panel.artifact.stat", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.stat", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
+            ("mobile.panel.artifact.fetch", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.fetch", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
+            ("mobile.panel.artifact.thumbnail", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.thumbnail", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
         ]
 
         for testCase in cases {

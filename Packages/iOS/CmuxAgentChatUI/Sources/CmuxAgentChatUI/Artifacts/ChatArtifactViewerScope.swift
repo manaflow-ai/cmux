@@ -5,4 +5,7 @@ public enum ChatArtifactViewerScope: Sendable {
 
     /// An artifact opened from a terminal surface.
     case terminal
+
+    /// The file displayed by a markdown or file-preview panel.
+    case panel
 }
