@@ -2552,6 +2552,50 @@ struct ContentView: View {
         )
     }
 
+    private func restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded() {
+        guard featureFlags.isAppKitSidebarListEnabled,
+              let window = observedWindow,
+              let responder = window.firstResponder,
+              Self.appKitSidebarContainer(owning: responder) != nil else {
+            return
+        }
+
+        // Resigning the retained table or field editor ends any inline edit in
+        // the same way unmounting did before the sidebar became persistent.
+        _ = window.makeFirstResponder(nil)
+
+        guard let workspace = tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.panels[panelId] else {
+            return
+        }
+        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            in: window
+        )
+        workspace.focusPanel(panelId, focusIntent: panel.preferredFocusIntentForActivation())
+    }
+
+    private static func appKitSidebarContainer(
+        owning responder: NSResponder
+    ) -> SidebarWorkspaceTableContainerView? {
+        var view: NSView?
+        if let editor = responder as? NSTextView,
+           let delegateView = editor.delegate as? NSView {
+            view = delegateView
+        } else {
+            view = responder as? NSView
+        }
+        while let current = view {
+            if let container = current as? SidebarWorkspaceTableContainerView {
+                return container
+            }
+            view = current.superview
+        }
+        return nil
+    }
+
     var body: some View {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.contentViewBody?() }()
@@ -3177,6 +3221,9 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _, isVisible in
+            if !isVisible {
+                restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()
+            }
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)

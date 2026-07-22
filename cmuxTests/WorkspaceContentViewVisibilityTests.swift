@@ -328,6 +328,11 @@ final class WorkspaceContentViewVisibilityTests {
         )
         #expect(initialContainers.count == 1)
         let initialContainer = try #require(initialContainers.first)
+        let focusedWorkspace = try #require(tabManager.selectedWorkspace)
+        let focusedPanelId = try #require(focusedWorkspace.focusedPanelId)
+        let focusedPanel = try #require(focusedWorkspace.panels[focusedPanelId])
+        #expect(window.makeFirstResponder(initialContainer.tableView))
+        #expect(window.firstResponder === initialContainer.tableView)
 
         sidebarState.toggle()
         await Self.drainMainRunLoop(for: window)
@@ -339,6 +344,11 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             hiddenContainers.first === initialContainer,
             "Hiding the sidebar must preserve the existing AppKit table container."
+        )
+        let responderAfterHide = try #require(window.firstResponder)
+        #expect(
+            focusedPanel.ownedFocusIntent(for: responderAfterHide, in: window) != nil,
+            "Hiding the sidebar must return keyboard focus to the selected main panel."
         )
 
         sidebarState.toggle()
