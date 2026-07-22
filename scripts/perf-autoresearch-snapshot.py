@@ -18,6 +18,7 @@ from typing import Any
 WORKSPACE_COUNT = 12
 SYNTHETIC_SCROLLBACK_CHARS_PER_TERMINAL = 165_000
 MIN_SNAPSHOT_SCROLLBACK_CHARS = 1_000_000
+MINIMUM_TERMINAL_SURFACES = 40
 DEFAULT_SAMPLE_COUNT = 5
 DEFAULT_ITERATION_COUNT = 3
 IN_FLIGHT_SAMPLE_INTERVAL_SECONDS = 0.02
@@ -86,29 +87,53 @@ def fixture_args(args: argparse.Namespace) -> argparse.Namespace:
         budget_restore_socket_ready_ms=15_000,
         budget_no_scrollback_snapshot_ms=250,
         budget_scrollback_snapshot_ms=1_500,
-        budget_min_scrollback_chars=1_000_000,
-        budget_min_terminal_surfaces=40,
+        budget_min_scrollback_chars=MIN_SNAPSHOT_SCROLLBACK_CHARS,
+        budget_min_terminal_surfaces=MINIMUM_TERMINAL_SURFACES,
         budget_snapshot_samples=args.samples,
         fail_on_timing_budget=False,
     )
 
 
-def validate_payload(payload: Any, *, include_scrollback: bool, label: str) -> dict[str, Any]:
+def validate_shape(payload: dict[str, Any], *, label: str) -> dict[str, Any]:
+    shape = payload.get("shape")
+    if not isinstance(shape, dict):
+        raise RuntimeError(f"{label}: shape is not an object")
+    if shape.get("workspaces") != WORKSPACE_COUNT:
+        raise RuntimeError(
+            f"{label}: shape.workspaces={shape.get('workspaces')!r}, expected {WORKSPACE_COUNT}"
+        )
+    terminals = shape.get("terminals")
+    if isinstance(terminals, bool) or not isinstance(terminals, int) or terminals < MINIMUM_TERMINAL_SURFACES:
+        raise RuntimeError(
+            f"{label}: shape.terminals={terminals!r}, expected at least {MINIMUM_TERMINAL_SURFACES}"
+        )
+    return shape
+
+
+def validate_payload(
+    payload: Any,
+    *,
+    include_scrollback: bool,
+    label: str,
+    persist: bool = False,
+    require_saved: bool = False,
+) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError(f"{label}: RPC payload is not an object")
     if payload.get("include_scrollback") is not include_scrollback:
         raise RuntimeError(f"{label}: include_scrollback does not match request")
-    if payload.get("persist") is not False:
-        raise RuntimeError(f"{label}: repeated snapshot unexpectedly persisted")
+    if payload.get("persist") is not persist:
+        raise RuntimeError(f"{label}: persist does not match request")
     if payload.get("built") is not True:
         raise RuntimeError(f"{label}: snapshot was not built")
+    if require_saved and payload.get("saved") is not True:
+        raise RuntimeError(f"{label}: persisted snapshot was not saved")
     value = payload.get("build_ms")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise RuntimeError(f"{label}: build_ms is not numeric")
     if not math.isfinite(float(value)) or float(value) < 0:
         raise RuntimeError(f"{label}: build_ms is not a finite non-negative number")
-    if not isinstance(payload.get("shape"), dict):
-        raise RuntimeError(f"{label}: shape is not an object")
+    validate_shape(payload, label=label)
     return payload
 
 
@@ -391,7 +416,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "benchmark_contract": {
             "workspace_count": WORKSPACE_COUNT,
-            "minimum_terminal_surfaces": 40,
+            "minimum_terminal_surfaces": MINIMUM_TERMINAL_SURFACES,
             "heavy_scrollback_lines": 0,
             "other_scrollback_lines": 0,
             "synthetic_scrollback_chars_per_terminal": SYNTHETIC_SCROLLBACK_CHARS_PER_TERMINAL,
@@ -458,8 +483,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         terminal_surfaces = result["fixture"].get("terminal_surfaces")
         if isinstance(terminal_surfaces, bool) or not isinstance(terminal_surfaces, int):
             raise RuntimeError(f"invalid fixture terminal surface count: {terminal_surfaces!r}")
-        if terminal_surfaces < 40:
-            raise RuntimeError(f"fixture has {terminal_surfaces} terminals, expected at least 40")
+        if terminal_surfaces < MINIMUM_TERMINAL_SURFACES:
+            raise RuntimeError(
+                f"fixture has {terminal_surfaces} terminals, expected at least {MINIMUM_TERMINAL_SURFACES}"
+            )
         if result["fixture"].get("scrollback_pending") != 0:
             raise RuntimeError("zero-live-scrollback fixture did not settle")
 
@@ -521,10 +548,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             phase="after_snapshots",
             started_at=memory_started_at,
         )
-        result["memory"]["deltas"] = {
-            "rss": memory_delta(memory_samples, "rss_bytes"),
-            "physical_footprint": memory_delta(memory_samples, "physical_footprint_bytes"),
-        }
 
         execution_stage = "persist_for_restore"
         restore_seed = runner.rpc(
@@ -533,11 +556,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             timeout=max(60, runner.args.snapshot_timeout),
         )
         result["fixture"]["restore_synthetic_scrollback_seed"] = restore_seed
-        result["measurements"]["persist_for_restore"] = runner.rpc(
-            "debug.session_snapshot_benchmark",
-            {"include_scrollback": True, "persist": True},
-            timeout=max(60, runner.args.snapshot_timeout),
+        persisted = validate_payload(
+            runner.rpc(
+                "debug.session_snapshot_benchmark",
+                {"include_scrollback": True, "persist": True},
+                timeout=max(60, runner.args.snapshot_timeout),
+            ),
+            include_scrollback=True,
+            persist=True,
+            require_saved=True,
+            label="persist_for_restore",
         )
+        result["measurements"]["persist_for_restore"] = persisted
         execution_stage = "restore_launch"
         runner.stop_app()
         runner.launch("restore")
@@ -548,19 +578,27 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             started_at=memory_started_at,
         )
         execution_stage = "post_restore_snapshot"
-        post_restore = runner.rpc(
-            "debug.session_snapshot_benchmark",
-            {"include_scrollback": False, "persist": False},
-            timeout=max(60, runner.args.snapshot_timeout),
+        post_restore = validate_payload(
+            runner.rpc(
+                "debug.session_snapshot_benchmark",
+                {"include_scrollback": False, "persist": False},
+                timeout=max(60, runner.args.snapshot_timeout),
+            ),
+            include_scrollback=False,
+            label="post_restore_snapshot",
         )
         result["measurements"]["post_restore_no_scrollback_snapshot"] = post_restore
-        result["fixture"]["post_restore_shape"] = post_restore.get("shape", {})
+        result["fixture"]["post_restore_shape"] = post_restore["shape"]
         capture_memory(
             runner,
             memory_samples,
             phase="post_restore",
             started_at=memory_started_at,
         )
+        result["memory"]["deltas"] = {
+            "rss": memory_delta(memory_samples, "rss_bytes"),
+            "physical_footprint": memory_delta(memory_samples, "physical_footprint_bytes"),
+        }
         result["memory"]["deltas"]["post_restore_vs_before_snapshots"] = {
             "rss": phase_delta(
                 memory_samples,
