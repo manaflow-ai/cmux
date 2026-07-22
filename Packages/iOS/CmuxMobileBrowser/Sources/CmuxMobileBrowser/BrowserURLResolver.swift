@@ -59,6 +59,9 @@ public struct BrowserURLResolver: Sendable {
         if let schemed = schemedURL(from: trimmed) {
             return schemed
         }
+        guard !hasSchemeLessUserInfo(in: trimmed) else {
+            return searchURL(for: searchText)
+        }
         if looksLikeHost(trimmed) {
             // Local dev servers (localhost, loopback, private LAN) listen on
             // plain HTTP, and opening a local dev server is a central cmux
@@ -139,6 +142,15 @@ public struct BrowserURLResolver: Sendable {
             character != "/" && character != "?" && character != "#"
         }
         return !authority.isEmpty && !authority.contains(where: \.isWhitespace)
+    }
+
+    /// Rejects scheme-less userinfo while allowing `@` in paths and queries.
+    private func hasSchemeLessUserInfo(in input: String) -> Bool {
+        guard !input.contains("://") else { return false }
+        let authority = input.prefix { character in
+            character != "/" && character != "?" && character != "#"
+        }
+        return authority.contains("@")
     }
 
     private func isSchemeLessHostWithStructure(_ input: String) -> Bool {

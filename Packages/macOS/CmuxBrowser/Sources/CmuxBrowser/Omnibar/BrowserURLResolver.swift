@@ -37,6 +37,7 @@ public struct BrowserURLResolver: Sendable {
         if let url = webURL(from: trimmed) {
             return url
         }
+        guard !hasSchemeLessUserInfo(in: trimmed) else { return nil }
         guard !trimmed.contains(where: \.isWhitespace) else { return nil }
 
         let lower = trimmed.lowercased()
@@ -131,6 +132,15 @@ public struct BrowserURLResolver: Sendable {
             character != "/" && character != "?" && character != "#"
         }
         return !authority.isEmpty && !authority.contains(where: \.isWhitespace)
+    }
+
+    /// Rejects scheme-less userinfo while allowing `@` in paths and queries.
+    private func hasSchemeLessUserInfo(in input: String) -> Bool {
+        guard !input.contains("://") else { return false }
+        let authority = input.prefix { character in
+            character != "/" && character != "?" && character != "#"
+        }
+        return authority.contains("@")
     }
 
     private func isSchemeLessHostWithStructure(_ input: String) -> Bool {
