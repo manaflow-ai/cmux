@@ -337,13 +337,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #if DEBUG
         cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
 #endif
-        guard rows.indices.contains(row) else { return }
-        if pointerSelectionSession?.rowId == rows[row].id {
-            return
-        }
         // Accessibility and programmatic actions do not pass through the
         // table's mouseDown override. Preserve their existing click fallback.
         let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        handleTableSelectionAction(row: row, modifiers: modifiers)
+    }
+
+    func handleTableSelectionAction(row: Int, modifiers: NSEvent.ModifierFlags) {
+        // Any active pointer session already owns this action by stable row ID.
+        // A numeric clickedRow may refer to another workspace if rows churned
+        // while NSTableView's synchronous tracking loop was in progress.
+        guard pointerSelectionSession == nil, rows.indices.contains(row) else { return }
         guard previewSelection(row: row, modifiers: modifiers) else { return }
         commitSelection(row: row, modifiers: modifiers)
     }
@@ -358,17 +362,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             row: row,
             modifiers: modifiers
         )
-        pointerSelectionSession = PointerSelectionSession(
-            rowId: rows[row].id,
-            defersPlainCollapse: defersPlainCollapse
-        )
         if defersPlainCollapse {
+            pointerSelectionSession = PointerSelectionSession(
+                rowId: rows[row].id,
+                defersPlainCollapse: true
+            )
             // This press supersedes an older trailing plain-click request. If
             // it becomes a drag, nothing may collapse the preserved group.
-            selectionCoalescer.cancel()
+            cancelPendingSelectionAndRestorePaint()
             return
         }
         guard previewSelection(row: row, modifiers: modifiers) else { return }
+        pointerSelectionSession = PointerSelectionSession(
+            rowId: rows[row].id,
+            defersPlainCollapse: false
+        )
         commitSelection(row: row, modifiers: modifiers)
     }
 
@@ -433,7 +441,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // end-editing commits the untouched title — the field flashes and
         // vanishes. A double-click is a rename gesture: drop the queued
         // selection before starting the edit.
-        selectionCoalescer.cancel()
+        cancelPendingSelectionAndRestorePaint()
         pointerSelectionSession = nil
         cell.beginInlineRename()
     }
@@ -579,6 +587,31 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return true
     }
 
+    @discardableResult
+    func cancelPendingSelectionAndRestorePaint() -> Bool {
+        guard selectionCoalescer.cancel() else { return false }
+        restoreOptimisticallyPaintedRows()
+        return true
+    }
+
+    private func restoreOptimisticallyPaintedRows() {
+        let paintedIds = optimisticallyPaintedRowIds
+        optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
+        guard !paintedIds.isEmpty, let table = containerView?.tableView else { return }
+        let visibleRows = table.rows(in: table.visibleRect)
+        for row in visibleRows.lowerBound..<(visibleRows.lowerBound + visibleRows.length)
+        where rows.indices.contains(row) && paintedIds.contains(rows[row].id) {
+            switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+            case let cell as SidebarWorkspaceRowTableCellView:
+                cell.restoreStoredModelPaint()
+            case let cell as SidebarGroupHeaderTableCellView:
+                cell.clearOptimisticAnchorActive()
+            default:
+                break
+            }
+        }
+    }
+
     /// A user drag misaligns one contiguous span (single-digit moves); past
     /// this, the per-move array rescans trend quadratic and the reload path
     /// is both cheaper and visually equivalent for bulk permutations.
@@ -688,12 +721,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // have reflowed, returning to the starting width is itself a live tick.
         guard hasLiveMeasuredRows || floor(width) != floor(lastMeasuredWidth) else { return }
         performLiveWidthRemeasure(width: width)
-        let window = containerView?.window
-        let hasExplicitResizeCompletion = window?.inLiveResize == true
-            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
-        if !hasExplicitResizeCompletion {
-            scheduleDeferredWidthSettle()
-        }
+        // Schedule for every width source. Programmatic NSWindow mutations can
+        // report `inLiveResize` during layout without ever posting a matching
+        // didEnd notification; the timer checks the state after it quiesces.
+        scheduleDeferredWidthSettle()
     }
 
     /// Programmatic frame changes and full-screen/layout transitions have no
@@ -710,6 +741,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             MainActor.assumeIsolated {
                 guard let self, self.deferredWidthSettleGeneration == generation else { return }
                 self.deferredWidthSettleTimer = nil
+                let window = self.containerView?.window
+                // Real divider and window drags have explicit completion
+                // notifications. If the timer lands during a pause in those
+                // drags, leave the full settle to that lifecycle edge.
+                guard window?.inLiveResize != true,
+                      !TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) else {
+                    return
+                }
                 self.performWidthRemeasureNow()
             }
         }

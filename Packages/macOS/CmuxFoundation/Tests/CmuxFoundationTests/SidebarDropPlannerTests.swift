@@ -103,6 +103,54 @@ import Testing
         #expect(plan.targetPinnedState == false)
     }
 
+    @Test func unpinnedRootDroppedBelowPinnedRootsCountsPinnedGroupRows() throws {
+        let groupId = UUID()
+        let groupAnchor = UUID()
+        let groupChild = UUID()
+        let firstPinnedRoot = UUID()
+        let secondPinnedRoot = UUID()
+        let draggedUnpinnedRoot = UUID()
+        let workspaces = [
+            SidebarWorkspaceReorderWorkspaceSnapshot(id: groupAnchor, isPinned: false, groupId: groupId),
+            SidebarWorkspaceReorderWorkspaceSnapshot(id: groupChild, isPinned: false, groupId: groupId),
+            SidebarWorkspaceReorderWorkspaceSnapshot(id: firstPinnedRoot, isPinned: true, groupId: nil),
+            SidebarWorkspaceReorderWorkspaceSnapshot(id: secondPinnedRoot, isPinned: true, groupId: nil),
+            SidebarWorkspaceReorderWorkspaceSnapshot(id: draggedUnpinnedRoot, isPinned: false, groupId: nil),
+        ]
+        let request = SidebarWorkspaceReorderDropRequest(
+            point: CGPoint(x: 2, y: 150),
+            draggedWorkspaceId: draggedUnpinnedRoot,
+            workspaces: workspaces,
+            groups: [
+                SidebarWorkspaceReorderGroupSnapshot(
+                    id: groupId,
+                    anchorWorkspaceId: groupAnchor,
+                    isPinned: true
+                ),
+            ],
+            targets: workspaces.enumerated().map { index, workspace in
+                SidebarWorkspaceReorderDropTarget(
+                    workspaceId: workspace.id,
+                    groupId: workspace.groupId,
+                    isGroupHeader: workspace.id == groupAnchor,
+                    frame: CGRect(x: 0, y: CGFloat(index * 40), width: 180, height: 32)
+                )
+            }
+        )
+
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(for: request))
+
+        #expect(plan.indicator == SidebarDropIndicator(tabId: secondPinnedRoot, edge: .bottom))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected local reorder plan")
+            return
+        }
+        #expect(targetIndex == 4)
+        #expect(!usesTopLevelRows)
+        #expect(explicitGroupId == nil)
+        #expect(plan.targetPinnedState == true)
+    }
+
     private struct PinnedBoundaryFixture {
         let firstPinned = UUID()
         let secondPinned = UUID()

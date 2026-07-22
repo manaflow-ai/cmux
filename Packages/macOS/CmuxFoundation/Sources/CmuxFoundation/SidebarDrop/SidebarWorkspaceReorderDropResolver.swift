@@ -3,6 +3,11 @@ import Foundation
 
 /// Resolves sidebar workspace drag/drop hit testing into one visual and commit plan.
 public struct SidebarWorkspaceReorderDropResolver: Sendable {
+    private struct PinStateOverride {
+        let workspaceId: UUID
+        let isPinned: Bool
+    }
+
     /// Creates a sidebar workspace reorder resolver.
     public init() {}
 
@@ -284,7 +289,10 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 groupByAnchorId: groupByAnchorId,
                 promotingWorkspaceId: request.draggedWorkspaceId
             )
-            : Set(request.workspaces.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
+            : effectivePinnedWorkspaceIds(
+                workspaces: request.workspaces,
+                groupsById: groupsById
+            )
         let draggedIsEffectivelyPinned = initialPinnedTabIds.contains(request.draggedWorkspaceId)
         let destinationIsPinned = destinationPinState(
             rootTargetWorkspaceId: rootTarget.workspaceId,
@@ -293,30 +301,46 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             pinnedTabIds: initialPinnedTabIds,
             fallback: draggedIsEffectivelyPinned
         )
-        let plannedSnapshots = snapshots(
-            changingPinStateOf: request.draggedWorkspaceId,
-            to: destinationIsPinned,
-            workspacesById: workspacesById,
-            groupByAnchorId: groupByAnchorId
-        )
-        let tabIds = usesTopLevelRows
-            ? topLevelWorkspaceIds(
-                workspaces: request.workspaces,
-                workspacesById: plannedSnapshots.workspacesById,
-                groupsById: groupsById,
-                groupByAnchorId: plannedSnapshots.groupByAnchorId,
-                promotingWorkspaceId: request.draggedWorkspaceId
+        let changesPinState = destinationIsPinned != draggedIsEffectivelyPinned
+        let pinStateOverride = changesPinState
+            ? PinStateOverride(
+                workspaceId: request.draggedWorkspaceId,
+                isPinned: destinationIsPinned
             )
-            : request.workspaces.map(\.id)
-        let pinnedTabIds = usesTopLevelRows
-            ? topLevelPinnedWorkspaceIds(
+            : nil
+        let tabIds: [UUID]
+        let pinnedTabIds: Set<UUID>
+        if !changesPinState {
+            // The resolver runs for every draggingUpdated event. Same-tier
+            // drags reuse the projections already computed above instead of
+            // scanning and allocating the full workspace collection again.
+            tabIds = initialTabIds
+            pinnedTabIds = initialPinnedTabIds
+        } else if usesTopLevelRows {
+            tabIds = topLevelWorkspaceIds(
                 workspaces: request.workspaces,
-                workspacesById: plannedSnapshots.workspacesById,
+                workspacesById: workspacesById,
                 groupsById: groupsById,
-                groupByAnchorId: plannedSnapshots.groupByAnchorId,
-                promotingWorkspaceId: request.draggedWorkspaceId
+                groupByAnchorId: groupByAnchorId,
+                promotingWorkspaceId: request.draggedWorkspaceId,
+                pinStateOverride: pinStateOverride
             )
-            : Set(plannedSnapshots.workspacesById.values.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
+            pinnedTabIds = topLevelPinnedWorkspaceIds(
+                workspaces: request.workspaces,
+                workspacesById: workspacesById,
+                groupsById: groupsById,
+                groupByAnchorId: groupByAnchorId,
+                promotingWorkspaceId: request.draggedWorkspaceId,
+                pinStateOverride: pinStateOverride
+            )
+        } else {
+            tabIds = initialTabIds
+            pinnedTabIds = effectivePinnedWorkspaceIds(
+                workspaces: request.workspaces,
+                groupsById: groupsById,
+                pinStateOverride: pinStateOverride
+            )
+        }
         guard let targetIndex = SidebarDropPlanner().targetIndex(
             draggedTabId: request.draggedWorkspaceId,
             targetTabId: rootTarget.workspaceId,
@@ -330,7 +354,6 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         let promotesGroupedWorkspace = usesTopLevelRows &&
             draggedWorkspace.groupId != nil &&
             groupByAnchorId[draggedWorkspace.id] == nil
-        let changesPinState = destinationIsPinned != draggedIsEffectivelyPinned
         let plannedIndicator = SidebarDropPlanner().indicator(
             draggedTabId: request.draggedWorkspaceId,
             targetTabId: rootTarget.workspaceId,
@@ -359,9 +382,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 usesTopLevelRows: usesTopLevelRows,
                 explicitGroupId: nil
             ),
-            targetPinnedState: destinationIsPinned == draggedIsEffectivelyPinned
-                ? nil
-                : destinationIsPinned
+            targetPinnedState: changesPinState ? destinationIsPinned : nil
         )
     }
 
@@ -378,33 +399,6 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         return tabIds.last(where: { $0 != draggedWorkspaceId }).map {
             pinnedTabIds.contains($0)
         } ?? fallback
-    }
-
-    private func snapshots(
-        changingPinStateOf workspaceId: UUID,
-        to isPinned: Bool,
-        workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
-        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
-    ) -> (
-        workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
-        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
-    ) {
-        var plannedWorkspacesById = workspacesById
-        var plannedGroupByAnchorId = groupByAnchorId
-        if let group = groupByAnchorId[workspaceId] {
-            plannedGroupByAnchorId[workspaceId] = SidebarWorkspaceReorderGroupSnapshot(
-                id: group.id,
-                anchorWorkspaceId: group.anchorWorkspaceId,
-                isPinned: isPinned
-            )
-        } else if let workspace = workspacesById[workspaceId] {
-            plannedWorkspacesById[workspaceId] = SidebarWorkspaceReorderWorkspaceSnapshot(
-                id: workspace.id,
-                isPinned: isPinned,
-                groupId: workspace.groupId
-            )
-        }
-        return (plannedWorkspacesById, plannedGroupByAnchorId)
     }
 
     private func crossWindowPlan(
@@ -694,7 +688,8 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
         groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot],
-        promotingWorkspaceId: UUID?
+        promotingWorkspaceId: UUID?,
+        pinStateOverride: PinStateOverride? = nil
     ) -> [UUID] {
         var emittedGroupIds = Set<UUID>()
         var ids: [UUID] = []
@@ -720,9 +715,12 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 at: promotedTopLevelInsertionIndex(
                     ids: ids,
                     groupIndex: groupIndex,
-                    promotedIsPinned: promoted.isPinned,
+                    promotedIsPinned: pinStateOverride?.workspaceId == promoted.id
+                        ? pinStateOverride?.isPinned == true
+                        : promoted.isPinned,
                     workspacesById: workspacesById,
-                    groupByAnchorId: groupByAnchorId
+                    groupByAnchorId: groupByAnchorId,
+                    pinStateOverride: pinStateOverride
                 )
             )
         }
@@ -734,16 +732,23 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
         groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot],
-        promotingWorkspaceId: UUID?
+        promotingWorkspaceId: UUID?,
+        pinStateOverride: PinStateOverride? = nil
     ) -> Set<UUID> {
         Set(topLevelWorkspaceIds(
             workspaces: workspaces,
             workspacesById: workspacesById,
             groupsById: groupsById,
             groupByAnchorId: groupByAnchorId,
-            promotingWorkspaceId: promotingWorkspaceId
+            promotingWorkspaceId: promotingWorkspaceId,
+            pinStateOverride: pinStateOverride
         ).filter { id in
-            topLevelWorkspaceIdIsPinned(id, workspacesById: workspacesById, groupByAnchorId: groupByAnchorId)
+            topLevelWorkspaceIdIsPinned(
+                id,
+                workspacesById: workspacesById,
+                groupByAnchorId: groupByAnchorId,
+                pinStateOverride: pinStateOverride
+            )
         })
     }
 
@@ -752,11 +757,17 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         groupIndex: Int,
         promotedIsPinned: Bool,
         workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
-        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        pinStateOverride: PinStateOverride?
     ) -> Int {
         let desiredIndex = min(groupIndex + 1, ids.count)
         let pinnedCount = ids.reduce(into: 0) { count, id in
-            if topLevelWorkspaceIdIsPinned(id, workspacesById: workspacesById, groupByAnchorId: groupByAnchorId) {
+            if topLevelWorkspaceIdIsPinned(
+                id,
+                workspacesById: workspacesById,
+                groupByAnchorId: groupByAnchorId,
+                pinStateOverride: pinStateOverride
+            ) {
                 count += 1
             }
         }
@@ -766,12 +777,32 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
     private func topLevelWorkspaceIdIsPinned(
         _ id: UUID,
         workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
-        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        pinStateOverride: PinStateOverride? = nil
     ) -> Bool {
+        if pinStateOverride?.workspaceId == id {
+            return pinStateOverride?.isPinned == true
+        }
         if let group = groupByAnchorId[id] {
             return group.isPinned
         }
         return workspacesById[id]?.isPinned == true
+    }
+
+    private func effectivePinnedWorkspaceIds(
+        workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot],
+        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        pinStateOverride: PinStateOverride? = nil
+    ) -> Set<UUID> {
+        Set(workspaces.lazy.filter { workspace in
+            if pinStateOverride?.workspaceId == workspace.id {
+                return pinStateOverride?.isPinned == true
+            }
+            if let groupId = workspace.groupId, let group = groupsById[groupId] {
+                return group.isPinned
+            }
+            return workspace.isPinned
+        }.map(\.id))
     }
 
     private func pointerY(for edge: SidebarDropEdge, targetHeight: CGFloat?) -> CGFloat? {

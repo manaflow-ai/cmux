@@ -535,6 +535,119 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func activePointerSessionSuppressesNumericTableActionAfterRowChurn() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+
+        let manager = TabManager()
+        let firstWorkspace = try #require(manager.tabs.first)
+        let secondWorkspace = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.selectTab(firstWorkspace)
+        let firstModel = Self.makeModel(workspaceId: firstWorkspace.id, index: 0, isActive: true)
+        let secondModel = Self.makeModel(workspaceId: secondWorkspace.id, index: 1)
+        let firstRow = Self.makeRowConfiguration(
+            model: firstModel,
+            actions: Self.makeActions(model: firstModel, tab: firstWorkspace, tabManager: manager)
+        )
+        let secondRow = Self.makeRowConfiguration(
+            model: secondModel,
+            actions: Self.makeActions(model: secondModel, tab: secondWorkspace, tabManager: manager)
+        )
+        controller.apply(
+            rows: [firstRow, secondRow],
+            actions: Self.makeTableActions(),
+            workspaceIds: [firstWorkspace.id, secondWorkspace.id],
+            selectedWorkspaceId: firstWorkspace.id,
+            selectedScrollTargetWorkspaceId: firstWorkspace.id
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        controller.pointerMouseDown(row: 0, modifiers: [])
+        controller.apply(
+            rows: [secondRow, firstRow],
+            actions: Self.makeTableActions(),
+            workspaceIds: [secondWorkspace.id, firstWorkspace.id],
+            selectedWorkspaceId: firstWorkspace.id,
+            selectedScrollTargetWorkspaceId: firstWorkspace.id
+        )
+
+        controller.handleTableSelectionAction(row: 0, modifiers: [])
+
+        #expect(manager.selectedTabId == firstWorkspace.id)
+    }
+
+    @Test
+    func cancelingQueuedSelectionRestoresAuthoritativeCellPaint() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+
+        let manager = TabManager()
+        let firstWorkspace = try #require(manager.tabs.first)
+        let secondWorkspace = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.selectTab(firstWorkspace)
+        let firstModel = Self.makeModel(workspaceId: firstWorkspace.id, index: 0, isActive: true)
+        let secondModel = Self.makeModel(workspaceId: secondWorkspace.id, index: 1)
+        controller.apply(
+            rows: [
+                Self.makeRowConfiguration(
+                    model: firstModel,
+                    actions: Self.makeActions(model: firstModel, tab: firstWorkspace, tabManager: manager)
+                ),
+                Self.makeRowConfiguration(
+                    model: secondModel,
+                    actions: Self.makeActions(model: secondModel, tab: secondWorkspace, tabManager: manager)
+                ),
+            ],
+            actions: Self.makeTableActions(),
+            workspaceIds: [firstWorkspace.id, secondWorkspace.id],
+            selectedWorkspaceId: firstWorkspace.id,
+            selectedScrollTargetWorkspaceId: firstWorkspace.id
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let firstCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        let secondCell = try #require(
+            container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        var firstPaint: [Bool] = []
+        var secondPaint: [Bool] = []
+        firstCell.applyModelProbeForTesting = { firstPaint.append($0.isActive) }
+        secondCell.applyModelProbeForTesting = { secondPaint.append($0.isActive) }
+
+        controller.pointerMouseDown(row: 0, modifiers: [])
+        controller.pointerTrackingDidEnd()
+        controller.pointerMouseDown(row: 1, modifiers: [])
+
+        #expect(manager.selectedTabId == firstWorkspace.id)
+        #expect(firstPaint.last == false)
+        #expect(secondPaint.last == true)
+
+        #expect(controller.cancelPendingSelectionAndRestorePaint())
+        #expect(firstPaint.last == true)
+        #expect(secondPaint.last == false)
+        #expect(manager.selectedTabId == firstWorkspace.id)
+    }
+
+    @Test
     func containerWidthChangeRemeasuresVisibleRowsDuringLayout() throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
