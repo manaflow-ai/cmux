@@ -33,6 +33,7 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
     private let lock = NSLock()
     private var _now = Instant(offset: .zero)
     private var sleepers: [UUID: Sleeper] = [:]
+    private var pendingSleeperRegistrationIDs: Set<UUID> = []
     private var cancelledSleeperIDs: Set<UUID> = []
     private var sleepWaiters: [SleepWaiter] = []
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
@@ -53,9 +54,13 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
 
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         let id = UUID()
+        lock.lock()
+        pendingSleeperRegistrationIDs.insert(id)
+        lock.unlock()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 lock.lock()
+                pendingSleeperRegistrationIDs.remove(id)
                 if cancelledSleeperIDs.remove(id) != nil {
                     lock.unlock()
                     continuation.resume(throwing: CancellationError())
@@ -79,7 +84,9 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
         } onCancel: {
             lock.lock()
             let sleeper = sleepers.removeValue(forKey: id)
-            if sleeper == nil { cancelledSleeperIDs.insert(id) }
+            if sleeper == nil, pendingSleeperRegistrationIDs.contains(id) {
+                cancelledSleeperIDs.insert(id)
+            }
             let waiters = sleepers.isEmpty ? idleWaiters : []
             if sleepers.isEmpty { idleWaiters.removeAll() }
             lock.unlock()
