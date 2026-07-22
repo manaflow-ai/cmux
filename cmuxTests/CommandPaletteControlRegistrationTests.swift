@@ -351,16 +351,19 @@ struct CommandPaletteControlRegistrationTests {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let selectedWorkspace = try #require(tabManager.tabs.first)
         let groupedWorkspace = tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
-        let group = try #require(tabManager.createWorkspaceGroup(
+        let groupID = try #require(tabManager.createWorkspaceGroup(
             name: "Palette Group",
-            childWorkspaceIds: [groupedWorkspace.id]
+            childWorkspaceIds: [groupedWorkspace.id],
+            selectAnchor: false,
+            collapseSidebarSelection: false
         ))
+        let group = try #require(tabManager.workspaceGroups.first(where: { $0.id == groupID }))
         let anchorWorkspace = try #require(
             tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })
         )
 
         let resolvedWorkspace = TerminalController.shared.controlInlineVSCodeWorkspace(
-            routing: routing(groupID: group.id),
+            routing: routing(groupID: groupID),
             tabManager: tabManager
         )
 
