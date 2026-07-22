@@ -12,9 +12,94 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `b211341be`. It combines indented
-hard-newline link continuations with the presentation-token runtime from
-`24284c3ba` and is published through
+The submodule pinned by this branch is
+`d6f611a3077aa12510761ca10e2a5e0a93979536`. It is the head of
+https://github.com/manaflow-ai/ghostty/pull/128, stacked through
+https://github.com/manaflow-ai/ghostty/pull/127,
+https://github.com/manaflow-ai/ghostty/pull/123, and
+https://github.com/manaflow-ai/ghostty/pull/122. This stack supplies the
+external-frontend renderer contract used by cmux Browser, exact cursor state
+for process-separated terminal mirrors, and mutable-default color reset
+semantics.
+
+### External frontend rendering and recovery
+
+- Commits:
+  - `581dbf264` (embedded: add manual mirror IO mode)
+  - `9a391205c` (feat: add external Metal presenter ABI)
+  - `0f400d0f5` (feat: serialize worker recovery state)
+  - `ad5d0124c` (merge the external presenter and manual-renderer lines)
+  - `d0dc34b2a` (embedded: pin combined cmux surface ABI)
+  - `8c645641a` (embedded: add leased external Metal frames)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer/external_frame.zig`
+  - `src/renderer/frame_lease.zig`
+  - `src/renderer/Metal.zig`
+  - `src/renderer/OpenGL.zig`
+  - `src/termio/Manual.zig`
+- Summary:
+  - Adds windowless Metal presentation for an external frontend. Completed
+    IOSurface frames carry explicit frame and host-context tokens; the host
+    either drops the frame or acquires a lease and releases that exact lease
+    when it is finished presenting.
+  - Keeps manual-mirror terminal I/O under the embedder's authority, including
+    startup PTY teeing, parser-response suppression, serialized configuration,
+    and an atomic VT-tail/output-sequence snapshot for worker recovery.
+  - Retains the embedder-owned OpenGL path while assigning stable, distinct
+    platform ABI values to OpenGL, ordinary external Metal, and leased external
+    Metal surfaces.
+  - Conflict note: renderer refactors must preserve exact frame ownership,
+    one-release-per-acquired-lease semantics, and the atomic recovery snapshot.
+    Platform enum values and the combined surface ABI are externally consumed
+    and must not be renumbered implicitly.
+
+### Cursor visual and replay continuity state
+
+- Commits:
+  - `9a614e570` (terminal: expose effective cursor visual state)
+  - `fa8e3b18b` (terminal: expose screen activity token)
+  - `71ed4f8f6` (terminal: expose cursor semantic activity)
+- Files:
+  - `include/ghostty/vt/terminal.h`
+  - `src/terminal/c/terminal.zig`
+  - `src/terminal/stream_terminal.zig`
+- Summary:
+  - Exposes the active screen's resolved cursor shape and terminal-wide DEC
+    mode 12 blink state separately from the SGR cell cursor-style getter.
+  - Exposes opaque wrapping screen-activity and cursor-activity tokens. A
+    process-separated frontend compares them only for inequality so it can
+    replay resets, alternate-screen round trips, and same-value semantic
+    changes that the final visible shape/blink pair alone cannot reveal.
+  - Conflict note: DECSCUSR, DEC mode 12, alternate-screen transitions, full
+    reset, and embedder-default changes must continue advancing the appropriate
+    activity token even when the resolved visual pair is unchanged.
+
+### Dynamic colors follow mutable defaults
+
+- Commit: `d6f611a30` (terminal: let color resets follow mutable defaults)
+- Files:
+  - `src/terminal/color.zig`
+  - `src/terminal/c/render.zig`
+- Summary:
+  - OSC 110, 111, and 112 clear their foreground, background, and cursor
+    overrides instead of copying the current default into the override slot.
+    A later C API default-color update therefore becomes visible in an already
+    attached render state.
+  - Covers override, reset, and subsequent mutable-default updates while
+    reusing one C render state, matching long-lived external frontends.
+  - Conflict note: reset must continue to mean "no override"; snapshotting the
+    current default recreates stale colors after a later frontend theme update.
+
+## Divergent product-main archive line
+
+The product-main line advanced independently to `b211341be`. That commit and
+this branch's `d6f611a30` pin share `bb30526cd` as their merge base, but neither
+is an ancestor of the other; `b211341be` is therefore not the submodule pin for
+this branch. It combines indented hard-newline link continuations with the
+presentation-token runtime from `24284c3ba` and is published through
 https://github.com/manaflow-ai/ghostty/pull/124.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
