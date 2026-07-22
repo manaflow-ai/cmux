@@ -4,14 +4,14 @@ import Testing
 
 @Suite("Artifact capture service")
 struct ArtifactCaptureServiceTests {
-    @Test("Referenced paths are captured only from ephemeral storage")
-    func filtersReferencedPathsByLocation() async throws {
+    @Test("Automatic references cannot expand access beyond the project")
+    func restrictsReferencedPathsToProject() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
         let temporary = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(temporary) }
-        let persistent = try ArtifactTestSupport.write("keep", named: "persistent.md", under: root)
-        let ephemeral = try ArtifactTestSupport.write("save", named: "ephemeral.md", under: temporary)
+        let projectLocal = try ArtifactTestSupport.write("keep", named: "project.md", under: root)
+        let external = try ArtifactTestSupport.write("private", named: "external.md", under: temporary)
         var configuration = ArtifactCaptureConfiguration.defaultValue
         configuration.ephemeralPathPrefixes = [temporary.path]
         let store = ConfiguredArtifactStore(configuration: configuration)
@@ -20,15 +20,33 @@ struct ArtifactCaptureServiceTests {
 
         let outcomes = await service.capture(
             candidates: [
-                ArtifactCandidate(sourceURL: persistent, provenance: .referenced),
-                ArtifactCandidate(sourceURL: ephemeral, provenance: .referenced),
+                ArtifactCandidate(sourceURL: projectLocal, provenance: .referenced),
+                ArtifactCandidate(sourceURL: external, provenance: .referenced),
             ],
             context: context
         )
 
-        #expect(outcomes.first == .skipped(.provenanceNotEligible))
-        #expect(outcomes.last?.record?.sourcePath == ephemeral.path)
+        #expect(outcomes.first?.record?.sourcePath == projectLocal.path)
+        #expect(outcomes.last == .skipped(.provenanceNotEligible))
         #expect(await store.importCount == 1)
+    }
+
+    @Test("Project configuration can narrow but not expand trusted ephemeral roots")
+    func clampsEphemeralPrefixes() {
+        var configuration = ArtifactCaptureConfiguration.defaultValue
+        configuration.ephemeralPathPrefixes = [
+            "/",
+            "/tmp/cmux-session",
+            "/private/tmp/cmux-session",
+            "/var/folders/zz",
+            "/Users/shared",
+        ]
+
+        #expect(configuration.normalized.ephemeralPathPrefixes == [
+            "/tmp/cmux-session",
+            "/private/tmp/cmux-session",
+            "/var/folders/zz",
+        ])
     }
 
     @Test("Candidate limits are enforced before imports")
