@@ -128,6 +128,7 @@
 		A8628B040000000000000004 /* AgentStatusHookEventSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C040000000000000004 /* AgentStatusHookEventSignal.swift */; };
 		A8628B030000000000000003 /* AgentStatusReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C030000000000000003 /* AgentStatusReconciler.swift */; };
 		A8628A010000000000000001 /* AgentStatusReconcilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628A020000000000000002 /* AgentStatusReconcilerTests.swift */; };
+		A8628B0B000000000000000B /* AgentStatusReconciliationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C0B000000000000000B /* AgentStatusReconciliationCoordinator.swift */; };
 		A8628B020000000000000002 /* AgentStatusResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C020000000000000002 /* AgentStatusResolution.swift */; };
 		A8628B050000000000000005 /* AgentStatusRuntimeLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C050000000000000005 /* AgentStatusRuntimeLedger.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
@@ -2367,6 +2368,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A8628C040000000000000004 /* AgentStatusHookEventSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusHookEventSignal.swift; sourceTree = "<group>"; };
 		A8628C030000000000000003 /* AgentStatusReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusReconciler.swift; sourceTree = "<group>"; };
 		A8628A020000000000000002 /* AgentStatusReconcilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusReconcilerTests.swift; sourceTree = "<group>"; };
+		A8628C0B000000000000000B /* AgentStatusReconciliationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusReconciliationCoordinator.swift; sourceTree = "<group>"; };
 		A8628C020000000000000002 /* AgentStatusResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusResolution.swift; sourceTree = "<group>"; };
 		A8628C050000000000000005 /* AgentStatusRuntimeLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusRuntimeLedger.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountCredentialSources.swift; sourceTree = "<group>"; };
@@ -5060,6 +5062,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A8628C010000000000000001 /* AgentStatusEvidence.swift */,
 				A8628C020000000000000002 /* AgentStatusResolution.swift */,
 				A8628C030000000000000003 /* AgentStatusReconciler.swift */,
+				A8628C0B000000000000000B /* AgentStatusReconciliationCoordinator.swift */,
 				A8628C040000000000000004 /* AgentStatusHookEventSignal.swift */,
 				A8628C050000000000000005 /* AgentStatusRuntimeLedger.swift */,
 				A8628C060000000000000006 /* Workspace+AgentStatusReconciliation.swift */,
@@ -7186,6 +7189,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A8628B010000000000000001 /* AgentStatusEvidence.swift in Sources */,
 				A8628B040000000000000004 /* AgentStatusHookEventSignal.swift in Sources */,
 				A8628B030000000000000003 /* AgentStatusReconciler.swift in Sources */,
+				A8628B0B000000000000000B /* AgentStatusReconciliationCoordinator.swift in Sources */,
 				A8628B020000000000000002 /* AgentStatusResolution.swift in Sources */,
 				A8628B050000000000000005 /* AgentStatusRuntimeLedger.swift in Sources */,
 				REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */,

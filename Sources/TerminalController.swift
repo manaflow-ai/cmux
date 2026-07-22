@@ -126,6 +126,7 @@ class TerminalController {
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    let agentStatusReconciliationCoordinator = AgentStatusReconciliationCoordinator()
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore

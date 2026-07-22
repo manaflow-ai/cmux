@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSidebar
 import Darwin
 import Foundation
@@ -34,7 +35,14 @@ extension Workspace {
         panelId: UUID?
     ) {
         let targetPanelId = panelId ?? focusedPanelId
-        guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        guard let targetPanelId,
+              agentStatusRuntimeIsCurrent(
+                  pidKey: signal.runtimePIDKey,
+                  pid: signal.runtimePID,
+                  panelId: targetPanelId
+              ) else {
+            return
+        }
         guard agentStatusLedger.recordLifecycle(
             signal.lifecycle,
             panelId: targetPanelId,
@@ -42,6 +50,17 @@ extension Workspace {
             observedAt: signal.observedAt
         ) else { return }
         reconcileAgentStatuses(panelId: targetPanelId, now: signal.observedAt)
+    }
+
+    func agentStatusRuntimeIsCurrent(event: WorkstreamEvent, panelId: UUID) -> Bool {
+        guard let runtime = AgentStatusHookEventSignal.runtimeBinding(event: event) else {
+            return false
+        }
+        return agentStatusRuntimeIsCurrent(
+            pidKey: runtime.pidKey,
+            pid: runtime.pid,
+            panelId: panelId
+        )
     }
 
     func resumeAgentLifecycleIfNeedsInput(key: String, panelId: UUID?) {
@@ -86,7 +105,6 @@ extension Workspace {
             trackedStatusKeys: statusKeys,
             observedAt: observedAt
         )
-        reconcileAgentStatuses(panelId: panelId, now: observedAt)
     }
 
     func reconcileAgentStatuses(panelId: UUID? = nil, now: Date = .now) {
@@ -148,20 +166,27 @@ extension Workspace {
             let statusKeys = trackedAgentStatusKeys(panelId: panelId)
             guard !statusKeys.isEmpty else { continue }
             panelIds.insert(panelId)
-            if let foregroundPID = terminalPanel(for: panelId)?.surface.foregroundProcessID(),
-               let identity = AgentPIDProcessIdentity(pid: pid_t(foregroundPID)) {
+            if let identity = agentStatusForegroundProcessIdentity(panelId: panelId) {
                 foregroundProcessIdentities[panelId] = identity
             }
-            for pidKey in agentPIDKeysByPanelId[panelId] ?? [] {
-                let statusKey = agentStatusKey(forAgentPIDKey: pidKey)
-                guard AgentHibernationLifecycleStatusKeys.isAllowed(statusKey),
-                      let pid = agentPIDs[pidKey], pid > 0,
-                      let identity = agentPIDProcessIdentitiesByKey[pidKey],
-                      identity.pid == pid else { continue }
-                rootStatusKeysByPanelId[panelId, default: [:]][identity] = statusKey
+            let rootStatusKeys = liveAgentStatusRootStatusKeys(panelId: panelId)
+            if !rootStatusKeys.isEmpty {
+                rootStatusKeysByPanelId[panelId] = rootStatusKeys
             }
         }
         return (foregroundProcessIdentities, rootStatusKeysByPanelId, panelIds)
+    }
+
+    func agentStatusForegroundProbeIsCurrent(
+        panelId: UUID,
+        foregroundProcessIdentity: AgentPIDProcessIdentity?,
+        rootStatusKeys: [AgentPIDProcessIdentity: String]
+    ) -> Bool {
+        guard panels[panelId] != nil,
+              agentStatusForegroundProcessIdentity(panelId: panelId) == foregroundProcessIdentity else {
+            return false
+        }
+        return liveAgentStatusRootStatusKeys(panelId: panelId) == rootStatusKeys
     }
 
     func trackedAgentStatusKeys(panelId: UUID) -> Set<String> {
@@ -177,6 +202,46 @@ extension Workspace {
                   let pid = agentPIDs[pidKey] else { return false }
             return isRecordedAgentPIDLive(key: pidKey, pid: pid)
         }
+    }
+
+    private func agentStatusRuntimeIsCurrent(
+        pidKey: String,
+        pid: Int,
+        panelId: UUID
+    ) -> Bool {
+        guard let runtimePID = pid_t(exactly: pid) else { return false }
+        return panels[panelId] != nil &&
+            agentPIDKeysByPanelId[panelId]?.contains(pidKey) == true &&
+            agentPIDs[pidKey] == runtimePID &&
+            isRecordedAgentPIDLive(key: pidKey, pid: runtimePID)
+    }
+
+    private func agentStatusForegroundProcessIdentity(
+        panelId: UUID
+    ) -> AgentPIDProcessIdentity? {
+        guard let foregroundPID = terminalPanel(for: panelId)?.surface.foregroundProcessID() else {
+            return nil
+        }
+        return AgentPIDProcessIdentity(pid: pid_t(foregroundPID))
+    }
+
+    private func liveAgentStatusRootStatusKeys(
+        panelId: UUID
+    ) -> [AgentPIDProcessIdentity: String] {
+        var rootStatusKeys: [AgentPIDProcessIdentity: String] = [:]
+        for pidKey in agentPIDKeysByPanelId[panelId] ?? [] {
+            let statusKey = agentStatusKey(forAgentPIDKey: pidKey)
+            guard AgentHibernationLifecycleStatusKeys.isAllowed(statusKey),
+                  let pid = agentPIDs[pidKey],
+                  pid > 0,
+                  let identity = agentPIDProcessIdentitiesByKey[pidKey],
+                  identity.pid == pid,
+                  AgentPIDProcessIdentity(pid: pid) == identity else {
+                continue
+            }
+            rootStatusKeys[identity] = statusKey
+        }
+        return rootStatusKeys
     }
 
     private func applyDerivedAgentLifecycle(

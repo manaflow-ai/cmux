@@ -118,7 +118,7 @@ extension AppDelegate {
             // so hook delivery only walks in-memory bindings on MainActor. It
             // never stats every live surface while UI work is serialized.
             var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
-            for manager in agentDeliveryTabManagers() {
+            for manager in agentStatusTabManagers() {
                 for workspace in manager.tabs {
                     for binding in workspace.localAgentDeliveryTTYDevices {
                         bindings.append((workspace.id, binding.surfaceId, binding.ttyDevice))
@@ -169,7 +169,7 @@ extension AppDelegate {
         return (owner.workspace.id, surfaceId)
     }
 
-    private func agentDeliveryTabManagers() -> [TabManager] {
+    func agentStatusTabManagers() -> [TabManager] {
         var managers: [TabManager] = []
         func append(_ manager: TabManager?) {
             guard let manager, !managers.contains(where: { $0 === manager }) else { return }

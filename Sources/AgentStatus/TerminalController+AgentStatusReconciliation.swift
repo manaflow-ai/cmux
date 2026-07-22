@@ -2,6 +2,14 @@ import CMUXAgentLaunch
 import Foundation
 
 extension TerminalController {
+    func reconcileAgentStatusesPeriodically(triggering tabManager: TabManager) {
+        var tabManagers = AppDelegate.shared?.agentStatusTabManagers() ?? []
+        if !tabManagers.contains(where: { $0 === tabManager }) {
+            tabManagers.append(tabManager)
+        }
+        agentStatusReconciliationCoordinator.reconcile(tabManagers: tabManagers)
+    }
+
     nonisolated func noteAgentStatusHookEvent(_ event: WorkstreamEvent) {
         guard let signal = AgentStatusHookEventSignal(event: event) else { return }
         let resolved = FeedCoordinator.resolveAttentionTarget(event: event)

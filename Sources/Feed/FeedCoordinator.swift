@@ -313,7 +313,8 @@ extension FeedCoordinator {
     ]
 
     static func lifecycleStatusKey(forSource source: String) -> String {
-        lifecycleStatusKeyOverrides[source] ?? source
+        let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lifecycleStatusKeyOverrides[normalized] ?? normalized
     }
 
     /// Identifies the sidebar slot an attention overlay lights up. Overlays
@@ -402,6 +403,12 @@ extension FeedCoordinator {
             panelId = tab.focusedPanelId
         }
         let statusKey = Self.lifecycleStatusKey(forSource: event.source)
+        if AgentHibernationLifecycleStatusKeys.isAllowed(statusKey) {
+            guard let panelId,
+                  tab.agentStatusRuntimeIsCurrent(event: event, panelId: panelId) else {
+                return nil
+            }
+        }
         let target = AttentionTarget(
             workspaceId: liveTarget.tabId,
             panelId: panelId,
