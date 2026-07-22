@@ -2423,7 +2423,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `run` |
-| Flags | `[--pane <id> | --new-workspace [--key <key>]] [--cwd <path>] [--name <name>] -- <argv...>` or `--command <cmd>` |
+| Flags | `[--pane <id> \| --new-workspace [--key <key>]] [--cwd <path>] [--name <name>] -- <argv...>` or `--command <cmd>` |
 | Plain stdout | new surface id followed by newline |
 | JSON stdout | exact result object |
 | Exit codes | common |

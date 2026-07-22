@@ -43,7 +43,7 @@ Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b 
 
 ## Remote machines
 
-The optional machine rail keeps rendering local while it connects individual session transports through Unix sockets or SSH. It is disabled for the default local run. Enable it in `cmux-tui.json`, start a headless cmux session on each remote machine, and make the remote `cmux-tui` or `cmux` executable available to noninteractive SSH. The SSH connector runs its `relay` mode and does not nest a second TUI.
+The optional machine rail keeps rendering local while it connects individual session transports through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. Start a headless cmux session on each remote machine, and make the remote `cmux-tui` or `cmux` executable available to noninteractive SSH. The SSH connector runs its `relay` mode and does not nest a second TUI.
 
 Packaged clients use the same configuration and can start with:
 

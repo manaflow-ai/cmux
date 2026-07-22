@@ -1,9 +1,10 @@
 //! Config-backed machine catalog and transport connectors.
 
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 
 use crate::config::{MachineConfig, MachineTargetConfig};
 use crate::machine::{
@@ -12,6 +13,8 @@ use crate::machine::{
 use crate::session::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteTransport, Session,
 };
+
+const SSH_DIAGNOSTIC_BYTES: usize = 4096;
 
 #[derive(Debug, Clone)]
 struct Entry {
@@ -177,16 +180,41 @@ fn ssh_transport(
         .arg(remote_command)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
-    let mut child =
-        command.spawn().map_err(|error| anyhow::anyhow!("cannot start ssh: {error}"))?;
-    let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("ssh stdin unavailable"))?;
-    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("ssh stdout unavailable"))?;
-    let process = Arc::new(Process { child: Mutex::new(child) });
+        .stderr(Stdio::piped());
+    let (stdin, stdout, process) = spawn_transport_process(&mut command)?;
     Ok(RemoteTransport::new(
         Box::new(ProcessReader { inner: BufReader::new(stdout), process: process.clone() }),
         Box::new(ProcessWriter { inner: stdin, process }),
     ))
+}
+
+fn spawn_transport_process(
+    command: &mut Command,
+) -> anyhow::Result<(ChildStdin, ChildStdout, Arc<Process>)> {
+    let mut child =
+        command.spawn().map_err(|error| anyhow::anyhow!("cannot start ssh: {error}"))?;
+    let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("ssh stdin unavailable"))?;
+    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("ssh stdout unavailable"))?;
+    let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("ssh stderr unavailable"))?;
+    let diagnostics = Arc::new(Mutex::new(DiagnosticState::default()));
+    let worker_diagnostics = Arc::clone(&diagnostics);
+    let worker = thread::Builder::new()
+        .name("machine-ssh-stderr".to_string())
+        .spawn(move || drain_ssh_stderr(stderr, &worker_diagnostics));
+    let worker = match worker {
+        Ok(worker) => worker,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(anyhow::anyhow!("cannot monitor ssh diagnostics: {error}"));
+        }
+    };
+    let process = Arc::new(Process {
+        child: Mutex::new(child),
+        diagnostics,
+        stderr_worker: Mutex::new(Some(worker)),
+    });
+    Ok((stdin, stdout, process))
 }
 
 fn shell_quote(value: &str) -> String {
@@ -195,6 +223,54 @@ fn shell_quote(value: &str) -> String {
 
 struct Process {
     child: Mutex<Child>,
+    diagnostics: Arc<Mutex<DiagnosticState>>,
+    stderr_worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl Process {
+    fn diagnostic_after_stdout_eof(&self) -> Option<String> {
+        let exited =
+            self.child.lock().ok().and_then(|mut child| child.try_wait().ok().flatten()).is_some();
+        if exited {
+            self.join_stderr();
+        }
+        self.diagnostic()
+    }
+
+    fn diagnostic(&self) -> Option<String> {
+        let state = self.diagnostics.lock().ok()?;
+        if state.bytes.is_empty() && !state.truncated {
+            return None;
+        }
+        let mut sanitized = String::new();
+        let mut pending_space = false;
+        for character in String::from_utf8_lossy(&state.bytes).chars() {
+            if character.is_whitespace() || character.is_control() {
+                pending_space = !sanitized.is_empty();
+            } else {
+                if pending_space {
+                    sanitized.push(' ');
+                    pending_space = false;
+                }
+                sanitized.push(character);
+            }
+        }
+        if state.truncated {
+            if !sanitized.is_empty() {
+                sanitized.push(' ');
+            }
+            sanitized.push_str("[truncated]");
+        }
+        (!sanitized.is_empty()).then_some(sanitized)
+    }
+
+    fn join_stderr(&self) {
+        if let Ok(mut worker) = self.stderr_worker.lock()
+            && let Some(worker) = worker.take()
+        {
+            let _ = worker.join();
+        }
+    }
 }
 
 impl Drop for Process {
@@ -204,6 +280,27 @@ impl Drop for Process {
             let _ = child.kill();
         }
         let _ = child.wait();
+        self.join_stderr();
+    }
+}
+
+#[derive(Default)]
+struct DiagnosticState {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+fn drain_ssh_stderr(mut stderr: impl Read, diagnostics: &Mutex<DiagnosticState>) {
+    let mut buffer = [0_u8; 1024];
+    loop {
+        let Ok(read) = stderr.read(&mut buffer) else { return };
+        if read == 0 {
+            return;
+        }
+        let Ok(mut state) = diagnostics.lock() else { return };
+        let remaining = SSH_DIAGNOSTIC_BYTES.saturating_sub(state.bytes.len());
+        state.bytes.extend_from_slice(&buffer[..read.min(remaining)]);
+        state.truncated |= read > remaining;
     }
 }
 
@@ -217,6 +314,9 @@ impl RemoteMessageReader for ProcessReader {
         let _keep_alive = &self.process;
         let mut message = String::new();
         if self.inner.read_line(&mut message)? == 0 {
+            if let Some(diagnostic) = self.process.diagnostic_after_stdout_eof() {
+                return Err(io::Error::other(format!("ssh transport closed: {diagnostic}")));
+            }
             return Ok(None);
         }
         if message.ends_with('\n') {
@@ -263,6 +363,27 @@ mod tests {
     fn shell_quote_preserves_remote_arguments() {
         assert_eq!(shell_quote("main"), "'main'");
         assert_eq!(shell_quote("a'b"), "'a'\"'\"'b'");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn transport_stderr_is_captured_instead_of_inheriting_the_tui() {
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", "printf 'permission denied\\nretry later' >&2"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let (stdin, mut stdout, process) = spawn_transport_process(&mut command).unwrap();
+        drop(stdin);
+        let mut output = Vec::new();
+        stdout.read_to_end(&mut output).unwrap();
+
+        assert!(output.is_empty());
+        assert_eq!(
+            process.diagnostic_after_stdout_eof().as_deref(),
+            Some("permission denied retry later")
+        );
     }
 
     #[test]

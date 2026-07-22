@@ -471,18 +471,27 @@ fn main() {
     let provider = resolve_provider_launch(&args, &config::load())
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
     #[cfg(unix)]
+    let provider = provider
+        .map(|launch| {
+            validate_provider_process_args(&args)?;
+            provider_connector(launch)
+        })
+        .transpose()
+        .unwrap_or_else(|error| usage_exit(&error.to_string()));
+    #[cfg(unix)]
     if provider.is_some() {
         // The connector owns its parsed token now. Remove the inherited copy
         // before any worker or provider subprocess can inherit it.
         unsafe { std::env::remove_var(MACHINE_PROVIDER_TOKEN_ENV) };
     }
+    #[cfg(not(unix))]
     if provider.is_some() {
         validate_provider_process_args(&args)
             .unwrap_or_else(|error| usage_exit(&error.to_string()));
     }
     #[cfg(unix)]
     let result = match provider {
-        Some(provider) => run_provider_machine_client(args, provider),
+        Some(provider) => run_provider_machine_client(provider),
         None if args.attach => run_attach(args),
         None => run_server(args),
     };
@@ -672,9 +681,8 @@ impl StaticMachineController {
 }
 
 #[cfg(unix)]
-fn run_provider_machine_client(args: Args, launch: ProviderLaunch) -> anyhow::Result<()> {
-    validate_provider_process_args(&args)?;
-    let mut runtime = ProviderMachineRuntime::connect_with(provider_connector(launch)?)?;
+fn run_provider_machine_client(connector: Arc<dyn MachineProviderConnector>) -> anyhow::Result<()> {
+    let mut runtime = ProviderMachineRuntime::connect_with(connector)?;
 
     let (session, label, machine_ui) = match runtime.open_selected() {
         Ok(opened) => opened,

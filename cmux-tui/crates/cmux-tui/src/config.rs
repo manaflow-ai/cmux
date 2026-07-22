@@ -436,18 +436,15 @@ struct RawMachineSidebar {
     max_width: Option<u16>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 struct RawMachine {
     id: String,
     name: String,
-    #[serde(default)]
     subtitle: String,
-    #[serde(flatten)]
     target: RawMachineTarget,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "transport", rename_all = "kebab-case", deny_unknown_fields)]
+#[derive(Debug)]
 enum RawMachineTarget {
     Unix {
         socket: String,
@@ -460,6 +457,76 @@ enum RawMachineTarget {
         session: Option<String>,
         binary: Option<String>,
     },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum RawMachineTransport {
+    Unix,
+    Ssh,
+}
+
+/// The public machine shape stays flat for compatibility, while this wire
+/// type gives serde one exact field set to validate before transport-specific
+/// checks run. `flatten` and `deny_unknown_fields` cannot safely be combined.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineWire {
+    id: String,
+    name: String,
+    #[serde(default)]
+    subtitle: String,
+    transport: RawMachineTransport,
+    socket: Option<String>,
+    host: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
+    session: Option<String>,
+    binary: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for RawMachine {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawMachineWire::deserialize(deserializer)?;
+        let target = match raw.transport {
+            RawMachineTransport::Unix => {
+                if raw.host.is_some()
+                    || raw.user.is_some()
+                    || raw.port.is_some()
+                    || raw.identity_file.is_some()
+                    || raw.session.is_some()
+                    || raw.binary.is_some()
+                {
+                    return Err(serde::de::Error::custom(
+                        "SSH fields are not valid for a unix machine transport",
+                    ));
+                }
+                RawMachineTarget::Unix {
+                    socket: raw.socket.ok_or_else(|| serde::de::Error::missing_field("socket"))?,
+                }
+            }
+            RawMachineTransport::Ssh => {
+                if raw.socket.is_some() {
+                    return Err(serde::de::Error::custom(
+                        "socket is not valid for an ssh machine transport",
+                    ));
+                }
+                RawMachineTarget::Ssh {
+                    host: raw.host.ok_or_else(|| serde::de::Error::missing_field("host"))?,
+                    user: raw.user,
+                    port: raw.port,
+                    identity_file: raw.identity_file,
+                    session: raw.session,
+                    binary: raw.binary,
+                }
+            }
+        };
+        Ok(Self { id: raw.id, name: raw.name, subtitle: raw.subtitle, target })
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1343,6 +1410,7 @@ pub fn load() -> Config {
             RawMachineTarget::Ssh { host, user, port, identity_file, session, binary }
                 if !host.trim().is_empty() =>
             {
+                let port = normalize_ssh_machine_port(&id, port);
                 MachineTargetConfig::Ssh {
                     host: host.trim().to_string(),
                     user: user.filter(|value| !value.trim().is_empty()),
@@ -1408,6 +1476,16 @@ pub fn load() -> Config {
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
     config
+}
+
+fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
+    match port {
+        Some(0) => {
+            eprintln!("cmux-tui: ignoring zero SSH machine port for {id:?}");
+            None
+        }
+        port => port,
+    }
 }
 
 pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
@@ -2137,6 +2215,24 @@ mod tests {
         assert!(err.contains("light"), "{err}");
         assert!(err.contains("dark"), "{err}");
         assert!(err.contains("auto"), "{err}");
+    }
+
+    #[test]
+    fn machine_config_rejects_misspelled_and_cross_transport_fields() {
+        for invalid in [
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"ssh","host":"mini","sesion":"main"}]}"#,
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"ssh","host":"mini","socket":"/tmp/mux.sock"}]}"#,
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"unix","socket":"/tmp/mux.sock","host":"mini"}]}"#,
+        ] {
+            assert!(serde_json::from_str::<RawConfig>(invalid).is_err(), "accepted {invalid}");
+        }
+    }
+
+    #[test]
+    fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
+        assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
+        assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
+        assert_eq!(normalize_ssh_machine_port("mini", None), None);
     }
 
     #[test]
