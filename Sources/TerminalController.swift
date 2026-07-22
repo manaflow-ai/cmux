@@ -8302,10 +8302,10 @@ class TerminalController {
                 return
             }
             guard let context = resolution.context,
-                  let managerPanel = context.browserPanel.openBrowserExtensionsManager() else { return }
+                  let managerSurfaceID = context.browserPanel.openBrowserExtensionsManager() else { return }
             result = .ok(v2BrowserActionPayload(
                 workspaceId: context.workspaceId,
-                surfaceId: managerPanel.id,
+                surfaceId: managerSurfaceID,
                 tabManager: tabManager,
                 extra: ["handled": true]
             ))
