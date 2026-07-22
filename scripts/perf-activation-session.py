@@ -344,7 +344,7 @@ class CmuxPerfRunner:
         (repo / "README.md").write_text(f"# Project {index}\n\ncmux perf fixture\n", encoding="utf-8")
         subprocess.run(["git", "add", "README.md"], cwd=repo, stdout=subprocess.DEVNULL, check=True)
         subprocess.run(
-            ["git", "-c", "user.name=cmux", "-c", "user.email=cmux@example.invalid", "commit", "-m", "seed"],
+            ["git", "-c", "user.name=cmux", "-c", "user.email=cmux@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "seed"],
             cwd=repo,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
