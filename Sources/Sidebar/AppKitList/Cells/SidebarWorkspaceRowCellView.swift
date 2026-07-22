@@ -241,6 +241,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Detachment without a configure pass must not leave the status
+        // popover attached to an unmounted row (its presentation state is
+        // cell-local, so closing is the full teardown).
+        if window == nil, statusPopoverPresenter.isShown {
+            statusPopoverPresenter.close()
+        }
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
