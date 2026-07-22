@@ -170,6 +170,21 @@ struct BrowserWebExtensionsManagerTests {
         }
     }
 
+    private final class ScriptMessageCounter: NSObject, WKScriptMessageHandler {
+        private let countStorage = OSAllocatedUnfairLock(initialState: 0)
+
+        var count: Int {
+            countStorage.withLock { $0 }
+        }
+
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            countStorage.withLock { $0 += 1 }
+        }
+    }
+
     private final class WebViewLoadWaiter: NSObject, WKNavigationDelegate {
         private var continuation: CheckedContinuation<Void, any Error>?
 
@@ -388,6 +403,19 @@ struct BrowserWebExtensionsManagerTests {
             try await clock.sleep(for: .milliseconds(20))
         }
         throw BehaviorFixtureError.timedOutWaitingForJavaScript(label)
+    }
+
+    private static func postScriptMessage(
+        named name: String,
+        body: String,
+        in webView: WKWebView
+    ) async throws {
+        _ = try await webView.callAsyncJavaScript(
+            "window.webkit.messageHandlers[name].postMessage(body); return true;",
+            arguments: ["name": name, "body": body],
+            in: nil,
+            contentWorld: .page
+        )
     }
 
     @available(macOS 15.4, *)
@@ -1128,6 +1156,79 @@ struct BrowserWebExtensionsManagerTests {
 
         #expect(manager.pageConfiguration(for: extensionPage) != nil)
         #expect(manager.pageConfiguration(for: URL(string: "https://example.com")!) == nil)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func workspaceResetRebindsNormalPageThenReentersSameExtensionOrigin() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try Self.writeExtension(
+            named: "workspace-reset-extension-origin",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<title>Extension reset fixture</title>".write(
+            to: directory.appendingPathComponent("options.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        let manager = try #require(services.webExtensionsManager)
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let extensionPage = context.baseURL.appendingPathComponent("options.html")
+        let extensionConfiguration = try #require(
+            manager.pageConfiguration(for: extensionPage)?.configuration
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            browserServices: services
+        )
+        defer {
+            panel.close()
+            manager.shutdown()
+        }
+
+        panel.navigate(to: extensionPage)
+        try await Self.waitForJavaScriptString(
+            "document.title",
+            toEqual: "Extension reset fixture",
+            in: panel.webView
+        )
+        #expect(
+            panel.webView.configuration.userContentController
+                === extensionConfiguration.userContentController
+        )
+        #expect(!panel.hasNormalPageBindingsForTesting)
+
+        panel.resetForWorkspaceContextChange(reason: "test-extension-origin")
+        let normalWebView = panel.webView
+
+        #expect(panel.hasNormalPageBindingsForTesting)
+        #expect(
+            normalWebView.configuration.userContentController
+                !== extensionConfiguration.userContentController
+        )
+
+        panel.navigate(to: extensionPage)
+
+        #expect(panel.webView !== normalWebView)
+        #expect(
+            panel.webView.configuration.userContentController
+                === extensionConfiguration.userContentController
+        )
+        #expect(panel.webView.configuration.webExtensionController === manager.controller)
+        try await Self.waitForJavaScriptString(
+            "document.title",
+            toEqual: "Extension reset fixture",
+            in: panel.webView
+        )
     }
 
     @Test func baseWebViewConfigurationPreservesItsWebsiteDataStore() {
@@ -2968,6 +3069,124 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func webKitSuppliedPopupConfigurationPreservesSharedExtensionContentController() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try Self.writeExtension(
+            named: "shared-popup-configuration",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<title>Shared popup fixture</title>".write(
+            to: directory.appendingPathComponent("popup.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        let manager = try #require(services.webExtensionsManager)
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let popupURL = context.baseURL.appendingPathComponent("popup.html")
+        let suppliedConfiguration = try #require(
+            manager.pageConfiguration(for: popupURL)?.configuration
+        )
+        let sharedController = suppliedConfiguration.userContentController
+        let messageCounter = ScriptMessageCounter()
+        sharedController.removeScriptMessageHandler(
+            forName: BrowserSSLTrustBypassMessageHandler.name
+        )
+        sharedController.add(
+            messageCounter,
+            name: BrowserSSLTrustBypassMessageHandler.name
+        )
+        defer {
+            sharedController.removeScriptMessageHandler(
+                forName: BrowserSSLTrustBypassMessageHandler.name
+            )
+            manager.shutdown()
+        }
+        let originalScriptSources = sharedController.userScripts.map(\.source)
+        let siblingWebView = try await Self.loadExtensionPage(
+            "popup.html",
+            context: context,
+            manager: manager
+        )
+        let token = UUID().uuidString
+        try await Self.postScriptMessage(
+            named: BrowserSSLTrustBypassMessageHandler.name,
+            body: token,
+            in: siblingWebView
+        )
+        try await Self.waitUntil("shared popup handler baseline") {
+            messageCounter.count == 1
+        }
+
+        let firstPopup = BrowserPopupWindowController(
+            configuration: suppliedConfiguration,
+            windowFeatures: WKWindowFeatures(),
+            browserContext: BrowserPopupBrowserContext(
+                profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+                websiteDataStore: suppliedConfiguration.websiteDataStore,
+                browserServices: services
+            ),
+            openerPanel: nil
+        )
+        let secondPopup = BrowserPopupWindowController(
+            configuration: suppliedConfiguration,
+            windowFeatures: WKWindowFeatures(),
+            browserContext: BrowserPopupBrowserContext(
+                profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+                websiteDataStore: suppliedConfiguration.websiteDataStore,
+                browserServices: services
+            ),
+            openerPanel: nil
+        )
+        defer {
+            if firstPopup.webView.window != nil { firstPopup.closePopup() }
+            if secondPopup.webView.window != nil { secondPopup.closePopup() }
+        }
+
+        #expect(firstPopup.webView.configuration.userContentController === sharedController)
+        #expect(secondPopup.webView.configuration.userContentController === sharedController)
+        #expect(sharedController.userScripts.map(\.source) == originalScriptSources)
+
+        secondPopup.webView.load(URLRequest(url: popupURL))
+        try await Self.waitForJavaScriptString(
+            "document.title",
+            toEqual: "Shared popup fixture",
+            in: secondPopup.webView
+        )
+        try await Self.postScriptMessage(
+            named: BrowserSSLTrustBypassMessageHandler.name,
+            body: token,
+            in: secondPopup.webView
+        )
+        try await Self.waitUntil("shared handler after sibling popup creation") {
+            messageCounter.count == 2
+        }
+
+        firstPopup.closePopup()
+        try await Self.postScriptMessage(
+            named: BrowserSSLTrustBypassMessageHandler.name,
+            body: token,
+            in: secondPopup.webView
+        )
+        try await Self.waitUntil("shared handler after sibling popup close") {
+            messageCounter.count == 3
+        }
+        #expect(
+            try await secondPopup.webView.evaluateJavaScript("document.title") as? String
+                == "Shared popup fixture"
+        )
+    }
+
+    @available(macOS 15.4, *)
     @Test func nestedPopupKeepsTheProfileContextCapturedByItsParent() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -3528,6 +3747,172 @@ struct BrowserWebExtensionsManagerTests {
             extensionIdentifier: context.uniqueIdentifier
         ).total == 0)
         retainedFixture = nil
+    }
+
+    @available(macOS 15.4, *)
+    @Test func removeThenReinstallStartsWithFreshExtensionOwnedState() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(
+            named: "remove-reinstall-state",
+            in: sourceRoot,
+            manifest: [
+                "manifest_version": 3,
+                "name": "Remove reinstall state fixture",
+                "version": "1.0",
+                "permissions": ["storage", "declarativeNetRequest"],
+                "optional_permissions": ["cookies", "history"],
+                "action": ["default_title": "State fixture"],
+            ]
+        )
+        try "<title>Remove reinstall state fixture</title>".write(
+            to: source.appendingPathComponent("probe.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerIdentifier: UUID(),
+            directoryRepository: repository,
+            permissionPromptPresenter: { request, _ in
+                request.permissions.contains(WKWebExtension.Permission.history.rawValue)
+                    ? .deny
+                    : .grant
+            }
+        )
+        defer { manager.shutdown() }
+
+        _ = try await manager.installExtension(from: source)
+        let oldRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records.values.first
+        )
+        let oldContext = try #require(manager.loadedContexts.first)
+        try await manager.setToolbarActionPinned(
+            true,
+            uniqueIdentifier: oldContext.uniqueIdentifier
+        )
+        let grantedCookies = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissions: [.cookies],
+                in: nil,
+                for: oldContext
+            ) { permissions, _ in
+                continuation.resume(returning: permissions)
+            }
+        }
+        let deniedHistory = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissions: [.history],
+                in: nil,
+                for: oldContext
+            ) { permissions, _ in
+                continuation.resume(returning: permissions)
+            }
+        }
+        #expect(grantedCookies == [.cookies])
+        #expect(deniedHistory.isEmpty)
+        let stateWebView = try await Self.loadExtensionPage(
+            "probe.html",
+            context: oldContext,
+            manager: manager
+        )
+        _ = try await stateWebView.callAsyncJavaScript(
+            """
+            const api = globalThis.browser ?? globalThis.chrome;
+            await api.storage.local.set({ removalMarker: 'stale' });
+            await api.declarativeNetRequest.updateDynamicRules({
+              addRules: [{
+                id: 991,
+                priority: 1,
+                action: { type: 'block' },
+                condition: {
+                  urlFilter: 'cmux-remove-reinstall-stale',
+                  resourceTypes: ['xmlhttprequest'],
+                },
+              }],
+            });
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let populatedRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records[oldRecord.id]
+        )
+        #expect(populatedRecord.isToolbarPinned)
+        #expect(
+            populatedRecord.grantedPermissions[
+                WKWebExtension.Permission.cookies.rawValue
+            ] != nil
+        )
+        #expect(
+            populatedRecord.deniedPermissions[
+                WKWebExtension.Permission.history.rawValue
+            ] != nil
+        )
+        let oldDataRecords = await manager.controller.dataRecords(
+            ofTypes: WKWebExtensionController.allExtensionDataTypes
+        )
+        #expect(oldDataRecords.contains { $0.uniqueIdentifier == oldContext.uniqueIdentifier })
+
+        try await manager.removeExtension(managementID: oldRecord.id)
+
+        #expect(try await repository.managementLedger(in: managedRoot).records.isEmpty)
+        #expect(manager.loadedContexts.isEmpty)
+        let remainingDataRecords = await manager.controller.dataRecords(
+            ofTypes: WKWebExtensionController.allExtensionDataTypes
+        )
+        #expect(!remainingDataRecords.contains { $0.uniqueIdentifier == oldContext.uniqueIdentifier })
+
+        _ = try await manager.installExtension(from: source)
+        let newRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records.values.first
+        )
+        let newContext = try #require(manager.loadedContexts.first)
+        #expect(newRecord.id != oldRecord.id)
+        #expect(newContext !== oldContext)
+        #expect(newContext.uniqueIdentifier != oldContext.uniqueIdentifier)
+        #expect(!newRecord.isToolbarPinned)
+        #expect(
+            newRecord.grantedPermissions[
+                WKWebExtension.Permission.cookies.rawValue
+            ] == nil
+        )
+        #expect(
+            newRecord.deniedPermissions[
+                WKWebExtension.Permission.history.rawValue
+            ] == nil
+        )
+        let freshStateWebView = try await Self.loadExtensionPage(
+            "probe.html",
+            context: newContext,
+            manager: manager
+        )
+        let freshState = try await freshStateWebView.callAsyncJavaScript(
+            """
+            const api = globalThis.browser ?? globalThis.chrome;
+            const storage = await api.storage.local.get('removalMarker');
+            const dynamicRules = await api.declarativeNetRequest.getDynamicRules();
+            return {
+              hasStorageMarker: Object.hasOwn(storage, 'removalMarker'),
+              dynamicRuleCount: dynamicRules.length,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let freshValues = try #require(freshState as? [String: Any])
+        #expect((freshValues["hasStorageMarker"] as? NSNumber)?.boolValue == false)
+        #expect((freshValues["dynamicRuleCount"] as? NSNumber)?.intValue == 0)
     }
 
     @available(macOS 15.4, *)
