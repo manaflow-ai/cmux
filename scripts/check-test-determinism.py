@@ -547,13 +547,48 @@ def _annotated_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     return type_name in ("ContinuousClock", "SuspendingClock")
 
 
+def _captured_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+    assignment = re.search(
+        rf"(?:^|,)\s*(?:(?:weak|unowned(?:\([^)]*\))?)\s+)?"
+        rf"{re.escape(receiver)}\s*=\s*([^,]+)",
+        text,
+    )
+    if not assignment:
+        return None
+    return bool(_REAL_CLOCK_INIT.search(f"= {assignment.group(1)}"))
+
+
 def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     in_token = re.search(r"\bin\b", text)
     if not in_token:
         return None
     parameters = text[: in_token.start()].strip()
+    captured_kind: Optional[bool] = None
+    while parameters:
+        attribute = re.match(r"@\w+(?:\([^)]*\))?\s*", parameters)
+        if attribute:
+            parameters = parameters[attribute.end() :].lstrip()
+            continue
+        if parameters.startswith("["):
+            depth = 0
+            capture_list_end: Optional[int] = None
+            for index, character in enumerate(parameters):
+                if character == "[":
+                    depth += 1
+                elif character == "]":
+                    depth -= 1
+                    if depth == 0:
+                        capture_list_end = index + 1
+                        break
+            if capture_list_end is not None:
+                captured_kind = _captured_receiver_kind(
+                    parameters[1 : capture_list_end - 1], receiver
+                )
+                parameters = parameters[capture_list_end:].lstrip()
+                continue
+        break
     if not parameters:
-        return None
+        return captured_kind
     if not (
         parameters.startswith("(")
         or re.fullmatch(r"[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*", parameters)
@@ -564,7 +599,33 @@ def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
         return annotated
     if re.search(rf"\b{re.escape(receiver)}\b", parameters):
         return False
-    return None
+    return captured_kind
+
+
+def _closure_header_text(text: str, following_lines: Iterable[str]) -> str:
+    """Join a plausible multiline closure header through its `in` token."""
+    if re.search(r"\bin\b", text):
+        return text
+
+    pieces = [text]
+    started = bool(text.strip())
+    for line in following_lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not started:
+            if not re.match(
+                r"^(?:\[|@|\(|[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*$)",
+                stripped,
+            ):
+                break
+            started = True
+        pieces.append(line)
+        if re.search(r"\bin\b", line):
+            return "\n".join(pieces)
+        if "{" in line or "}" in line or ";" in line:
+            break
+    return text
 
 
 def _local_receiver_declarations(
@@ -717,6 +778,7 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
                 if pending_function and pending_function_paren_depth:
                     pending_function_paren_depth -= 1
             elif event == "{":
+                is_conditional_body = pending_conditional is not None
                 scope = dict(pending_conditional or {})
                 pending_conditional = None
                 is_function_body = bool(
@@ -732,7 +794,13 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
                     pending_parameter = None
                     pending_function_paren_depth = 0
                     pending_function_saw_parameters = False
-                closure_kind = _closure_receiver_kind(candidate[pos + 1 :], receiver)
+                closure_kind = None
+                if not is_function_body and not is_conditional_body:
+                    closure_header = _closure_header_text(
+                        candidate[pos + 1 :],
+                        prefix_lines[candidate_index + 1 :],
+                    )
+                    closure_kind = _closure_receiver_kind(closure_header, receiver)
                 if closure_kind is not None:
                     scope[receiver] = closure_kind
                 scopes.append(scope)
