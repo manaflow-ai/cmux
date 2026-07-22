@@ -3364,6 +3364,30 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
     }
 
+    func testWorkspaceFloatingDockCloseMotionStaysNearTheWindowInsteadOfCollapsingContent() {
+        let windowFrame = CGRect(x: 900, y: 420, width: 520, height: 380)
+        let pillFrame = CGRect(x: 1_640, y: 80, width: 36, height: 36)
+        let closingFrame = WorkspaceFloatingDockPresentationAnimation.closingFrame(
+            windowFrame: windowFrame,
+            toward: pillFrame
+        )
+
+        XCTAssertEqual(closingFrame.width, 499.2, accuracy: 0.001)
+        XCTAssertEqual(closingFrame.height, 364.8, accuracy: 0.001)
+        XCTAssertGreaterThan(closingFrame.width, 320)
+        XCTAssertGreaterThan(closingFrame.height, 220)
+
+        let centerTravel = hypot(
+            closingFrame.midX - windowFrame.midX,
+            closingFrame.midY - windowFrame.midY
+        )
+        XCTAssertEqual(centerTravel, 18, accuracy: 0.001)
+        XCTAssertLessThan(
+            hypot(pillFrame.midX - closingFrame.midX, pillFrame.midY - closingFrame.midY),
+            hypot(pillFrame.midX - windowFrame.midX, pillFrame.midY - windowFrame.midY)
+        )
+    }
+
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
