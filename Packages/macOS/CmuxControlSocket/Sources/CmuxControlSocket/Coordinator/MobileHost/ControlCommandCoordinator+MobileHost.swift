@@ -57,6 +57,8 @@ extension ControlCommandCoordinator {
             return context?.controlHiveOpen(params: request.params)
         case "hive.render_probe":
             return context?.controlHiveRenderProbe()
+        case "hive.sidebar_probe":
+            return context?.controlHiveSidebarProbe()
         default:
             return nil
         }

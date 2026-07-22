@@ -95,6 +95,38 @@ extension TerminalController: ControlMobileHostContext {
         return .ok(.object(["surfaces": .array(lines.map { .string($0) })]))
     }
 
+    /// `hive.sidebar_probe` (local debug socket) — per-window sidebar scope,
+    /// tab counts, and (for a device-scoped window with zero visible tabs)
+    /// the resolved connection-status text, mirroring exactly what
+    /// `ContentView`'s sidebar body computes. Verifies the blank-sidebar fix
+    /// headlessly, without needing Screen Recording permission.
+    func controlHiveSidebarProbe() -> ControlCallResult {
+        var lines: [String] = []
+        let contexts = AppDelegate.shared.map { Array($0.mainWindowContexts.values) } ?? []
+        for context in contexts {
+            let tabManager = context.tabManager
+            let scope = HiveSidebarScopeModel.scopeModel(for: tabManager).scope
+            let allTabs = tabManager.tabs
+            let visibleTabs = scope == .allComputers
+                ? allTabs
+                : allTabs.filter {
+                    HiveSidebarScopeModel.isVisible(
+                        deviceID: HiveComputerMirrorController.shared.deviceID(forWorkspace: $0.id),
+                        scope: scope
+                    )
+                }
+            var line = "window=\(context.windowId.uuidString.prefix(8)) scope=\(scope) " +
+                "allTabs=\(allTabs.count) visibleTabs=\(visibleTabs.count)"
+            if case .device(let deviceID) = scope, visibleTabs.isEmpty {
+                let phase = HiveComputersService.shared.connectionPhase(deviceID: deviceID)
+                let status = HiveSidebarConnectionStatusView.Status(phase: phase)
+                line += " deviceID=\(deviceID.prefix(8)) phase=\(String(describing: phase)) resolvedStatus=\(status)"
+            }
+            lines.append(line)
+        }
+        return .ok(.object(["windows": .array(lines.map { .string($0) })]))
+    }
+
     /// Reconstructs the legacy `[String: Any]` params from the coordinator's
     /// typed params. This is the exact inverse of the dispatcher's
     /// `request.params.mapValues { $0.foundationObject }`, so the legacy body

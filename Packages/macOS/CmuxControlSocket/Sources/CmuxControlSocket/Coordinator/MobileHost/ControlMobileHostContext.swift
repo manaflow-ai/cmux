@@ -138,4 +138,12 @@ public protocol ControlMobileHostContext: AnyObject {
     ///
     /// - Returns: The fully-built command result.
     func controlHiveRenderProbe() -> ControlCallResult
+
+    /// `hive.sidebar_probe` (local debug socket) — per-window sidebar scope,
+    /// tab counts, and the resolved connection-status text for any
+    /// device-scoped window with zero visible tabs, for diagnosing a blank
+    /// sidebar without needing Screen Recording permission.
+    ///
+    /// - Returns: The fully-built command result.
+    func controlHiveSidebarProbe() -> ControlCallResult
 }
