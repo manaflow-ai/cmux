@@ -2900,9 +2900,9 @@ struct BrowserWebExtensionsManagerTests {
         )
 
         #expect(BrowserProfileStore.shared.deleteProfile(id: profile.id) != nil)
-        for _ in 0..<64 {
+        for _ in 0..<200 {
             if removalState.withLock({ $0.didRun }) { break }
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(10))
         }
 
         let result = removalState.withLock { $0 }

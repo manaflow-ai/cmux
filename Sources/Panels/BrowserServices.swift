@@ -191,7 +191,10 @@ final class BrowserServices {
             manager.profileRuntime.setNavigationUpdateHandler(nil)
             await manager.shutdownAndRemoveDirectory()
         } else {
-            extensionDirectoryRemover(directory)
+            let remover = extensionDirectoryRemover
+            await Task.detached(priority: .utility) {
+                remover(directory)
+            }.value
         }
     }
 
