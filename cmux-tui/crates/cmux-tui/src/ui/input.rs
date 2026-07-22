@@ -426,6 +426,29 @@ mod tests {
     }
 
     #[test]
+    fn movement_and_backspace_treat_extended_graphemes_as_one_character() {
+        let family = "👨‍👩‍👧‍👦";
+        let mut input = text_input(&format!("á{family}"));
+
+        input.handle_key(&key(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(&input.as_str()[..input.cursor], "á");
+        input.handle_key(&key(KeyCode::Backspace, KeyModifiers::NONE));
+
+        assert_eq!(input.as_str(), family);
+        assert_eq!(input.cursor, 0);
+    }
+
+    #[test]
+    fn visible_cursor_uses_terminal_cell_width() {
+        let mut input = text_input("界a");
+
+        let (shown, cursor) = input.visible_text_and_cursor(4);
+
+        assert_eq!(shown, "界a");
+        assert_eq!(cursor, 3);
+    }
+
+    #[test]
     fn visible_text_keeps_cursor_visible() {
         let mut input = text_input("abcdef");
         let (shown, cursor) = input.visible_text_and_cursor(3);

@@ -402,6 +402,32 @@ mod tests {
     }
 
     #[test]
+    fn filter_option_backspace_deletes_the_previous_word() {
+        let temp = temp_dir("filter-option-backspace");
+        let mut browser = FileBrowser::new(temp.clone());
+        browser.handle_key(&key(KeyCode::Char('/')));
+        assert!(browser.insert_filter_text("alpha beta"));
+
+        browser.handle_key(&KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+
+        assert_eq!(browser.query(), "alpha ");
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn filter_backspace_deletes_one_extended_grapheme() {
+        let temp = temp_dir("filter-grapheme-backspace");
+        let mut browser = FileBrowser::new(temp.clone());
+        browser.handle_key(&key(KeyCode::Char('/')));
+        assert!(browser.insert_filter_text("á👨‍👩‍👧‍👦"));
+
+        browser.handle_key(&key(KeyCode::Backspace));
+
+        assert_eq!(browser.query(), "á");
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn enter_and_right_act_on_the_filtered_selection() {
         let temp = temp_dir("activate");
         create_dir(temp.join("docs")).unwrap();
