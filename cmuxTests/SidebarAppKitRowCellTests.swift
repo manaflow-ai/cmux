@@ -267,8 +267,9 @@ struct SidebarAppKitRowCellTests {
     }
 
     private static func click(_ view: NSView, at point: NSPoint) throws {
+        let window = try #require(view.window)
         let windowPoint = view.convert(point, to: nil)
-        let windowNumber = view.window?.windowNumber ?? 0
+        let windowNumber = window.windowNumber
         let timestamp = ProcessInfo.processInfo.systemUptime
         let down = try #require(NSEvent.mouseEvent(
             with: .leftMouseDown,
@@ -292,8 +293,9 @@ struct SidebarAppKitRowCellTests {
             clickCount: 1,
             pressure: 0
         ))
-        view.mouseDown(with: down)
-        view.mouseUp(with: up)
+        let hitView = try #require(window.contentView?.hitTest(windowPoint))
+        hitView.mouseDown(with: down)
+        hitView.mouseUp(with: up)
     }
 
     @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))

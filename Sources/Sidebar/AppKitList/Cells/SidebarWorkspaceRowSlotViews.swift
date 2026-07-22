@@ -233,6 +233,29 @@ final class SidebarRowProgressView: NSView {
 final class SidebarRowTextView: NSTextField {
     var onOpenLink: ((URL) -> Void)?
     private var pendingLinkURL: URL?
+    private var cachedLinkHitLayout: LinkHitLayout?
+
+    private struct LinkHitLayout {
+        let attributedString: NSAttributedString
+        let textRectSize: NSSize
+        let lineBreakMode: NSLineBreakMode
+        let maximumNumberOfLines: Int
+        let storage: NSTextStorage
+        let layoutManager: NSLayoutManager
+        let textContainer: NSTextContainer
+
+        func matches(
+            attributedString candidate: NSAttributedString,
+            textRectSize candidateTextRectSize: NSSize,
+            lineBreakMode candidateLineBreakMode: NSLineBreakMode,
+            maximumNumberOfLines candidateMaximumNumberOfLines: Int
+        ) -> Bool {
+            textRectSize == candidateTextRectSize
+                && lineBreakMode == candidateLineBreakMode
+                && maximumNumberOfLines == candidateMaximumNumberOfLines
+                && attributedString.isEqual(to: candidate)
+        }
+    }
 
     init(lines: Int) {
         super.init(frame: .zero)
@@ -251,7 +274,8 @@ final class SidebarRowTextView: NSTextField {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard onOpenLink != nil, !isHidden, alphaValue > 0, linkURL(at: point) != nil else {
+        let localPoint = superview.map { convert(point, from: $0) } ?? point
+        guard onOpenLink != nil, !isHidden, alphaValue > 0, linkURL(at: localPoint) != nil else {
             return nil
         }
         return self
@@ -291,14 +315,9 @@ final class SidebarRowTextView: NSTextField {
             return nil
         }
 
-        let storage = NSTextStorage(attributedString: attributedStringValue)
-        let layoutManager = NSLayoutManager()
-        let textContainer = NSTextContainer(size: textRect.size)
-        textContainer.lineFragmentPadding = 0
-        textContainer.maximumNumberOfLines = maximumNumberOfLines
-        textContainer.lineBreakMode = lineBreakMode
-        layoutManager.addTextContainer(textContainer)
-        storage.addLayoutManager(layoutManager)
+        let layout = linkHitLayout(textRectSize: textRect.size)
+        let layoutManager = layout.layoutManager
+        let textContainer = layout.textContainer
         layoutManager.ensureLayout(for: textContainer)
 
         let usedRect = layoutManager.usedRect(for: textContainer)
@@ -323,6 +342,39 @@ final class SidebarRowTextView: NSTextField {
         let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         guard characterIndex < attributedStringValue.length else { return nil }
         return Self.linkURL(from: attributedStringValue.attribute(.link, at: characterIndex, effectiveRange: nil))
+    }
+
+    private func linkHitLayout(textRectSize: NSSize) -> LinkHitLayout {
+        if let cachedLinkHitLayout,
+           cachedLinkHitLayout.matches(
+               attributedString: attributedStringValue,
+               textRectSize: textRectSize,
+               lineBreakMode: lineBreakMode,
+               maximumNumberOfLines: maximumNumberOfLines
+           ) {
+            return cachedLinkHitLayout
+        }
+
+        let storage = NSTextStorage(attributedString: attributedStringValue)
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(size: textRectSize)
+        textContainer.lineFragmentPadding = 0
+        textContainer.maximumNumberOfLines = maximumNumberOfLines
+        textContainer.lineBreakMode = lineBreakMode
+        layoutManager.addTextContainer(textContainer)
+        storage.addLayoutManager(layoutManager)
+
+        let layout = LinkHitLayout(
+            attributedString: attributedStringValue,
+            textRectSize: textRectSize,
+            lineBreakMode: lineBreakMode,
+            maximumNumberOfLines: maximumNumberOfLines,
+            storage: storage,
+            layoutManager: layoutManager,
+            textContainer: textContainer
+        )
+        cachedLinkHitLayout = layout
+        return layout
     }
 
     private static func linkURL(from value: Any?) -> URL? {
