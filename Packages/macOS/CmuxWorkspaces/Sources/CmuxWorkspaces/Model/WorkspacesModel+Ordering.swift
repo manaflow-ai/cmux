@@ -176,26 +176,39 @@ extension WorkspacesModel {
 
     /// Clamps a requested reorder index for a workspace into its legal range
     /// (group section for grouped members, pin tier globally).
-    func clampedReorderIndex(for workspace: Tab, targetIndex: Int) -> Int {
+    func clampedReorderIndex(
+        for workspace: Tab,
+        targetIndex: Int,
+        pinnedStateOverride: Bool? = nil
+    ) -> Int {
         let clamped = max(0, min(targetIndex, tabs.count - 1))
         if let groupClamp = clampedGroupedMemberReorderIndex(
             for: workspace,
-            clampedTargetIndex: clamped
+            clampedTargetIndex: clamped,
+            pinnedStateOverride: pinnedStateOverride
         ) {
             return groupClamp
         }
-        let pinnedCount = leadingGlobalPinnedRowCount()
-        if workspace.isPinned {
-            return min(clamped, max(0, pinnedCount - 1))
+        let workspaceIsPinned = workspace.groupId == nil
+            ? (pinnedStateOverride ?? workspace.isPinned)
+            : isGlobalPinnedRow(workspace)
+        let otherPinnedCount = tabs.reduce(into: 0) { count, tab in
+            if tab.id != workspace.id, isGlobalPinnedRow(tab) {
+                count += 1
+            }
         }
-        return max(clamped, pinnedCount)
+        if workspaceIsPinned {
+            return min(clamped, otherPinnedCount)
+        }
+        return max(clamped, otherPinnedCount)
     }
 
     /// The in-group clamp for a non-anchor member reorder, or `nil` when the
     /// workspace is ungrouped or its group's anchor.
     func clampedGroupedMemberReorderIndex(
         for workspace: Tab,
-        clampedTargetIndex: Int
+        clampedTargetIndex: Int,
+        pinnedStateOverride: Bool? = nil
     ) -> Int? {
         guard let groupId = workspace.groupId,
               let group = workspaceGroups.first(where: { $0.id == groupId }),
@@ -207,17 +220,20 @@ extension WorkspacesModel {
               let lastIndex = memberIndices.last else {
             return nil
         }
-        let pinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
+        let otherPinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
             let member = tabs[index]
-            if member.id != group.anchorWorkspaceId, member.isPinned {
+            if member.id != group.anchorWorkspaceId,
+               member.id != workspace.id,
+               member.isPinned {
                 count += 1
             }
         }
-        let lowerBound = workspace.isPinned
+        let workspaceIsPinned = pinnedStateOverride ?? workspace.isPinned
+        let lowerBound = workspaceIsPinned
             ? min(firstIndex + 1, lastIndex)
-            : min(firstIndex + 1 + pinnedMemberCount, lastIndex)
-        let upperBound = workspace.isPinned
-            ? max(firstIndex + pinnedMemberCount, lowerBound)
+            : min(firstIndex + 1 + otherPinnedMemberCount, lastIndex)
+        let upperBound = workspaceIsPinned
+            ? max(firstIndex + 1 + otherPinnedMemberCount, lowerBound)
             : lastIndex
         return min(max(clampedTargetIndex, lowerBound), upperBound)
     }

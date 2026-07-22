@@ -49,8 +49,11 @@ final class SidebarWorkspaceTableContainerView: NSView {
 
     override func layout() {
         super.layout()
-        let width = clipView.bounds.width
-        guard width > 0, floor(width) != floor(lastReportedViewportWidth) else { return }
+        // Row measurement uses integral point widths. Report that same value
+        // here so apply, live reflow, and settled cache keys cannot disagree
+        // about sub-point geometry changes.
+        let width = floor(clipView.bounds.width)
+        guard width > 0, width != lastReportedViewportWidth else { return }
         lastReportedViewportWidth = width
         viewportWidthDidChange?(width)
     }

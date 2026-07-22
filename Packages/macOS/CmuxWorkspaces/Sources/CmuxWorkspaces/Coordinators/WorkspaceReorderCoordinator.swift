@@ -123,6 +123,20 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
         }
         guard let plan else { return false }
+        return applyWorkspaceReorderPlan(
+            plan,
+            isDragOperation: isDragOperation,
+            explicitGroupId: explicitGroupId
+        )
+    }
+
+    @discardableResult
+    private func applyWorkspaceReorderPlan(
+        _ plan: WorkspaceReorderPlanItem,
+        isDragOperation: Bool,
+        explicitGroupId: UUID?
+    ) -> Bool {
+        let tabId = plan.workspaceId
         // No-op reorders (single workspace, clamped to current index, etc.)
         // must not run group inference. Otherwise socket calls like
         // `workspace.action move_down` on the last ungrouped row would
@@ -178,12 +192,28 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// The clamped single-workspace reorder plan, or `nil` when unknown.
     public func workspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
+        workspaceReorderPlan(
+            tabId: tabId,
+            toIndex: targetIndex,
+            pinnedStateOverride: nil
+        )
+    }
+
+    private func workspaceReorderPlan(
+        tabId: UUID,
+        toIndex targetIndex: Int,
+        pinnedStateOverride: Bool?
+    ) -> WorkspaceReorderPlanItem? {
         guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         if model.tabs.count <= 1 {
             return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: currentIndex)
         }
         let workspace = model.tabs[currentIndex]
-        let clamped = model.clampedReorderIndex(for: workspace, targetIndex: targetIndex)
+        let clamped = model.clampedReorderIndex(
+            for: workspace,
+            targetIndex: targetIndex,
+            pinnedStateOverride: pinnedStateOverride
+        )
         return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: clamped)
     }
 
@@ -303,14 +333,24 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         guard let workspace = model.tabs.first(where: { $0.id == tabId }) else { return false }
         let previousOrder = model.tabs.map(\.id)
         let previousPinnedState = workspace.isPinned
+        let plan: WorkspaceReorderPlanItem?
+        if isDragOperation, explicitGroupId != nil {
+            plan = explicitGroupWorkspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
+        } else {
+            plan = workspaceReorderPlan(
+                tabId: tabId,
+                toIndex: targetIndex,
+                pinnedStateOverride: targetPinnedState
+            )
+        }
+        guard let plan else { return false }
         let pinStateChanged = targetPinnedState.map { targetPinnedState in
             guard workspace.isPinned != targetPinnedState else { return false }
             workspace.isPinned = targetPinnedState
             return true
         } ?? false
-        let didReorder = reorderWorkspace(
-            tabId: tabId,
-            toIndex: targetIndex,
+        let didReorder = applyWorkspaceReorderPlan(
+            plan,
             isDragOperation: isDragOperation,
             explicitGroupId: explicitGroupId
         )

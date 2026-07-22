@@ -32,6 +32,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private struct PointerSelectionSession {
         let rowId: SidebarWorkspaceRenderItemID
         let defersPlainCollapse: Bool
+        var completedTableAction = false
     }
     private var pointerSelectionSession: PointerSelectionSession?
 
@@ -347,7 +348,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Any active pointer session already owns this action by stable row ID.
         // A numeric clickedRow may refer to another workspace if rows churned
         // while NSTableView's synchronous tracking loop was in progress.
-        guard pointerSelectionSession == nil, rows.indices.contains(row) else { return }
+        if pointerSelectionSession != nil {
+            pointerSelectionSession?.completedTableAction = true
+            return
+        }
+        guard rows.indices.contains(row) else { return }
         guard previewSelection(row: row, modifiers: modifiers) else { return }
         commitSelection(row: row, modifiers: modifiers)
     }
@@ -392,6 +397,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard let session = pointerSelectionSession else { return }
         pointerSelectionSession = nil
         guard session.defersPlainCollapse,
+              session.completedTableAction,
               let row = rows.firstIndex(where: { $0.id == session.rowId }),
               previewSelection(row: row, modifiers: []) else { return }
         commitSelection(row: row, modifiers: [])
@@ -740,10 +746,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var deferredWidthSettleGeneration: UInt = 0
 
     private func viewportWidthDidChange(_ width: CGFloat) {
+        let width = normalizedMeasurementWidth(width)
         guard width > 0 else { return }
         // Skip the settled width only before a live pass starts. Once rows
         // have reflowed, returning to the starting width is itself a live tick.
-        guard hasLiveMeasuredRows || floor(width) != floor(lastMeasuredWidth) else { return }
+        guard hasLiveMeasuredRows || width != lastMeasuredWidth else { return }
         performLiveWidthRemeasure(width: width)
         // Schedule for every width source. Programmatic NSWindow mutations can
         // report `inLiveResize` during layout without ever posting a matching
@@ -793,7 +800,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// per-tick cost stays bounded regardless of total row count. Off-screen
     /// and hosted rows settle in the full pass at drag end.
     private func performLiveWidthRemeasure(width: CGFloat) {
-        guard floor(width) != floor(lastLiveMeasuredWidth) else { return }
+        guard width != lastLiveMeasuredWidth else { return }
         guard let table = containerView?.tableView else {
 #if DEBUG
             cmuxDebugLog("sidebar.liveReflow.skip reason=noTable width=\(width)")
@@ -861,7 +868,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func currentColumnWidth() -> CGFloat {
         guard let containerView else { return 0 }
-        return containerView.clipView.bounds.width
+        return normalizedMeasurementWidth(containerView.clipView.bounds.width)
+    }
+
+    private func normalizedMeasurementWidth(_ width: CGFloat) -> CGFloat {
+        floor(width)
     }
 
     private func setHoveredRowId(_ next: SidebarWorkspaceRenderItemID?) {

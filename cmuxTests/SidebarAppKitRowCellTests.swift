@@ -472,7 +472,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func controllerCollapsesMultiSelectionWhenPressCompletesWithoutDrag() throws {
+    func controllerCollapsesMultiSelectionOnlyAfterCompletedTableAction() throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let window = NSWindow(
@@ -539,10 +539,20 @@ struct SidebarAppKitRowCellTests {
         controller.pointerMouseDown(row: 1, modifiers: [])
         #expect(selectedIds == [firstWorkspace.id, secondWorkspace.id])
 
+        controller.handleTableSelectionAction(row: 1, modifiers: [])
         controller.pointerTrackingDidEnd()
 
         #expect(selectedIds == [secondWorkspace.id])
         #expect(manager.selectedTabId == secondWorkspace.id)
+
+        selectedIds = [firstWorkspace.id, secondWorkspace.id]
+        manager.selectTab(firstWorkspace)
+
+        controller.pointerMouseDown(row: 1, modifiers: [])
+        controller.pointerTrackingDidEnd()
+
+        #expect(selectedIds == [firstWorkspace.id, secondWorkspace.id])
+        #expect(manager.selectedTabId == firstWorkspace.id)
     }
 
     @Test

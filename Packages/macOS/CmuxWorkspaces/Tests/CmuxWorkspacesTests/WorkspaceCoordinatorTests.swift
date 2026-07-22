@@ -215,6 +215,37 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func sidebarRawDropPinsWorkspaceAtLastRequestedPinnedSlot() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let pinnedC = CoordinatorStubTab(isPinned: true)
+        let plainA = CoordinatorStubTab()
+        let dragged = CoordinatorStubTab()
+        let plainB = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, pinnedC, plainA, dragged, plainB]
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: 3,
+            isDragOperation: true,
+            targetPinnedState: true
+        )
+
+        #expect(moved)
+        #expect(dragged.isPinned)
+        #expect(model.tabs.map(\.id) == [
+            pinnedA.id,
+            pinnedB.id,
+            pinnedC.id,
+            dragged.id,
+            plainA.id,
+            plainB.id,
+        ])
+        #expect(host.orderChanges.last == [dragged.id])
+    }
+
+    @Test
     func reorderWorkspaceBeforeDownwardMoveInsertsAtExpectedSlot() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
