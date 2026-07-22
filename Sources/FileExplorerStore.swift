@@ -716,6 +716,8 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
     private(set) var outlineRevision: UInt64 = 0
+    private(set) var rootStructureRevision: UInt64 = 0
+    private(set) var gitStatusRevision: UInt64 = 0
     private var disclosureChangeObservers: [UUID: (FileExplorerNode) -> Void] = [:]
 
     var provider: FileExplorerProvider?
@@ -867,9 +869,9 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    private func applyGitStatusIfChanged(_ status: [String: GitFileStatus]) {
+    func applyGitStatusIfChanged(_ status: [String: GitFileStatus]) {
         guard gitStatusByPath != status else { return }
-        outlineRevision &+= 1
+        gitStatusRevision &+= 1
         gitStatusByPath = status
     }
 
@@ -1123,6 +1125,7 @@ final class FileExplorerStore: ObservableObject {
 
     private func replaceRootNodes(with nodes: [FileExplorerNode]) {
         outlineRevision &+= 1
+        rootStructureRevision &+= 1
         rootNodes = nodes
     }
 

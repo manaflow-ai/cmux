@@ -94,6 +94,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
         private var lastRenderedOutlineRevision: UInt64 = .max
+        private var lastRenderedRootStructureRevision: UInt64 = .max
+        private var lastRenderedGitStatusRevision: UInt64 = .max
+        private var lastRenderedGitStatusByPath: [String: GitFileStatus] = [:]
         private var observationCancellable: AnyCancellable?
         private var disclosureChangeObserverID: UUID?
         private var styleObserver: Any?
@@ -189,6 +192,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
             store = newStore
             lastRootNodeCount = -1
             lastRenderedOutlineRevision = .max
+            lastRenderedRootStructureRevision = .max
+            lastRenderedGitStatusRevision = .max
+            lastRenderedGitStatusByPath = [:]
             observeStore()
         }
 
@@ -217,21 +223,52 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             let newCount = store.rootNodes.count
             let outlineRevision = store.outlineRevision
-            guard newCount != lastRootNodeCount || outlineRevision != lastRenderedOutlineRevision else {
+            let rootStructureRevision = store.rootStructureRevision
+            let gitStatusRevision = store.gitStatusRevision
+            let rootStructureChanged = rootStructureRevision != lastRenderedRootStructureRevision
+            let outlineChanged = outlineRevision != lastRenderedOutlineRevision
+            let gitStatusChanged = gitStatusRevision != lastRenderedGitStatusRevision
+            guard newCount != lastRootNodeCount || rootStructureChanged || outlineChanged || gitStatusChanged else {
                 return
             }
             withProgrammaticOutlineUpdate {
-                if newCount != lastRootNodeCount {
+                if newCount != lastRootNodeCount || rootStructureChanged {
                     lastRootNodeCount = newCount
                     let expandedPaths = store.expandedPaths
                     outlineView.reloadData()
                     restoreExpansionState(expandedPaths, in: outlineView)
                 } else {
-                    refreshLoadedNodes(in: outlineView)
+                    if outlineChanged {
+                        refreshLoadedNodes(in: outlineView)
+                    }
+                    if gitStatusChanged {
+                        refreshGitStatusRows(in: outlineView)
+                    }
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
             }
             lastRenderedOutlineRevision = outlineRevision
+            lastRenderedRootStructureRevision = rootStructureRevision
+            lastRenderedGitStatusRevision = gitStatusRevision
+            lastRenderedGitStatusByPath = store.gitStatusByPath
+        }
+
+        private func refreshGitStatusRows(in outlineView: NSOutlineView) {
+            let currentStatusByPath = store.gitStatusByPath
+            let allPaths = Set(lastRenderedGitStatusByPath.keys).union(currentStatusByPath.keys)
+            let changedPaths = allPaths.filter { lastRenderedGitStatusByPath[$0] != currentStatusByPath[$0] }
+            guard !changedPaths.isEmpty else { return }
+            var changedRows = IndexSet()
+            for row in 0..<outlineView.numberOfRows {
+                guard let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                      changedPaths.contains(node.path) else { continue }
+                changedRows.insert(row)
+            }
+            guard !changedRows.isEmpty else { return }
+            outlineView.reloadData(
+                forRowIndexes: changedRows,
+                columnIndexes: IndexSet(integersIn: 0..<outlineView.numberOfColumns)
+            )
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {

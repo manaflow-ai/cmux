@@ -116,15 +116,24 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
 
 private final class CountingFileExplorerOutlineView: NSOutlineView {
     private(set) var reloadCallCount = 0
+    private(set) var fullReloadCallCount = 0
+    private(set) var reloadedRowIndexes = IndexSet()
 
     override func reloadData() {
         reloadCallCount += 1
+        fullReloadCallCount += 1
         super.reloadData()
     }
 
     override func reloadItem(_ item: Any?, reloadChildren: Bool) {
         reloadCallCount += 1
         super.reloadItem(item, reloadChildren: reloadChildren)
+    }
+
+    override func reloadData(forRowIndexes rowIndexes: IndexSet, columnIndexes: IndexSet) {
+        reloadCallCount += 1
+        reloadedRowIndexes.formUnion(rowIndexes)
+        super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
     }
 }
 
@@ -661,6 +670,65 @@ struct FileExplorerStoreTests {
             outlineView.reloadCallCount == reloadsAfterInitialRender,
             "An update with no intervening file-explorer store change must not reload visible outline nodes."
         )
+    }
+
+    @Test
+    func testSameCountRootReplacementReloadsOutlineData() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/project"] = .success([
+            FileExplorerEntry(name: "Old.swift", path: "/project/Old.swift", isDirectory: false),
+        ])
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/project")
+        try await waitFor("initial root loaded") { store.rootNodes.first?.name == "Old.swift" }
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        let initialFullReloadCount = outlineView.fullReloadCallCount
+
+        provider.listings["/project"] = .success([
+            FileExplorerEntry(name: "New.swift", path: "/project/New.swift", isDirectory: false),
+        ])
+        store.reload()
+        try await waitFor("replacement root loaded") { store.rootNodes.first?.name == "New.swift" }
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.fullReloadCallCount > initialFullReloadCount)
+        #expect((outlineView.item(atRow: 0) as? FileExplorerNode) === store.rootNodes.first)
+    }
+
+    @Test
+    func testGitStatusChangeReloadsVisibleFileRow() {
+        let store = FileExplorerStore()
+        let file = FileExplorerNode(name: "main.swift", path: "/project/main.swift", isDirectory: false)
+        store.rootNodes = [file]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+
+        store.applyGitStatusIfChanged([file.path: .modified])
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.reloadedRowIndexes.contains(0))
     }
 
     @Test
