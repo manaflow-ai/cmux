@@ -356,6 +356,8 @@ fn draw_content(
         .entry(area.surface)
         .or_insert_with(|| RenderState::new().expect("render state alloc"));
     let render = surface.render_frame(rs).ok()?;
+    let live = super::terminal_grid::rendered_viewport_rect(rect, frame.area(), &render);
+    app.rendered_terminal_bounds.insert(area.surface, live);
     app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
     if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
         let (shape, blinking) = render.frame.cursor_visual;

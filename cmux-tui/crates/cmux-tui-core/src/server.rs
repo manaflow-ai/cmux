@@ -3760,7 +3760,6 @@ fn handle_command(
                 },
                 cursor_blink: cursor_blink.or(base.cursor_blink),
                 palette,
-                ..base
             };
             mux.set_default_colors(colors);
             Ok(json!({}))

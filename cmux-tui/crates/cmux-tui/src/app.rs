@@ -6535,10 +6535,8 @@ impl App {
             {
                 screen.active_pane = pane;
                 true
-            } else if !self.session.remote {
-                true
             } else {
-                false
+                !self.session.remote
             };
             if focused {
                 self.pane_focus_history.record(pane);

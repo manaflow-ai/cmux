@@ -4,6 +4,17 @@ BIN = os.path.abspath(os.environ.get("CMUX_TUI_BIN", "target/debug/cmux-tui"))
 SESSION = f"smoke-{os.getpid()}"
 SOCK = None
 CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
+SGR_RE = re.compile(rb"\x1b\[([0-9;]*)m")
+
+
+def has_sgr_parameters(data, expected):
+    for match in SGR_RE.finditer(data):
+        parameters = tuple(int(part or b"0") for part in match.group(1).split(b";"))
+        width = len(expected)
+        if any(parameters[start : start + width] == expected for start in range(len(parameters))):
+            return True
+    return False
+
 
 def fallback_socket_path():
     base = os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR") or "/tmp"
@@ -476,10 +487,12 @@ os.write(
 )
 wait_screen_contains(surface_id, "CF1CF2CF3CF4")
 color_output = output[color_output_start:]
-assert re.search(rb"\x1b\[[0-9;]*(31|38;5;1)(;[0-9]*)?m", color_output), color_output[-2000:]
-assert b"38;5;196" in color_output, color_output[-2000:]
-assert b"48;5;236" in color_output, color_output[-2000:]
-assert b"204;102;102" not in color_output, color_output[-2000:]
+assert has_sgr_parameters(color_output, (31,)) or has_sgr_parameters(
+    color_output, (38, 5, 1)
+), color_output[-2000:]
+assert has_sgr_parameters(color_output, (38, 5, 196)), color_output[-2000:]
+assert has_sgr_parameters(color_output, (48, 5, 236)), color_output[-2000:]
+assert not has_sgr_parameters(color_output, (38, 2, 204, 102, 102)), color_output[-2000:]
 print("indexed color passthrough ok")
 
 inner_osc_query = """python3 - <<'PY'

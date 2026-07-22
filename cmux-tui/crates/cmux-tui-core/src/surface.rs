@@ -1034,7 +1034,7 @@ impl Surface {
                                         pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
                                             output,
                                             colors: Box::new(
-                                                pty.terminal_colors_locked(&mut term, defaults),
+                                                pty.terminal_colors_locked(&term, defaults),
                                             ),
                                         });
                                     } else {
@@ -1129,7 +1129,7 @@ impl Surface {
                                         rows,
                                         replay,
                                         colors: Box::new(
-                                            pty.terminal_colors_locked(&mut term, defaults),
+                                            pty.terminal_colors_locked(&term, defaults),
                                         ),
                                     });
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
@@ -1333,7 +1333,7 @@ impl Surface {
                                 cols: replacement_snapshot.cols,
                                 rows: replacement_snapshot.rows,
                                 replay: replacement_snapshot.replay,
-                                colors: Box::new(pty.terminal_colors_locked(&mut term, defaults)),
+                                colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
                             });
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                         };
@@ -1750,7 +1750,7 @@ impl Surface {
             term.set_default_palette(&colors.palette);
             term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
             let live_colors = TerminalColors::from_pty_output(&term, colors);
-            let colors = pty.terminal_colors_locked(&mut term, colors);
+            let colors = pty.terminal_colors_locked(&term, colors);
             pty.attach_colors_pending.store(false, Ordering::Release);
             pty.attach_colors_force_pending.store(false, Ordering::Release);
             *pty.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
@@ -2014,7 +2014,7 @@ impl Surface {
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-        let colors = pty.terminal_colors_locked(&mut term, defaults);
+        let colors = pty.terminal_colors_locked(&term, defaults);
         let mut taps = pty.taps.lock().unwrap();
         if taps.is_empty() {
             *pty.last_attach_colors.lock().unwrap() =
@@ -2415,7 +2415,7 @@ impl PtySurface {
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
         let live_colors = TerminalColors::from_pty_output(&term, defaults);
-        let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
+        let colors = Box::new(self.terminal_colors_locked(&term, defaults));
         self.attach_colors_pending.store(false, Ordering::Release);
         self.attach_colors_force_pending.store(false, Ordering::Release);
         *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
