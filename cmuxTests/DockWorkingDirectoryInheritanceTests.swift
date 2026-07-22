@@ -94,6 +94,29 @@ struct DockWorkingDirectoryInheritanceTests {
         }
     }
 
+    @Test("Live foreground-process directory wins over the Dock terminal startup directory")
+    @MainActor
+    func liveDirectoryWinsOverRequestedDirectory() throws {
+        var liveDirectory: String?
+        let resolver = TerminalWorkingDirectoryResolver(liveDirectoryProvider: { _ in liveDirectory })
+        try withDock(
+            inheritanceEnabled: true,
+            terminalWorkingDirectoryResolver: resolver
+        ) { store, rootPane, root, sourceDirectory in
+            _ = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                workingDirectory: root.path,
+                focus: true
+            ))
+            liveDirectory = sourceDirectory.path
+
+            let newPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+
+            #expect(try terminalPanel(in: store, panelId: newPanelId).requestedWorkingDirectory == sourceDirectory.path)
+        }
+    }
+
     @Test("Explicit Dock terminal directory overrides inherited directory")
     @MainActor
     func explicitDirectoryOverridesInheritance() throws {
@@ -121,6 +144,7 @@ struct DockWorkingDirectoryInheritanceTests {
     @MainActor
     private func withDock(
         inheritanceEnabled: Bool,
+        terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         _ body: (DockSplitStore, PaneID, URL, URL) throws -> Void
     ) throws {
         let root = URL.temporaryDirectory.appending(
@@ -138,7 +162,8 @@ struct DockWorkingDirectoryInheritanceTests {
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { root.path },
-            settings: settings
+            settings: settings,
+            terminalWorkingDirectoryResolver: terminalWorkingDirectoryResolver
         )
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         defer {
