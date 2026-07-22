@@ -38,6 +38,69 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    private static func lineNumber(in source: String, at index: String.Index) -> Int {
+        source[..<index].reduce(into: 1) { lineNumber, character in
+            if character == "\n" {
+                lineNumber += 1
+            }
+        }
+    }
+
+    private static func lineReference(in source: String, at index: String.Index) -> String {
+        let lineStart = source[..<index].lastIndex(of: "\n").map { source.index(after: $0) } ?? source.startIndex
+        let lineEnd = source[index...].firstIndex(of: "\n") ?? source.endIndex
+        let line = source[lineStart..<lineEnd].trimmingCharacters(in: .whitespaces)
+        return "\(lineNumber(in: source, at: index)): \(line)"
+    }
+
+    private static func functionBody(named name: String, in source: String) throws -> String {
+        let declaration = "private func \(name)"
+        let declarationRange = try #require(source.range(of: declaration))
+        let bodyStart = try #require(source[declarationRange.upperBound...].firstIndex(of: "{"))
+        var depth = 0
+        var index = bodyStart
+        while index < source.endIndex {
+            switch source[index] {
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0 {
+                    return String(source[bodyStart...index])
+                }
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+        Issue.record("Could not find end of function body for \(name)")
+        return ""
+    }
+
+    private static func dispatchWorkItemClosuresWithoutCaptureList(in source: String) -> [String] {
+        var references: [String] = []
+        var searchStart = source.startIndex
+        while let workItemRange = source.range(of: "DispatchWorkItem", range: searchStart..<source.endIndex) {
+            searchStart = workItemRange.upperBound
+            guard let openingBrace = source[workItemRange.upperBound...].firstIndex(of: "{") else {
+                continue
+            }
+            guard !source[workItemRange.upperBound..<openingBrace].contains("\n") else {
+                continue
+            }
+
+            var next = source.index(after: openingBrace)
+            while next < source.endIndex, source[next].isWhitespace {
+                next = source.index(after: next)
+            }
+            if next < source.endIndex, source[next] == "[" {
+                continue
+            }
+            references.append(lineReference(in: source, at: workItemRange.lowerBound))
+        }
+        return references
+    }
+
     @Test
     func contentViewDoesNotChainQueuedDispatchWorkItemsThroughSwiftUIState() throws {
         let source = try Self.sourceText("Sources/ContentView.swift")
@@ -58,18 +121,32 @@ final class WorkspaceContentViewVisibilityTests {
             """
         )
 
-        let implicitSelfWorkItemLines = lines.enumerated().compactMap { index, line -> String? in
-            guard line.contains("DispatchWorkItem {"),
-                  !line.contains("[") else { return nil }
-            return "\(index + 1): \(line.trimmingCharacters(in: .whitespaces))"
-        }
+        let implicitSelfWorkItemLines = Self.dispatchWorkItemClosuresWithoutCaptureList(in: source)
         #expect(
             implicitSelfWorkItemLines.isEmpty,
             """
             ContentView DispatchWorkItem closures must use an explicit capture list or be \
-            removed. Implicit self captures can retain the view's @State snapshot and link \
-            queued work items recursively:
+            removed. The capture list may be formatted across lines, but implicit self \
+            captures can retain the view's @State snapshot and link queued work items recursively:
             \(implicitSelfWorkItemLines.joined(separator: "\n"))
+            """
+        )
+
+        let coalescedReplacementFunctions = [
+            "scheduleSidebarResizerCursorRelease",
+            "requestCommandPaletteFocusRestore",
+        ]
+        let functionsConstructingWorkItems = try coalescedReplacementFunctions.compactMap { name -> String? in
+            let body = try Self.functionBody(named: name, in: source)
+            guard body.contains("DispatchWorkItem") else { return nil }
+            return name
+        }
+        #expect(
+            functionsConstructingWorkItems.isEmpty,
+            """
+            High-frequency ContentView replacement paths must use generation tokens or another \
+            reference-free invalidation scheme instead of constructing DispatchWorkItems:
+            \(functionsConstructingWorkItems.joined(separator: "\n"))
             """
         )
     }
