@@ -12549,6 +12549,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @EnvironmentObject var sidebarUnread: SidebarUnreadModel
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @ObservedObject private var checklistAddRequestStore = WorkspaceTodoChecklistAddRequestStore.shared
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -13075,15 +13076,25 @@ struct VerticalTabsSidebar: View, Equatable {
                 frozenShortcutHintsValue = false
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
-            guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
-                  tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
-            if WorkspaceTodoFeature.checklistStyle == .popover {
-                checklistPopoverWorkspaceId = workspaceId
-            } else {
-                expandedChecklistWorkspaceIds.insert(workspaceId)
+        .onReceive(checklistAddRequestStore.$pendingTokens) { pendingTokens in
+            let ownedRequests = pendingTokens.filter { workspaceId, _ in
+                tabManager.tabs.contains(where: { $0.id == workspaceId })
             }
-            checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
+            guard !ownedRequests.isEmpty else { return }
+            for (workspaceId, _) in ownedRequests {
+                if WorkspaceTodoFeature.checklistStyle == .popover {
+                    checklistPopoverWorkspaceId = workspaceId
+                } else {
+                    expandedChecklistWorkspaceIds.insert(workspaceId)
+                }
+                checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
+            }
+            Task { @MainActor in
+                await Task.yield()
+                for (workspaceId, token) in ownedRequests {
+                    checklistAddRequestStore.consume(workspaceID: workspaceId, token: token)
+                }
+            }
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
             SidebarDragLifecycleNotification().postStateDidChange(

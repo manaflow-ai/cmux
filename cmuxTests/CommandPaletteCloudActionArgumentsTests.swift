@@ -417,6 +417,21 @@ struct CommandPaletteCloudActionArgumentsTests {
 @MainActor
 @Suite("Command palette workspace todo action outcomes", .serialized)
 struct CommandPaletteWorkspaceTodoActionOutcomeTests {
+    @Test func checklistPresentationRequestPersistsUntilMatchingConsumption() {
+        let store = WorkspaceTodoChecklistAddRequestStore()
+        let workspaceID = UUID()
+
+        let firstToken = store.request(workspaceID: workspaceID)
+        #expect(store.pendingTokens[workspaceID] == firstToken)
+
+        let latestToken = store.request(workspaceID: workspaceID)
+        store.consume(workspaceID: workspaceID, token: firstToken)
+        #expect(store.pendingTokens[workspaceID] == latestToken)
+
+        store.consume(workspaceID: workspaceID, token: latestToken)
+        #expect(store.pendingTokens[workspaceID] == nil)
+    }
+
     @Test func todoPaneRequiresCapturedPanelInLivePane() throws {
         let contribution = try #require(
             WorkspaceTodoPaletteCommands.contributions(workspaceSubtitle: { _ in "" }).first {
