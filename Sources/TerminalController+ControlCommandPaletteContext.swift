@@ -157,8 +157,10 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
             return .vscodeUnavailable
         }
-        let windowID = AppDelegate.shared?.windowId(for: tabManager)
-            ?? v2ResolveWindowId(tabManager: tabManager)
+        guard let windowID = AppDelegate.shared?.windowId(for: tabManager)
+                ?? v2ResolveWindowId(tabManager: tabManager) else {
+            return .tabManagerUnavailable
+        }
         guard let actionTarget = controlCommandPaletteActionTarget(
             routing: routing,
             tabManager: tabManager,
