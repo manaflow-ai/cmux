@@ -19,6 +19,7 @@ mod machine_provider_client;
 mod machine_provider_runtime;
 mod machine_runtime;
 mod plugin_manager;
+mod process_diagnostics;
 mod pty_input;
 mod session;
 mod sidebar_files;

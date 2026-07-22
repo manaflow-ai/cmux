@@ -22,6 +22,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cmux_tui_machine_protocol::BearerToken;
 
+use crate::process_diagnostics::BoundedDiagnosticBuffer;
+
 const PROVIDER_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const COMMAND_DIAGNOSTIC_BYTES: usize = 16 * 1024;
 const PRIVATE_PATH_ATTEMPTS: usize = 16;
@@ -502,7 +504,7 @@ fn spawn_command(
         .take()
         .ok_or_else(|| io::Error::other("provider command did not expose stderr"))?;
 
-    let diagnostics = Arc::new(DiagnosticBuffer::default());
+    let diagnostics = Arc::new(BoundedDiagnosticBuffer::new(COMMAND_DIAGNOSTIC_BYTES));
     let cleanup = Arc::new(ProcessCleanup {
         child: Mutex::new(Some(child)),
         diagnostics: Arc::clone(&diagnostics),
@@ -513,7 +515,7 @@ fn spawn_command(
     let worker_diagnostics = Arc::clone(&diagnostics);
     let worker = thread::Builder::new()
         .name("machine-provider-stderr".to_string())
-        .spawn(move || drain_stderr(stderr, &worker_diagnostics));
+        .spawn(move || worker_diagnostics.drain(stderr));
     match worker {
         Ok(worker) => {
             *cleanup
@@ -532,7 +534,7 @@ fn spawn_command(
 
 struct ProcessCleanup {
     child: Mutex<Option<Child>>,
-    diagnostics: Arc<DiagnosticBuffer>,
+    diagnostics: Arc<BoundedDiagnosticBuffer>,
     redactions: Arc<Vec<String>>,
     stderr_worker: Mutex<Option<JoinHandle<()>>>,
     closed: AtomicBool,
@@ -573,71 +575,6 @@ impl ProviderIoCleanup for ProcessCleanup {
 impl Drop for ProcessCleanup {
     fn drop(&mut self) {
         self.terminate_and_reap();
-    }
-}
-
-#[derive(Default)]
-struct DiagnosticBuffer {
-    state: Mutex<DiagnosticState>,
-}
-
-#[derive(Default)]
-struct DiagnosticState {
-    bytes: Vec<u8>,
-    truncated: bool,
-}
-
-impl DiagnosticBuffer {
-    fn append(&self, bytes: &[u8]) {
-        let Ok(mut state) = self.state.lock() else {
-            return;
-        };
-        let remaining = COMMAND_DIAGNOSTIC_BYTES.saturating_sub(state.bytes.len());
-        state.bytes.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
-        state.truncated |= bytes.len() > remaining;
-    }
-
-    fn sanitized(&self, redactions: &[String]) -> Option<String> {
-        let state = self.state.lock().ok()?;
-        if state.bytes.is_empty() && !state.truncated {
-            return None;
-        }
-        let mut text = String::from_utf8_lossy(&state.bytes).into_owned();
-        for secret in redactions {
-            if !secret.is_empty() {
-                text = text.replace(secret, "[redacted]");
-            }
-        }
-        let mut sanitized = String::with_capacity(text.len().min(COMMAND_DIAGNOSTIC_BYTES));
-        let mut pending_space = false;
-        for character in text.chars() {
-            if character.is_whitespace() || character.is_control() {
-                pending_space = !sanitized.is_empty();
-            } else {
-                if pending_space {
-                    sanitized.push(' ');
-                    pending_space = false;
-                }
-                sanitized.push(character);
-            }
-        }
-        if state.truncated {
-            if !sanitized.is_empty() {
-                sanitized.push(' ');
-            }
-            sanitized.push_str("[truncated]");
-        }
-        (!sanitized.is_empty()).then_some(sanitized)
-    }
-}
-
-fn drain_stderr(mut stderr: impl Read, diagnostics: &DiagnosticBuffer) {
-    let mut buffer = [0_u8; 4096];
-    loop {
-        match stderr.read(&mut buffer) {
-            Ok(0) | Err(_) => return,
-            Ok(read) => diagnostics.append(&buffer[..read]),
-        }
     }
 }
 

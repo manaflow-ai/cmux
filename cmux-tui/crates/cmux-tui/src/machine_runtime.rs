@@ -1,6 +1,8 @@
 //! Config-backed machine catalog and transport connectors.
 
-use std::io::{self, BufRead, BufReader, Read, Write};
+#[cfg(test)]
+use std::io::Read;
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -10,6 +12,7 @@ use crate::config::{MachineConfig, MachineTargetConfig};
 use crate::machine::{
     MachineCapabilities, MachineDescriptor, MachineKey, MachineSnapshot, MachineStatus,
 };
+use crate::process_diagnostics::BoundedDiagnosticBuffer;
 use crate::session::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteTransport, Session,
 };
@@ -196,11 +199,11 @@ fn spawn_transport_process(
     let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("ssh stdin unavailable"))?;
     let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("ssh stdout unavailable"))?;
     let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("ssh stderr unavailable"))?;
-    let diagnostics = Arc::new(Mutex::new(DiagnosticState::default()));
+    let diagnostics = Arc::new(BoundedDiagnosticBuffer::new(SSH_DIAGNOSTIC_BYTES));
     let worker_diagnostics = Arc::clone(&diagnostics);
     let worker = thread::Builder::new()
         .name("machine-ssh-stderr".to_string())
-        .spawn(move || drain_ssh_stderr(stderr, &worker_diagnostics));
+        .spawn(move || worker_diagnostics.drain(stderr));
     let worker = match worker {
         Ok(worker) => worker,
         Err(error) => {
@@ -223,7 +226,7 @@ fn shell_quote(value: &str) -> String {
 
 struct Process {
     child: Mutex<Child>,
-    diagnostics: Arc<Mutex<DiagnosticState>>,
+    diagnostics: Arc<BoundedDiagnosticBuffer>,
     stderr_worker: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -238,30 +241,7 @@ impl Process {
     }
 
     fn diagnostic(&self) -> Option<String> {
-        let state = self.diagnostics.lock().ok()?;
-        if state.bytes.is_empty() && !state.truncated {
-            return None;
-        }
-        let mut sanitized = String::new();
-        let mut pending_space = false;
-        for character in String::from_utf8_lossy(&state.bytes).chars() {
-            if character.is_whitespace() || character.is_control() {
-                pending_space = !sanitized.is_empty();
-            } else {
-                if pending_space {
-                    sanitized.push(' ');
-                    pending_space = false;
-                }
-                sanitized.push(character);
-            }
-        }
-        if state.truncated {
-            if !sanitized.is_empty() {
-                sanitized.push(' ');
-            }
-            sanitized.push_str("[truncated]");
-        }
-        (!sanitized.is_empty()).then_some(sanitized)
+        self.diagnostics.sanitized(&[])
     }
 
     fn join_stderr(&self) {
@@ -281,26 +261,6 @@ impl Drop for Process {
         }
         let _ = child.wait();
         self.join_stderr();
-    }
-}
-
-#[derive(Default)]
-struct DiagnosticState {
-    bytes: Vec<u8>,
-    truncated: bool,
-}
-
-fn drain_ssh_stderr(mut stderr: impl Read, diagnostics: &Mutex<DiagnosticState>) {
-    let mut buffer = [0_u8; 1024];
-    loop {
-        let Ok(read) = stderr.read(&mut buffer) else { return };
-        if read == 0 {
-            return;
-        }
-        let Ok(mut state) = diagnostics.lock() else { return };
-        let remaining = SSH_DIAGNOSTIC_BYTES.saturating_sub(state.bytes.len());
-        state.bytes.extend_from_slice(&buffer[..read.min(remaining)]);
-        state.truncated |= read > remaining;
     }
 }
 
