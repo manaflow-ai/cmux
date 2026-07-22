@@ -3127,12 +3127,20 @@ impl Drop for MachineUpdatePump {
     }
 }
 
-fn ensure_initial_if_available(
+fn ensure_initial_for_machine_ui(
     session: &Session,
     initial_size: Option<(u16, u16)>,
-    session_available: bool,
+    machine_ui: Option<&MachineUiState>,
 ) -> anyhow::Result<()> {
-    if session_available {
+    let should_create = match machine_ui {
+        None => true,
+        Some(machine) if !machine.session_available => false,
+        Some(machine) => !matches!(
+            machine.workspace_creation_policy(),
+            Some(WorkspaceCreationPolicy::ProviderOwned { .. })
+        ),
+    };
+    if should_create {
         session.ensure_initial(initial_size)?;
     }
     Ok(())
@@ -3159,7 +3167,7 @@ pub fn run_with_machine_updates(
             sidebar_layout_for(&config, true, machine_ui.is_some(), (w, h), None, None).content;
         content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
     });
-    ensure_initial_if_available(&session, initial_size, session_available)?;
+    ensure_initial_for_machine_ui(&session, initial_size, machine_ui.as_ref())?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
     let browser_failure_tx = tx.clone();
@@ -3630,8 +3638,7 @@ impl App {
 
             let restart_updates = result.restart_updates;
             if let Some(replacement) = result.replacement
-                && let Err(error) =
-                    self.replace_machine_session(replacement, result.ui.session_available)
+                && let Err(error) = self.replace_machine_session(replacement, &result.ui)
             {
                 self.status_message = Some(format!("Could not switch machine: {error}"));
                 action = action.merge(RenderAction::Draw);
@@ -3683,10 +3690,11 @@ impl App {
     fn replace_machine_session(
         &mut self,
         replacement: MachineSession,
-        session_available: bool,
+        machine_ui: &MachineUiState,
     ) -> anyhow::Result<()> {
         let initial_size = content_size_for_rect(self.content_area, self.config.scrollbar.position);
-        ensure_initial_if_available(&replacement.session, initial_size, session_available)?;
+        ensure_initial_for_machine_ui(&replacement.session, initial_size, Some(machine_ui))?;
+        let session_available = machine_ui.session_available;
         if let Err(error) = replacement.session.set_default_colors(self.default_colors) {
             self.status_message = Some(format!("Could not apply terminal colors: {error}"));
         }
@@ -12939,8 +12947,17 @@ mod tests {
     #[test]
     fn unavailable_zero_machine_state_skips_initial_workspace_and_renders_both_rails() {
         let mux = Mux::new("provider-zero-state-test", SurfaceOptions::default());
-        super::ensure_initial_if_available(&Session::Local(mux.clone()), Some((40, 12)), false)
-            .unwrap();
+        let unavailable = MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities { create: true, connect: true },
+        });
+        super::ensure_initial_for_machine_ui(
+            &Session::Local(mux.clone()),
+            Some((40, 12)),
+            Some(&unavailable),
+        )
+        .unwrap();
         assert!(Session::Local(mux.clone()).tree().workspaces.is_empty());
 
         let mut app = test_app(Session::Local(mux));
@@ -12975,6 +12992,20 @@ mod tests {
         app.prompt = None;
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+    }
+
+    #[test]
+    fn provider_owned_workspace_policy_never_creates_an_untracked_session_workspace() {
+        let mux = Mux::new("provider-owned-initial-workspace-test", SurfaceOptions::default());
+        let mut ui = provider_machine_ui();
+        ui.session_available = true;
+        super::ensure_initial_for_machine_ui(
+            &Session::Local(mux.clone()),
+            Some((40, 12)),
+            Some(&ui),
+        )
+        .unwrap();
+        assert!(Session::Local(mux).tree().workspaces.is_empty());
     }
 
     #[test]
