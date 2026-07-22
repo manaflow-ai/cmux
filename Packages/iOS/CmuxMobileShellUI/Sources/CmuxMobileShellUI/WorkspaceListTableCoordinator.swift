@@ -507,24 +507,35 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .actionCapabilities ?? .none
             return AnyView(
                 WorkspaceGroupHeaderRow(
-                    group: group,
-                    hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
-                    navigationStyle: configuration.navigationStyle,
-                    isAnchorSelected: configuration.navigationStyle == .sidebar
-                        && configuration.selectedWorkspaceID == group.anchorWorkspaceID,
-                    selectWorkspace: configuration.selectWorkspace,
-                    createWorkspaceInGroup: configuration.createWorkspaceInGroup,
-                    renameGroup: capabilities.supportsGroupActions
-                        ? configuration.renameWorkspaceGroup : nil,
-                    setGroupPinned: capabilities.supportsGroupActions
-                        ? configuration.setGroupPinned : nil,
-                    ungroupWorkspaceGroup: capabilities.supportsGroupActions
-                        ? configuration.ungroupWorkspaceGroup : nil,
-                    deleteWorkspaceGroup: capabilities.supportsGroupActions
-                        ? configuration.deleteWorkspaceGroup : nil,
-                    toggleCollapsed: configuration.toggleGroupCollapsed,
-                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+                    value: WorkspaceGroupHeaderRowValue(
+                        group: group,
+                        hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
+                        navigationStyle: configuration.navigationStyle,
+                        isAnchorSelected: configuration.navigationStyle == .sidebar
+                            && configuration.selectedWorkspaceID == group.anchorWorkspaceID,
+                        canCreateWorkspaceInGroup: configuration.createWorkspaceInGroup != nil,
+                        canRenameGroup: capabilities.supportsGroupActions
+                            && configuration.renameWorkspaceGroup != nil,
+                        canSetGroupPinned: capabilities.supportsGroupActions
+                            && configuration.setGroupPinned != nil,
+                        canUngroupWorkspaceGroup: capabilities.supportsGroupActions
+                            && configuration.ungroupWorkspaceGroup != nil,
+                        canDeleteWorkspaceGroup: capabilities.supportsGroupActions
+                            && configuration.deleteWorkspaceGroup != nil,
+                        canToggleCollapsed: configuration.toggleGroupCollapsed != nil,
+                        unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+                    ),
+                    actions: WorkspaceGroupHeaderRowActions(
+                        selectWorkspace: configuration.selectWorkspace,
+                        createWorkspaceInGroup: configuration.createWorkspaceInGroup,
+                        renameGroup: configuration.renameWorkspaceGroup,
+                        setGroupPinned: configuration.setGroupPinned,
+                        ungroupWorkspaceGroup: configuration.ungroupWorkspaceGroup,
+                        deleteWorkspaceGroup: configuration.deleteWorkspaceGroup,
+                        toggleCollapsed: configuration.toggleGroupCollapsed
+                    )
                 )
+                .equatable()
                 .frame(minHeight: 32)
             )
         case .groupFooter(let groupID):

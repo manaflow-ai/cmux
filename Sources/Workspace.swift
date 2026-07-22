@@ -8559,9 +8559,8 @@ final class Workspace: Identifiable, ObservableObject {
         // Mapping can transiently drift during split-tree mutations. If the target panel is
         // currently focused (or is the active terminal first responder), close whichever tab
         // bonsplit marks selected in that focused pane.
-        let firstResponderPanelId = cmuxOwningGhosttyView(
-            for: NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder
-        )?.terminalSurface?.id
+        let firstResponderPanelId = (NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder)
+            .cmuxStrictOwningGhosttyView()?.terminalSurface?.id
         let targetIsActive = focusedPanelId == panelId || firstResponderPanelId == panelId
         guard targetIsActive,
               let focusedPane = bonsplitController.focusedPaneId,
@@ -8636,46 +8635,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
     func preferredRightSideTargetPane(fromPanelId panelId: UUID) -> PaneID? {
         guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
-        let sourcePaneId = sourcePane.id.uuidString
-        let tree = bonsplitController.treeSnapshot()
-        guard let path = browserPathToPane(targetPaneId: sourcePaneId, node: tree) else { return nil }
-
-        let layout = bonsplitController.layoutSnapshot()
-        let paneFrameById = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneId, $0.frame) })
-        let sourceFrame = paneFrameById[sourcePaneId]
-        let sourceCenterY = sourceFrame.map { $0.y + ($0.height * 0.5) } ?? 0
-        let sourceRightX = sourceFrame.map { $0.x + $0.width } ?? 0
-
-        for crumb in path {
-            guard crumb.split.orientation == "horizontal", crumb.branch == .first else { continue }
-            var candidateNodes: [ExternalPaneNode] = []
-            browserCollectPaneNodes(node: crumb.split.second, into: &candidateNodes)
-            if candidateNodes.isEmpty { continue }
-
-            let sorted = candidateNodes.sorted { lhs, rhs in
-                let lhsDy = abs((lhs.frame.y + (lhs.frame.height * 0.5)) - sourceCenterY)
-                let rhsDy = abs((rhs.frame.y + (rhs.frame.height * 0.5)) - sourceCenterY)
-                if lhsDy != rhsDy { return lhsDy < rhsDy }
-
-                let lhsDx = abs(lhs.frame.x - sourceRightX)
-                let rhsDx = abs(rhs.frame.x - sourceRightX)
-                if lhsDx != rhsDx { return lhsDx < rhsDx }
-
-                if lhs.frame.x != rhs.frame.x { return lhs.frame.x < rhs.frame.x }
-                return lhs.id < rhs.id
-            }
-
-            for candidate in sorted {
-                guard let candidateUUID = UUID(uuidString: candidate.id),
-                      candidateUUID != sourcePane.id,
-                      let pane = bonsplitController.allPaneIds.first(where: { $0.id == candidateUUID }) else {
-                    continue
-                }
-                return pane
-            }
-        }
-
-        return nil
+        return BrowserRightSidePaneResolver().preferredPane(
+            from: sourcePane,
+            in: bonsplitController
+        )
     }
 
     /// Returns the top-right pane in the current split tree.
@@ -8719,33 +8682,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
-    }
-
-    private enum BrowserPaneBranch {
-        case first
-        case second
-    }
-
-    private struct BrowserPaneBreadcrumb {
-        let split: ExternalSplitNode
-        let branch: BrowserPaneBranch
-    }
-
-    private func browserPathToPane(targetPaneId: String, node: ExternalTreeNode) -> [BrowserPaneBreadcrumb]? {
-        switch node {
-        case .pane(let paneNode):
-            return paneNode.id == targetPaneId ? [] : nil
-        case .split(let splitNode):
-            if var path = browserPathToPane(targetPaneId: targetPaneId, node: splitNode.first) {
-                path.append(BrowserPaneBreadcrumb(split: splitNode, branch: .first))
-                return path
-            }
-            if var path = browserPathToPane(targetPaneId: targetPaneId, node: splitNode.second) {
-                path.append(BrowserPaneBreadcrumb(split: splitNode, branch: .second))
-                return path
-            }
-            return nil
-        }
     }
 
     private func browserCollectPaneNodes(node: ExternalTreeNode, into output: inout [ExternalPaneNode]) {

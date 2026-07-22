@@ -437,7 +437,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInOmp,
             CmuxVaultAgentRegistration.builtInCampfire,
             CmuxVaultAgentRegistration.builtInAntigravity,
-            CmuxVaultAgentRegistration.builtInGrok,
+            CmuxVaultAgentRegistration.builtInGrok, CmuxVaultAgentRegistration.builtInKimi,
         ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }

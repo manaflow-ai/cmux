@@ -3,33 +3,17 @@ import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceListView {
-    var newWorkspaceButton: some View {
-        Menu {
-            Button {
-                guard canCreateWorkspaceForMacSelection else { return }
-                createWorkspace()
-            } label: {
-                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus")
-            }
-            .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
-            if let createWorkspaceGroup {
-                Button {
-                    guard canCreateWorkspaceForMacSelection else { return }
-                    createWorkspaceGroup()
-                } label: {
-                    Label(L10n.string("mobile.workspaceGroup.new", defaultValue: "New Workspace Group"), systemImage: "folder.badge.plus")
-                }
-                .accessibilityIdentifier("MobileNewWorkspaceGroupMenuItem")
-            }
-        } label: {
-            Image(systemName: "plus")
-        } primaryAction: {
-            guard canCreateWorkspaceForMacSelection else { return }
-            createWorkspace()
-        }
-        .disabled(!canCreateWorkspaceForMacSelection)
-        .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
-        .accessibilityIdentifier("MobileNewWorkspaceButton")
+    var newWorkspaceButton: WorkspaceListNewWorkspaceMenu {
+        WorkspaceListNewWorkspaceMenu(
+            value: WorkspaceListNewWorkspaceMenuValue(
+                canCreate: canCreateWorkspaceForMacSelection,
+                canCreateGroup: createWorkspaceGroup != nil
+            ),
+            actions: WorkspaceListNewWorkspaceMenuActions(
+                createWorkspace: createWorkspace,
+                createWorkspaceGroup: createWorkspaceGroup
+            )
+        )
     }
 
     @discardableResult
