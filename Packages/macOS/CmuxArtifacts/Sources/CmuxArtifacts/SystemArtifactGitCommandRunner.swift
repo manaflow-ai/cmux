@@ -3,18 +3,28 @@ import Foundation
 
 /// Process-backed Git command runner used by the local artifact repository.
 struct SystemArtifactGitCommandRunner: ArtifactGitCommandRunning {
+    func terminationStatus(arguments: [String]) throws -> Int32 {
+        let process = makeProcess(arguments: arguments)
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
     func run(
         arguments: [String],
         standardInput: Data?
     ) throws -> (terminationStatus: Int32, standardOutput: Data) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
+        let process = makeProcess(arguments: arguments)
         let outputFile = try makeUnlinkedOutputFile()
         process.standardOutput = outputFile
-        process.standardError = FileHandle.nullDevice
         let inputPipe = standardInput.map { _ in Pipe() }
-        process.standardInput = inputPipe
+        if let inputPipe {
+            process.standardInput = inputPipe
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         try process.run()
         if let standardInput, let inputPipe {
             try inputPipe.fileHandleForWriting.write(contentsOf: standardInput)
@@ -25,6 +35,14 @@ struct SystemArtifactGitCommandRunner: ArtifactGitCommandRunning {
         let standardOutput = try outputFile.readToEnd() ?? Data()
         try outputFile.close()
         return (process.terminationStatus, standardOutput)
+    }
+
+    private func makeProcess(arguments: [String]) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.standardError = FileHandle.nullDevice
+        return process
     }
 
     private func makeUnlinkedOutputFile() throws -> FileHandle {

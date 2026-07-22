@@ -47,12 +47,10 @@ struct ArtifactGitIgnoreManager {
         ) else {
             return nil
         }
-        guard let result = try? commandRunner.run(arguments: [
+        guard let trackedStatus = try? commandRunner.terminationStatus(arguments: [
             "-C", repository.worktreeRoot.path,
-            "ls-files", "-z", "--", relativeArtifactsPath,
-        ], standardInput: nil),
-        result.terminationStatus == 0,
-        result.standardOutput.isEmpty else {
+            "ls-files", "--error-unmatch", "--", relativeArtifactsPath,
+        ]), trackedStatus == 1 else {
             return nil
         }
         return ArtifactGitPrivacyValidator(
