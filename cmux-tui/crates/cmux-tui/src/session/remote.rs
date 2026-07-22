@@ -1380,7 +1380,10 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
 }
 
 #[cfg(test)]
-pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
+fn test_session_with_provider_context(
+    provider_workspace_authority: Option<BearerToken>,
+    capabilities: HashSet<String>,
+) -> Arc<RemoteSession> {
     struct NoopWriter;
 
     impl RemoteMessageWriter for NoopWriter {
@@ -1407,11 +1410,27 @@ pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
         subscribers: MuxEventBroadcaster::default(),
         frame_logs: Mutex::new(HashMap::new()),
         surface_overflow_recovery: Mutex::new(HashMap::new()),
-        capabilities: Mutex::new(HashSet::from([
-            cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string(),
-        ])),
-        provider_workspace_authority: None,
+        capabilities: Mutex::new(capabilities),
+        provider_workspace_authority,
     })
+}
+
+#[cfg(test)]
+pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
+    test_session_with_provider_context(
+        None,
+        HashSet::from([
+            cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string()
+        ]),
+    )
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_provider_authority_without_guard() -> Arc<RemoteSession> {
+    test_session_with_provider_context(
+        Some(BearerToken::new("test-provider-workspace-authority").unwrap()),
+        HashSet::new(),
+    )
 }
 
 #[cfg(test)]
@@ -1420,8 +1439,8 @@ mod tests {
     use std::io::{BufRead, Read, Write};
     #[cfg(unix)]
     use std::os::unix::net::UnixStream;
-    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicU64};
+    use std::sync::{Mutex, Weak};
 
     use ghostty_vt::{Callbacks, Terminal};
     use serde_json::json;
@@ -1505,7 +1524,45 @@ mod tests {
         }
     }
 
-    fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
+    struct AcknowledgingWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+    }
+
+    impl RemoteMessageWriter for AcknowledgingWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .send(json!({"id": id, "ok": true, "data": null}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_session_with_provider_context(
+        writer: Box<dyn RemoteMessageWriter>,
+        capabilities: HashSet<String>,
+        provider_workspace_authority: Option<BearerToken>,
+    ) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
             writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
@@ -1520,9 +1577,26 @@ mod tests {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
-            capabilities: Mutex::new(HashSet::new()),
-            provider_workspace_authority: None,
+            capabilities: Mutex::new(capabilities),
+            provider_workspace_authority,
         })
+    }
+
+    fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
+        test_session_with_provider_context(writer, HashSet::new(), None)
+    }
+
+    fn acknowledging_provider_session() -> Arc<RemoteSession> {
+        let session_slot = Arc::new(Mutex::new(None));
+        let session = test_session_with_provider_context(
+            Box::new(AcknowledgingWriter { session: session_slot.clone() }),
+            HashSet::from([
+                cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string()
+            ]),
+            Some(BearerToken::new("acknowledged-provider-workspace-authority").unwrap()),
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        session
     }
 
     #[test]
@@ -1536,6 +1610,15 @@ mod tests {
             error.to_string(),
             "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
         );
+    }
+
+    #[test]
+    fn provider_guard_state_changes_only_after_the_remote_acknowledges() {
+        let session = crate::session::Session::Remote(acknowledging_provider_session());
+
+        assert!(!session.workspaces_are_provider_managed());
+        session.mark_workspaces_provider_managed().unwrap();
+        assert!(session.workspaces_are_provider_managed());
     }
 
     #[test]

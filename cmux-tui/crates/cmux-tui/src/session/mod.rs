@@ -1454,6 +1454,11 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Session {
+    Session::Remote(remote::test_session_with_provider_authority_without_guard())
+}
+
+#[cfg(test)]
 mod tests {
     use cmux_tui_core::{Mux, SurfaceOptions};
 
