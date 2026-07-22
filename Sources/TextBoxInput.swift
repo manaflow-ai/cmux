@@ -3607,6 +3607,10 @@ final class TextBoxInputTextView: NSTextView {
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         onMarkedTextStateChanged(hasMarkedText())
+        // Marked text bypasses textDidChange; run TextBox measurement and redraw before commit.
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        needsDisplay = true
     }
 
     override func unmarkText() {
