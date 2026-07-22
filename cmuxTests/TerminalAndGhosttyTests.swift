@@ -1062,6 +1062,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             workspaceId: UUID(),
             initialInput: "echo resume\n"
         )
+        defer { panel.surface.teardownSurface() }
 
         XCTAssertTrue(
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
@@ -1079,6 +1080,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             workspaceId: UUID(),
             initialCommand: "echo startup"
         )
+        defer { panel.surface.teardownSurface() }
 
         XCTAssertTrue(
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
@@ -1513,14 +1515,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
-        MobileHostService.shared.start()
-        defer {
-            MobileHostService.shared.stop()
-        }
-        guard await waitForMobileHostRoutesForTesting() else {
-            XCTFail("Expected mobile host to publish routes before creating attach ticket")
-            return
-        }
+        defer { MobileHostPublicStatusCache.removeAll() }
+        try publishLoopbackMobileHostRouteForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1549,14 +1545,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
-        MobileHostService.shared.start()
-        defer {
-            MobileHostService.shared.stop()
-        }
-        guard await waitForMobileHostRoutesForTesting() else {
-            XCTFail("Expected mobile host to publish routes before creating attach ticket")
-            return
-        }
+        defer { MobileHostPublicStatusCache.removeAll() }
+        try publishLoopbackMobileHostRouteForTesting()
 
         let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let backgroundWorkspace = manager.addWorkspace(
@@ -1595,14 +1585,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
-        MobileHostService.shared.start()
-        defer {
-            MobileHostService.shared.stop()
-        }
-        guard await waitForMobileHostRoutesForTesting() else {
-            XCTFail("Expected mobile host to publish routes before creating attach ticket")
-            return
-        }
+        defer { MobileHostPublicStatusCache.removeAll() }
+        try publishLoopbackMobileHostRouteForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1800,25 +1784,25 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 #endif
 
-    private func waitForMobileHostRoutesForTesting() async -> Bool {
-        for _ in 0..<200 {
-            let response = await TerminalController.shared.mobileHostHandleRPC(
-                MobileHostRPCRequest(
-                    id: "status",
-                    method: "mobile.host.status",
-                    params: [:],
-                    auth: nil
-                )
-            )
-            if case let .ok(rawPayload) = response,
-               let payload = rawPayload as? [String: Any],
-               let routes = payload["routes"] as? [[String: Any]],
-               !routes.isEmpty {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-        return false
+    /// Publishes the loopback route the attach-ticket path reads.
+    ///
+    /// This replaces a wait on `mobile.host.status`, which cannot succeed: that method is the
+    /// unauthenticated probe and deliberately discloses no routes at all, so the old predicate was
+    /// unsatisfiable rather than slow. Seeding the cache directly also keeps these tests off a real
+    /// listener bind, which is what they want anyway -- an attach ticket only needs a non-empty
+    /// `MobileHostPublicStatusCache`.
+    private func publishLoopbackMobileHostRouteForTesting(port: Int = 8_765) throws {
+        let route = try CmxAttachRoute(
+            id: CmxAttachTransportKind.debugLoopback.rawValue,
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: port),
+            priority: 0
+        )
+        MobileHostPublicStatusCache.update(routes: [route])
+        XCTAssertFalse(
+            MobileHostPublicStatusCache.snapshot().isEmpty,
+            "Seeding the public status cache is the precondition the attach-ticket path reads."
+        )
     }
 }
 
