@@ -159,6 +159,22 @@ jobs:
           CMUX_EXPECTED_SIMULATOR_ARCH: ${{ matrix.expected_arch }}
         run: ./scripts/ci/run-iroh-ios-simulator-package-tests.sh
 
+      - name: Run suggestion index lifetime regression
+        if: matrix.os == 'macos-15'
+        env:
+          CMUX_SKIP_ZIG_BUILD: "1"
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            -only-testing:cmuxTests/BrowserOpenTabSuggestionIndexLifetimeTests \
+            test
+
       - name: Run unit tests
         if: matrix.run_unit_tests
         env:
