@@ -47,6 +47,8 @@ struct ArtifactGitBatchingTests {
             .map(String.init)
         #expect(invocations.filter { $0.contains("\u{1f}ls-files\u{1f}") }.count == 1)
         #expect(invocations.filter { $0.contains("\u{1f}check-ignore\u{1f}") }.count == 2)
+        #expect(invocations.first { $0.contains("\u{1f}ls-files\u{1f}") }?
+            .hasPrefix("status\u{1f}") == true)
         #expect(invocations.count == 3)
     }
 }
