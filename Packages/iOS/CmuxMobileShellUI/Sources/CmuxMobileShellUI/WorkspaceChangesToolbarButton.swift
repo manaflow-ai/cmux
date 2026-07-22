@@ -17,7 +17,8 @@ struct WorkspaceChangesToolbarButton: View {
                 WorkspaceChangesChipLabel(
                     chip: chip,
                     workspaceID: workspaceID,
-                    showsCapsuleBackground: false
+                    showsCapsuleBackground: false,
+                    stacksVertically: true
                 )
                 .frame(minWidth: 30, minHeight: 30)
             } else {

@@ -7,23 +7,13 @@ struct WorkspaceChangesChipLabel: View {
     let chip: MobileWorkspaceChangesChip
     let workspaceID: String
     var showsCapsuleBackground = true
+    /// Stacks +N over −M for width-constrained hosts (the toolbar button).
+    var stacksVertically = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let theme = ChangesTheme(colorScheme: colorScheme)
-        let text = chipText
-        HStack(spacing: 3) {
-            if let secondary = text.secondary {
-                Text(text.primary)
-                    .foregroundStyle(theme.addedStatus)
-                Text(secondary)
-                    .foregroundStyle(theme.deletedStatus)
-            } else {
-                Text(text.primary)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.caption2.weight(.semibold))
+        counts
+            .font(.caption2.weight(.semibold))
         .monospacedDigit()
         .lineLimit(1)
         .padding(.horizontal, 6)
@@ -36,6 +26,32 @@ struct WorkspaceChangesChipLabel: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("MobileChangesChip-\(workspaceID)")
+    }
+
+    @ViewBuilder
+    private var counts: some View {
+        let theme = ChangesTheme(colorScheme: colorScheme)
+        let text = chipText
+        if stacksVertically, let secondary = text.secondary {
+            VStack(spacing: 0) {
+                Text(text.primary)
+                    .foregroundStyle(theme.addedStatus)
+                Text(secondary)
+                    .foregroundStyle(theme.deletedStatus)
+            }
+        } else {
+            HStack(spacing: 3) {
+                if let secondary = text.secondary {
+                    Text(text.primary)
+                        .foregroundStyle(theme.addedStatus)
+                    Text(secondary)
+                        .foregroundStyle(theme.deletedStatus)
+                } else {
+                    Text(text.primary)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     private var chipText: WorkspaceChangesChipText {
