@@ -85,7 +85,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         #expect(result.status != 0)
-        #expect(result.stderr.contains("more than 1 node matched"))
+        #expect(result.stdout.contains("more than 1 node matched"), Comment(rawValue: result.stdout))
     }
 
     @Test func agentsIncludeWorkspaceOwnedSessionsWhenSavedSurfaceIsStale() throws {
