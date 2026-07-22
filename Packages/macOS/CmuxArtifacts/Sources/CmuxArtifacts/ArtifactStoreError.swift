@@ -14,4 +14,6 @@ public enum ArtifactStoreError: Error, Equatable, Sendable {
     case ambiguousArtifactName(String, matches: [String])
     /// The resolved path escaped the artifact store boundary.
     case pathOutsideStore(String)
+    /// Existing content-addressed provenance could not be decoded safely.
+    case corruptProvenance(String)
 }

@@ -10,6 +10,8 @@ public enum ArtifactSkipReason: String, Equatable, Sendable {
     case notARegularFile
     /// The requested path does not remain confined to the local artifact store.
     case pathOutsideStore
+    /// Existing provenance metadata is corrupt and must not be overwritten.
+    case corruptProvenance
     /// The filename extension is not allowlisted.
     case unsupportedExtension
     /// The file exceeds the configured size limit.

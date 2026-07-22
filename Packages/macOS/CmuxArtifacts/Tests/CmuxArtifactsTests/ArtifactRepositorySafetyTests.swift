@@ -17,7 +17,7 @@ struct ArtifactRepositorySafetyTests {
         let corruptData = Data("{truncated".utf8)
         try corruptData.write(to: metadataURL)
 
-        #expect(throws: DecodingError.self) {
+        #expect(throws: ArtifactStoreError.corruptProvenance(metadataURL.path)) {
             try recorder.record(
                 paths: paths,
                 digest: "digest",

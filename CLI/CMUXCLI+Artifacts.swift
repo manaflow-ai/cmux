@@ -275,6 +275,11 @@ extension CMUXCLI {
                 localized: "cli.artifact.error.rejectedOutsideStore",
                 defaultValue: "The artifact path escaped the local store."
             )
+        case .corruptProvenance:
+            return String(
+                localized: "cli.artifact.error.rejectedCorruptProvenance",
+                defaultValue: "The artifact store's provenance metadata is corrupt."
+            )
         case .unsupportedExtension:
             return String(
                 localized: "cli.artifact.error.rejectedExtension",
@@ -324,6 +329,8 @@ extension CMUXCLI {
             return String(format: String(localized: "cli.artifact.error.ambiguous", defaultValue: "Artifact name '%@' is ambiguous: %@"), name, matches.joined(separator: ", "))
         case .pathOutsideStore(let path):
             return String(format: String(localized: "cli.artifact.error.outsideStore", defaultValue: "Artifact path escaped the store: %@"), path)
+        case .corruptProvenance(let path):
+            return String(format: String(localized: "cli.artifact.error.corruptProvenance", defaultValue: "Artifact provenance metadata is corrupt: %@"), path)
         }
     }
 }

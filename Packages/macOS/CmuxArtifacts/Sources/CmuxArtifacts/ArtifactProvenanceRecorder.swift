@@ -9,8 +9,12 @@ struct ArtifactProvenanceRecorder {
     func document(paths: ArtifactStorePaths, digest: String) throws -> ArtifactMetadataDocument? {
         let url = metadataURL(paths: paths, digest: digest)
         guard fileManager.fileExists(atPath: url.path) else { return nil }
-        let data = try Data(contentsOf: url)
-        return try decoder.decode(ArtifactMetadataDocument.self, from: data)
+        do {
+            let data = try Data(contentsOf: url)
+            return try decoder.decode(ArtifactMetadataDocument.self, from: data)
+        } catch {
+            throw ArtifactStoreError.corruptProvenance(url.path)
+        }
     }
 
     func record(

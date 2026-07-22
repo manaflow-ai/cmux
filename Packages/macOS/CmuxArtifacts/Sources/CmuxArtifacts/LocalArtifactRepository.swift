@@ -148,7 +148,14 @@ public actor LocalArtifactRepository: ArtifactStoring {
                 paths: paths
             )
         } catch {
-            existingByDigest = [:]
+            let rejection = (error as? ArtifactStoreError)
+                ?? ArtifactStoreError.pathOutsideStore(paths.artifactsRoot.path)
+            for index in preparedByIndex.keys {
+                attempts[index] = .rejected(rejection)
+            }
+            return attempts.enumerated().map { index, attempt in
+                attempt ?? .rejected(.sourceNotRegularFile(candidates[index].sourceURL.path))
+            }
         }
         var captureDirectory: URL?
         for (index, prepared) in preparedByIndex.sorted(by: { $0.key < $1.key }) {

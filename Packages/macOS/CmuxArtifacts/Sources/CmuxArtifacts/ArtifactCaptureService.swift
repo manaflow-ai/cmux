@@ -133,6 +133,8 @@ private extension ArtifactStoreError {
             return .notARegularFile
         case .pathOutsideStore:
             return .pathOutsideStore
+        case .corruptProvenance:
+            return .corruptProvenance
         }
     }
 }
