@@ -19,10 +19,10 @@ Unix targets connect directly to another local cmux control socket. Use an absol
 SSH targets start this process:
 
 ```text
-ssh -T [-p PORT] [-i IDENTITY_FILE] -- [USER@]HOST 'BINARY' relay --session SESSION
+ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ClearAllForwardings=yes [-p PORT] [-i IDENTITY_FILE] -- [USER@]HOST 'BINARY' relay --session SESSION
 ```
 
-The remote session must already be running. The remote `binary` must resolve in a noninteractive SSH login and defaults to `cmux-tui`. `relay` copies protocol bytes between stdio and that session's Unix socket. SSH owns host verification, authentication, encryption, and network transport; relay adds no authentication.
+The remote session must already be running. The remote `binary` must resolve in a noninteractive SSH login and defaults to `cmux-tui`. `relay` copies protocol bytes between stdio and that session's Unix socket. SSH owns host verification, authentication, encryption, and network transport; relay adds no authentication. The client never prompts for a password or new host key inside the TUI. The target must already be trusted in local `known_hosts`, and a key or SSH agent must authenticate it. Agent forwarding and all port forwarding are disabled.
 
 See [Configuration](configuration.md#machines) for the full schema and examples.
 
@@ -39,6 +39,10 @@ cmux-tui --cloud
 The direct-command form treats every value through the terminating `--` as one literal argument. It does not use a shell. cmux appends `control` to the long-lived provider process and `stream` to each machine transport process.
 
 `--cloud` runs OpenSSH against `cmux.cloud` by default. `--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override the destination. The connector uses one private SSH ControlMaster per provider generation and runs exactly `cmux provider control` for the catalog connection and `cmux provider stream` for each machine connection. The SSH server must implement those two commands.
+
+A local `--cloud` client appends the configured `machines` array to the provider catalog and shows `+ Connect machine`. These entries and temporary `user@host` targets use the caller's local SSH config, keys, agent, and `known_hosts`. Their target details never enter provider requests. Provider machines use low process-local keys and local entries use the upper half of the key space. A provider refresh cannot replace an active local session. Switching back to a provider machine opens a fresh provider ticket.
+
+Unix-socket and direct-command provider modes are provider-only and reject a simultaneous `machines` array. The native TUI reached by `ssh cmux.cloud` uses Unix provider mode, has no access to the caller's local SSH credentials, and does not show the local connect action. Provider-driven external connect remains hidden unless both the snapshot bit and its negotiated protocol capability are present.
 
 Each connection generation receives a new client-generated bearer. The bearer travels only in the first provider protocol message and later machine transport handshakes. It is never placed in process arguments, environment variables, or diagnostics. Dropping or reconnecting the provider terminates its child processes and removes its private SSH control directory.
 

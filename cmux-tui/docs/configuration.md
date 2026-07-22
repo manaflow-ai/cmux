@@ -130,7 +130,7 @@ Every machine has a unique nonempty `id`, a nonempty display `name`, an optional
 }
 ```
 
-The SSH target invokes `ssh -T` and runs `binary relay --session session` remotely. It connects to an existing remote server and does not start one. See [Machines](machines.md) for rail behavior and a complete `npx cmux` remote setup.
+The SSH target invokes noninteractive `ssh -T` with strict host-key checking, disabled agent forwarding, and disabled port forwarding, then runs `binary relay --session session` remotely. It connects to an existing remote server and does not start one. See [Machines](machines.md) for rail behavior and a complete `npx cmux` remote setup.
 
 ### Dynamic machine provider
 
@@ -158,7 +158,7 @@ Dynamic provider startup is disabled by default. Persistent configuration curren
 }
 ```
 
-`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config. A dynamic provider cannot be combined with the static `machines` array, another provider transport, `attach`, server socket/listener flags, `--headless`, or `--term`.
+`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. A local Cloud client composes the static `machines` array with the provider catalog. Static entries and temporary `+ Connect machine` targets stay client-local and use local SSH credentials. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config; those provider-only modes reject a nonempty `machines` array. Every dynamic provider rejects another provider transport, `attach`, server socket/listener flags, `--headless`, and `--term`.
 
 The cloud connector runs `cmux provider control` and `cmux provider stream` remotely. These are provider service commands, not cmux-tui control-socket verbs. See [Machines](machines.md#dynamic-providers).
 

@@ -35,7 +35,7 @@ cargo run -p cmux-tui -- attach --session agents
 
 The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
 
-Packaged builds can run as `npx cmux`. The optional machine rail lets that local client switch among the current session, other Unix sockets, and sessions reached through SSH. It is disabled by default and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. The client runs `ssh -T` and the remote `cmux-tui relay --session <name>` transport primitive, so the remote headless session and binary must already exist. See [Machines and remote sessions](docs/machines.md).
+Packaged builds can run as `npx cmux`. The optional machine rail lets that local client switch among the current session, other Unix sockets, and sessions reached through SSH. It is disabled by default and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. `npx cmux --cloud` composes those local targets with the Cloud catalog and enables temporary machine connections without sending local SSH details to Cloud. The client uses noninteractive SSH with strict host-key checking and the remote `cmux-tui relay --session <name>` transport primitive, so the remote headless session, trusted host key, authentication key, and binary must already exist. See [Machines and remote sessions](docs/machines.md).
 
 ```bash
 npx cmux
