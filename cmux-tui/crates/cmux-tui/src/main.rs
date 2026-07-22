@@ -1146,6 +1146,46 @@ mod tests {
         );
     }
 
+    #[test]
+    fn static_machine_catalog_notices_use_the_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_STATIC_MACHINE_NOTICE_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("tests::static_machine_catalog_notices_use_the_selected_locale")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese static machine notice child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let runtime = MachineRuntime::new(PathBuf::from("/tmp/static-machine-notice.sock"), vec![]);
+        let active = runtime.initial_key();
+        let mut controller = StaticMachineController { runtime, active, pending_active: None };
+
+        assert_eq!(
+            controller.perform(MachineRequest::Create).unwrap().ui.notice.as_deref(),
+            Some("このマシンカタログでは仮想マシンを作成できません")
+        );
+        assert_eq!(
+            controller
+                .perform(MachineRequest::SelectProviderScope("team".into()))
+                .unwrap()
+                .ui
+                .notice
+                .as_deref(),
+            Some("このマシンカタログにはプロバイダーアクションがありません")
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn unix_provider_uses_the_edge_supplied_bearer() {

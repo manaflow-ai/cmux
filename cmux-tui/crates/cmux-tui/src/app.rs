@@ -14445,6 +14445,30 @@ mod tests {
     }
 
     #[test]
+    fn provider_authority_without_remote_guard_disables_the_managed_session() {
+        let session = crate::session::test_remote_session_with_provider_authority_without_guard();
+        let mut app = test_app(session);
+
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+
+        assert_eq!(
+            app.machine_ui.as_ref().map(|machine| machine.session_available),
+            Some(false),
+            "an unguarded remote session must not expose provider-managed workspace mutations"
+        );
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(
+                "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
+            )
+        );
+        assert!(
+            !app.session.workspaces_are_provider_managed(),
+            "provider authority alone must not mark an older remote session as guarded"
+        );
+    }
+
+    #[test]
     fn missing_managed_descriptor_fails_closed_without_local_close() {
         let mux = Mux::new("managed-workspace-missing-descriptor-test", SurfaceOptions::default());
         let placement = mux
