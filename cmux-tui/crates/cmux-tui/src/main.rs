@@ -678,7 +678,11 @@ impl MachineController for StaticMachineController {
                 Ok(self.notice("This machine catalog has no provider actions"))
             }
             MachineRequest::CreateManagedIsolatedWorkspace(_)
-            | MachineRequest::CreateManagedHostWorkspace(_) => {
+            | MachineRequest::CreateManagedHostWorkspace(_)
+            | MachineRequest::RenameManagedWorkspace { .. }
+            | MachineRequest::DeleteManagedWorkspace { .. }
+            | MachineRequest::RestoreManagedWorkspace { .. }
+            | MachineRequest::PurgeManagedWorkspace { .. } => {
                 Ok(self.notice(localization::catalog().sidebar.managed_workspace_unsupported))
             }
         }

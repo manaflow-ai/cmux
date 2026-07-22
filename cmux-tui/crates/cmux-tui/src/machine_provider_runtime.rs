@@ -13,9 +13,10 @@ use cmux_tui_machine_protocol as protocol;
 use crate::machine::{
     MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
     MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdateStream,
-    ProviderActionDescriptor, ProviderActionFieldDescriptor, ProviderActionFieldKind,
-    ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor, ProviderScopeKind,
-    WorkspaceCreationMode, WorkspaceCreationPolicy,
+    ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
+    ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
+    ProviderActionFieldKind, ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor,
+    ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
 };
 #[cfg(test)]
 use crate::machine_provider_client::UnixProviderConnector;
@@ -39,6 +40,7 @@ pub(crate) struct ProviderMachineRuntime {
     connector: Arc<dyn MachineProviderConnector>,
     client: Arc<ProviderClient>,
     snapshot: protocol::SnapshotResult,
+    workspace_snapshot: Option<protocol::WorkspaceSnapshotResult>,
     keys: Arc<Mutex<KeyRegistry>>,
     mutation_nonce: String,
     mutation_sequence: AtomicU64,
@@ -61,12 +63,13 @@ impl ProviderMachineRuntime {
     pub(crate) fn connect_with(
         connector: Arc<dyn MachineProviderConnector>,
     ) -> anyhow::Result<Self> {
-        let (client, snapshot) = connect_client(Arc::clone(&connector))?;
+        let (client, snapshot, workspace_snapshot) = connect_client(Arc::clone(&connector))?;
         let client = Arc::new(client);
         let mut runtime = Self {
             connector,
             client,
             snapshot,
+            workspace_snapshot,
             keys: Arc::new(Mutex::new(KeyRegistry {
                 by_id: HashMap::new(),
                 by_key: HashMap::new(),
@@ -83,6 +86,7 @@ impl ProviderMachineRuntime {
 
     pub(crate) fn refresh(&mut self) -> anyhow::Result<()> {
         self.snapshot = self.client.snapshot(Some(self.snapshot.revision))?;
+        self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
         self.reconcile_keys();
         if let Some(notice) = &self.snapshot.notice {
             self.notice = Some(notice.message.clone());
@@ -131,6 +135,7 @@ impl ProviderMachineRuntime {
                 let machine_id = self.machine_id(key)?;
                 let previous_selection = self.snapshot.selected_machine_id.clone();
                 self.snapshot.selected_machine_id = Some(machine_id);
+                self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
                 let candidate = self.open_selected_candidate();
                 if candidate.is_err() {
                     self.snapshot.selected_machine_id = previous_selection;
@@ -154,11 +159,14 @@ impl ProviderMachineRuntime {
                 self.refresh()?;
                 if key_for_id(&self.keys, &created_machine_id).is_some() {
                     self.snapshot.selected_machine_id = Some(created_machine_id);
+                    self.workspace_snapshot =
+                        load_workspace_snapshot(&self.client, &self.snapshot)?;
                 }
             }
             MachineRequest::SelectProviderScope(scope_id) => {
                 let scope_id = protocol::OpaqueId::new(scope_id)?;
                 self.snapshot = self.client.select_scope(scope_id)?.snapshot;
+                self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
                 self.reconcile_keys();
             }
             MachineRequest::InvokeProviderAction { action_id, values } => {
@@ -201,6 +209,61 @@ impl ProviderMachineRuntime {
             MachineRequest::CreateManagedHostWorkspace(key) => {
                 self.create_workspace(key, protocol::WorkspaceCreateMode::Host)?;
             }
+            MachineRequest::RenameManagedWorkspace {
+                machine,
+                workspace_id,
+                expected_version,
+                name,
+            } => {
+                let result = self.client.rename_workspace(protocol::RenameWorkspaceParams {
+                    machine_id: self.machine_id(machine)?,
+                    workspace_id: protocol::OpaqueId::new(workspace_id.clone())?,
+                    expected_version,
+                    display_name: name.clone(),
+                    mutation_id: self.next_mutation_id()?,
+                })?;
+                self.set_notice(result.notice);
+                self.refresh()?;
+                return Ok(MachineActionResult::ui(self.ui_state_for_open_connection())
+                    .with_session_mutation(ManagedWorkspaceSessionMutation::Rename {
+                        workspace_key: workspace_id,
+                        name,
+                    }));
+            }
+            MachineRequest::DeleteManagedWorkspace { machine, workspace_id, expected_version } => {
+                let result = self.client.delete_workspace(protocol::WorkspaceMutationParams {
+                    machine_id: self.machine_id(machine)?,
+                    workspace_id: protocol::OpaqueId::new(workspace_id.clone())?,
+                    expected_version,
+                    mutation_id: self.next_mutation_id()?,
+                })?;
+                self.set_notice(result.notice);
+                self.refresh()?;
+                return Ok(MachineActionResult::ui(self.ui_state_for_open_connection())
+                    .with_session_mutation(ManagedWorkspaceSessionMutation::Close {
+                        workspace_key: workspace_id,
+                    }));
+            }
+            MachineRequest::RestoreManagedWorkspace { machine, workspace_id, expected_version } => {
+                let result = self.client.restore_workspace(protocol::WorkspaceMutationParams {
+                    machine_id: self.machine_id(machine)?,
+                    workspace_id: protocol::OpaqueId::new(workspace_id)?,
+                    expected_version,
+                    mutation_id: self.next_mutation_id()?,
+                })?;
+                self.set_notice(result.notice);
+                self.refresh()?;
+            }
+            MachineRequest::PurgeManagedWorkspace { machine, workspace_id, expected_version } => {
+                let result = self.client.purge_workspace(protocol::WorkspaceMutationParams {
+                    machine_id: self.machine_id(machine)?,
+                    workspace_id: protocol::OpaqueId::new(workspace_id)?,
+                    expected_version,
+                    mutation_id: self.next_mutation_id()?,
+                })?;
+                self.set_notice(result.notice);
+                self.refresh()?;
+            }
             MachineRequest::Connect(_) => {
                 anyhow::bail!("this machine provider cannot connect external machines")
             }
@@ -222,6 +285,7 @@ impl ProviderMachineRuntime {
         let thread_stop = stop.clone();
         let (sender, receiver) = mpsc::sync_channel(8);
         let mut last_snapshot = self.snapshot.clone();
+        let mut last_workspace_snapshot = self.workspace_snapshot.clone();
         let worker = std::thread::Builder::new().name("machine-provider-snapshots".into()).spawn(
             move || {
                 while !thread_stop.load(Ordering::Acquire) {
@@ -229,7 +293,12 @@ impl ProviderMachineRuntime {
                         Ok(event) => event,
                         Err(mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            let mut ui = machine_ui_state(&last_snapshot, &keys, false);
+                            let mut ui = machine_ui_state(
+                                &last_snapshot,
+                                last_workspace_snapshot.as_ref(),
+                                &keys,
+                                false,
+                            );
                             ui.notice = Some("Machine provider disconnected; reconnecting".into());
                             ui.request = Some(MachineRequest::ReconnectProvider);
                             let _ = sender.send(ui);
@@ -250,7 +319,12 @@ impl ProviderMachineRuntime {
                     let snapshot = match client.snapshot(Some(last_snapshot.revision)) {
                         Ok(snapshot) => snapshot,
                         Err(error) => {
-                            let mut ui = machine_ui_state(&last_snapshot, &keys, false);
+                            let mut ui = machine_ui_state(
+                                &last_snapshot,
+                                last_workspace_snapshot.as_ref(),
+                                &keys,
+                                false,
+                            );
                             ui.notice = Some(format!("Machine provider update failed: {error}"));
                             ui.request = Some(MachineRequest::ReconnectProvider);
                             let _ = sender.send(ui);
@@ -258,9 +332,30 @@ impl ProviderMachineRuntime {
                         }
                     };
                     last_snapshot = snapshot.clone();
+                    last_workspace_snapshot = match load_workspace_snapshot(&client, &snapshot) {
+                        Ok(snapshot) => snapshot,
+                        Err(error) => {
+                            let mut ui = machine_ui_state(
+                                &last_snapshot,
+                                last_workspace_snapshot.as_ref(),
+                                &keys,
+                                false,
+                            );
+                            ui.notice =
+                                Some(format!("Machine provider workspace update failed: {error}"));
+                            ui.request = Some(MachineRequest::ReconnectProvider);
+                            let _ = sender.send(ui);
+                            break;
+                        }
+                    };
                     let session_available = snapshot.selected_machine_id.is_some()
                         && snapshot.selected_machine_id.as_ref() == connected_machine_id.as_ref();
-                    let mut ui = machine_ui_state(&snapshot, &keys, session_available);
+                    let mut ui = machine_ui_state(
+                        &snapshot,
+                        last_workspace_snapshot.as_ref(),
+                        &keys,
+                        session_available,
+                    );
                     ui.notice = notice
                         .or_else(|| snapshot.notice.as_ref().map(|notice| notice.message.clone()));
                     if !session_available
@@ -285,9 +380,10 @@ impl ProviderMachineRuntime {
     }
 
     fn reconnect_session(&mut self) -> anyhow::Result<MachineActionResult> {
-        let (client, snapshot) = connect_client(Arc::clone(&self.connector))?;
+        let (client, snapshot, workspace_snapshot) = connect_client(Arc::clone(&self.connector))?;
         self.client = Arc::new(client);
         self.snapshot = snapshot;
+        self.workspace_snapshot = workspace_snapshot;
         self.reconcile_keys();
         if let Some(notice) = &self.snapshot.notice {
             self.notice = Some(notice.message.clone());
@@ -310,7 +406,12 @@ impl ProviderMachineRuntime {
                 // restart catalog updates against the fresh control client.
                 let mut ui = self.ui_state_for_open_connection();
                 ui.notice = Some(format!("Could not reconnect machine: {error}"));
-                Ok(MachineActionResult { ui, replacement: None, restart_updates: true })
+                Ok(MachineActionResult {
+                    ui,
+                    replacement: None,
+                    restart_updates: true,
+                    session_mutation: None,
+                })
             }
         }
     }
@@ -396,7 +497,12 @@ impl ProviderMachineRuntime {
     }
 
     fn ui_state(&self, session_available: bool) -> MachineUiState {
-        machine_ui_state(&self.snapshot, &self.keys, session_available)
+        machine_ui_state(
+            &self.snapshot,
+            self.workspace_snapshot.as_ref(),
+            &self.keys,
+            session_available,
+        )
     }
 
     fn ui_state_for_open_connection(&mut self) -> MachineUiState {
@@ -455,7 +561,11 @@ impl MachineController for ProviderMachineRuntime {
 
 fn connect_client(
     connector: Arc<dyn MachineProviderConnector>,
-) -> anyhow::Result<(ProviderClient, protocol::SnapshotResult)> {
+) -> anyhow::Result<(
+    ProviderClient,
+    protocol::SnapshotResult,
+    Option<protocol::WorkspaceSnapshotResult>,
+)> {
     let client_descriptor = protocol::ClientDescriptor {
         name: "cmux-tui".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -464,7 +574,24 @@ fn connect_client(
     let (client, _hello) =
         ProviderClient::connect_authenticated_with(connector, client_descriptor)?;
     let snapshot = client.snapshot(None)?;
-    Ok((client, snapshot))
+    let workspace_snapshot = load_workspace_snapshot(&client, &snapshot)?;
+    Ok((client, snapshot, workspace_snapshot))
+}
+
+fn load_workspace_snapshot(
+    client: &ProviderClient,
+    snapshot: &protocol::SnapshotResult,
+) -> anyhow::Result<Option<protocol::WorkspaceSnapshotResult>> {
+    let Some(machine_id) = snapshot.selected_machine_id.as_ref() else {
+        return Ok(None);
+    };
+    let Some(machine) = snapshot.machines.iter().find(|machine| &machine.id == machine_id) else {
+        return Ok(None);
+    };
+    if !matches!(machine.workspace_create, protocol::WorkspaceCreatePolicy::Provider { .. }) {
+        return Ok(None);
+    }
+    client.workspace_snapshot(machine_id.clone(), None).map(Some).map_err(Into::into)
 }
 
 impl Drop for ProviderMachineRuntime {
@@ -492,6 +619,7 @@ fn key_for_id(keys: &Arc<Mutex<KeyRegistry>>, id: &protocol::OpaqueId) -> Option
 
 fn machine_ui_state(
     snapshot: &protocol::SnapshotResult,
+    workspace_snapshot: Option<&protocol::WorkspaceSnapshotResult>,
     keys: &Arc<Mutex<KeyRegistry>>,
     session_available: bool,
 ) -> MachineUiState {
@@ -531,8 +659,38 @@ fn machine_ui_state(
         };
         ui.set_workspace_creation_policy(key, policy);
     }
+    if let Some(workspace_snapshot) = workspace_snapshot
+        && let Some(key) = key_for_id(keys, &workspace_snapshot.machine_id)
+    {
+        ui.set_managed_workspaces(
+            key,
+            workspace_snapshot.workspaces.iter().map(managed_workspace_descriptor).collect(),
+        );
+    }
     ui.set_provider_presentation(provider_presentation(snapshot));
     ui
+}
+
+fn managed_workspace_descriptor(
+    workspace: &protocol::WorkspaceLifecycleDescriptor,
+) -> ManagedWorkspaceDescriptor {
+    ManagedWorkspaceDescriptor {
+        id: workspace.id.as_str().to_string(),
+        name: workspace.display_name.clone(),
+        mode: workspace_creation_mode(workspace.mode),
+        status: match workspace.status {
+            protocol::WorkspaceLifecycleStatus::Active => ManagedWorkspaceStatus::Active,
+            protocol::WorkspaceLifecycleStatus::Recoverable => ManagedWorkspaceStatus::Recoverable,
+        },
+        version: workspace.version,
+        recoverable_until: workspace.recoverable_until.clone(),
+        capabilities: ManagedWorkspaceCapabilities {
+            rename: workspace.capabilities.rename,
+            delete: workspace.capabilities.delete,
+            restore: workspace.capabilities.restore,
+            purge: workspace.capabilities.purge,
+        },
+    }
 }
 
 fn workspace_creation_mode(mode: protocol::WorkspaceCreateMode) -> WorkspaceCreationMode {
@@ -716,13 +874,7 @@ mod tests {
                 subtitle: "cloud".into(),
                 status,
                 connectable: false,
-                workspace_create: protocol::WorkspaceCreatePolicy::Provider {
-                    default_mode: protocol::WorkspaceCreateMode::Isolated,
-                    modes: vec![
-                        protocol::WorkspaceCreateMode::Isolated,
-                        protocol::WorkspaceCreateMode::Host,
-                    ],
-                },
+                workspace_create: protocol::WorkspaceCreatePolicy::Session,
             }],
             selected_machine_id: Some(id("machine-1")),
             capabilities: protocol::ProviderCapabilities {
@@ -796,7 +948,7 @@ mod tests {
             next: 1,
         }));
 
-        let ui = machine_ui_state(&snapshot, &keys, true);
+        let ui = machine_ui_state(&snapshot, None, &keys, true);
 
         assert_eq!(
             ui.workspace_creation_policy(),
@@ -804,6 +956,58 @@ mod tests {
                 default_mode: WorkspaceCreationMode::Isolated,
                 modes: vec![WorkspaceCreationMode::Host, WorkspaceCreationMode::Isolated],
             })
+        );
+    }
+
+    #[test]
+    fn workspace_snapshot_translation_preserves_stable_identity_and_capabilities() {
+        let mut snapshot = snapshot(1, "Machine", protocol::MachineStatus::Running);
+        snapshot.machines[0].workspace_create = protocol::WorkspaceCreatePolicy::Provider {
+            default_mode: protocol::WorkspaceCreateMode::Isolated,
+            modes: vec![protocol::WorkspaceCreateMode::Isolated],
+        };
+        let lifecycle = protocol::WorkspaceSnapshotResult {
+            revision: 9,
+            machine_id: id("machine-1"),
+            workspaces: vec![protocol::WorkspaceLifecycleDescriptor {
+                id: id("workspace-uuid"),
+                display_name: "recover me".into(),
+                mode: protocol::WorkspaceCreateMode::Host,
+                status: protocol::WorkspaceLifecycleStatus::Recoverable,
+                version: 12,
+                recoverable_until: Some("2030-01-02T03:04:05Z".into()),
+                capabilities: protocol::WorkspaceLifecycleCapabilities {
+                    rename: false,
+                    delete: false,
+                    restore: true,
+                    purge: true,
+                },
+            }],
+        };
+        let keys = Arc::new(Mutex::new(KeyRegistry {
+            by_id: HashMap::new(),
+            by_key: HashMap::new(),
+            next: 1,
+        }));
+
+        let ui = machine_ui_state(&snapshot, Some(&lifecycle), &keys, true);
+
+        assert_eq!(
+            ui.managed_workspaces(),
+            &[ManagedWorkspaceDescriptor {
+                id: "workspace-uuid".into(),
+                name: "recover me".into(),
+                mode: WorkspaceCreationMode::Host,
+                status: ManagedWorkspaceStatus::Recoverable,
+                version: 12,
+                recoverable_until: Some("2030-01-02T03:04:05Z".into()),
+                capabilities: ManagedWorkspaceCapabilities {
+                    rename: false,
+                    delete: false,
+                    restore: true,
+                    purge: true,
+                },
+            }]
         );
     }
 

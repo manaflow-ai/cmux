@@ -202,6 +202,32 @@ pub enum WorkspaceCreationPolicy {
     ProviderOwned { default_mode: WorkspaceCreationMode, modes: Vec<WorkspaceCreationMode> },
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ManagedWorkspaceCapabilities {
+    pub rename: bool,
+    pub delete: bool,
+    pub restore: bool,
+    pub purge: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManagedWorkspaceStatus {
+    Active,
+    Recoverable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedWorkspaceDescriptor {
+    /// Provider-stable workspace identifier, also used as the nested cmux key.
+    pub id: String,
+    pub name: String,
+    pub mode: WorkspaceCreationMode,
+    pub status: ManagedWorkspaceStatus,
+    pub version: u64,
+    pub recoverable_until: Option<String>,
+    pub capabilities: ManagedWorkspaceCapabilities,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineSnapshot {
     pub machines: Vec<MachineDescriptor>,
@@ -232,6 +258,33 @@ pub enum MachineRequest {
     },
     CreateManagedIsolatedWorkspace(MachineKey),
     CreateManagedHostWorkspace(MachineKey),
+    RenameManagedWorkspace {
+        machine: MachineKey,
+        workspace_id: String,
+        expected_version: u64,
+        name: String,
+    },
+    DeleteManagedWorkspace {
+        machine: MachineKey,
+        workspace_id: String,
+        expected_version: u64,
+    },
+    RestoreManagedWorkspace {
+        machine: MachineKey,
+        workspace_id: String,
+        expected_version: u64,
+    },
+    PurgeManagedWorkspace {
+        machine: MachineKey,
+        workspace_id: String,
+        expected_version: u64,
+    },
+}
+
+/// Nested mux mutation applied only after the provider durably accepts it.
+pub(crate) enum ManagedWorkspaceSessionMutation {
+    Rename { workspace_key: String, name: String },
+    Close { workspace_key: String },
 }
 
 /// A fully opened replacement session. Controllers construct this before
@@ -248,15 +301,29 @@ pub(crate) struct MachineActionResult {
     pub ui: MachineUiState,
     pub replacement: Option<MachineSession>,
     pub restart_updates: bool,
+    pub session_mutation: Option<ManagedWorkspaceSessionMutation>,
 }
 
 impl MachineActionResult {
     pub(crate) fn ui(ui: MachineUiState) -> Self {
-        Self { ui, replacement: None, restart_updates: false }
+        Self { ui, replacement: None, restart_updates: false, session_mutation: None }
     }
 
     pub(crate) fn replace(ui: MachineUiState, session: Session, label: String) -> Self {
-        Self { ui, replacement: Some(MachineSession { session, label }), restart_updates: false }
+        Self {
+            ui,
+            replacement: Some(MachineSession { session, label }),
+            restart_updates: false,
+            session_mutation: None,
+        }
+    }
+
+    pub(crate) fn with_session_mutation(
+        mut self,
+        mutation: ManagedWorkspaceSessionMutation,
+    ) -> Self {
+        self.session_mutation = Some(mutation);
+        self
     }
 }
 
@@ -300,6 +367,7 @@ pub struct MachineUiState {
     pub provider: Option<ProviderPresentation>,
     pub rail_selection: MachineRailSelection,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
+    managed_workspaces: HashMap<MachineKey, Vec<ManagedWorkspaceDescriptor>>,
 }
 
 /// A cancelable stream of provider-owned presentation snapshots.
@@ -362,6 +430,7 @@ impl MachineUiState {
             provider: None,
             rail_selection: MachineRailSelection::Machine,
             workspace_creation: HashMap::new(),
+            managed_workspaces: HashMap::new(),
         };
         state.ensure_rail_selection();
         state
@@ -405,6 +474,33 @@ impl MachineUiState {
             .iter()
             .any(|machine| machine.key == active)
             .then(|| self.workspace_creation.get(&active).cloned().unwrap_or_default())
+    }
+
+    pub fn set_managed_workspaces(
+        &mut self,
+        machine: MachineKey,
+        workspaces: Vec<ManagedWorkspaceDescriptor>,
+    ) {
+        self.managed_workspaces.insert(machine, workspaces);
+    }
+
+    pub fn managed_workspaces(&self) -> &[ManagedWorkspaceDescriptor] {
+        self.snapshot
+            .active
+            .and_then(|machine| self.managed_workspaces.get(&machine))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    pub fn managed_workspace(&self, id: &str) -> Option<&ManagedWorkspaceDescriptor> {
+        self.managed_workspaces().iter().find(|workspace| workspace.id == id)
+    }
+
+    pub fn recoverable_workspaces(&self) -> Vec<&ManagedWorkspaceDescriptor> {
+        self.managed_workspaces()
+            .iter()
+            .filter(|workspace| workspace.status == ManagedWorkspaceStatus::Recoverable)
+            .collect()
     }
 
     pub fn rail_targets(&self) -> Vec<MachineRailTarget> {

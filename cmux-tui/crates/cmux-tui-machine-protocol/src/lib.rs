@@ -202,6 +202,11 @@ pub enum ProviderRequest {
     SelectScope(SelectScopeParams),
     CreateMachine(CreateMachineParams),
     CreateWorkspace(CreateWorkspaceParams),
+    WorkspaceSnapshot(WorkspaceSnapshotParams),
+    RenameWorkspace(RenameWorkspaceParams),
+    DeleteWorkspace(WorkspaceMutationParams),
+    RestoreWorkspace(WorkspaceMutationParams),
+    PurgeWorkspace(WorkspaceMutationParams),
     InvokeAction(InvokeActionParams),
     CloseMachine(CloseMachineParams),
 }
@@ -515,6 +520,92 @@ pub struct CreateWorkspaceParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateWorkspaceResult {
+    pub revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<ProviderNotice>,
+}
+
+/// Selects the provider-owned workspace catalog for one machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceSnapshotParams {
+    pub machine_id: OpaqueId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_revision: Option<u64>,
+}
+
+/// The provider-owned workspace catalog for one machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceSnapshotResult {
+    pub revision: u64,
+    pub machine_id: OpaqueId,
+    pub workspaces: Vec<WorkspaceLifecycleDescriptor>,
+}
+
+/// A workspace whose durable lifecycle is owned by the provider.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceLifecycleDescriptor {
+    pub id: OpaqueId,
+    pub display_name: String,
+    pub mode: WorkspaceCreateMode,
+    pub status: WorkspaceLifecycleStatus,
+    pub version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recoverable_until: Option<String>,
+    pub capabilities: WorkspaceLifecycleCapabilities,
+}
+
+/// Provider lifecycle state independent of the nested cmux session state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceLifecycleStatus {
+    Active,
+    Recoverable,
+}
+
+/// Mutations currently allowed for a workspace after server-side authorization.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceLifecycleCapabilities {
+    #[serde(default)]
+    pub rename: bool,
+    #[serde(default)]
+    pub delete: bool,
+    #[serde(default)]
+    pub restore: bool,
+    #[serde(default)]
+    pub purge: bool,
+}
+
+/// Renames one provider-owned workspace under an optimistic version fence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameWorkspaceParams {
+    pub machine_id: OpaqueId,
+    pub workspace_id: OpaqueId,
+    pub expected_version: u64,
+    pub display_name: String,
+    pub mutation_id: OpaqueId,
+}
+
+/// Deletes, restores, or permanently purges one provider-owned workspace.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceMutationParams {
+    pub machine_id: OpaqueId,
+    pub workspace_id: OpaqueId,
+    pub expected_version: u64,
+    pub mutation_id: OpaqueId,
+}
+
+/// Durable result shared by provider-owned workspace mutations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceMutationResult {
+    pub workspace_id: OpaqueId,
+    pub version: u64,
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<ProviderNotice>,
@@ -923,6 +1014,35 @@ mod tests {
                 mode: WorkspaceCreateMode::Host,
                 mutation_id: id("mutation-workspace"),
             }),
+            ProviderRequest::WorkspaceSnapshot(WorkspaceSnapshotParams {
+                machine_id: id("machine"),
+                known_revision: Some(23),
+            }),
+            ProviderRequest::RenameWorkspace(RenameWorkspaceParams {
+                machine_id: id("machine"),
+                workspace_id: id("workspace"),
+                expected_version: 4,
+                display_name: "new-name".into(),
+                mutation_id: id("mutation-rename-workspace"),
+            }),
+            ProviderRequest::DeleteWorkspace(WorkspaceMutationParams {
+                machine_id: id("machine"),
+                workspace_id: id("workspace"),
+                expected_version: 5,
+                mutation_id: id("mutation-delete-workspace"),
+            }),
+            ProviderRequest::RestoreWorkspace(WorkspaceMutationParams {
+                machine_id: id("machine"),
+                workspace_id: id("workspace"),
+                expected_version: 6,
+                mutation_id: id("mutation-restore-workspace"),
+            }),
+            ProviderRequest::PurgeWorkspace(WorkspaceMutationParams {
+                machine_id: id("machine"),
+                workspace_id: id("workspace"),
+                expected_version: 7,
+                mutation_id: id("mutation-purge-workspace"),
+            }),
             ProviderRequest::InvokeAction(InvokeActionParams {
                 action_id: id("team.invite"),
                 values: action_values,
@@ -956,6 +1076,33 @@ mod tests {
             notice: Some(ProviderNotice {
                 level: NoticeLevel::Info,
                 message: "Workspace creation requested".into(),
+            }),
+        });
+        assert_response_round_trip(WorkspaceSnapshotResult {
+            revision: 24,
+            machine_id: id("machine"),
+            workspaces: vec![WorkspaceLifecycleDescriptor {
+                id: id("workspace"),
+                display_name: "earth".into(),
+                mode: WorkspaceCreateMode::Isolated,
+                status: WorkspaceLifecycleStatus::Recoverable,
+                version: 7,
+                recoverable_until: Some("2026-07-28T22:00:30Z".into()),
+                capabilities: WorkspaceLifecycleCapabilities {
+                    rename: false,
+                    delete: false,
+                    restore: true,
+                    purge: true,
+                },
+            }],
+        });
+        assert_response_round_trip(WorkspaceMutationResult {
+            workspace_id: id("workspace"),
+            version: 8,
+            revision: 25,
+            notice: Some(ProviderNotice {
+                level: NoticeLevel::Info,
+                message: "Workspace restore requested".into(),
             }),
         });
         assert_response_round_trip(InvokeActionResult {

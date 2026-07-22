@@ -45,7 +45,8 @@ use crate::keys;
 use crate::localization;
 use crate::machine::{
     MachineController, MachineKey, MachineRailSelection, MachineRailTarget, MachineRequest,
-    MachineSession, MachineUiState, MachineUpdateStream, ProviderActionInputError,
+    MachineSession, MachineUiState, MachineUpdateStream, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionInputError,
     WorkspaceCreationMode, WorkspaceCreationPolicy,
 };
 use crate::pty_input::{
@@ -1893,6 +1894,7 @@ enum MachineRailCommand {
 pub(crate) enum WorkspaceRailSelection {
     #[default]
     Workspace,
+    Recoverable,
     SessionCreation,
     ManagedCreation(WorkspaceCreationMode),
 }
@@ -1918,9 +1920,10 @@ fn workspace_creation_selection(mode: Option<WorkspaceCreationMode>) -> Workspac
     mode.map_or(WorkspaceRailSelection::SessionCreation, WorkspaceRailSelection::ManagedCreation)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum WorkspaceRailTarget {
     Workspace(WorkspaceId),
+    Recoverable(String),
     Create(Option<WorkspaceCreationMode>),
 }
 
@@ -1972,6 +1975,9 @@ pub enum Hit {
     Workspace {
         index: usize,
         id: WorkspaceId,
+    },
+    RecoverableWorkspace {
+        index: usize,
     },
     CreateWorkspace {
         mode: Option<WorkspaceCreationMode>,
@@ -2087,8 +2093,12 @@ pub enum OmnibarHit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
     RenameWorkspace(WorkspaceId),
+    RenameManagedWorkspace(WorkspaceId),
     CopyWorkspaceId(WorkspaceId),
     CloseWorkspace(WorkspaceId),
+    DeleteManagedWorkspace(WorkspaceId),
+    RestoreManagedWorkspace(usize),
+    PurgeManagedWorkspace(usize),
     RenameScreen(cmux_tui_core::ScreenId),
     CloseScreen(cmux_tui_core::ScreenId),
     BrowserBack(PaneId),
@@ -2118,8 +2128,18 @@ impl MenuAction {
     pub fn label(&self) -> &'static str {
         match self {
             MenuAction::RenameWorkspace(_) => "Rename workspace",
+            MenuAction::RenameManagedWorkspace(_) => {
+                localization::catalog().sidebar.rename_workspace
+            }
             MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
             MenuAction::CloseWorkspace(_) => "Close workspace",
+            MenuAction::DeleteManagedWorkspace(_) => {
+                localization::catalog().sidebar.delete_workspace
+            }
+            MenuAction::RestoreManagedWorkspace(_) => {
+                localization::catalog().sidebar.restore_workspace
+            }
+            MenuAction::PurgeManagedWorkspace(_) => localization::catalog().sidebar.purge_workspace,
             MenuAction::RenameScreen(_) => "Rename screen",
             MenuAction::CloseScreen(_) => "Close screen",
             MenuAction::BrowserBack(_) => "Back",
@@ -2337,10 +2357,21 @@ impl ContextMenu {
         fn item_targets_provider(item: &MenuItem) -> bool {
             match item {
                 MenuItem::Action(
-                    MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_),
+                    MenuAction::SelectProviderScope(_)
+                    | MenuAction::InvokeProviderAction(_)
+                    | MenuAction::RenameManagedWorkspace(_)
+                    | MenuAction::DeleteManagedWorkspace(_)
+                    | MenuAction::RestoreManagedWorkspace(_)
+                    | MenuAction::PurgeManagedWorkspace(_),
                 )
                 | MenuItem::LabeledAction {
-                    action: MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_),
+                    action:
+                        MenuAction::SelectProviderScope(_)
+                        | MenuAction::InvokeProviderAction(_)
+                        | MenuAction::RenameManagedWorkspace(_)
+                        | MenuAction::DeleteManagedWorkspace(_)
+                        | MenuAction::RestoreManagedWorkspace(_)
+                        | MenuAction::PurgeManagedWorkspace(_),
                     ..
                 } => true,
                 MenuItem::Submenu { items, .. } => items.iter().any(item_targets_provider),
@@ -2515,6 +2546,8 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
 #[derive(Debug, Clone, Copy)]
 pub enum PromptTarget {
     Workspace(WorkspaceId),
+    ManagedWorkspace(WorkspaceId),
+    ConfirmPurgeManagedWorkspace(usize),
     Screen(cmux_tui_core::ScreenId),
     Surface(SurfaceId),
     ConnectMachine,
@@ -2795,6 +2828,7 @@ pub struct App {
     pub sidebar_view: SidebarView,
     pub sidebar_files: FileBrowser,
     pub sidebar_workspace_selection: usize,
+    pub(crate) sidebar_recoverable_workspace_selection: usize,
     pub(crate) workspace_rail_selection: WorkspaceRailSelection,
     pub(crate) machine_rail_scroll: usize,
     pub(crate) machine_footer_scroll: usize,
@@ -3286,6 +3320,7 @@ pub fn run_with_machine_updates(
         sidebar_view,
         sidebar_files: FileBrowser::new(fallback_cwd),
         sidebar_workspace_selection: 0,
+        sidebar_recoverable_workspace_selection: 0,
         workspace_rail_selection: WorkspaceRailSelection::default(),
         machine_rail_scroll: 0,
         machine_footer_scroll: 0,
@@ -3427,8 +3462,13 @@ impl App {
 
     fn reconcile_workspace_rail_selection(&mut self) {
         let modes = self.workspace_creation_modes();
-        let selection_is_valid =
-            modes.iter().copied().any(|mode| self.workspace_rail_selection.matches_mode(mode));
+        let selection_is_valid = match self.workspace_rail_selection {
+            WorkspaceRailSelection::Workspace => true,
+            WorkspaceRailSelection::Recoverable => self.machine_ui.as_ref().is_some_and(|ui| {
+                self.sidebar_recoverable_workspace_selection < ui.recoverable_workspaces().len()
+            }),
+            _ => modes.iter().copied().any(|mode| self.workspace_rail_selection.matches_mode(mode)),
+        };
         if self.workspace_rail_selection != WorkspaceRailSelection::Workspace && !selection_is_valid
         {
             self.workspace_rail_selection = self
@@ -3637,6 +3677,7 @@ impl App {
             };
 
             let restart_updates = result.restart_updates;
+            let session_mutation = result.session_mutation;
             if let Some(replacement) = result.replacement
                 && let Err(error) = self.replace_machine_session(replacement, &result.ui)
             {
@@ -3648,6 +3689,9 @@ impl App {
                 }
                 break;
             }
+            if let Some(mutation) = session_mutation {
+                self.apply_managed_workspace_session_mutation(mutation);
+            }
             action = action.merge(self.apply_machine_ui_update(result.ui));
             if restart_updates && let Err(error) = self.restart_machine_updates() {
                 self.status_message =
@@ -3658,10 +3702,40 @@ impl App {
         action
     }
 
+    fn apply_managed_workspace_session_mutation(
+        &mut self,
+        mutation: ManagedWorkspaceSessionMutation,
+    ) {
+        let (workspace_key, rename) = match mutation {
+            ManagedWorkspaceSessionMutation::Rename { workspace_key, name } => {
+                (workspace_key, Some(name))
+            }
+            ManagedWorkspaceSessionMutation::Close { workspace_key } => (workspace_key, None),
+        };
+        let Some(workspace_id) = self
+            .tree
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.key == workspace_key)
+            .map(|workspace| workspace.id)
+        else {
+            return;
+        };
+        if let Some(name) = rename {
+            self.session.rename_workspace(workspace_id, name);
+        } else {
+            self.session.close_workspace(workspace_id);
+        }
+    }
+
     fn apply_machine_ui_update(&mut self, mut update: MachineUiState) -> RenderAction {
-        let provider_changed =
-            self.machine_ui.as_ref().and_then(|machine| machine.provider.as_ref())
-                != update.provider.as_ref();
+        let provider_changed = self
+            .machine_ui
+            .as_ref()
+            .and_then(|machine| machine.provider.as_ref())
+            != update.provider.as_ref()
+            || self.machine_ui.as_ref().map(MachineUiState::managed_workspaces).unwrap_or_default()
+                != update.managed_workspaces();
         if provider_changed {
             if self.menu.as_ref().is_some_and(ContextMenu::targets_provider_state) {
                 self.menu = None;
@@ -3669,7 +3743,10 @@ impl App {
             if self.prompt.as_ref().is_some_and(|prompt| {
                 matches!(
                     prompt.target,
-                    PromptTarget::ProviderAction(_) | PromptTarget::ConfirmProviderAction(_)
+                    PromptTarget::ProviderAction(_)
+                        | PromptTarget::ConfirmProviderAction(_)
+                        | PromptTarget::ManagedWorkspace(_)
+                        | PromptTarget::ConfirmPurgeManagedWorkspace(_)
                 )
             }) {
                 self.prompt = None;
@@ -3748,6 +3825,7 @@ impl App {
             FileBrowser::new(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         self.sidebar_workspace_selection =
             self.tree.active_workspace.min(self.tree.workspaces.len().saturating_sub(1));
+        self.sidebar_recoverable_workspace_selection = 0;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
         self.sidebar_followed_surface = None;
         self.sidebar_plugin_surface = None;
@@ -5569,6 +5647,110 @@ impl App {
         }
     }
 
+    fn managed_workspace_for_view(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Option<ManagedWorkspaceDescriptor> {
+        let workspace_key = self
+            .tree
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == workspace_id)?
+            .key
+            .as_str();
+        self.machine_ui
+            .as_ref()?
+            .managed_workspace(workspace_key)
+            .filter(|workspace| workspace.status == ManagedWorkspaceStatus::Active)
+            .cloned()
+    }
+
+    fn request_rename_managed_workspace(&mut self, workspace_id: WorkspaceId, name: String) {
+        let Some(workspace) = self.managed_workspace_for_view(workspace_id) else { return };
+        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+            return;
+        };
+        if workspace.capabilities.rename
+            && let Some(ui) = self.machine_ui.as_mut()
+        {
+            ui.request = Some(MachineRequest::RenameManagedWorkspace {
+                machine,
+                workspace_id: workspace.id,
+                expected_version: workspace.version,
+                name,
+            });
+        }
+    }
+
+    fn request_delete_workspace(&mut self, workspace_id: WorkspaceId) {
+        if let Some(workspace) = self.managed_workspace_for_view(workspace_id) {
+            let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+                return;
+            };
+            if workspace.capabilities.delete
+                && let Some(ui) = self.machine_ui.as_mut()
+            {
+                ui.request = Some(MachineRequest::DeleteManagedWorkspace {
+                    machine,
+                    workspace_id: workspace.id,
+                    expected_version: workspace.version,
+                });
+            }
+            return;
+        }
+        self.session.close_workspace(workspace_id);
+    }
+
+    fn request_restore_managed_workspace(&mut self, workspace_id: &str) {
+        let Some(workspace) = self
+            .machine_ui
+            .as_ref()
+            .and_then(|ui| ui.managed_workspace(workspace_id))
+            .filter(|workspace| {
+                workspace.status == ManagedWorkspaceStatus::Recoverable
+                    && workspace.capabilities.restore
+            })
+            .cloned()
+        else {
+            return;
+        };
+        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::RestoreManagedWorkspace {
+                machine,
+                workspace_id: workspace.id,
+                expected_version: workspace.version,
+            });
+        }
+    }
+
+    fn request_purge_managed_workspace(&mut self, workspace_id: &str) {
+        let Some(workspace) = self
+            .machine_ui
+            .as_ref()
+            .and_then(|ui| ui.managed_workspace(workspace_id))
+            .filter(|workspace| {
+                workspace.status == ManagedWorkspaceStatus::Recoverable
+                    && workspace.capabilities.purge
+            })
+            .cloned()
+        else {
+            return;
+        };
+        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::PurgeManagedWorkspace {
+                machine,
+                workspace_id: workspace.id,
+                expected_version: workspace.version,
+            });
+        }
+    }
+
     fn workspace_rail_targets(&self) -> Vec<WorkspaceRailTarget> {
         let mut targets = self
             .tree
@@ -5576,6 +5758,13 @@ impl App {
             .iter()
             .map(|workspace| WorkspaceRailTarget::Workspace(workspace.id))
             .collect::<Vec<_>>();
+        targets.extend(
+            self.machine_ui
+                .as_ref()
+                .into_iter()
+                .flat_map(MachineUiState::recoverable_workspaces)
+                .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
+        );
         targets
             .extend(self.workspace_creation_modes().into_iter().map(WorkspaceRailTarget::Create));
         targets
@@ -5588,6 +5777,15 @@ impl App {
                 .workspaces
                 .get(self.sidebar_workspace_selection)
                 .map(|workspace| WorkspaceRailTarget::Workspace(workspace.id)),
+            WorkspaceRailSelection::Recoverable => self
+                .machine_ui
+                .as_ref()
+                .and_then(|ui| {
+                    ui.recoverable_workspaces()
+                        .get(self.sidebar_recoverable_workspace_selection)
+                        .copied()
+                })
+                .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
             WorkspaceRailSelection::SessionCreation => Some(WorkspaceRailTarget::Create(None)),
             WorkspaceRailSelection::ManagedCreation(mode) => {
                 Some(WorkspaceRailTarget::Create(Some(mode)))
@@ -5603,6 +5801,14 @@ impl App {
                 {
                     self.sidebar_workspace_selection = index;
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+                }
+            }
+            WorkspaceRailTarget::Recoverable(id) => {
+                if let Some(index) = self.machine_ui.as_ref().and_then(|ui| {
+                    ui.recoverable_workspaces().iter().position(|workspace| workspace.id == id)
+                }) {
+                    self.sidebar_recoverable_workspace_selection = index;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Recoverable;
                 }
             }
             WorkspaceRailTarget::Create(mode) => {
@@ -5895,15 +6101,15 @@ impl App {
                 let targets = self.workspace_rail_targets();
                 let current = self
                     .workspace_rail_target()
-                    .and_then(|selected| targets.iter().position(|target| *target == selected))
+                    .and_then(|selected| targets.iter().position(|target| target == &selected))
                     .unwrap_or_default();
                 let page = rail_page_size(self.sidebar_layout.workspace);
                 if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
-                    if let Some(target) = targets.get(next).copied() {
+                    if let Some(target) = targets.get(next).cloned() {
                         self.select_workspace_rail_target(target);
                     }
                 } else if key.code == KeyCode::Enter {
-                    match targets.get(current).copied() {
+                    match targets.get(current).cloned() {
                         Some(WorkspaceRailTarget::Workspace(id)) => {
                             if let Some(index) =
                                 self.tree.workspaces.iter().position(|workspace| workspace.id == id)
@@ -5913,6 +6119,9 @@ impl App {
                         }
                         Some(WorkspaceRailTarget::Create(mode)) => {
                             self.create_workspace(mode)?;
+                        }
+                        Some(WorkspaceRailTarget::Recoverable(id)) => {
+                            self.request_restore_managed_workspace(&id);
                         }
                         None => {}
                     }
@@ -6032,6 +6241,30 @@ impl App {
             }
             return;
         }
+        if let PromptTarget::ManagedWorkspace(id) = prompt.target {
+            if !input.is_empty() {
+                self.request_rename_managed_workspace(id, input);
+            }
+            return;
+        }
+        if let PromptTarget::ConfirmPurgeManagedWorkspace(index) = prompt.target {
+            if input.trim() == "CONFIRM" {
+                let workspace_id = self
+                    .machine_ui
+                    .as_ref()
+                    .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                    .map(|workspace| workspace.id.clone());
+                if let Some(workspace_id) = workspace_id {
+                    self.request_purge_managed_workspace(&workspace_id);
+                }
+            } else {
+                self.status_message =
+                    Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
+                self.prompt = Some(prompt);
+                self.shake_frames = 6;
+            }
+            return;
+        }
         if !self.prepare_pty_input_before_mutation() {
             return;
         }
@@ -6046,7 +6279,9 @@ impl App {
             PromptTarget::Surface(id) => self.session.rename_surface(id, input),
             PromptTarget::ConnectMachine
             | PromptTarget::ProviderAction(_)
-            | PromptTarget::ConfirmProviderAction(_) => {
+            | PromptTarget::ConfirmProviderAction(_)
+            | PromptTarget::ManagedWorkspace(_)
+            | PromptTarget::ConfirmPurgeManagedWorkspace(_) => {
                 unreachable!("handled before session mutation")
             }
         }
@@ -6363,9 +6598,29 @@ impl App {
     }
 
     fn open_rename_workspace_prompt(&mut self) {
-        let Some(ws) = self.tree.active_workspace() else { return };
-        let prompt =
-            Prompt::new("Rename workspace", ws.name.clone(), PromptTarget::Workspace(ws.id));
+        let Some(workspace_id) = self.tree.active_workspace().map(|workspace| workspace.id) else {
+            return;
+        };
+        self.open_rename_workspace_prompt_for(workspace_id);
+    }
+
+    fn open_rename_workspace_prompt_for(&mut self, workspace_id: WorkspaceId) {
+        let Some(workspace) = self.tree.workspaces.iter().find(|ws| ws.id == workspace_id) else {
+            return;
+        };
+        let target = if self
+            .managed_workspace_for_view(workspace_id)
+            .is_some_and(|managed| managed.capabilities.rename)
+        {
+            PromptTarget::ManagedWorkspace(workspace_id)
+        } else {
+            PromptTarget::Workspace(workspace_id)
+        };
+        let prompt = Prompt::new(
+            localization::catalog().sidebar.rename_workspace,
+            workspace.name.clone(),
+            target,
+        );
         self.cancel_pty_mouse_drag();
         self.prompt = Some(prompt);
     }
@@ -6533,7 +6788,28 @@ impl App {
                 self.prompt =
                     Some(Prompt::new("Rename workspace", buffer, PromptTarget::Workspace(id)));
             }
+            MenuAction::RenameManagedWorkspace(id) => {
+                self.open_rename_workspace_prompt_for(id);
+            }
             MenuAction::CloseWorkspace(id) => self.session.close_workspace(id),
+            MenuAction::DeleteManagedWorkspace(id) => self.request_delete_workspace(id),
+            MenuAction::RestoreManagedWorkspace(index) => {
+                let workspace_id = self
+                    .machine_ui
+                    .as_ref()
+                    .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                    .map(|workspace| workspace.id.clone());
+                if let Some(workspace_id) = workspace_id {
+                    self.request_restore_managed_workspace(&workspace_id);
+                }
+            }
+            MenuAction::PurgeManagedWorkspace(index) => {
+                self.prompt = Some(Prompt::new(
+                    localization::catalog().sidebar.confirm_purge_workspace,
+                    String::new(),
+                    PromptTarget::ConfirmPurgeManagedWorkspace(index),
+                ));
+            }
             MenuAction::CopyWorkspaceId(id) => {
                 if let Some(short_id) =
                     self.tree.workspaces.iter().find(|ws| ws.id == id).map(|ws| ws.short_id.clone())
@@ -8121,6 +8397,12 @@ impl App {
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                     self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
                 }
+                Hit::RecoverableWorkspace { index } => {
+                    self.focus = FocusTarget::WorkspaceRail;
+                    self.workspace_rail_follow_selection = true;
+                    self.sidebar_recoverable_workspace_selection = index;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Recoverable;
+                }
                 Hit::CreateWorkspace { mode } => {
                     self.focus = FocusTarget::WorkspaceRail;
                     self.workspace_rail_follow_selection = true;
@@ -8609,6 +8891,17 @@ impl App {
         self.session.refresh_clients_background();
         match self.hit_at(x, y) {
             Some(Hit::Workspace { id, .. }) => {
+                if let Some(workspace) = self.managed_workspace_for_view(id) {
+                    let mut actions = Vec::new();
+                    if workspace.capabilities.rename {
+                        actions.push(MenuAction::RenameManagedWorkspace(id));
+                    }
+                    if workspace.capabilities.delete {
+                        actions.push(MenuAction::DeleteManagedWorkspace(id));
+                    }
+                    self.menu = Some(ContextMenu::at(x, y, vec![actions]));
+                    return;
+                }
                 self.menu = Some(ContextMenu::at(
                     x,
                     y,
@@ -8617,6 +8910,24 @@ impl App {
                         vec![MenuAction::CopyWorkspaceId(id)],
                     ],
                 ));
+                return;
+            }
+            Some(Hit::RecoverableWorkspace { index }) => {
+                let Some(workspace) = self
+                    .machine_ui
+                    .as_ref()
+                    .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                else {
+                    return;
+                };
+                let mut actions = Vec::new();
+                if workspace.capabilities.restore {
+                    actions.push(MenuAction::RestoreManagedWorkspace(index));
+                }
+                if workspace.capabilities.purge {
+                    actions.push(MenuAction::PurgeManagedWorkspace(index));
+                }
+                self.menu = Some(ContextMenu::at(x, y, vec![actions]));
                 return;
             }
             Some(Hit::ScreenEntry { id, .. }) => {
@@ -8933,6 +9244,10 @@ fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
     !matches!(
         action,
         MenuAction::RenameWorkspace(_)
+            | MenuAction::RenameManagedWorkspace(_)
+            | MenuAction::DeleteManagedWorkspace(_)
+            | MenuAction::RestoreManagedWorkspace(_)
+            | MenuAction::PurgeManagedWorkspace(_)
             | MenuAction::CopyWorkspaceId(_)
             | MenuAction::RenameScreen(_)
             | MenuAction::BrowserEditUrl(_)
@@ -9052,6 +9367,7 @@ mod tests {
     use crate::machine::{
         MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
         MachineRailSelection, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
+        ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceStatus,
         ProviderActionDescriptor, ProviderActionFieldDescriptor, ProviderActionFieldKind,
         ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor, ProviderScopeKind,
         WorkspaceCreationMode, WorkspaceCreationPolicy,
@@ -12763,6 +13079,142 @@ mod tests {
         )
     }
 
+    fn provider_machine_ui_with_lifecycle() -> MachineUiState {
+        let mut ui = provider_machine_ui();
+        ui.set_managed_workspaces(
+            MachineKey(41),
+            vec![
+                ManagedWorkspaceDescriptor {
+                    id: "00000000-0000-4000-8000-000000000004".into(),
+                    name: "work".into(),
+                    mode: WorkspaceCreationMode::Isolated,
+                    status: ManagedWorkspaceStatus::Active,
+                    version: 7,
+                    recoverable_until: None,
+                    capabilities: ManagedWorkspaceCapabilities {
+                        rename: true,
+                        delete: true,
+                        restore: false,
+                        purge: false,
+                    },
+                },
+                ManagedWorkspaceDescriptor {
+                    id: "00000000-0000-4000-8000-000000000099".into(),
+                    name: "quiet-forest".into(),
+                    mode: WorkspaceCreationMode::Host,
+                    status: ManagedWorkspaceStatus::Recoverable,
+                    version: 12,
+                    recoverable_until: Some("2030-01-02T03:04:05Z".into()),
+                    capabilities: ManagedWorkspaceCapabilities {
+                        rename: false,
+                        delete: false,
+                        restore: true,
+                        purge: true,
+                    },
+                },
+            ],
+        );
+        ui
+    }
+
+    #[test]
+    fn provider_owned_workspace_actions_use_stable_key_and_version() {
+        let mux = Mux::new("managed-workspace-actions-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(1, false);
+        app.machine_ui = Some(provider_machine_ui_with_lifecycle());
+
+        app.open_rename_workspace_prompt_for(4);
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::ManagedWorkspace(4))
+        ));
+        app.prompt.as_mut().unwrap().input.clear();
+        app.prompt.as_mut().unwrap().input.insert_str("renamed work");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RenameManagedWorkspace {
+                machine: MachineKey(41),
+                workspace_id: "00000000-0000-4000-8000-000000000004".into(),
+                expected_version: 7,
+                name: "renamed work".into(),
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.request_delete_workspace(4);
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::DeleteManagedWorkspace {
+                machine: MachineKey(41),
+                workspace_id: "00000000-0000-4000-8000-000000000004".into(),
+                expected_version: 7,
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.tree.workspaces[0].key = "local-workspace".into();
+        app.open_rename_workspace_prompt_for(4);
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::Workspace(4))
+        ));
+        app.request_delete_workspace(4);
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn recoverable_workspace_is_mouse_visible_and_keyboard_restorable() {
+        let mux = Mux::new("recoverable-workspace-rail-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(1, false);
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui_with_lifecycle());
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 14));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("quiet-forest"), "{text}");
+        assert!(text.contains(localization::catalog().sidebar.recoverable_workspace));
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::RecoverableWorkspace { index: 0 }).then_some(*rect)
+            })
+            .unwrap();
+
+        app.handle_left_down(hit.x, hit.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.workspace_rail_selection, WorkspaceRailSelection::Recoverable);
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RestoreManagedWorkspace {
+                machine: MachineKey(41),
+                workspace_id: "00000000-0000-4000-8000-000000000099".into(),
+                expected_version: 12,
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.open_context_menu(hit.x, hit.y);
+        assert!(app.menu.as_ref().is_some_and(ContextMenu::targets_provider_state));
+        app.activate_menu(MenuAction::PurgeManagedWorkspace(0)).unwrap();
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::PurgeManagedWorkspace {
+                machine: MachineKey(41),
+                workspace_id: "00000000-0000-4000-8000-000000000099".into(),
+                expected_version: 12,
+            })
+        );
+    }
+
     fn provider_machine_ui_with_policy(
         default_mode: WorkspaceCreationMode,
         modes: Vec<WorkspaceCreationMode>,
@@ -13592,6 +14044,7 @@ mod tests {
             sidebar_view: SidebarView::Files,
             sidebar_files: FileBrowser::new(std::env::temp_dir()),
             sidebar_workspace_selection: 0,
+            sidebar_recoverable_workspace_selection: 0,
             workspace_rail_selection: WorkspaceRailSelection::default(),
             machine_rail_scroll: 0,
             machine_footer_scroll: 0,

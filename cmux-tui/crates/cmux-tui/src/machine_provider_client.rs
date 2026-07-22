@@ -31,9 +31,10 @@ use cmux_tui_machine_protocol::{
     CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
     EventEnvelope, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult, OpaqueId,
     OpenMachineParams, OpenMachineResult, Protocol, ProviderError, ProviderEvent, ProviderRequest,
-    ProviderResponse, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
-    SnapshotParams, SnapshotResult, TransportDescriptor, TransportHandshake,
-    TransportHandshakeResult, TransportRole, Version, WorkspaceCreateMode,
+    ProviderResponse, RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams,
+    SelectScopeResult, SnapshotParams, SnapshotResult, TransportDescriptor, TransportHandshake,
+    TransportHandshakeResult, TransportRole, Version, WorkspaceCreateMode, WorkspaceMutationParams,
+    WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
 use serde::Serialize;
@@ -373,6 +374,45 @@ impl ProviderClient {
             mode,
             mutation_id,
         }))
+    }
+
+    pub(crate) fn workspace_snapshot(
+        &self,
+        machine_id: OpaqueId,
+        known_revision: Option<u64>,
+    ) -> ProviderResult<WorkspaceSnapshotResult> {
+        self.request(ProviderRequest::WorkspaceSnapshot(WorkspaceSnapshotParams {
+            machine_id,
+            known_revision,
+        }))
+    }
+
+    pub(crate) fn rename_workspace(
+        &self,
+        params: RenameWorkspaceParams,
+    ) -> ProviderResult<WorkspaceMutationResult> {
+        self.request(ProviderRequest::RenameWorkspace(params))
+    }
+
+    pub(crate) fn delete_workspace(
+        &self,
+        params: WorkspaceMutationParams,
+    ) -> ProviderResult<WorkspaceMutationResult> {
+        self.request(ProviderRequest::DeleteWorkspace(params))
+    }
+
+    pub(crate) fn restore_workspace(
+        &self,
+        params: WorkspaceMutationParams,
+    ) -> ProviderResult<WorkspaceMutationResult> {
+        self.request(ProviderRequest::RestoreWorkspace(params))
+    }
+
+    pub(crate) fn purge_workspace(
+        &self,
+        params: WorkspaceMutationParams,
+    ) -> ProviderResult<WorkspaceMutationResult> {
+        self.request(ProviderRequest::PurgeWorkspace(params))
     }
 
     pub(crate) fn invoke_action(

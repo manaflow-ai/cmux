@@ -316,15 +316,34 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     rail::header(frame, area, messages.workspaces, palette);
 
     let creation_modes = app.workspace_creation_modes();
-    let body_rows = app.tree.workspaces.len() * rail::ENTRY_STRIDE;
-    let selected_body = (app.workspace_sidebar_focused()
-        && app.workspace_rail_follow_selection
-        && app.workspace_rail_selection == WorkspaceRailSelection::Workspace
-        && app.sidebar_workspace_selection < app.tree.workspaces.len())
-    .then_some(rail::RowSpan::new(
-        app.sidebar_workspace_selection * rail::ENTRY_STRIDE,
-        rail::ENTRY_HEIGHT,
-    ));
+    let recoverable = app
+        .machine_ui
+        .as_ref()
+        .map(|ui| ui.recoverable_workspaces().into_iter().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let body_rows = (app.tree.workspaces.len() + recoverable.len()) * rail::ENTRY_STRIDE;
+    let selected_body = (app.workspace_sidebar_focused() && app.workspace_rail_follow_selection)
+        .then(|| match app.workspace_rail_selection {
+            WorkspaceRailSelection::Workspace
+                if app.sidebar_workspace_selection < app.tree.workspaces.len() =>
+            {
+                Some(rail::RowSpan::new(
+                    app.sidebar_workspace_selection * rail::ENTRY_STRIDE,
+                    rail::ENTRY_HEIGHT,
+                ))
+            }
+            WorkspaceRailSelection::Recoverable
+                if app.sidebar_recoverable_workspace_selection < recoverable.len() =>
+            {
+                Some(rail::RowSpan::new(
+                    (app.tree.workspaces.len() + app.sidebar_recoverable_workspace_selection)
+                        * rail::ENTRY_STRIDE,
+                    rail::ENTRY_HEIGHT,
+                ))
+            }
+            _ => None,
+        })
+        .flatten();
     let selected_footer = if app.workspace_sidebar_focused() && app.workspace_rail_follow_selection
     {
         creation_modes
@@ -378,6 +397,35 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         );
         hits.push((rail::row(area, y), Hit::Workspace { index: i, id: ws.id }));
         hits.push((rail::row(area, y + 1), Hit::Workspace { index: i, id: ws.id }));
+    }
+
+    for (index, workspace) in recoverable.iter().enumerate() {
+        let row = app.tree.workspaces.len() + index;
+        let span = rail::RowSpan::new(row * rail::ENTRY_STRIDE, rail::ENTRY_HEIGHT);
+        let Some(y) = viewport.body_y(span) else { continue };
+        let selected = app.workspace_sidebar_focused()
+            && app.workspace_rail_selection == WorkspaceRailSelection::Recoverable
+            && index == app.sidebar_recoverable_workspace_selection;
+        let subtitle = workspace.recoverable_until.as_ref().map_or_else(
+            || messages.recoverable_workspace.to_string(),
+            |until| format!("{} · {until}", messages.recoverable_workspace),
+        );
+        rail::entry(
+            frame,
+            area,
+            y,
+            rail::Entry {
+                name: &workspace.name,
+                subtitle: &subtitle,
+                highlighted: selected,
+                active: false,
+                indicator: None,
+                dimmed: true,
+            },
+            palette,
+        );
+        hits.push((rail::row(area, y), Hit::RecoverableWorkspace { index }));
+        hits.push((rail::row(area, y + 1), Hit::RecoverableWorkspace { index }));
     }
 
     if let Some((_, Some(index))) = workspace_drag {
