@@ -141,7 +141,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageViewportChange()
             return
         }
-        mutationScheduler.cancelPendingMutations()
+        mutationScheduler.cancelPendingTableMutations()
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -163,7 +163,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func suspendPresentation(retainingWorkspaceIds liveWorkspaceIds: [UUID]) {
         let liveIds = Set(liveWorkspaceIds)
         let previousRowIds = rows.map(\.id)
-        suspendLoadedCells()
+        let postUpdateActions = detachLoadedCells()
         rows = rows
             .filter { liveIds.contains($0.workspaceId) }
             .map { $0.presentationSnapshot() }
@@ -183,14 +183,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         }
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+        mutationScheduler.stagePostUpdateActions(postUpdateActions)
     }
 
-    private func suspendLoadedCells() {
-        guard let table = containerView?.tableView else { return }
+    private func detachLoadedCells() -> [@MainActor () -> Void] {
+        guard let table = containerView?.tableView else { return [] }
+        var postUpdateActions: [@MainActor () -> Void] = []
         for row in 0..<table.numberOfRows {
             switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
             case let cell as SidebarWorkspaceRowTableCellView:
-                cell.suspendPresentation(commitEdits: true)
+                postUpdateActions.append(contentsOf: cell.detachPresentation(commitEdits: true))
             case let cell as SidebarGroupHeaderTableCellView:
                 cell.suspendPresentation()
             case let cell as SidebarWorkspaceTableCellView:
@@ -199,6 +201,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 continue
             }
         }
+        return postUpdateActions
     }
 
     func apply(

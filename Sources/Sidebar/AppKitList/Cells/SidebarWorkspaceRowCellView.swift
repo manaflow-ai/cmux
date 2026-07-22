@@ -269,21 +269,31 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     func suspendPresentation(commitEdits: Bool = false) {
+        for action in detachPresentation(commitEdits: commitEdits) {
+            action()
+        }
+    }
+
+    func detachPresentation(commitEdits: Bool = false) -> [@MainActor () -> Void] {
+        var postUpdateActions: [@MainActor () -> Void] = []
         if commitEdits, isEditing {
             let commitRename = actions?.commitRename
             let text = renameField.stringValue
             endInlineRename(commit: true)
-            commitRename?(text)
+            postUpdateActions.append { commitRename?(text) }
         }
         renameField.onCommit = nil
         renameField.onCancel = nil
-        checklistSection.suspendPresentation(commitEdits: commitEdits)
+        if let checklistAction = checklistSection.detachPresentation(commitEdits: commitEdits) {
+            postUpdateActions.append(checklistAction)
+        }
         actions = nil
         contextMenuDidOpen = nil
         contextMenuDidClose = nil
         contextMenuVisible = false
         pumpCancellables.removeAll()
         setPresentationActive(false)
+        return postUpdateActions
     }
 
     func configurePresentation(model: SidebarWorkspaceRowModel) {

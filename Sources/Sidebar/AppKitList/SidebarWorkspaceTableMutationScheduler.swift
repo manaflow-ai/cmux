@@ -5,13 +5,14 @@ import Foundation
 /// `NSViewRepresentable.updateNSView` and scroll-view bounds notifications can
 /// be delivered while SwiftUI or AppKit is already resolving layout. Mutating
 /// `NSTableView` from those callbacks can synchronously re-enter the same
-/// layout transaction. This scheduler keeps only the latest table input and
-/// one viewport signal, then flushes them after the originating callback has
-/// returned.
+/// layout transaction. This scheduler keeps the latest table input, one
+/// viewport signal, and ordered post-update actions, then flushes them after
+/// the originating callback has returned.
 @MainActor
 final class SidebarWorkspaceTableMutationScheduler {
     private var pendingApply: SidebarWorkspaceTableApplyInput?
     private var shouldFlushViewportChange = false
+    private var pendingPostUpdateActions: [@MainActor () -> Void] = []
     private var isFlushScheduled = false
     private let applyFlush: @MainActor (SidebarWorkspaceTableApplyInput) -> Void
     private let viewportChangeFlush: @MainActor () -> Void
@@ -34,9 +35,15 @@ final class SidebarWorkspaceTableMutationScheduler {
         scheduleFlushIfNeeded()
     }
 
-    func cancelPendingMutations() {
+    func cancelPendingTableMutations() {
         pendingApply = nil
         shouldFlushViewportChange = false
+    }
+
+    func stagePostUpdateActions(_ actions: [@MainActor () -> Void]) {
+        guard !actions.isEmpty else { return }
+        pendingPostUpdateActions.append(contentsOf: actions)
+        scheduleFlushIfNeeded()
     }
 
     private func scheduleFlushIfNeeded() {
@@ -54,8 +61,10 @@ final class SidebarWorkspaceTableMutationScheduler {
     private func flushPendingMutations() {
         let apply = pendingApply
         let flushViewportChange = shouldFlushViewportChange
+        let postUpdateActions = pendingPostUpdateActions
         pendingApply = nil
         shouldFlushViewportChange = false
+        pendingPostUpdateActions.removeAll(keepingCapacity: true)
         isFlushScheduled = false
 
         if let apply {
@@ -63,6 +72,9 @@ final class SidebarWorkspaceTableMutationScheduler {
         }
         if flushViewportChange {
             viewportChangeFlush()
+        }
+        for action in postUpdateActions {
+            action()
         }
     }
 }

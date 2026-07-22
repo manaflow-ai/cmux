@@ -305,12 +305,22 @@ final class SidebarRowChecklistSection: NSView {
     }
 
     func suspendPresentation(commitEdits: Bool) {
-        addRow.suspendPresentation(commitEdits: commitEdits)
+        detachPresentation(commitEdits: commitEdits)?()
+    }
+
+    func detachPresentation(commitEdits: Bool) -> (@MainActor () -> Void)? {
+        var postUpdateActions: [@MainActor () -> Void] = []
+        if let addAction = addRow.detachPresentation(commitEdits: commitEdits) {
+            postUpdateActions.append(addAction)
+        }
         summaryLine.resetForReuse()
         if popoverPresenter.isShown {
             popoverPresenter.close()
         }
         popoverPresenter.onExternalDismiss = nil
+        if let dismissAction = activePopoverDismissContext {
+            postUpdateActions.append(dismissAction)
+        }
         activePopoverDismissContext = nil
         awaitingPopoverDismissAck = false
         pendingPopoverPresentation = false
@@ -321,6 +331,10 @@ final class SidebarRowChecklistSection: NSView {
         orderedItems.removeAll(keepingCapacity: true)
         actions = nil
         model = nil
+        guard !postUpdateActions.isEmpty else { return nil }
+        return {
+            for action in postUpdateActions { action() }
+        }
     }
 
     // MARK: Checklist popover (popover style)

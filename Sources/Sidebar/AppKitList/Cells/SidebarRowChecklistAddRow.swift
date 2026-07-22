@@ -106,13 +106,30 @@ final class SidebarRowChecklistAddRow: NSView {
         lastArmWorkspaceId = nil
     }
 
-    /// Presentation teardown can either preserve the normal focus-loss
-    /// commit or discard the editor callbacks before detaching the field.
-    func suspendPresentation(commitEdits: Bool) {
-        if !commitEdits {
-            addField?.delegate = nil
+    /// Detaches the editor without firing model mutations from the current
+    /// AppKit update turn. The returned action commits the draft and consumes
+    /// the activation token after the representable callback has unwound.
+    func detachPresentation(commitEdits: Bool) -> (@MainActor () -> Void)? {
+        let postUpdateAction: (@MainActor () -> Void)?
+        if commitEdits, isAdding, let addField {
+            let text = addField.stringValue
+            let commit = onCommit
+            let cancel = onCancel
+            postUpdateAction = {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { commit?(trimmed) }
+                cancel?()
+            }
+        } else {
+            postUpdateAction = nil
         }
+        addField?.delegate = nil
         resetForReuse()
+        return postUpdateAction
+    }
+
+    func suspendPresentation(commitEdits: Bool) {
+        detachPresentation(commitEdits: commitEdits)?()
     }
 
     /// Creates a fresh, empty, focus-grabbing add field (legacy bumps the
