@@ -2016,6 +2016,8 @@ pub enum Hit {
     SidebarFile {
         index: usize,
     },
+    /// The active filter editor in the built-in files sidebar footer.
+    SidebarFilterInput,
     /// Status-bar screen entry.
     ScreenEntry {
         index: usize,
@@ -8624,8 +8626,21 @@ impl App {
 
         if let Some((pane, hit)) = self.omnibar_hit_at(x, y) {
             self.focus_pane_after_input(pane);
-            if let Some(state) = &self.omnibar {
+            if let Some(state) = self.omnibar.as_mut() {
                 if state.pane == pane {
+                    if hit == OmnibarHit::Edit
+                        && let Some(rect) = self
+                            .pane_areas
+                            .iter()
+                            .find(|area| area.pane == pane && area.surface == state.surface)
+                            .and_then(|area| area.omnibar)
+                    {
+                        state.select_all = false;
+                        state.input.set_cursor_from_visible_column(
+                            x.saturating_sub(rect.x) as usize,
+                            rect.width as usize,
+                        );
+                    }
                     return Ok(RenderAction::Draw);
                 }
                 self.omnibar = None;
@@ -8744,6 +8759,17 @@ impl App {
                 Hit::SidebarFile { index } => {
                     self.focus = FocusTarget::WorkspaceRail;
                     self.sidebar_files.select(index);
+                }
+                Hit::SidebarFilterInput => {
+                    self.focus = FocusTarget::WorkspaceRail;
+                    if let Some(area) =
+                        self.workspace_sidebar_area(self.content_area.height.saturating_add(1))
+                    {
+                        let input_width = area.width.saturating_sub(2);
+                        let column = x.saturating_sub(area.x + 1) as usize;
+                        self.sidebar_files
+                            .set_filter_cursor_from_visible_column(column, input_width as usize);
+                    }
                 }
                 Hit::ScreenEntry { index, .. } => {
                     self.focus = FocusTarget::Pane;
@@ -9717,7 +9743,7 @@ mod tests {
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         SurfaceResizeOwnership, WorkspaceRailSelection, browser_content_size_for_rect,
         browser_hover_forward_allowed, client_menu_item, forward_mux_event, forward_mux_events,
-        pane_context_menu_groups, pane_parts_for_rect, preserve_client_view,
+        pane_context_menu_groups, pane_parts_for_rect, preserve_client_view, rail_drag_width,
         record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session,
     };
@@ -10502,6 +10528,14 @@ mod tests {
             .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
         assert!(app.drag.is_none());
+
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::SHIFT))
+            .unwrap();
+        assert!(app.encode_buf.is_empty(), "Shift-right-click must bypass PTY mouse reporting");
+        assert!(app.drag.is_none());
+        assert!(app.menu.is_some(), "Shift-right-click must open the cmux context menu");
+        app.menu = None;
 
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
@@ -13384,6 +13418,42 @@ mod tests {
     }
 
     #[test]
+    fn files_filter_exposes_ratatui_cursor_and_accepts_mouse_cursor_placement() {
+        let temp = test_temp_dir("files-filter-cursor");
+        let (mux, surface) = test_mux("files-filter-cursor-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 24;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.tree = notify_tree(surface.id, false);
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert!(app.sidebar_files.insert_filter_text("á界b"));
+
+        let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let input = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| (*hit == super::Hit::SidebarFilterInput).then_some(*rect))
+            .unwrap();
+        terminal.backend_mut().assert_cursor_position((input.x + 4, input.y));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: input.x + 1,
+            row: input.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_files.query(), "áb");
+
+        mux.close_surface(surface.id);
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn focused_sidebar_tab_toggles_builtin_views_and_back() {
         let temp = test_temp_dir("toggle-view");
         std::fs::write(temp.join("toggle-marker.txt"), "hello").unwrap();
@@ -14488,6 +14558,62 @@ mod tests {
         assert!(app.hits.iter().any(|(_, hit)| {
             matches!(hit, super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) })
         }));
+    }
+
+    #[test]
+    fn mouse_drag_resizes_machine_and_workspace_rails_independently() {
+        let mux = Mux::new("rail-mouse-resize-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui());
+        app.sync_layout((100, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let divider = |app: &App, kind| {
+            app.hits
+                .iter()
+                .find_map(|(rect, hit)| (*hit == super::Hit::RailResize(kind)).then_some(*rect))
+                .unwrap()
+        };
+
+        for kind in [RailKind::Machine, RailKind::Workspace] {
+            let rect = divider(&app, kind);
+            let target_x = rect.x + 3;
+            let expected =
+                rail_drag_width(&app.config, app.sidebar_layout, kind, target_x).unwrap();
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: rect.x,
+                row: rect.y + 1,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: target_x,
+                row: rect.y + 1,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: target_x,
+                row: rect.y + 1,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+
+            match kind {
+                RailKind::Machine => {
+                    assert_eq!(app.machine_sidebar_width_override, Some(expected));
+                    assert_eq!(app.sidebar_width_override, None);
+                }
+                RailKind::Workspace => {
+                    assert_eq!(app.sidebar_width_override, Some(expected));
+                }
+            }
+        }
     }
 
     #[test]

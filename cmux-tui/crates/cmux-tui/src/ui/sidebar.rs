@@ -36,17 +36,18 @@ fn workspace_unread_color(
         .map(|(_, color)| color)
 }
 
-pub fn draw(app: &mut App, frame: &mut Frame) {
-    if app.workspace_sidebar_area(frame.area().height).is_none() {
-        return;
-    }
+pub fn draw(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
+    app.workspace_sidebar_area(frame.area().height)?;
     if app.config.sidebar.plugin.is_some() {
         draw_plugin(app, frame);
-        return;
+        return None;
     }
     match app.sidebar_view {
         SidebarView::Files => draw_files(app, frame),
-        SidebarView::Workspaces => draw_workspaces(app, frame),
+        SidebarView::Workspaces => {
+            draw_workspaces(app, frame);
+            None
+        }
     }
 }
 
@@ -478,12 +479,12 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     app.hits.extend(hits);
 }
 
-fn draw_files(app: &mut App, frame: &mut Frame) {
-    let Some(area) = app.workspace_sidebar_area(frame.area().height) else { return };
+fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
+    let area = app.workspace_sidebar_area(frame.area().height)?;
     let width = area.width;
     let height = area.height;
     if width < 3 || height == 0 {
-        return;
+        return None;
     }
     let content_width = width - 1;
     let content_w = content_width as usize;
@@ -514,7 +515,8 @@ fn draw_files(app: &mut App, frame: &mut Frame) {
     let current_dir = app.sidebar_files.current_dir().to_string_lossy().into_owned();
     let pinned = app.sidebar_files.is_pinned();
     let filter_mode = app.sidebar_files.filter_mode();
-    let query = app.sidebar_files.query().to_string();
+    let filter_input = filter_mode
+        .then(|| app.sidebar_files.visible_filter_text_and_cursor(content_w.saturating_sub(1)));
     let show_hidden = app.sidebar_files.show_hidden();
     let total = app.sidebar_files.total_len();
     let listing_error = app.sidebar_files.listing_error().map(str::to_owned);
@@ -580,23 +582,35 @@ fn draw_files(app: &mut App, frame: &mut Frame) {
         }
     }
 
+    let mut input_cursor = None;
     if height > 1 {
-        let footer = if filter_mode {
-            format!("/{query}█")
-        } else if let Some(message) = message {
-            message
+        let footer_y = area.y + height - 1;
+        if let Some((shown, cursor_col)) = filter_input {
+            let input_width = content_width.saturating_sub(1);
+            buf.set_stringn(area.x, footer_y, "/", 1, dim);
+            buf.set_stringn(area.x + 1, footer_y, &shown, input_width as usize, dim);
+            let input_rect = Rect { x: area.x + 1, y: footer_y, width: input_width, height: 1 };
+            hits.push((input_rect, Hit::SidebarFilterInput));
+            if app.workspace_sidebar_focused() {
+                input_cursor = Some((input_rect.x + cursor_col as u16, footer_y));
+            }
         } else {
-            format!(
-                "{}/{}  .:{}  / filter",
-                entries.len(),
-                total,
-                if show_hidden { "on" } else { "off" }
-            )
-        };
-        buf.set_stringn(area.x, area.y + height - 1, truncate(&footer, content_w), content_w, dim);
+            let footer = if let Some(message) = message {
+                message
+            } else {
+                format!(
+                    "{}/{}  .:{}  / filter",
+                    entries.len(),
+                    total,
+                    if show_hidden { "on" } else { "off" }
+                )
+            };
+            buf.set_stringn(area.x, footer_y, truncate(&footer, content_w), content_w, dim);
+        }
     }
     hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
     app.hits.extend(hits);
+    input_cursor
 }
 
 fn unread_summary(app: &App) -> Option<(usize, Color)> {

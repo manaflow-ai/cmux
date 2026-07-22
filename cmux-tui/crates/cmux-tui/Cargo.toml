@@ -22,6 +22,7 @@ ratatui.workspace = true
 crossterm.workspace = true
 anyhow.workspace = true
 unicode-width.workspace = true
+unicode-segmentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

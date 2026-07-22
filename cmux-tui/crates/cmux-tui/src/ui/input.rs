@@ -1,4 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputEvent {
@@ -41,6 +43,7 @@ impl TextInput {
         }
         self.buffer.insert_str(self.cursor, &sanitized);
         self.cursor += sanitized.len();
+        self.cursor = self.grapheme_boundary_at_or_after(self.cursor);
         true
     }
 
@@ -105,10 +108,18 @@ impl TextInput {
             return (String::new(), 0);
         }
         self.ensure_cursor_visible(width);
-        let scroll_col = self.char_col(self.scroll);
-        let cursor_col = self.char_col(self.cursor);
-        let text: String = self.buffer[self.scroll..].chars().take(width).collect();
-        (text, cursor_col.saturating_sub(scroll_col).min(width))
+        let cursor_col = self.display_width(self.scroll, self.cursor);
+        let mut used = 0;
+        let mut end = self.scroll;
+        for (offset, grapheme) in self.buffer[self.scroll..].grapheme_indices(true) {
+            let grapheme_width = UnicodeWidthStr::width(grapheme);
+            if used + grapheme_width > width {
+                break;
+            }
+            used += grapheme_width;
+            end = self.scroll + offset + grapheme.len();
+        }
+        (self.buffer[self.scroll..end].to_string(), cursor_col.min(width - 1))
     }
 
     pub fn set_cursor_from_visible_column(&mut self, column: usize, width: usize) {
@@ -116,9 +127,31 @@ impl TextInput {
             return;
         }
         self.ensure_cursor_visible(width);
-        let scroll_col = self.char_col(self.scroll);
-        let target = scroll_col + column.min(width.saturating_sub(1));
-        self.cursor = self.byte_for_char_col(target.min(self.char_len()));
+        let target = column.min(width - 1);
+        let mut used = 0;
+        let mut cursor = self.scroll;
+        for (offset, grapheme) in self.buffer[self.scroll..].grapheme_indices(true) {
+            let start = self.scroll + offset;
+            let end = start + grapheme.len();
+            let grapheme_width = UnicodeWidthStr::width(grapheme);
+            if used + grapheme_width > width {
+                break;
+            }
+            if target < used + grapheme_width {
+                let distance = target.saturating_sub(used);
+                cursor = if distance < grapheme_width.div_ceil(2) { start } else { end };
+                self.cursor = cursor;
+                self.ensure_cursor_visible(width);
+                return;
+            }
+            used += grapheme_width;
+            cursor = end;
+            if target < used {
+                break;
+            }
+        }
+        self.cursor = cursor;
+        self.ensure_cursor_visible(width);
     }
 
     fn handle_control(&mut self, c: char) -> InputEvent {
@@ -166,6 +199,7 @@ impl TextInput {
     fn insert_char(&mut self, c: char) {
         self.buffer.insert(self.cursor, c);
         self.cursor += c.len_utf8();
+        self.cursor = self.grapheme_boundary_at_or_after(self.cursor);
     }
 
     fn move_start(&mut self) {
@@ -231,14 +265,14 @@ impl TextInput {
 
     fn word_left(&self, from: usize) -> usize {
         let mut idx = from;
-        while let Some((prev, ch)) = self.prev_char(idx) {
-            if ch.is_alphanumeric() {
+        while let Some((prev, grapheme)) = self.prev_grapheme(idx) {
+            if Self::is_word_grapheme(grapheme) {
                 break;
             }
             idx = prev;
         }
-        while let Some((prev, ch)) = self.prev_char(idx) {
-            if !ch.is_alphanumeric() {
+        while let Some((prev, grapheme)) = self.prev_grapheme(idx) {
+            if !Self::is_word_grapheme(grapheme) {
                 break;
             }
             idx = prev;
@@ -248,14 +282,14 @@ impl TextInput {
 
     fn word_right(&self, from: usize) -> usize {
         let mut idx = from;
-        while let Some((next, ch)) = self.char_at(idx) {
-            if ch.is_alphanumeric() {
+        while let Some((next, grapheme)) = self.grapheme_at(idx) {
+            if Self::is_word_grapheme(grapheme) {
                 break;
             }
             idx = next;
         }
-        while let Some((next, ch)) = self.char_at(idx) {
-            if !ch.is_alphanumeric() {
+        while let Some((next, grapheme)) = self.grapheme_at(idx) {
+            if !Self::is_word_grapheme(grapheme) {
                 break;
             }
             idx = next;
@@ -264,57 +298,55 @@ impl TextInput {
     }
 
     fn prev_boundary(&self, from: usize) -> usize {
-        if from == 0 {
-            return 0;
-        }
-        self.buffer[..from].char_indices().last().map(|(idx, _)| idx).unwrap_or(0)
+        self.prev_grapheme(from).map_or(0, |(idx, _)| idx)
     }
 
     fn next_boundary(&self, from: usize) -> usize {
-        if from >= self.buffer.len() {
-            return self.buffer.len();
-        }
-        let mut chars = self.buffer[from..].char_indices();
-        let _ = chars.next();
-        chars.next().map(|(idx, _)| from + idx).unwrap_or(self.buffer.len())
+        self.grapheme_at(from).map_or(self.buffer.len(), |(idx, _)| idx)
     }
 
-    fn prev_char(&self, from: usize) -> Option<(usize, char)> {
-        self.buffer[..from].char_indices().last()
+    fn prev_grapheme(&self, from: usize) -> Option<(usize, &str)> {
+        self.buffer[..from].grapheme_indices(true).next_back()
     }
 
-    fn char_at(&self, from: usize) -> Option<(usize, char)> {
-        let ch = self.buffer[from..].chars().next()?;
-        Some((from + ch.len_utf8(), ch))
+    fn grapheme_at(&self, from: usize) -> Option<(usize, &str)> {
+        let grapheme = self.buffer[from..].graphemes(true).next()?;
+        Some((from + grapheme.len(), grapheme))
     }
 
     fn ensure_cursor_visible(&mut self, width: usize) {
         if width == 0 {
             return;
         }
+        self.cursor = self.grapheme_boundary_at_or_after(self.cursor.min(self.buffer.len()));
+        self.scroll = self.grapheme_boundary_at_or_after(self.scroll.min(self.cursor));
         if self.cursor < self.scroll {
             self.scroll = self.cursor;
         }
-        let cursor_col = self.char_col(self.cursor);
-        let scroll_col = self.char_col(self.scroll);
-        if cursor_col < scroll_col {
-            self.scroll = self.cursor;
-        } else if cursor_col > scroll_col + width {
-            let target_col = cursor_col.saturating_sub(width);
-            self.scroll = self.byte_for_char_col(target_col);
+        while self.display_width(self.scroll, self.cursor) >= width {
+            let next = self.next_boundary(self.scroll);
+            if next <= self.scroll || next > self.cursor {
+                self.scroll = self.cursor;
+                break;
+            }
+            self.scroll = next;
         }
     }
 
-    fn char_len(&self) -> usize {
-        self.buffer.chars().count()
+    fn grapheme_boundary_at_or_after(&self, byte: usize) -> usize {
+        self.buffer
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index >= byte)
+            .unwrap_or(self.buffer.len())
     }
 
-    fn char_col(&self, byte: usize) -> usize {
-        self.buffer[..byte].chars().count()
+    fn display_width(&self, start: usize, end: usize) -> usize {
+        UnicodeWidthStr::width(&self.buffer[start..end])
     }
 
-    fn byte_for_char_col(&self, col: usize) -> usize {
-        self.buffer.char_indices().nth(col).map(|(idx, _)| idx).unwrap_or(self.buffer.len())
+    fn is_word_grapheme(grapheme: &str) -> bool {
+        grapheme.chars().any(char::is_alphanumeric)
     }
 }
 
@@ -452,8 +484,8 @@ mod tests {
     fn visible_text_keeps_cursor_visible() {
         let mut input = text_input("abcdef");
         let (shown, cursor) = input.visible_text_and_cursor(3);
-        assert_eq!(shown, "def");
-        assert_eq!(cursor, 3);
+        assert_eq!(shown, "ef");
+        assert_eq!(cursor, 2);
         input.handle_key(&key(KeyCode::Char('a'), KeyModifiers::CONTROL));
         let (shown, cursor) = input.visible_text_and_cursor(3);
         assert_eq!(shown, "abc");

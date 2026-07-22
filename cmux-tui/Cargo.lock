@@ -206,6 +206,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "toml",
+ "unicode-segmentation",
  "unicode-width",
 ]
 

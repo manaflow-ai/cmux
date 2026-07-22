@@ -33,11 +33,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     if app.machine_sidebar_width > 0 {
         sidebar::draw_machines(app, frame);
     }
-    if app.sidebar_width > 0 {
-        sidebar::draw(app, frame);
-    }
+    let sidebar_input_cursor = (app.sidebar_width > 0).then(|| sidebar::draw(app, frame)).flatten();
 
-    let cursor = pane::draw_all(app, frame);
+    let pane_cursors = pane::draw_all(app, frame);
     draw_status_bar(app, frame);
     overlay::draw_toast(app, frame);
     overlay::draw_menu(app, frame);
@@ -48,7 +46,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     } else if app.prompt.is_some() {
         overlay::draw_prompt(app, frame);
     } else if app.menu.is_none()
-        && let Some((x, y)) = cursor
+        && let Some((x, y)) = pane_cursors.input.or(sidebar_input_cursor).or(pane_cursors.terminal)
     {
         frame.set_cursor_position(Position::new(x, y));
     }
