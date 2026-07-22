@@ -534,6 +534,9 @@ struct GhostMainWindowContextLifecycleTests {
         // A retained, already-closed NSWindow emits no second notification.
         // The socket/API fallback calls this same authoritative transaction.
         #expect(!app.commitMainWindowClose(window))
+        #expect(app.windowForMainWindowId(windowId) == nil)
+        #expect(!app.focusMainWindow(windowId: windowId))
+        #expect(!window.isVisible)
 
         #expect(app.tabManagerFor(windowId: windowId) == nil)
         #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
