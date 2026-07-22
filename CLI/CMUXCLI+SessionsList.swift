@@ -7,8 +7,8 @@ struct CMUXAgentInstanceScope {
 
     func contains(_ record: ClaudeHookSessionRecord) -> Bool {
         let surfaceID = record.surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !surfaceID.isEmpty {
-            return surfaceIDs.contains(surfaceID)
+        if !surfaceID.isEmpty, surfaceIDs.contains(surfaceID) {
+            return true
         }
         let workspaceID = record.workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return !workspaceID.isEmpty && workspaceIDs.contains(workspaceID)
@@ -530,7 +530,8 @@ extension CMUXCLI {
                 let nodeID = agentSessionNodeID(
                     agent: spec.name,
                     sessionID: record.sessionId,
-                    runID: runID
+                    runID: runID,
+                    hookSessionID: rawRecord.sessionId == record.sessionId ? nil : rawRecord.sessionId
                 )
                 let node: [String: Any] = [
                     "node_id": nodeID,
@@ -816,8 +817,17 @@ extension CMUXCLI {
         ]
     }
 
-    private func agentSessionNodeID(agent: String, sessionID: String, runID: String) -> String {
-        "session:\(agent.utf8.count):\(agent)\(sessionID.utf8.count):\(sessionID)\(runID.utf8.count):\(runID)"
+    private func agentSessionNodeID(
+        agent: String,
+        sessionID: String,
+        runID: String,
+        hookSessionID: String?
+    ) -> String {
+        var nodeID = "session:\(agent.utf8.count):\(agent)\(sessionID.utf8.count):\(sessionID)\(runID.utf8.count):\(runID)"
+        if let hookSessionID {
+            nodeID += "hook:\(hookSessionID.utf8.count):\(hookSessionID)"
+        }
+        return nodeID
     }
 
     private func agentSessionGraphKey(agent: String, identifier: String) -> String {
@@ -829,14 +839,26 @@ extension CMUXCLI {
         edges: [[String: Any]],
         maximumDepth: Int
     ) -> [String] {
-        let nodesByID = Dictionary(uniqueKeysWithValues: nodes.compactMap { node -> (String, [String: Any])? in
-            guard let nodeID = node["node_id"] as? String else { return nil }
-            return (nodeID, node)
-        })
+        var nodesByID: [String: [String: Any]] = [:]
+        for node in nodes {
+            guard let nodeID = node["node_id"] as? String, nodesByID[nodeID] == nil else { continue }
+            nodesByID[nodeID] = node
+        }
         let childIDs = Set(edges.compactMap { $0["to_node_id"] as? String })
         let childrenByParent = Dictionary(grouping: edges) { ($0["from_node_id"] as? String) ?? "" }
         var lines: [String] = []
         var visited = Set<String>()
+        var structurallyCovered = Set<String>()
+
+        func markStructurallyCovered(from rootNodeID: String) {
+            var pending = [rootNodeID]
+            while let nodeID = pending.popLast() {
+                guard structurallyCovered.insert(nodeID).inserted else { continue }
+                pending.append(contentsOf: (childrenByParent[nodeID] ?? []).compactMap {
+                    $0["to_node_id"] as? String
+                })
+            }
+        }
 
         func appendNode(
             _ nodeID: String,
@@ -871,9 +893,11 @@ extension CMUXCLI {
             .filter { !childIDs.contains($0) }
             .sorted()
         for root in roots {
+            markStructurallyCovered(from: root)
             appendNode(root, prefix: "", connector: "", relationship: "root", depth: 0)
         }
-        for nodeID in nodesByID.keys.sorted() where !visited.contains(nodeID) {
+        for nodeID in nodesByID.keys.sorted() where !structurallyCovered.contains(nodeID) {
+            markStructurallyCovered(from: nodeID)
             let relationship = (nodesByID[nodeID]?["relationship"] as? String) ?? "root"
             appendNode(nodeID, prefix: "", connector: "", relationship: relationship, depth: 0)
         }
