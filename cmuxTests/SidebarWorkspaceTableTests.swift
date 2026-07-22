@@ -246,9 +246,11 @@ struct SidebarWorkspaceTableTests {
         var appliedInputs = 0
         var viewportFlushes = 0
         var postUpdateActions = 0
+        var reloads = 0
         let scheduler = SidebarWorkspaceTableMutationScheduler(
             applyFlush: { _ in appliedInputs += 1 },
-            viewportChangeFlush: { viewportFlushes += 1 }
+            viewportChangeFlush: { viewportFlushes += 1 },
+            reloadFlush: { reloads += 1 }
         )
         let row = makeRowConfiguration()
         let input = SidebarWorkspaceTableApplyInput(
@@ -261,19 +263,24 @@ struct SidebarWorkspaceTableTests {
 
         scheduler.stageApply(input)
         scheduler.stageViewportChange()
+        scheduler.stageTableReload()
         scheduler.cancelPendingTableMutations()
         await flushStagedTableMutations()
         #expect(appliedInputs == 0)
         #expect(viewportFlushes == 0)
+        #expect(reloads == 1)
 
         scheduler.stageApply(input)
         scheduler.stageViewportChange()
+        scheduler.stageTableReload()
+        scheduler.stageTableReload()
         scheduler.stagePostUpdateActions([{ postUpdateActions += 1 }])
         #expect(postUpdateActions == 0)
         await flushStagedTableMutations()
         #expect(appliedInputs == 1)
         #expect(viewportFlushes == 1)
         #expect(postUpdateActions == 1)
+        #expect(reloads == 2)
     }
 
     @Test
