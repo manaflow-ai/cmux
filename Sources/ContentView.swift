@@ -12020,9 +12020,11 @@ struct VerticalTabsSidebar: View, Equatable {
     /// Per-host origin color (beta), resolved here — above the row boundary — to
     /// a plain value. Nil when the flag is off or the workspace has no host.
     ///
-    /// Mirror workspaces carry their host only through the session mirror. A batch
-    /// refresh passes `mirrorDestinations` so the mirrors are walked once for the whole
-    /// batch instead of once per row; a single row passes nil and takes the direct lookup.
+    /// Mirror workspaces carry their host only through the session mirror, so callers
+    /// pass `mirrorDestinations` and the mirrors get walked once for a whole refresh
+    /// rather than once per row. That map comes from `mirrorDestinationsForOriginColors()`,
+    /// which returns nil only while the flag is off — the case the guard above already
+    /// answers — so a mirror with no entry here simply has no host yet.
     private func originColorHex(
         for workspace: Workspace,
         mirrorDestinations: [UUID: String]?
@@ -12030,12 +12032,7 @@ struct VerticalTabsSidebar: View, Equatable {
         guard remoteTmuxOriginColorsEnabled else { return nil }
         var destination = workspace.remoteConfiguration?.destination
         if destination == nil, workspace.isRemoteTmuxMirror {
-            if let mirrorDestinations {
-                destination = mirrorDestinations[workspace.id]
-            } else {
-                destination = AppDelegate.shared?.remoteTmuxController
-                    .hostDestination(forWorkspaceId: workspace.id)
-            }
+            destination = mirrorDestinations?[workspace.id]
         }
         guard let destination, !destination.isEmpty else { return nil }
         return AppDelegate.shared?.remoteTmuxController.hostColorRegistry.colorHex(for: destination)
