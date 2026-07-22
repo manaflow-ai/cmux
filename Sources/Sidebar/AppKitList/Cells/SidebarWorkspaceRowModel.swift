@@ -56,6 +56,7 @@ struct SidebarWorkspaceRowModel: Equatable {
 struct SidebarAppKitRowActions {
     let commands: SidebarWorkspaceRowCommands
     let onOpenStatusURL: (URL) -> Void
+    let onOpenWorkspaceDescriptionURL: (URL) -> Void
     let onOpenPullRequest: (URL) -> Void
     let onOpenPort: (Int) -> Void
     let onToggleChecklistExpansion: () -> Void
