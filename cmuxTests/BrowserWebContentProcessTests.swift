@@ -192,9 +192,11 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func webAuthnNativeCapabilitiesOmitUnavailablePlatformSignals() {
-        let capabilities = browserWebAuthnNativeCapabilityPayload()
+    func webAuthnNativeCapabilitiesOmitUnavailablePlatformSignals() throws {
+        let reply = BrowserWebAuthnCoordinator().capabilityReply()
+        let capabilities = try #require(reply["capabilities"] as? [String: Bool])
 
+        #expect(reply["ok"] as? Bool == true)
         #expect(capabilities["userVerifyingPlatformAuthenticatorAvailable"] == nil)
         #expect(capabilities["conditionalMediationAvailable"] == nil)
     }
