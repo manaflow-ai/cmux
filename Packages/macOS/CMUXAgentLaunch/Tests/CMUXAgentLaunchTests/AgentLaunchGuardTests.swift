@@ -96,6 +96,35 @@ struct AgentLaunchGuardTests {
     }
 
     @Test
+    func endedAgentDoesNotReleasePendingClaimBeforePostLaunchObservationCompletes() {
+        let observer = FakeAgentLaunchObserver(state: .endedAgent)
+        let executor = FakeAgentLaunchExecutor()
+        let guardLayer = AgentLaunchGuard(observer: observer, executor: executor)
+
+        let first = guardLayer.perform(
+            surfaceID: "surface-1",
+            command: "claude",
+            intent: .launchOnly
+        )
+        let beforePostLaunchObservationCompletes = guardLayer.perform(
+            surfaceID: "surface-1",
+            command: "claude",
+            intent: .launchOnly
+        )
+        observer.completeLatestObservation(state: .endedAgent)
+        let afterPostLaunchObservationCompletes = guardLayer.perform(
+            surfaceID: "surface-1",
+            command: "claude",
+            intent: .launchOnly
+        )
+
+        #expect(first == .launched)
+        #expect(beforePostLaunchObservationCompletes == .suppressed(.launchAlreadyPending))
+        #expect(afterPostLaunchObservationCompletes == .launched)
+        #expect(executor.launchCommands == ["claude", "claude"])
+    }
+
+    @Test
     func idleObservationAfterFailedLaunchAllowsRelaunch() {
         let observer = FakeAgentLaunchObserver(state: .idleShell)
         let executor = FakeAgentLaunchExecutor()
@@ -181,6 +210,10 @@ private final class FakeAgentLaunchObserver: AgentLaunchObserving {
     func completeObservation(_ generation: UInt64, state: AgentLaunchSurfaceState) {
         self.state = state
         observationGeneration = max(observationGeneration, generation)
+    }
+
+    func completeLatestObservation(state: AgentLaunchSurfaceState) {
+        completeObservation(startedObservationGeneration, state: state)
     }
 
     func recordObservation(_ state: AgentLaunchSurfaceState) {

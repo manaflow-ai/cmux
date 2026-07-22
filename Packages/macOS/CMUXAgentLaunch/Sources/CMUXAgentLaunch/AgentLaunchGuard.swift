@@ -21,7 +21,7 @@ public final class AgentLaunchGuard {
     ///
     /// A successful launch claims the surface until its cache-bypassing post-launch process
     /// observation completes. Observations started before the launch cannot release that claim.
-    /// A post-launch observation that still sees an idle shell releases a failed or instant-exit
+    /// A post-launch observation that still sees no running agent releases a failed or instant-exit
     /// launch.
     ///
     /// - Parameters:
@@ -36,7 +36,7 @@ public final class AgentLaunchGuard {
     ) -> AgentLaunchGuardResult {
         let state = observer.agentLaunchState(surfaceID: surfaceID)
         let observationGeneration = observer.agentLaunchObservationGeneration(surfaceID: surfaceID)
-        if state != .idleShell
+        if state == .runningAgent
             || requiredPostLaunchObservationBySurfaceID[surfaceID].map({ observationGeneration >= $0 }) == true {
             requiredPostLaunchObservationBySurfaceID.removeValue(forKey: surfaceID)
         }
