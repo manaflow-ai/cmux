@@ -4218,12 +4218,11 @@ class TabManager: ObservableObject {
         let preRestoreFocus = currentFocusHistoryEntry
         var reservedWorkspaceIds = liveWorkspaceIdSet()
         let excludedStableIdentities = liveStableIdentitySet()
-        let restoredWorkspaceId = Self.restoredWorkspaceId(
-            from: entry.snapshot,
+        let restoredWorkspaceId = WorkspaceSessionRestoreIdentity.restoredWorkspaceId(
+            persistedWorkspaceId: entry.snapshot.workspaceId,
+            stableId: entry.snapshot.stableId,
             reservedWorkspaceIds: &reservedWorkspaceIds,
-            shouldExcludePersistedWorkspaceId: entry.snapshot.stableId.map {
-                excludedStableIdentities.contains($0)
-            } ?? false
+            excludingStableIdentities: excludedStableIdentities
         )
         let workspace = addWorkspace(
             id: restoredWorkspaceId,
@@ -5984,27 +5983,6 @@ extension TabManager {
         workspace.owningTabManager = nil
     }
 
-    private static func restoredWorkspaceId(
-        from snapshot: SessionWorkspaceSnapshot,
-        reservedWorkspaceIds: inout Set<UUID>,
-        shouldExcludePersistedWorkspaceId: Bool = false
-    ) -> UUID {
-        if !shouldExcludePersistedWorkspaceId,
-           let persistedWorkspaceId = snapshot.workspaceId,
-           reservedWorkspaceIds.insert(persistedWorkspaceId).inserted {
-            return persistedWorkspaceId
-        }
-        return freshWorkspaceId(reservingIn: &reservedWorkspaceIds)
-    }
-
-    private static func freshWorkspaceId(reservingIn reservedWorkspaceIds: inout Set<UUID>) -> UUID {
-        var id = UUID()
-        while !reservedWorkspaceIds.insert(id).inserted {
-            id = UUID()
-        }
-        return id
-    }
-
     private static func normalizedCloudVMSessionRestoreWorkspaces<S: Sequence>(
         _ snapshots: S,
         selectedWorkspaceIndex: Int?
@@ -6082,12 +6060,11 @@ extension TabManager {
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let restoredWorkspaceId = Self.restoredWorkspaceId(
-                from: workspaceSnapshot,
+            let restoredWorkspaceId = WorkspaceSessionRestoreIdentity.restoredWorkspaceId(
+                persistedWorkspaceId: workspaceSnapshot.workspaceId,
+                stableId: workspaceSnapshot.stableId,
                 reservedWorkspaceIds: &reservedWorkspaceIds,
-                shouldExcludePersistedWorkspaceId: workspaceSnapshot.stableId.map {
-                    excludingStableIdentities.contains($0)
-                } ?? false
+                excludingStableIdentities: excludingStableIdentities
             )
             let workspace = Workspace(
                 id: restoredWorkspaceId,
@@ -6110,7 +6087,9 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallbackWorkspaceId = Self.freshWorkspaceId(reservingIn: &reservedWorkspaceIds)
+            let fallbackWorkspaceId = WorkspaceSessionRestoreIdentity.freshWorkspaceId(
+                reservingIn: &reservedWorkspaceIds
+            )
             let fallback = Workspace(
                 id: fallbackWorkspaceId,
                 title: "Terminal 1",

@@ -4,20 +4,6 @@ import AppKit
 final class SidebarResizerCursorReleaseScheduler {
     private var pendingTask: Task<Void, Never>?
     private var generation: UInt64 = 0
-    private let sleep: @Sendable (Duration) async throws -> Void
-    private let yieldExecution: @Sendable () async -> Void
-
-    init(
-        sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
-            try await Task.sleep(for: duration)
-        },
-        yieldExecution: @escaping @Sendable () async -> Void = {
-            await Task.yield()
-        }
-    ) {
-        self.sleep = sleep
-        self.yieldExecution = yieldExecution
-    }
 
     func cancelPendingRelease() {
         generation &+= 1
@@ -33,17 +19,15 @@ final class SidebarResizerCursorReleaseScheduler {
         cancelPendingRelease()
 
         let scheduledGeneration = generation
-        let sleep = sleep
-        let yieldExecution = yieldExecution
         pendingTask = Task { @MainActor [weak self] in
             if delay > .zero {
                 do {
-                    try await sleep(delay)
+                    try await Task.sleep(for: delay)
                 } catch {
                     return
                 }
             } else {
-                await yieldExecution()
+                await Task.yield()
                 guard !Task.isCancelled else { return }
             }
             guard let self, generation == scheduledGeneration else { return }
