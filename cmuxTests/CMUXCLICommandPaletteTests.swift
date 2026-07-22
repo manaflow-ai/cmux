@@ -30,6 +30,34 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["window_id"] as? String == windowID.uuidString)
     }
 
+    @Test func paletteDefaultsToTheCallerWorkspaceInsteadOfTheActiveWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-palcaller-\(UUID().uuidString.prefix(8)).sock"
+        let workspaceID = UUID()
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"count":0,"commands":[]}}"#
+        )
+        defer { responder.stop() }
+        var environment = commandPaletteCLIEnvironment()
+        environment["CMUX_WORKSPACE_ID"] = workspaceID.uuidString
+        environment["CMUX_WINDOW_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "palette", "list"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["window_id"] == nil)
+    }
+
     @Test func paletteRunForwardsTheStableActionID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-palrun-\(UUID().uuidString.prefix(8)).sock"
