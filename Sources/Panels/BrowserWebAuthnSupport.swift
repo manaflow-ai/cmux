@@ -1112,6 +1112,13 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
             }
         }
     }
+
+    func capabilityReply() -> [String: Any] {
+        [
+            "ok": true,
+            "capabilities": [String: Bool](),
+        ]
+    }
 }
 
 @MainActor
@@ -1747,12 +1754,6 @@ private extension BrowserWebAuthnCoordinator {
         }
     }
 
-    func capabilityReply() -> [String: Any] {
-        [
-            "ok": true,
-            "capabilities": [String: Bool](),
-        ]
-    }
 
     func fallbackReply() -> [String: Any] {
         [
