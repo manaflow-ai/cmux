@@ -4761,12 +4761,16 @@ final class cmuxUITests: XCTestCase {
                 element.tap()
             }
 
-            if waitForKeyboardFocus(of: element, timeout: 1) || app.keyboards.firstMatch.exists {
+            if debugDescriptionReportsKeyboardFocus(of: element)
+                || waitForKeyboardFocus(of: element, timeout: 1)
+                || debugDescriptionReportsKeyboardFocus(of: element) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return waitForKeyboardFocus(of: element, timeout: 0.5) || app.keyboards.firstMatch.exists
+        return debugDescriptionReportsKeyboardFocus(of: element)
+            || waitForKeyboardFocus(of: element, timeout: 0.5)
+            || debugDescriptionReportsKeyboardFocus(of: element)
     }
 
     @MainActor
@@ -4868,6 +4872,10 @@ final class cmuxUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func debugDescriptionReportsKeyboardFocus(of element: XCUIElement) -> Bool {
+        element.debugDescription.contains("Keyboard Focused")
     }
 
     @MainActor
