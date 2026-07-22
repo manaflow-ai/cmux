@@ -22,23 +22,22 @@ struct BrowserWebExtensionsManagerTests {
         private var didStart = false
         private var didCancel = false
         private var isReleased = false
-        private var startedContinuation: CheckedContinuation<Void, Never>?
         private var releaseContinuation: CheckedContinuation<Void, Never>?
 
         func markStarted() async {
             didStart = true
-            startedContinuation?.resume()
-            startedContinuation = nil
             guard !isReleased else { return }
             await withCheckedContinuation { continuation in
                 releaseContinuation = continuation
             }
         }
 
-        func waitUntilStarted() async {
-            guard !didStart else { return }
-            await withCheckedContinuation { continuation in
-                startedContinuation = continuation
+        func waitUntilStarted(timeout: Duration = .seconds(8)) async throws {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: timeout)
+            while !didStart {
+                guard clock.now < deadline else { throw URLError(.timedOut) }
+                try await clock.sleep(for: .milliseconds(20))
             }
         }
 
@@ -945,6 +944,10 @@ struct BrowserWebExtensionsManagerTests {
                 backing: .buffered,
                 defer: false
             )
+            // The headless CI display has an accessibility shield at level
+            // 2001. Put this test-only window above it so AppKit vends the
+            // mounted SwiftUI accessibility elements.
+            window.level = NSWindow.Level(rawValue: 2002)
             let hostingView = NSHostingView(
                 rootView: toolbar.frame(width: width, height: 24, alignment: .trailing)
             )
@@ -1042,6 +1045,7 @@ struct BrowserWebExtensionsManagerTests {
             backing: .buffered,
             defer: false
         )
+        window.level = NSWindow.Level(rawValue: 2002)
         let hostingView = NSHostingView(
             rootView: BrowserExtensionsManagerPage(
                 panel: panel,
@@ -1076,7 +1080,7 @@ struct BrowserWebExtensionsManagerTests {
                 await Task.yield()
             } while Date() < buttonDeadline
             #expect(Self.pressAccessibilityElement(try #require(getButton)))
-            await requestGate.waitUntilStarted()
+            try await requestGate.waitUntilStarted()
 
             window.contentView = nil
             for _ in 0..<100 where !(await requestGate.wasCancelled()) {
@@ -1329,9 +1333,11 @@ struct BrowserWebExtensionsManagerTests {
         #expect(placementLock.firstStabilizedFrame != nil)
         #expect(placementLock.lastStabilizedFrame != nil)
         placementLock.stop()
-        popover.performClose(nil)
+        popover.close()
+        await Self.waitForMainQueueTurn()
         await Self.waitForMainQueueTurn()
         window.close()
+        await Self.waitForMainQueueTurn()
         await Self.waitForMainQueueTurn()
     }
 
@@ -1671,14 +1677,15 @@ struct BrowserWebExtensionsManagerTests {
         )
     }
 
-    @Test func baseWebViewConfigurationPreservesItsWebsiteDataStore() {
+    @Test func suppliedBaseWebViewConfigurationPreservesOwnedContentControllerAndDataStore() {
         let extensionDataStore = WKWebsiteDataStore.nonPersistent()
         let profileDataStore = WKWebsiteDataStore.nonPersistent()
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = extensionDataStore
+        let extensionOwnedScriptSource = "window.extensionOwned = true"
         configuration.userContentController.addUserScript(
             WKUserScript(
-                source: "window.extensionOwned = true",
+                source: extensionOwnedScriptSource,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
@@ -1691,9 +1698,14 @@ struct BrowserWebExtensionsManagerTests {
         )
 
         #expect(webView.configuration.websiteDataStore === extensionDataStore)
-        #expect(webView.configuration.userContentController.userScripts.contains {
-            $0.source == "window.extensionOwned = true"
-        })
+        #expect(
+            webView.configuration.userContentController
+                === configuration.userContentController
+        )
+        #expect(
+            webView.configuration.userContentController.userScripts.map(\.source)
+                == [extensionOwnedScriptSource]
+        )
     }
 
     @available(macOS 15.4, *)
@@ -3741,104 +3753,120 @@ struct BrowserWebExtensionsManagerTests {
         )
         let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let manager = try #require(services.webExtensionsManager)
-        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
+
+        var firstPopup: BrowserPopupWindowController?
+        var secondPopup: BrowserPopupWindowController?
+        var sharedController: WKUserContentController?
+        func cleanup() async {
+            if let sharedController {
+                sharedController.removeScriptMessageHandler(
+                    forName: BrowserSSLTrustBypassMessageHandler.name
+                )
+            }
+            if firstPopup?.webView.window != nil { firstPopup?.closePopup() }
+            if secondPopup?.webView.window != nil { secondPopup?.closePopup() }
+            firstPopup = nil
+            secondPopup = nil
+            await Self.waitForMainQueueTurn()
+            await Self.waitForMainQueueTurn()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
+        }
+
         do {
-        let context = try #require(manager.loadedContexts.first)
-        let popupURL = context.baseURL.appendingPathComponent("popup.html")
-        let suppliedConfiguration = try #require(
-            manager.pageConfiguration(for: popupURL)?.configuration
-        )
-        let sharedController = suppliedConfiguration.userContentController
-        let messageCounter = ScriptMessageCounter()
-        sharedController.removeScriptMessageHandler(
-            forName: BrowserSSLTrustBypassMessageHandler.name
-        )
-        sharedController.add(
-            messageCounter,
-            name: BrowserSSLTrustBypassMessageHandler.name
-        )
-        defer {
-            sharedController.removeScriptMessageHandler(
+            let context = try #require(manager.loadedContexts.first)
+            let popupURL = context.baseURL.appendingPathComponent("popup.html")
+            let suppliedConfiguration = try #require(
+                manager.pageConfiguration(for: popupURL)?.configuration
+            )
+            let controller = suppliedConfiguration.userContentController
+            sharedController = controller
+            let messageCounter = ScriptMessageCounter()
+            controller.removeScriptMessageHandler(
                 forName: BrowserSSLTrustBypassMessageHandler.name
             )
-        }
-        let originalScriptSources = sharedController.userScripts.map(\.source)
-        let siblingWebView = try await Self.loadExtensionPage(
-            "popup.html",
-            context: context,
-            manager: manager
-        )
-        let token = UUID().uuidString
-        try await Self.postScriptMessage(
-            named: BrowserSSLTrustBypassMessageHandler.name,
-            body: token,
-            in: siblingWebView
-        )
-        try await Self.waitUntil("shared popup handler baseline") {
-            messageCounter.count == 1
-        }
+            controller.add(
+                messageCounter,
+                name: BrowserSSLTrustBypassMessageHandler.name
+            )
+            let originalScriptSources = controller.userScripts.map(\.source)
+            let siblingWebView = try await Self.loadExtensionPage(
+                "popup.html",
+                context: context,
+                manager: manager
+            )
+            let token = UUID().uuidString
+            try await Self.postScriptMessage(
+                named: BrowserSSLTrustBypassMessageHandler.name,
+                body: token,
+                in: siblingWebView
+            )
+            try await Self.waitUntil("shared popup handler baseline") {
+                messageCounter.count == 1
+            }
 
-        let firstPopup = BrowserPopupWindowController(
-            configuration: suppliedConfiguration,
-            windowFeatures: WKWindowFeatures(),
-            browserContext: BrowserPopupBrowserContext(
-                profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
-                websiteDataStore: suppliedConfiguration.websiteDataStore,
-                browserServices: services
-            ),
-            openerPanel: nil
-        )
-        let secondPopup = BrowserPopupWindowController(
-            configuration: suppliedConfiguration,
-            windowFeatures: WKWindowFeatures(),
-            browserContext: BrowserPopupBrowserContext(
-                profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
-                websiteDataStore: suppliedConfiguration.websiteDataStore,
-                browserServices: services
-            ),
-            openerPanel: nil
-        )
-        defer {
-            if firstPopup.webView.window != nil { firstPopup.closePopup() }
-            if secondPopup.webView.window != nil { secondPopup.closePopup() }
-        }
+            firstPopup = BrowserPopupWindowController(
+                configuration: suppliedConfiguration,
+                windowFeatures: WKWindowFeatures(),
+                browserContext: BrowserPopupBrowserContext(
+                    profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+                    websiteDataStore: suppliedConfiguration.websiteDataStore,
+                    browserServices: services
+                ),
+                openerPanel: nil
+            )
+            secondPopup = BrowserPopupWindowController(
+                configuration: suppliedConfiguration,
+                windowFeatures: WKWindowFeatures(),
+                browserContext: BrowserPopupBrowserContext(
+                    profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+                    websiteDataStore: suppliedConfiguration.websiteDataStore,
+                    browserServices: services
+                ),
+                openerPanel: nil
+            )
+            let first = try #require(firstPopup)
+            let second = try #require(secondPopup)
 
-        #expect(firstPopup.webView.configuration.userContentController === sharedController)
-        #expect(secondPopup.webView.configuration.userContentController === sharedController)
-        #expect(sharedController.userScripts.map(\.source) == originalScriptSources)
+            #expect(first.webView.configuration.userContentController === controller)
+            #expect(second.webView.configuration.userContentController === controller)
+            #expect(controller.userScripts.map(\.source) == originalScriptSources)
 
-        secondPopup.webView.load(URLRequest(url: popupURL))
-        try await Self.waitForJavaScriptString(
-            "document.title",
-            toEqual: "Shared popup fixture",
-            in: secondPopup.webView
-        )
-        try await Self.postScriptMessage(
-            named: BrowserSSLTrustBypassMessageHandler.name,
-            body: token,
-            in: secondPopup.webView
-        )
-        try await Self.waitUntil("shared handler after sibling popup creation") {
-            messageCounter.count == 2
-        }
+            second.webView.load(URLRequest(url: popupURL))
+            try await Self.waitForJavaScriptString(
+                "document.title",
+                toEqual: "Shared popup fixture",
+                in: second.webView
+            )
+            try await Self.postScriptMessage(
+                named: BrowserSSLTrustBypassMessageHandler.name,
+                body: token,
+                in: second.webView
+            )
+            try await Self.waitUntil("shared handler after sibling popup creation") {
+                messageCounter.count == 2
+            }
 
-        firstPopup.closePopup()
-        try await Self.postScriptMessage(
-            named: BrowserSSLTrustBypassMessageHandler.name,
-            body: token,
-            in: secondPopup.webView
-        )
-        try await Self.waitUntil("shared handler after sibling popup close") {
-            messageCounter.count == 3
+            first.closePopup()
+            try await Self.postScriptMessage(
+                named: BrowserSSLTrustBypassMessageHandler.name,
+                body: token,
+                in: second.webView
+            )
+            try await Self.waitUntil("shared handler after sibling popup close") {
+                messageCounter.count == 3
+            }
+            #expect(
+                try await second.webView.evaluateJavaScript("document.title") as? String
+                    == "Shared popup fixture"
+            )
+        } catch {
+            await cleanup()
+            throw error
         }
-        #expect(
-            try await secondPopup.webView.evaluateJavaScript("document.title") as? String
-                == "Shared popup fixture"
-        )
-        }
-        await manager.shutdownAndWait()
+        await cleanup()
     }
 
     @available(macOS 15.4, *)
@@ -5215,36 +5243,44 @@ struct BrowserWebExtensionsManagerTests {
             directory: root,
             controllerIdentifier: controllerID
         )
-        try await manager.approveInstalledCandidate(extensionDirectory)
-        await manager.loadExtensions()
-        let context = try #require(manager.loadedContexts.first)
-        let webView = try await loadExtensionPage(
-            "probe.html",
-            context: context,
-            manager: manager
-        )
-        let result = try await webView.callAsyncJavaScript(
-            """
-            const api = globalThis.browser ?? globalThis.chrome;
-            await api.storage.local.set({ profileMarker: marker });
-            await api.storage.session.set({ sessionMarker: marker });
-            const local = await api.storage.local.get('profileMarker');
-            const session = await api.storage.session.get('sessionMarker');
-            return {
-              local: local.profileMarker ?? null,
-              session: session.sessionMarker ?? null,
-            };
-            """,
-            arguments: ["marker": marker],
-            in: nil,
-            contentWorld: .page
-        )
-        guard let values = result as? [String: Any],
-              values["local"] as? String == marker,
-              values["session"] as? String == marker else {
-            throw BehaviorFixtureError.invalidJavaScriptResult
+        do {
+            try await manager.approveInstalledCandidate(extensionDirectory)
+            await manager.loadExtensions()
+            let context = try #require(manager.loadedContexts.first)
+            let values: [String: Any]
+            do {
+                let webView = try await loadExtensionPage(
+                    "probe.html",
+                    context: context,
+                    manager: manager
+                )
+                let result = try await webView.callAsyncJavaScript(
+                    """
+                    const api = globalThis.browser ?? globalThis.chrome;
+                    await api.storage.local.set({ profileMarker: marker });
+                    await api.storage.session.set({ sessionMarker: marker });
+                    const local = await api.storage.local.get('profileMarker');
+                    const session = await api.storage.session.get('sessionMarker');
+                    return {
+                      local: local.profileMarker ?? null,
+                      session: session.sessionMarker ?? null,
+                    };
+                    """,
+                    arguments: ["marker": marker],
+                    in: nil,
+                    contentWorld: .page
+                )
+                values = try #require(result as? [String: Any])
+            }
+            guard values["local"] as? String == marker,
+                  values["session"] as? String == marker else {
+                throw BehaviorFixtureError.invalidJavaScriptResult
+            }
+        } catch {
+            await manager.shutdownAndWait()
+            throw error
         }
-        manager.shutdown()
+        await manager.shutdownAndWait()
     }
 
     @available(macOS 15.4, *)
@@ -5256,31 +5292,37 @@ struct BrowserWebExtensionsManagerTests {
             directory: root,
             controllerIdentifier: controllerID
         )
-        await manager.loadExtensions()
-        let context = try #require(manager.loadedContexts.first)
-        let webView = try await loadExtensionPage(
-            "probe.html",
-            context: context,
-            manager: manager
-        )
-        let result = try await webView.callAsyncJavaScript(
-            """
-            const api = globalThis.browser ?? globalThis.chrome;
-            const local = await api.storage.local.get('profileMarker');
-            const session = await api.storage.session.get('sessionMarker');
-            return {
-              local: local.profileMarker ?? null,
-              session: session.sessionMarker ?? null,
-            };
-            """,
-            arguments: [:],
-            in: nil,
-            contentWorld: .page
-        )
-        manager.shutdown()
-        guard let values = result as? [String: Any] else {
-            throw BehaviorFixtureError.invalidJavaScriptResult
+        let values: [String: Any]
+        do {
+            await manager.loadExtensions()
+            let context = try #require(manager.loadedContexts.first)
+            do {
+                let webView = try await loadExtensionPage(
+                    "probe.html",
+                    context: context,
+                    manager: manager
+                )
+                let result = try await webView.callAsyncJavaScript(
+                    """
+                    const api = globalThis.browser ?? globalThis.chrome;
+                    const local = await api.storage.local.get('profileMarker');
+                    const session = await api.storage.session.get('sessionMarker');
+                    return {
+                      local: local.profileMarker ?? null,
+                      session: session.sessionMarker ?? null,
+                    };
+                    """,
+                    arguments: [:],
+                    in: nil,
+                    contentWorld: .page
+                )
+                values = try #require(result as? [String: Any])
+            }
+        } catch {
+            await manager.shutdownAndWait()
+            throw error
         }
+        await manager.shutdownAndWait()
         return (
             values["local"] as? String,
             values["session"] as? String
@@ -5327,6 +5369,10 @@ struct BrowserWebExtensionsManagerTests {
             )
             #expect(responses == ["control-ok", "blocked", "blocked"])
         }
+        // The helper's frame owns the previous persistent controller. Drain
+        // AppKit releases before another controller can reuse its storage ID.
+        await Self.waitForMainQueueTurn()
+        await Self.waitForMainQueueTurn()
 
         try await Self.withDNRBehaviorHarness(
             root: secondRoot,
@@ -5345,6 +5391,8 @@ struct BrowserWebExtensionsManagerTests {
             )
             #expect(responses == ["blocked", "dynamic-server"])
         }
+        await Self.waitForMainQueueTurn()
+        await Self.waitForMainQueueTurn()
 
         try await Self.withDNRBehaviorHarness(
             root: firstRoot,
@@ -5459,17 +5507,31 @@ struct BrowserWebExtensionsManagerTests {
             activePanelID: { panel.id },
             focusPanel: { _ in }
         )
-        defer {
+
+        func cleanup() async {
             manager.unregister(panelID: panel.id)
             panel.close()
-            manager.shutdown()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
         }
-        if let extensionDirectory {
-            try await manager.approveInstalledCandidate(extensionDirectory)
+
+        do {
+            if let extensionDirectory {
+                try await manager.approveInstalledCandidate(extensionDirectory)
+            }
+            await manager.loadExtensions()
+            #expect(manager.loadErrors.isEmpty)
+            let result = try await operation(
+                manager,
+                panel,
+                try #require(manager.loadedContexts.first)
+            )
+            await cleanup()
+            return result
+        } catch {
+            await cleanup()
+            throw error
         }
-        await manager.loadExtensions()
-        #expect(manager.loadErrors.isEmpty)
-        return try await operation(manager, panel, try #require(manager.loadedContexts.first))
     }
 
     @available(macOS 15.4, *)
@@ -5685,65 +5747,66 @@ struct BrowserWebExtensionsManagerTests {
         window.contentView = panel.webView
         window.makeKeyAndOrderFront(nil)
         manager.activateTab(panelID: panel.id, previousPanelID: nil)
-        defer {
+
+        func cleanup() async {
             window.close()
             for created in createdPanels {
                 manager.unregister(panelID: created.id)
                 created.close()
             }
+            createdPanels.removeAll()
             manager.unregister(panelID: panel.id)
             panel.close()
-            manager.shutdown()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
         }
 
-        let backgroundError = await withCheckedContinuation { continuation in
-            context.loadBackgroundContent { error in
-                continuation.resume(returning: error)
+        do {
+            let backgroundError = await withCheckedContinuation { continuation in
+                context.loadBackgroundContent { error in
+                    continuation.resume(returning: error)
+                }
             }
-        }
-        if let backgroundError { throw backgroundError }
+            if let backgroundError { throw backgroundError }
 
-        try #require(manager.performAction(
-            uniqueIdentifier: context.uniqueIdentifier,
-            in: panel,
-            anchorView: nil
-        ))
-        let timeoutTask = Task { @MainActor in
-            do {
-                try await Task.sleep(for: .seconds(5))
-            } catch {
-                return
+            try #require(manager.performAction(
+                uniqueIdentifier: context.uniqueIdentifier,
+                in: panel,
+                anchorView: nil
+            ))
+            let timeoutTask = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                } catch {
+                    return
+                }
+                newTabGate.resume(returning: nil)
             }
-            newTabGate.resume(returning: nil)
-        }
-        let resolvedPanel = await newTabGate.wait()
-        timeoutTask.cancel()
-        let created = try #require(resolvedPanel)
-        let request = try #require(createRequests.first)
-        #expect(request.active)
-        #expect(activePanelID == created.id)
-        #expect(created.webView.configuration.webExtensionController === manager.controller)
+            let resolvedPanel = await newTabGate.wait()
+            timeoutTask.cancel()
+            let created = try #require(resolvedPanel)
+            let request = try #require(createRequests.first)
+            #expect(request.active)
+            #expect(activePanelID == created.id)
+            #expect(created.webView.configuration.webExtensionController === manager.controller)
 
-        let openedURL = created.currentURLForTabDuplication
-            ?? created.pendingURLForWebExtension
-        let url = try #require(openedURL)
-        #expect(url.path == "/app/app.html")
-        #expect(url.fragment == "/page/welcome?language=en")
-        #expect(url.scheme == context.baseURL.scheme)
-        #expect(url.host == context.baseURL.host)
+            let openedURL = created.currentURLForTabDuplication
+                ?? created.pendingURLForWebExtension
+            let url = try #require(openedURL)
+            #expect(url.path == "/app/app.html")
+            #expect(url.fragment == "/page/welcome?language=en")
+            #expect(url.scheme == context.baseURL.scheme)
+            #expect(url.host == context.baseURL.host)
 
-        let item = try #require(manager.presentationSnapshot(for: panel.id).extensions.first)
-        #expect(item.actionFailure == nil)
-        window.close()
-        for created in createdPanels {
-            manager.unregister(panelID: created.id)
-            created.close()
+            let item = try #require(
+                manager.presentationSnapshot(for: panel.id).extensions.first
+            )
+            #expect(item.actionFailure == nil)
+        } catch {
+            await cleanup()
+            throw error
         }
-        createdPanels.removeAll()
-        manager.unregister(panelID: panel.id)
-        panel.close()
-        await manager.shutdownAndWait()
-        for _ in 0..<2 { await Task.yield() }
+        await cleanup()
     }
 
     @available(macOS 15.4, *)
@@ -5764,25 +5827,39 @@ struct BrowserWebExtensionsManagerTests {
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
         let panel = BrowserPanel(workspaceId: UUID())
-        defer { panel.close() }
         manager.register(
             panel: panel,
             ownerID: UUID(),
             activePanelID: { panel.id },
             focusPanel: { _ in }
         )
-        let context = try #require(manager.loadedContexts.first)
 
-        manager.unregister(panelID: panel.id)
-        #expect(!manager.performAction(
-            uniqueIdentifier: context.uniqueIdentifier,
-            in: panel,
-            anchorView: nil
-        ))
+        func cleanup() async {
+            manager.unregister(panelID: panel.id)
+            panel.close()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
+        }
 
-        let item = try #require(manager.presentationSnapshot(for: panel.id).extensions.first)
-        #expect(item.actionFailure == .actionUnavailable)
-        #expect(!item.isAwaitingPopup)
+        do {
+            let context = try #require(manager.loadedContexts.first)
+            manager.unregister(panelID: panel.id)
+            #expect(!manager.performAction(
+                uniqueIdentifier: context.uniqueIdentifier,
+                in: panel,
+                anchorView: nil
+            ))
+
+            let item = try #require(
+                manager.presentationSnapshot(for: panel.id).extensions.first
+            )
+            #expect(item.actionFailure == .actionUnavailable)
+            #expect(!item.isAwaitingPopup)
+        } catch {
+            await cleanup()
+            throw error
+        }
+        await cleanup()
     }
 
     @available(macOS 15.4, *)
@@ -5815,18 +5892,15 @@ struct BrowserWebExtensionsManagerTests {
                 performCount.withLock { $0 += 1 }
             }
         )
-        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
         let panel = BrowserPanel(workspaceId: UUID())
-        defer { panel.close() }
         manager.register(
             panel: panel,
             ownerID: UUID(),
             activePanelID: { panel.id },
             focusPanel: { _ in }
         )
-        defer { manager.unregister(panelID: panel.id) }
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
@@ -5837,7 +5911,15 @@ struct BrowserWebExtensionsManagerTests {
         let anchor = NSButton(frame: NSRect(x: 20, y: 20, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
-        defer { window.close() }
+
+        func cleanup() async {
+            window.close()
+            manager.unregister(panelID: panel.id)
+            panel.close()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
+            await Self.waitForMainQueueTurn()
+        }
 
         do {
             let context = try #require(manager.loadedContexts.first)
@@ -5879,8 +5961,11 @@ struct BrowserWebExtensionsManagerTests {
                 extensionIdentifier: context.uniqueIdentifier
             )
             #expect(!popover.isShown)
+        } catch {
+            await cleanup()
+            throw error
         }
-        await manager.shutdownAndWait()
+        await cleanup()
     }
 
     @available(macOS 15.4, *)
@@ -5903,11 +5988,9 @@ struct BrowserWebExtensionsManagerTests {
             directory: root,
             controllerConfiguration: .nonPersistent()
         )
-        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
         let panel = BrowserPanel(workspaceId: UUID())
-        defer { panel.close() }
         manager.register(
             panel: panel,
             ownerID: UUID(),
@@ -5924,7 +6007,15 @@ struct BrowserWebExtensionsManagerTests {
         let anchor = NSButton(frame: NSRect(x: 120, y: 160, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
-        defer { window.close() }
+
+        func cleanup() async {
+            window.close()
+            manager.unregister(panelID: panel.id)
+            panel.close()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
+            await Self.waitForMainQueueTurn()
+        }
 
         do {
             let context = try #require(manager.loadedContexts.first)
@@ -5958,8 +6049,11 @@ struct BrowserWebExtensionsManagerTests {
                 panelID: panel.id,
                 extensionIdentifier: context.uniqueIdentifier
             ).total == 0)
+        } catch {
+            await cleanup()
+            throw error
         }
-        await manager.shutdownAndWait()
+        await cleanup()
     }
 
     @available(macOS 15.4, *)
@@ -5987,7 +6081,6 @@ struct BrowserWebExtensionsManagerTests {
             directory: root,
             controllerConfiguration: .nonPersistent()
         )
-        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
         let panel = BrowserPanel(workspaceId: UUID())
@@ -5999,10 +6092,6 @@ struct BrowserWebExtensionsManagerTests {
             activePanelID: { panel.id },
             focusPanel: { _ in }
         )
-        defer {
-            manager.unregister(panelID: panel.id)
-            panel.close()
-        }
 
         let window = NSWindow(
             contentRect: NSRect(x: 200, y: 200, width: 320, height: 240),
@@ -6013,7 +6102,15 @@ struct BrowserWebExtensionsManagerTests {
         let anchor = NSButton(frame: NSRect(x: 120, y: 160, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
-        defer { window.close() }
+
+        func cleanup() async {
+            window.close()
+            manager.unregister(panelID: panel.id)
+            panel.close()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
+            await Self.waitForMainQueueTurn()
+        }
 
         do {
             let context = try #require(manager.loadedContexts.first)
@@ -6051,13 +6148,16 @@ struct BrowserWebExtensionsManagerTests {
                 .compactMap { $0 as? BrowserWebExtensionWindowAdapter }
             #expect(normalWindows.map(\.ownerID) == [secondOwnerID])
 
-            popover.performClose(nil)
+            popover.close()
             await manager.waitForPopupQuiescenceForTesting(
                 extensionIdentifier: context.uniqueIdentifier
             )
             #expect(!popover.isShown)
+        } catch {
+            await cleanup()
+            throw error
         }
-        await manager.shutdownAndWait()
+        await cleanup()
     }
 
     @available(macOS 15.4, *)
@@ -6088,19 +6188,16 @@ struct BrowserWebExtensionsManagerTests {
                 performCount.withLock { $0 += 1 }
             }
         )
-        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
 
         let panel = BrowserPanel(workspaceId: UUID())
-        defer { panel.close() }
         manager.register(
             panel: panel,
             ownerID: UUID(),
             activePanelID: { panel.id },
             focusPanel: { _ in }
         )
-        defer { manager.unregister(panelID: panel.id) }
         let window = NSWindow(
             contentRect: NSRect(x: 200, y: 200, width: 320, height: 240),
             styleMask: [.titled],
@@ -6110,7 +6207,15 @@ struct BrowserWebExtensionsManagerTests {
         let anchor = NSButton(frame: NSRect(x: 120, y: 160, width: 40, height: 24))
         window.contentView?.addSubview(anchor)
         window.orderFront(nil)
-        defer { window.close() }
+
+        func cleanup() async {
+            window.close()
+            manager.unregister(panelID: panel.id)
+            panel.close()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
+            await Self.waitForMainQueueTurn()
+        }
 
         do {
             let context = try #require(manager.loadedContexts.first)
@@ -6162,12 +6267,15 @@ struct BrowserWebExtensionsManagerTests {
                 forExtensionContext: context
             )
             #expect(performCount.withLock { $0 } == 1)
-            updatedPopover.performClose(nil)
+            updatedPopover.close()
             await manager.waitForPopupQuiescenceForTesting(
                 extensionIdentifier: context.uniqueIdentifier
             )
+        } catch {
+            await cleanup()
+            throw error
         }
-        await manager.shutdownAndWait()
+        await cleanup()
     }
 
     @available(macOS 15.4, *)
@@ -6248,7 +6356,6 @@ struct BrowserWebExtensionsManagerTests {
             usesNonPersistentWebExtensionStorage: true
         )
         let manager = try #require(services.webExtensionsManager)
-        defer { manager.shutdown() }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -6256,7 +6363,6 @@ struct BrowserWebExtensionsManagerTests {
             defer: false
         )
         window.makeKeyAndOrderFront(nil)
-        defer { window.close() }
         let contentView = try #require(window.contentView)
         let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
         contentView.addSubview(anchor)
@@ -6268,32 +6374,43 @@ struct BrowserWebExtensionsManagerTests {
             renderInitialNavigation: false,
             browserServices: services
         )
-        defer { panel.close() }
         BrowserWindowPortalRegistry.bind(
             webView: panel.webView,
             to: anchor,
             visibleInUI: true
         )
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
-        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
 
-        let visibleSnapshot = try #require(
-            BrowserWindowPortalRegistry.debugSnapshot(for: panel.webView)
-        )
-        #expect(visibleSnapshot.visibleInUI)
-        #expect(!visibleSnapshot.containerHidden)
+        func cleanup() async {
+            BrowserWindowPortalRegistry.detach(webView: panel.webView)
+            window.contentView = nil
+            panel.close()
+            window.close()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
+            await Self.waitForMainQueueTurn()
+        }
 
-        #expect(panel.showBrowserExtensionsManager())
+        do {
+            let visibleSnapshot = try #require(
+                BrowserWindowPortalRegistry.debugSnapshot(for: panel.webView)
+            )
+            #expect(visibleSnapshot.visibleInUI)
+            #expect(!visibleSnapshot.containerHidden)
 
-        let hiddenSnapshot = try #require(
-            BrowserWindowPortalRegistry.debugSnapshot(for: panel.webView)
-        )
-        #expect(panel.internalPage == .extensions)
-        #expect(!hiddenSnapshot.visibleInUI)
-        #expect(hiddenSnapshot.containerHidden)
-        BrowserWindowPortalRegistry.detach(webView: panel.webView)
-        panel.close()
-        await manager.shutdownAndWait()
+            #expect(panel.showBrowserExtensionsManager())
+
+            let hiddenSnapshot = try #require(
+                BrowserWindowPortalRegistry.debugSnapshot(for: panel.webView)
+            )
+            #expect(panel.internalPage == .extensions)
+            #expect(!hiddenSnapshot.visibleInUI)
+            #expect(hiddenSnapshot.containerHidden)
+        } catch {
+            await cleanup()
+            throw error
+        }
+        await cleanup()
     }
 
     @available(macOS 15.4, *)
@@ -6308,7 +6425,6 @@ struct BrowserWebExtensionsManagerTests {
         )
         let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let manager = try #require(services.webExtensionsManager)
-        defer { manager.shutdown() }
         let extensionContext = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: directory))
         let store = DockSplitStore(
             workspaceId: UUID(),
@@ -6316,75 +6432,100 @@ struct BrowserWebExtensionsManagerTests {
             baseDirectoryProvider: { root.path },
             browserAvailabilityProvider: { true }
         )
-        defer { store.closeAllPanels() }
-        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
-        let firstPanelID = try #require(store.newSurface(
-            kind: .browser,
-            inPane: rootPane,
-            url: URL(string: "about:blank#first"),
-            focus: false
-        ))
-        let secondPanelID = try #require(store.newSurface(
-            kind: .browser,
-            inPane: rootPane,
-            url: URL(string: "about:blank#second"),
-            focus: false
-        ))
-        let firstPanel = try #require(store.browserPanel(for: firstPanelID))
-        let secondPanel = try #require(store.browserPanel(for: secondPanelID))
-        store.setVisibleInUI(true)
-        store.focusPanel(firstPanelID)
-        store.applyFocusedDockSelection()
-        #expect(store.lastActivatedWebExtensionPanelID == firstPanelID)
 
-        let windows = manager.webExtensionController(manager.controller, openWindowsFor: extensionContext)
-        let dockWindow = try #require(windows.first(where: { window in
-            (window.tabs?(for: extensionContext) ?? []).contains {
-                $0.webView?(for: extensionContext) === firstPanel.webView
-            }
-        }))
-        let registeredTabs = dockWindow.tabs?(for: extensionContext) ?? []
-        #expect(registeredTabs.contains { $0.webView?(for: extensionContext) === firstPanel.webView })
-        #expect(registeredTabs.contains { $0.webView?(for: extensionContext) === secondPanel.webView })
-        #expect(dockWindow.activeTab?(for: extensionContext)?.webView?(for: extensionContext) === firstPanel.webView)
-
-        let secondTab = try #require(registeredTabs.first {
-            $0.webView?(for: extensionContext) === secondPanel.webView
-        })
-        let secondTabAdapter = try #require(secondTab as? BrowserWebExtensionTabAdapter)
-        await confirmation("Dock-owned extension tab activated") { activated in
-            secondTabAdapter.activate(for: extensionContext) { error in
-                #expect(error == nil)
-                activated()
-            }
+        func cleanup() async {
+            store.closeAllPanels()
+            await manager.shutdownAndWait()
+            await Self.waitForMainQueueTurn()
+            await Self.waitForMainQueueTurn()
         }
-        #expect(store.focusedPanelId == secondPanelID)
-        store.applyFocusedDockSelection()
-        #expect(store.lastActivatedWebExtensionPanelID == secondPanelID)
 
-        let openEventsBeforeManagerPage = manager.debugDidOpenTabEventCount
-        let closeEventsBeforeManagerPage = manager.debugDidCloseTabEventCount
-        let managerPage = try #require(store.openBrowserExtensionsManager(from: secondPanelID))
-        #expect(managerPage !== secondPanel)
-        #expect(managerPage.internalPage == .extensions)
-        #expect(secondPanel.internalPage == nil)
-        #expect(store.browserPanel(for: managerPage.id) === managerPage)
-        #expect(store.openBrowserExtensionsManager(from: secondPanelID) === managerPage)
-        #expect(manager.debugDidOpenTabEventCount == openEventsBeforeManagerPage)
-        #expect(manager.debugDidCloseTabEventCount == closeEventsBeforeManagerPage)
-        store.applyFocusedDockSelection()
-        #expect(
-            store.lastActivatedWebExtensionPanelID == nil,
-            "An internal manager page must clear the active content-tab selection"
-        )
+        do {
+            let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+            let firstPanelID = try #require(store.newSurface(
+                kind: .browser,
+                inPane: rootPane,
+                url: URL(string: "about:blank#first"),
+                focus: false
+            ))
+            let secondPanelID = try #require(store.newSurface(
+                kind: .browser,
+                inPane: rootPane,
+                url: URL(string: "about:blank#second"),
+                focus: false
+            ))
+            let firstPanel = try #require(store.browserPanel(for: firstPanelID))
+            let secondPanel = try #require(store.browserPanel(for: secondPanelID))
+            store.setVisibleInUI(true)
+            store.focusPanel(firstPanelID)
+            store.applyFocusedDockSelection()
+            #expect(store.lastActivatedWebExtensionPanelID == firstPanelID)
 
-        #expect(store.closePanel(firstPanelID, force: true))
-        let remainingTabs = manager
-            .webExtensionController(manager.controller, openWindowsFor: extensionContext)
-            .flatMap { $0.tabs?(for: extensionContext) ?? [] }
-        #expect(!remainingTabs.contains { $0.webView?(for: extensionContext) === firstPanel.webView })
-        store.closeAllPanels()
-        await manager.shutdownAndWait()
+            let windows = manager.webExtensionController(
+                manager.controller,
+                openWindowsFor: extensionContext
+            )
+            let dockWindow = try #require(windows.first(where: { window in
+                (window.tabs?(for: extensionContext) ?? []).contains {
+                    $0.webView?(for: extensionContext) === firstPanel.webView
+                }
+            }))
+            let registeredTabs = dockWindow.tabs?(for: extensionContext) ?? []
+            #expect(registeredTabs.contains {
+                $0.webView?(for: extensionContext) === firstPanel.webView
+            })
+            #expect(registeredTabs.contains {
+                $0.webView?(for: extensionContext) === secondPanel.webView
+            })
+            #expect(
+                dockWindow.activeTab?(for: extensionContext)?
+                    .webView?(for: extensionContext) === firstPanel.webView
+            )
+
+            let secondTab = try #require(registeredTabs.first {
+                $0.webView?(for: extensionContext) === secondPanel.webView
+            })
+            let secondTabAdapter = try #require(secondTab as? BrowserWebExtensionTabAdapter)
+            await confirmation("Dock-owned extension tab activated") { activated in
+                secondTabAdapter.activate(for: extensionContext) { error in
+                    #expect(error == nil)
+                    activated()
+                }
+            }
+            #expect(store.focusedPanelId == secondPanelID)
+            store.applyFocusedDockSelection()
+            #expect(store.lastActivatedWebExtensionPanelID == secondPanelID)
+
+            let openEventsBeforeManagerPage = manager.debugDidOpenTabEventCount
+            let closeEventsBeforeManagerPage = manager.debugDidCloseTabEventCount
+            let managerPage = try #require(
+                store.openBrowserExtensionsManager(from: secondPanelID)
+            )
+            #expect(managerPage !== secondPanel)
+            #expect(managerPage.internalPage == .extensions)
+            #expect(secondPanel.internalPage == nil)
+            #expect(store.browserPanel(for: managerPage.id) === managerPage)
+            #expect(store.openBrowserExtensionsManager(from: secondPanelID) === managerPage)
+            #expect(manager.debugDidOpenTabEventCount == openEventsBeforeManagerPage)
+            #expect(manager.debugDidCloseTabEventCount == closeEventsBeforeManagerPage)
+            store.applyFocusedDockSelection()
+            #expect(
+                store.lastActivatedWebExtensionPanelID == nil,
+                "An internal manager page must clear the active content-tab selection"
+            )
+
+            #expect(store.closePanel(firstPanelID, force: true))
+            let remainingTabs = manager
+                .webExtensionController(manager.controller, openWindowsFor: extensionContext)
+                .flatMap { $0.tabs?(for: extensionContext) ?? [] }
+            #expect(!remainingTabs.contains {
+                $0.webView?(for: extensionContext) === firstPanel.webView
+            })
+        } catch {
+            await cleanup()
+            throw error
+        }
+        await cleanup()
     }
 
     @available(macOS 15.4, *)
