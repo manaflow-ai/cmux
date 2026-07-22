@@ -555,7 +555,7 @@ def _annotated_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     return type_name in ("ContinuousClock", "SuspendingClock")
 
 
-def _captured_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+def _captured_receiver_expression(text: str, receiver: str) -> Optional[str]:
     assignment = re.search(
         rf"(?:^|,)\s*(?:(?:weak|unowned(?:\([^)]*\))?)\s+)?"
         rf"{re.escape(receiver)}\s*=\s*([^,]+)",
@@ -563,38 +563,69 @@ def _captured_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     )
     if not assignment:
         return None
-    return bool(_REAL_CLOCK_INIT.search(f"= {assignment.group(1)}"))
+    return assignment.group(1).strip()
 
 
-def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+def _captured_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+    expression = _captured_receiver_expression(text, receiver)
+    if expression is None:
+        return None
+    return bool(_REAL_CLOCK_INIT.search(f"= {expression}"))
+
+
+def _captured_receiver_alias(
+    text: str, receiver: str
+) -> Optional[tuple[str, bool]]:
+    expression = _captured_receiver_expression(text, receiver)
+    if expression is None:
+        return None
+    alias = re.fullmatch(
+        r"(?:(self)\s*\.\s*)?([A-Za-z_]\w*)[?!]?",
+        expression,
+    )
+    if not alias:
+        return None
+    return (alias.group(2), alias.group(1) is not None)
+
+
+def _closure_header_parts(text: str) -> Optional[tuple[Optional[str], str]]:
+    """Return a leading capture list and parameter text before closure `in`."""
     in_token = re.search(r"\bin\b", text)
     if not in_token:
         return None
     parameters = text[: in_token.start()].strip()
-    captured_kind: Optional[bool] = None
     while parameters:
         attribute = re.match(r"@\w+(?:\([^)]*\))?\s*", parameters)
-        if attribute:
-            parameters = parameters[attribute.end() :].lstrip()
-            continue
-        if parameters.startswith("["):
-            depth = 0
-            capture_list_end: Optional[int] = None
-            for index, character in enumerate(parameters):
-                if character == "[":
-                    depth += 1
-                elif character == "]":
-                    depth -= 1
-                    if depth == 0:
-                        capture_list_end = index + 1
-                        break
-            if capture_list_end is not None:
-                captured_kind = _captured_receiver_kind(
-                    parameters[1 : capture_list_end - 1], receiver
+        if not attribute:
+            break
+        parameters = parameters[attribute.end() :].lstrip()
+
+    if not parameters.startswith("["):
+        return (None, parameters)
+    depth = 0
+    for index, character in enumerate(parameters):
+        if character == "[":
+            depth += 1
+        elif character == "]":
+            depth -= 1
+            if depth == 0:
+                return (
+                    parameters[1:index],
+                    parameters[index + 1 :].lstrip(),
                 )
-                parameters = parameters[capture_list_end:].lstrip()
-                continue
-        break
+    return (None, parameters)
+
+
+def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+    header_parts = _closure_header_parts(text)
+    if header_parts is None:
+        return None
+    capture_list, parameters = header_parts
+    captured_kind = (
+        _captured_receiver_kind(capture_list, receiver)
+        if capture_list is not None
+        else None
+    )
     if not parameters:
         return captured_kind
     if not (
@@ -608,6 +639,18 @@ def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     if re.search(rf"\b{re.escape(receiver)}\b", parameters):
         return False
     return captured_kind
+
+
+def _closure_receiver_alias(
+    text: str, receiver: str
+) -> Optional[tuple[str, bool]]:
+    header_parts = _closure_header_parts(text)
+    if header_parts is None:
+        return None
+    capture_list, _ = header_parts
+    if capture_list is None:
+        return None
+    return _captured_receiver_alias(capture_list, receiver)
 
 
 def _closure_header_text(text: str, following_lines: Iterable[str]) -> str:
@@ -1030,7 +1073,24 @@ def _resolve_named_receiver_kind(
                         candidate[pos + 1 :],
                         prefix_lines[candidate_index + 1 :],
                     )
-                    closure_kind = _closure_receiver_kind(closure_header, receiver)
+                    capture_alias = _closure_receiver_alias(
+                        closure_header, receiver
+                    )
+                    if capture_alias is not None:
+                        alias_receiver, alias_is_self = capture_alias
+                        closure_kind = _resolve_named_receiver_kind(
+                            masked_lines,
+                            candidate_index,
+                            pos,
+                            alias_receiver,
+                            alias_is_self,
+                            external_real_members,
+                            resolving,
+                        )
+                    else:
+                        closure_kind = _closure_receiver_kind(
+                            closure_header, receiver
+                        )
                 if closure_kind is not None:
                     scope[receiver] = closure_kind
                 scopes.append(scope)
@@ -1240,10 +1300,28 @@ def scan_text(
     return findings
 
 
+def _swift_test_bundle_key(rel_posix: str) -> str:
+    """Return the source boundary that shares Swift test-target type members."""
+    parts = pathlib.PurePosixPath(rel_posix).parts
+    if not parts:
+        return "."
+    if parts[0] in ("cmuxTests", "cmuxUITests"):
+        return parts[0]
+    if len(parts) > 1 and parts[:2] == ("ios", "cmuxUITests"):
+        return "ios/cmuxUITests"
+    if "Tests" in parts:
+        tests_index = parts.index("Tests")
+        bundle_end = tests_index + 1
+        if bundle_end < len(parts) - 1:
+            bundle_end += 1
+        return "/".join(parts[:bundle_end])
+    return pathlib.PurePosixPath(rel_posix).parent.as_posix()
+
+
 def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
-    """Scan a source bundle, sharing Swift member types within one directory."""
+    """Scan sources while sharing Swift members within each test target."""
     source_list = list(sources)
-    directory_members: dict[str, dict[str, set[str]]] = {}
+    bundle_members: dict[str, dict[str, set[str]]] = {}
 
     for rel_posix, text in source_list:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
@@ -1256,8 +1334,8 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
             _strip_comment(line, suffix)
             for line in _mask_noncode(raw_lines, suffix)
         ]
-        directory = pathlib.PurePosixPath(rel_posix).parent.as_posix()
-        index = directory_members.setdefault(directory, {})
+        bundle = _swift_test_bundle_key(rel_posix)
+        index = bundle_members.setdefault(bundle, {})
         for type_name, member_names in _explicit_real_clock_members(
             masked_lines
         ).items():
@@ -1268,8 +1346,8 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
         external_real_members = None
         if suffix == ".swift":
-            directory = pathlib.PurePosixPath(rel_posix).parent.as_posix()
-            external_real_members = directory_members.get(directory)
+            bundle = _swift_test_bundle_key(rel_posix)
+            external_real_members = bundle_members.get(bundle)
         findings.extend(scan_text(rel_posix, text, external_real_members))
     return findings
 
@@ -1295,7 +1373,7 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
                 continue
             source_paths.append((path, rel_posix))
 
-    directory_members: dict[str, dict[str, set[str]]] = {}
+    bundle_members: dict[str, dict[str, set[str]]] = {}
     for path, rel_posix in source_paths:
         suffix = pathlib.PurePosixPath(rel_posix).suffix
         if suffix != ".swift":
@@ -1310,8 +1388,8 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             _strip_comment(line, suffix)
             for line in _mask_noncode(text.splitlines(), suffix)
         ]
-        directory = pathlib.PurePosixPath(rel_posix).parent.as_posix()
-        index = directory_members.setdefault(directory, {})
+        bundle = _swift_test_bundle_key(rel_posix)
+        index = bundle_members.setdefault(bundle, {})
         for type_name, member_names in _explicit_real_clock_members(
             masked_lines
         ).items():
@@ -1322,8 +1400,8 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
         suffix = pathlib.PurePosixPath(rel_posix).suffix
         external_real_members = None
         if suffix == ".swift":
-            directory = pathlib.PurePosixPath(rel_posix).parent.as_posix()
-            external_real_members = directory_members.get(directory)
+            bundle = _swift_test_bundle_key(rel_posix)
+            external_real_members = bundle_members.get(bundle)
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
