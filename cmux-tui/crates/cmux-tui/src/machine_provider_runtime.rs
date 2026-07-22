@@ -638,10 +638,17 @@ impl ProviderMachineRuntime {
                                 false,
                                 provider_connect_supported,
                             );
-                            ui.notice = Some(format!(
-                                "{}: {error}",
-                                localization::catalog().sidebar.machine_provider_update_failed
-                            ));
+                            ui.notice = Some(if client.is_live() {
+                                format!(
+                                    "{}: {error}",
+                                    localization::catalog().sidebar.machine_provider_update_failed
+                                )
+                            } else {
+                                localization::catalog()
+                                    .sidebar
+                                    .machine_provider_disconnected
+                                    .into()
+                            });
                             ui.request = Some(MachineRequest::ReconnectProvider);
                             let _ = sender.send(ui);
                             break;
@@ -2888,10 +2895,13 @@ mod tests {
             concat!("Machine provider lifecycle ", "update failed: {error}"),
             concat!("Machine provider workspace ", "update failed: {error}"),
             concat!("Could not reconnect ", "machine: {error}"),
-            "this machine provider cannot connect external machines",
-            "is not ready to connect",
-            "cannot authorize managed workspace mirrors; upgrade the machine provider",
-            "returned an invalid managed workspace authority binding",
+            concat!("this machine provider cannot connect ", "external machines"),
+            concat!("is not ready ", "to connect"),
+            concat!(
+                "cannot authorize managed workspace mirrors; ",
+                "upgrade the machine provider"
+            ),
+            concat!("returned an invalid managed workspace ", "authority binding"),
         ] {
             assert!(
                 !source.contains(hardcoded),
