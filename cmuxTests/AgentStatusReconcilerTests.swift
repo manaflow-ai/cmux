@@ -160,12 +160,6 @@ struct AgentStatusReconcilerTests {
         let panelId = try #require(workspace.focusedPanelId)
         defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
         workspace.recordAgentPID(
-            key: "custom-tool.session",
-            pid: getppid(),
-            panelId: panelId,
-            refreshPorts: false
-        )
-        workspace.recordAgentPID(
             key: "codex.session",
             pid: getpid(),
             panelId: panelId,
@@ -174,6 +168,9 @@ struct AgentStatusReconcilerTests {
         workspace.agentPIDs["claude_code"] = getpid()
         workspace.agentPIDProcessIdentitiesByKey["claude_code"] = AgentPIDProcessIdentity(pid: getpid())
         workspace.agentPIDKeysByPanelId[panelId, default: []].insert("claude_code")
+        workspace.agentPIDs["custom-tool.session"] = getppid()
+        workspace.agentPIDProcessIdentitiesByKey["custom-tool.session"] = AgentPIDProcessIdentity(pid: getppid())
+        workspace.agentPIDKeysByPanelId[panelId, default: []].insert("custom-tool.session")
 
         let probe = workspace.agentStatusForegroundProbe()
         let rootStatusKeys = Set((probe.rootStatusKeysByPanelId[panelId] ?? [:]).values.flatMap { $0 })
@@ -413,14 +410,9 @@ struct AgentStatusReconcilerTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
-        workspace.recordAgentPID(
-            key: "codex.current",
-            pid: getpid(),
-            panelId: panelId,
-            refreshPorts: false
-        )
+        workspace.recordAgentPID(key: "codex.session", pid: getpid(), panelId: panelId, refreshPorts: false)
         let staleEvent = WorkstreamEvent(
-            sessionId: "codex-stale",
+            sessionId: "codex-session",
             hookEventName: .permissionRequest,
             source: "codex",
             ppid: Int(getpid()),
@@ -428,6 +420,7 @@ struct AgentStatusReconcilerTests {
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput"}"#
         )
         let staleSignal = try #require(AgentStatusHookEventSignal(event: staleEvent))
+        workspace.recordAgentPID(key: "codex.session", pid: getppid(), panelId: panelId, refreshPorts: false)
 
         #expect(!workspace.agentStatusRuntimeIsCurrent(event: staleEvent, panelId: panelId))
         workspace.noteAgentStatusHookSignal(staleSignal, panelId: panelId)

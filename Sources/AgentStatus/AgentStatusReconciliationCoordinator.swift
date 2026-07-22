@@ -155,7 +155,7 @@ final class AgentStatusReconciliationCoordinator {
     }
 
     private nonisolated static func agentStatusKey(forDetectedAgentID agentID: String) -> String? {
-        let statusKey = agentID == "claude" ? "claude_code" : agentID
+        let statusKey = FeedCoordinator.lifecycleStatusKey(forSource: agentID)
         return AgentHibernationLifecycleStatusKeys.isAllowed(statusKey) ? statusKey : nil
     }
 }
