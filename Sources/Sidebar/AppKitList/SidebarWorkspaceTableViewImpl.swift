@@ -53,7 +53,8 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         if clickedRow >= 0 {
             workspaceController?.pointerMouseDown(
                 row: clickedRow,
-                modifiers: event.modifierFlags
+                modifiers: event.modifierFlags,
+                hitView: hitTest(point)
             )
         }
         super.mouseDown(with: event)

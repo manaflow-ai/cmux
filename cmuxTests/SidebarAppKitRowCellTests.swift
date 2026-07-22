@@ -323,6 +323,17 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func workspaceCloseControlIsExcludedFromRowSelectionPreview() {
+        let model = Self.makeModel()
+        let cell = Self.configuredCell(model: model)
+        let excludedButtons = cell.subviews.compactMap { $0 as? NSButton }.filter {
+            cell.selectionPreviewShouldIgnore($0)
+        }
+
+        #expect(excludedButtons.count == 1)
+    }
+
+    @Test
     func controllerCommitsSelectionOnPressAndKeepsItAfterTrackingEnds() throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()

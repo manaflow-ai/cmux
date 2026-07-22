@@ -245,6 +245,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         applyModel(model)
     }
 
+    /// Header controls own their actions without focusing the group anchor.
+    func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
+        hitView === chevronButton || hitView.isDescendant(of: chevronButton)
+            || hitView === plusButton || hitView.isDescendant(of: plusButton)
+    }
+
     // MARK: Layout
 
     /// Deterministic row height; must stay in lockstep with `layout()`.

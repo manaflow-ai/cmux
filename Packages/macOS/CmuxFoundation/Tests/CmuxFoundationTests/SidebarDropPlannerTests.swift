@@ -103,6 +103,37 @@ import Testing
         #expect(plan.targetPinnedState == false)
     }
 
+    @Test func unpinnedLastWorkspaceDroppedInTailBlankSpaceKeepsPinState() {
+        let pinnedWorkspace = UUID()
+        let draggedUnpinnedWorkspace = UUID()
+        let workspaces = [
+            SidebarWorkspaceReorderWorkspaceSnapshot(id: pinnedWorkspace, isPinned: true, groupId: nil),
+            SidebarWorkspaceReorderWorkspaceSnapshot(
+                id: draggedUnpinnedWorkspace,
+                isPinned: false,
+                groupId: nil
+            ),
+        ]
+        let request = SidebarWorkspaceReorderDropRequest(
+            point: CGPoint(x: 2, y: 100),
+            draggedWorkspaceId: draggedUnpinnedWorkspace,
+            workspaces: workspaces,
+            groups: [],
+            targets: workspaces.enumerated().map { index, workspace in
+                SidebarWorkspaceReorderDropTarget(
+                    workspaceId: workspace.id,
+                    groupId: nil,
+                    isGroupHeader: false,
+                    frame: CGRect(x: 0, y: CGFloat(index * 40), width: 180, height: 32)
+                )
+            }
+        )
+
+        let plan = SidebarWorkspaceReorderDropResolver().plan(for: request)
+
+        #expect(plan == nil)
+    }
+
     @Test func unpinnedRootDroppedBelowPinnedRootsCountsPinnedGroupRows() throws {
         let groupId = UUID()
         let groupAnchor = UUID()

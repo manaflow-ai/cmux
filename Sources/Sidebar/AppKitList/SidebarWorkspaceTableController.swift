@@ -356,13 +356,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// existing multi-selection is the native AppKit exception: keep the group
     /// intact until tracking resolves to a click or drag. An ordinary press
     /// still paints immediately and enters the bounded selection coalescer.
-    func pointerMouseDown(row: Int, modifiers: NSEvent.ModifierFlags) {
+    func pointerMouseDown(
+        row: Int,
+        modifiers: NSEvent.ModifierFlags,
+        hitView: NSView? = nil
+    ) {
         guard rows.indices.contains(row) else { return }
         let defersPlainCollapse = shouldDeferPlainSelectionCollapse(
             row: row,
             modifiers: modifiers
         )
         if defersPlainCollapse {
+            guard !selectionPreviewShouldIgnore(row: row, hitView: hitView) else { return }
             pointerSelectionSession = PointerSelectionSession(
                 rowId: rows[row].id,
                 defersPlainCollapse: true
@@ -372,7 +377,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             cancelPendingSelectionAndRestorePaint()
             return
         }
-        guard previewSelection(row: row, modifiers: modifiers) else { return }
+        guard previewSelection(row: row, modifiers: modifiers, hitView: hitView) else { return }
         pointerSelectionSession = PointerSelectionSession(
             rowId: rows[row].id,
             defersPlainCollapse: false
@@ -547,7 +552,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// the authoritative render is queued behind the terminal-view swap.
     /// The authoritative apply reconciles right after.
     @discardableResult
-    func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags) -> Bool {
+    func previewSelection(
+        row: Int,
+        modifiers: NSEvent.ModifierFlags,
+        hitView: NSView? = nil
+    ) -> Bool {
         guard rows.indices.contains(row),
               let table = containerView?.tableView else { return false }
         let workspaceCell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
@@ -555,9 +564,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let headerCell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
             as? SidebarGroupHeaderTableCellView
         if rows[row].appKitWorkspaceRowModel != nil {
-            guard workspaceCell != nil else { return false }
+            guard let workspaceCell else { return false }
+            if let hitView, workspaceCell.selectionPreviewShouldIgnore(hitView) { return false }
         } else if rows[row].appKitGroupHeaderModel != nil {
-            guard headerCell != nil else { return false }
+            guard let headerCell else { return false }
+            if let hitView, headerCell.selectionPreviewShouldIgnore(hitView) { return false }
         } else {
             return false
         }
@@ -585,6 +596,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         headerCell?.showOptimisticAnchorActive()
         optimisticallyPaintedRowIds.insert(rows[row].id)
         return true
+    }
+
+    private func selectionPreviewShouldIgnore(row: Int, hitView: NSView?) -> Bool {
+        guard let hitView, rows.indices.contains(row),
+              let table = containerView?.tableView else { return false }
+        switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+        case let cell as SidebarWorkspaceRowTableCellView:
+            return cell.selectionPreviewShouldIgnore(hitView)
+        case let cell as SidebarGroupHeaderTableCellView:
+            return cell.selectionPreviewShouldIgnore(hitView)
+        default:
+            return false
+        }
     }
 
     @discardableResult

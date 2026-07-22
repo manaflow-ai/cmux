@@ -396,9 +396,14 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         if let rootTargetWorkspaceId {
             return pinnedTabIds.contains(rootTargetWorkspaceId)
         }
-        return tabIds.last(where: { $0 != draggedWorkspaceId }).map {
-            pinnedTabIds.contains($0)
-        } ?? fallback
+        // Blank space below the final row is the list tail, not an edge on
+        // the previous workspace. It is unpinned when an unpinned tail exists;
+        // otherwise preserve the dragged row's state (including the case where
+        // it is the list's only unpinned row).
+        let hasOtherUnpinnedWorkspace = tabIds.contains { id in
+            id != draggedWorkspaceId && !pinnedTabIds.contains(id)
+        }
+        return hasOtherUnpinnedWorkspace ? false : fallback
     }
 
     private func crossWindowPlan(
