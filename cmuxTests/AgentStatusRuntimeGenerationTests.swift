@@ -128,4 +128,20 @@ struct AgentStatusRuntimeGenerationTests {
         #expect(workspace.agentPIDs["claude_code.current-session"] == getpid())
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["claude_code"] == .running)
     }
+
+    @Test func needsInputRemainsConfidentForLiveRuntimeUntilCounterSignal() {
+        let evidence = AgentStatusEvidence(
+            lifecycle: .needsInput,
+            lifecycleObservedAt: now.addingTimeInterval(-3_600)
+        )
+
+        let resolution = AgentStatusReconciler().resolve(
+            evidence: evidence,
+            statusKey: "codex",
+            hasLiveRuntime: true,
+            now: now
+        )
+
+        #expect(resolution == AgentStatusResolution(lifecycle: .needsInput, confidence: .confident))
+    }
 }
