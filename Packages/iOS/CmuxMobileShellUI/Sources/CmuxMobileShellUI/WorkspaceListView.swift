@@ -609,20 +609,36 @@ struct WorkspaceListView: View {
             case .groupHeader(let group, let hasUnread):
                 let anchorCapabilities = workspaces.first(where: { $0.id == group.anchorWorkspaceID })?.actionCapabilities ?? .none
                 WorkspaceGroupHeaderRow(
-                    group: group,
-                    hasUnread: hasUnread,
-                    navigationStyle: navigationStyle,
-                    isAnchorSelected: navigationStyle == .sidebar
-                        && selectedWorkspaceID == group.anchorWorkspaceID,
-                    selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
-                    createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
-                    renameGroup: anchorCapabilities.supportsGroupActions ? renameWorkspaceGroup : nil,
-                    setGroupPinned: anchorCapabilities.supportsGroupActions ? setGroupPinned : nil,
-                    ungroupWorkspaceGroup: anchorCapabilities.supportsGroupActions ? ungroupWorkspaceGroup : nil,
-                    deleteWorkspaceGroup: anchorCapabilities.supportsGroupActions ? deleteWorkspaceGroup : nil,
-                    toggleCollapsed: toggleGroupCollapsed,
-                    unreadIndicatorLeftShift: unreadIndicatorLeftShift
+                    value: WorkspaceGroupHeaderRowValue(
+                        group: group,
+                        hasUnread: hasUnread,
+                        navigationStyle: navigationStyle,
+                        isAnchorSelected: navigationStyle == .sidebar
+                            && selectedWorkspaceID == group.anchorWorkspaceID,
+                        canCreateWorkspaceInGroup: canCreateWorkspaceInGroups
+                            && createWorkspaceInGroup != nil,
+                        canRenameGroup: anchorCapabilities.supportsGroupActions
+                            && renameWorkspaceGroup != nil,
+                        canSetGroupPinned: anchorCapabilities.supportsGroupActions
+                            && setGroupPinned != nil,
+                        canUngroupWorkspaceGroup: anchorCapabilities.supportsGroupActions
+                            && ungroupWorkspaceGroup != nil,
+                        canDeleteWorkspaceGroup: anchorCapabilities.supportsGroupActions
+                            && deleteWorkspaceGroup != nil,
+                        canToggleCollapsed: toggleGroupCollapsed != nil,
+                        unreadIndicatorLeftShift: unreadIndicatorLeftShift
+                    ),
+                    actions: WorkspaceGroupHeaderRowActions(
+                        selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
+                        createWorkspaceInGroup: createWorkspaceInGroup,
+                        renameGroup: renameWorkspaceGroup,
+                        setGroupPinned: setGroupPinned,
+                        ungroupWorkspaceGroup: ungroupWorkspaceGroup,
+                        deleteWorkspaceGroup: deleteWorkspaceGroup,
+                        toggleCollapsed: toggleGroupCollapsed
+                    )
                 )
+                .equatable()
                 // The list-wide minimum row height is lowered for the
                 // invisible end-of-group spacer; interactive rows keep the
                 // 44pt tap target (32 content + 6/6 insets) explicitly.
