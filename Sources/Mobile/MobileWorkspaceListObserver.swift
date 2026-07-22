@@ -27,7 +27,11 @@ final class MobileWorkspaceListObserver {
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var subscriptionsChangeObserver: NSObjectProtocol?
     private var pipelinesAttached = false
-    private(set) var lastSummaryHash: Int = 0
+    private var lastSummaryHash: Int = 0
+    /// Delivery is injected so callers can observe the observer's published
+    /// updates without reaching into its deduplication state. Production uses
+    /// the legacy invalidation event and the v2 state-sync broadcaster.
+    private let workspaceUpdateEmitter: @MainActor () -> Void
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
@@ -56,9 +60,20 @@ final class MobileWorkspaceListObserver {
         return MobileHostService.hasEventSubscribers(topic: "workspace.updated")
     }
 
-    init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
+    init(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore? = nil,
+        workspaceUpdateEmitter: (@MainActor () -> Void)? = nil
+    ) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
+        self.workspaceUpdateEmitter = workspaceUpdateEmitter ?? {
+            MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+            // v2 phones get per-record deltas instead of the empty invalidation
+            // above. Same tick, same throttle; a no-op diff emits nothing, and the
+            // call returns immediately when no phone subscribed to the delta topic.
+            MobileStateSyncHost.shared.broadcastIfSubscribed()
+        }
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -291,11 +306,7 @@ final class MobileWorkspaceListObserver {
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
-        MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
-        // v2 phones get per-record deltas instead of the empty invalidation
-        // above. Same tick, same throttle; a no-op diff emits nothing, and the
-        // call returns immediately when no phone subscribed to the delta topic.
-        MobileStateSyncHost.shared.broadcastIfSubscribed()
+        workspaceUpdateEmitter()
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their

@@ -18,6 +18,25 @@ import Foundation
 @MainActor
 @Suite(.serialized)
 struct MobileWorkspaceListFidelityTests {
+    private func firstValue<Element: Sendable>(
+        from stream: AsyncStream<Element>,
+        within timeout: Duration = .seconds(2)
+    ) async -> Element? {
+        await withTaskGroup(of: Element?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let value = await group.next() ?? nil
+            group.cancelAll()
+            return value
+        }
+    }
+
     /// Builds a workspace with `count` terminals as tabs in a single pane so that
     /// a within-pane `reorderTab` genuinely changes their on-screen order. Returns
     /// the workspace and panel ids in spatial (tab) order.
@@ -201,20 +220,41 @@ struct MobileWorkspaceListFidelityTests {
         let firstTabID = try #require(workspace.surfaceIdFromPanelId(firstPanelID))
         let secondTabID = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
         workspace.bonsplitController.selectTab(firstTabID)
-        let observer = MobileWorkspaceListObserver(tabManager: manager)
-        let initialSummaryHash = observer.lastSummaryHash
-
-        workspace.bonsplitController.selectTab(secondTabID)
-        try await Task.sleep(for: .milliseconds(200))
-        let hashAfterSelection = observer.lastSummaryHash
-        #expect(hashAfterSelection != initialSummaryHash, "selection publishes through the observer")
-
-        workspace.bonsplitController.selectTab(secondTabID)
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(
-            observer.lastSummaryHash == hashAfterSelection,
-            "a no-op selection stays suppressed"
+        let (updates, updateContinuation) = AsyncStream<UUID>.makeStream(
+            bufferingPolicy: .unbounded
         )
+        defer { updateContinuation.finish() }
+        let observer = MobileWorkspaceListObserver(
+            tabManager: manager,
+            workspaceUpdateEmitter: {
+                if let focusedPanelID = workspace.focusedPanelId {
+                    updateContinuation.yield(focusedPanelID)
+                }
+            }
+        )
+        let initialSelection = try #require(
+            await firstValue(from: updates),
+            "the observer should publish its initial snapshot"
+        )
+        #expect(initialSelection == firstPanelID)
+
+        workspace.bonsplitController.selectTab(secondTabID)
+        let selectionUpdate = try #require(
+            await firstValue(from: updates),
+            "pane selection should publish without a fixed delay"
+        )
+        #expect(selectionUpdate == secondPanel.id, "selection publishes through the observer")
+
+        // Follow the no-op with a real selection. A redundant no-op emission
+        // would deliver `secondPanel.id` before the real selection and fail.
+        workspace.bonsplitController.selectTab(secondTabID)
+        workspace.bonsplitController.selectTab(firstTabID)
+        let selectionAfterNoOp = try #require(
+            await firstValue(from: updates),
+            "the real selection should publish after the no-op"
+        )
+        #expect(selectionAfterNoOp == firstPanelID, "a no-op selection stays suppressed")
+        _ = observer
     }
 
     @Test func orderedPanelIdsMatchesBonsplitSpatialOrder() throws {
