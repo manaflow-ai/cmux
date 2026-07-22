@@ -1,5 +1,20 @@
 import Foundation
 
+struct CMUXAgentInstanceScope {
+    let socketPath: String
+    let workspaceIDs: Set<String>
+    let surfaceIDs: Set<String>
+
+    func contains(_ record: ClaudeHookSessionRecord) -> Bool {
+        let surfaceID = record.surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !surfaceID.isEmpty {
+            return surfaceIDs.contains(surfaceID)
+        }
+        let workspaceID = record.workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !workspaceID.isEmpty && workspaceIDs.contains(workspaceID)
+    }
+}
+
 extension CMUXCLI {
     private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
     private typealias SessionListEntry = (updatedAt: TimeInterval, payload: [String: Any])
@@ -10,7 +25,8 @@ extension CMUXCLI {
         jsonOutput: Bool,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
-        outputSchemaVersion: Int? = nil
+        outputSchemaVersion: Int? = nil,
+        instanceScope: CMUXAgentInstanceScope? = nil
     ) throws {
         var args = rawArgs
         let subcommand = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -139,13 +155,16 @@ extension CMUXCLI {
 
             let storeData = try Data(contentsOf: URL(fileURLWithPath: storePath))
             let store = try decoder.decode(ClaudeHookSessionStoreFile.self, from: storeData)
-            storePayload["session_count"] = store.sessions.count
+            storePayload["session_count"] = instanceScope.map { scope in
+                store.sessions.values.filter { scope.contains($0) }.count
+            } ?? store.sessions.count
             stores.append(storePayload)
 
             for rawRecord in store.sessions.values {
                 let record = spec.name == "claude"
                     ? sessionsListResolvedClaudeWorkflowRecord(rawRecord, lookup: claudeTranscriptLookup)
                     : rawRecord
+                guard instanceScope?.contains(record) ?? true else { continue }
                 let rawSessionId = rawRecord.sessionId.lowercased()
                 let resolvedSessionId = record.sessionId.lowercased()
                 guard sessionFilter == nil || rawSessionId == sessionFilter || resolvedSessionId == sessionFilter else {
@@ -285,12 +304,17 @@ extension CMUXCLI {
             if let outputSchemaVersion {
                 output["schema_version"] = outputSchemaVersion
             }
+            if let instanceScope {
+                output["cmux_instance"] = agentsInstanceScopePayload(instanceScope)
+            }
             print(jsonString(output))
             return
         }
 
         if limitedEntries.isEmpty {
-            print(String(localized: "cli.sessions.output.noMatches", defaultValue: "No saved agent sessions matched."))
+            print(instanceScope == nil
+                ? String(localized: "cli.sessions.output.noMatches", defaultValue: "No saved agent sessions matched.")
+                : String(localized: "cli.agents.output.noMatches", defaultValue: "No agent sessions matched this cmux instance."))
             print("state_dir=\(stateDir)")
             return
         }
@@ -310,8 +334,10 @@ extension CMUXCLI {
         commandArgs: [String],
         jsonOutput: Bool,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        client: SocketClient
     ) throws {
+        let instanceScope = try agentsInstanceScope(client: client, processEnv: processEnv)
         let subcommand = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch subcommand {
         case nil, "", "list", "debug":
@@ -320,14 +346,16 @@ extension CMUXCLI {
                 jsonOutput: jsonOutput,
                 processEnv: processEnv,
                 fileManager: fileManager,
-                outputSchemaVersion: 2
+                outputSchemaVersion: 2,
+                instanceScope: instanceScope
             )
         case "tree":
             try runAgentsTreeCommand(
                 commandArgs: Array(commandArgs.dropFirst()),
                 jsonOutput: jsonOutput,
                 processEnv: processEnv,
-                fileManager: fileManager
+                fileManager: fileManager,
+                instanceScope: instanceScope
             )
         case "help":
             print(agentsUsage())
@@ -337,7 +365,8 @@ extension CMUXCLI {
                 jsonOutput: jsonOutput,
                 processEnv: processEnv,
                 fileManager: fileManager,
-                outputSchemaVersion: 2
+                outputSchemaVersion: 2,
+                instanceScope: instanceScope
             )
         case let subcommand?:
             throw CLIError(message: String(
@@ -354,7 +383,8 @@ extension CMUXCLI {
         commandArgs: [String],
         jsonOutput: Bool,
         processEnv: [String: String],
-        fileManager: FileManager
+        fileManager: FileManager,
+        instanceScope: CMUXAgentInstanceScope
     ) throws {
         let (agentRaw, remainder0) = parseOption(commandArgs, name: "--agent")
         let (sessionRaw, remainder1) = parseOption(remainder0, name: "--session")
@@ -462,6 +492,7 @@ extension CMUXCLI {
                 from: Data(contentsOf: storeURL)
             )
             for record in store.sessions.values {
+                guard instanceScope.contains(record) else { continue }
                 guard sessionFilter == nil || record.sessionId.lowercased() == sessionFilter else { continue }
                 guard workspaceFilter == nil || record.workspaceId.lowercased() == workspaceFilter else { continue }
                 guard surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter else { continue }
@@ -555,6 +586,7 @@ extension CMUXCLI {
             print(jsonString([
                 "schema_version": 2,
                 "state_dir": stateDirectory,
+                "cmux_instance": agentsInstanceScopePayload(instanceScope),
                 "nodes": nodes,
                 "edges": edges,
             ]))
@@ -563,7 +595,7 @@ extension CMUXCLI {
         guard !nodes.isEmpty else {
             print(String(
                 localized: "cli.agents.tree.output.noMatches",
-                defaultValue: "No saved agent sessions matched."
+                defaultValue: "No agent sessions matched this cmux instance."
             ))
             print("state_dir=\(stateDirectory)")
             return
@@ -579,7 +611,8 @@ extension CMUXCLI {
                cmux agents tree [options]
                cmux agents [options]
 
-        Inspect saved coding-agent sessions without requiring a running cmux socket.
+        Inspect coding-agent sessions owned by the targeted cmux instance.
+        The target comes from --socket, CMUX_SOCKET_PATH, or the default cmux socket.
         `agents list` prints the existing session diagnostics as schema version 2 JSON.
         `agents tree` projects saved run and parent metadata into nodes and edges.
 
@@ -605,6 +638,97 @@ extension CMUXCLI {
           cmux sessions [list] [options]
           cmux session-debug [options]
         """)
+    }
+
+    private func agentsInstanceScope(
+        client: SocketClient,
+        processEnv: [String: String]
+    ) throws -> CMUXAgentInstanceScope {
+        var params: [String: Any] = ["all_windows": true]
+        let workspaceID = sessionsListNormalized(processEnv["CMUX_WORKSPACE_ID"])
+        let surfaceID = sessionsListNormalized(processEnv["CMUX_SURFACE_ID"])
+        if workspaceID != nil || surfaceID != nil {
+            var caller: [String: Any] = [:]
+            if let workspaceID { caller["workspace_id"] = workspaceID }
+            if let surfaceID { caller["surface_id"] = surfaceID }
+            params["caller"] = caller
+        }
+
+        let payload: [String: Any]
+        do {
+            payload = try client.sendV2(method: "system.tree", params: params)
+        } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
+            return try agentsLegacyInstanceScope(client: client)
+        }
+        return agentsInstanceScope(socketPath: client.socketPath, treePayload: payload)
+    }
+
+    private func agentsLegacyInstanceScope(client: SocketClient) throws -> CMUXAgentInstanceScope {
+        let windows = try client.sendV2(method: "window.list")["windows"] as? [[String: Any]] ?? []
+        var workspaceIDs = Set<String>()
+        var surfaceIDs = Set<String>()
+        for window in windows {
+            var params: [String: Any] = [:]
+            if let windowID = sessionsListNormalized(window["id"] as? String) {
+                params["window_id"] = windowID
+            } else if let windowRef = sessionsListNormalized(window["ref"] as? String) {
+                params["window_id"] = windowRef
+            }
+            let workspaces = try client.sendV2(method: "workspace.list", params: params)["workspaces"] as? [[String: Any]] ?? []
+            for workspace in workspaces {
+                guard let workspaceID = sessionsListNormalized(workspace["id"] as? String) else { continue }
+                workspaceIDs.insert(workspaceID.lowercased())
+                let surfaces = try client.sendV2(
+                    method: "surface.list",
+                    params: ["workspace_id": workspaceID]
+                )["surfaces"] as? [[String: Any]] ?? []
+                surfaceIDs.formUnion(surfaces.compactMap { surface in
+                    sessionsListNormalized(surface["id"] as? String)?.lowercased()
+                })
+            }
+        }
+        return CMUXAgentInstanceScope(
+            socketPath: client.socketPath,
+            workspaceIDs: workspaceIDs,
+            surfaceIDs: surfaceIDs
+        )
+    }
+
+    private func agentsInstanceScope(
+        socketPath: String,
+        treePayload: [String: Any]
+    ) -> CMUXAgentInstanceScope {
+        let windows = treePayload["windows"] as? [[String: Any]] ?? []
+        var workspaceIDs = Set<String>()
+        var surfaceIDs = Set<String>()
+        for window in windows {
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for workspace in workspaces {
+                if let workspaceID = sessionsListNormalized(workspace["id"] as? String) {
+                    workspaceIDs.insert(workspaceID.lowercased())
+                }
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                for pane in panes {
+                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+                    surfaceIDs.formUnion(surfaces.compactMap { surface in
+                        sessionsListNormalized(surface["id"] as? String)?.lowercased()
+                    })
+                }
+            }
+        }
+        return CMUXAgentInstanceScope(
+            socketPath: socketPath,
+            workspaceIDs: workspaceIDs,
+            surfaceIDs: surfaceIDs
+        )
+    }
+
+    private func agentsInstanceScopePayload(_ scope: CMUXAgentInstanceScope) -> [String: Any] {
+        [
+            "socket_path": scope.socketPath,
+            "workspace_ids": scope.workspaceIDs.sorted(),
+            "surface_ids": scope.surfaceIDs.sorted(),
+        ]
     }
 
     private func agentSessionNodeID(agent: String, sessionID: String, runID: String) -> String {

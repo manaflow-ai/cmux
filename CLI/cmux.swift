@@ -3246,7 +3246,11 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
-        if command == "agents" { try runAgentsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
+        if command == "agents",
+           commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "help" {
+            print(agentsUsage())
+            return
+        }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
@@ -3598,6 +3602,14 @@ struct CMUXCLI {
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
+        case "agents":
+            try runAgentsCommand(
+                commandArgs: commandArgs,
+                jsonOutput: jsonOutput,
+                processEnv: processEnv,
+                client: client
+            )
+
         case "__internal_flags":
             let response = try sendV1Command("__internal_flags", client: client)
             print(response)

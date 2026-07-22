@@ -67,10 +67,25 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         let sessions = try #require(payload["sessions"] as? [[String: Any]])
         #expect(sessions.isEmpty)
-        #expect(responder.receivedRequests.contains { $0.contains("system.tree") })
+        let stores = try #require(payload["stores"] as? [[String: Any]])
+        #expect(stores.first?["session_count"] as? Int == 0)
+
+        let treeResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "agents", "tree", "--agent", "codex", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(treeResult.status == 0, Comment(rawValue: treeResult.stdout))
+        let treePayload = try #require(
+            JSONSerialization.jsonObject(with: Data(treeResult.stdout.utf8)) as? [String: Any]
+        )
+        let nodes = try #require(treePayload["nodes"] as? [[String: Any]])
+        #expect(nodes.isEmpty)
+        #expect(responder.receivedRequests.filter { $0.contains("system.tree") }.count == 2)
     }
 
-    @Test func agentsListProvidesVersionedOfflineSessionInspection() throws {
+    @Test func agentsListProvidesVersionedInstanceScopedSessionInspection() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agents-list-\(UUID().uuidString)", isDirectory: true)
@@ -105,6 +120,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": ["surface-root"],
+        ])
+        defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
@@ -115,7 +134,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["agents", "list", "--agent", "codex", "--all", "--json"],
+            arguments: ["--socket", responder.path, "agents", "list", "--agent", "codex", "--all", "--json"],
             environment: environment,
             timeout: 5
         )
@@ -159,6 +178,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": ["surface-root"],
+        ])
+        defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -166,7 +189,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["agents", "--agent", "codex", "--all", "--json"],
+            arguments: ["--socket", responder.path, "agents", "--agent", "codex", "--all", "--json"],
             environment: environment,
             timeout: 5
         )
@@ -218,6 +241,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": ["surface-root", "surface-child"],
+        ])
+        defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
@@ -228,7 +255,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["agents", "tree", "--agent", "codex", "--all", "--json"],
+            arguments: ["--socket", responder.path, "agents", "tree", "--agent", "codex", "--all", "--json"],
             environment: environment,
             timeout: 5
         )
@@ -282,6 +309,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": ["surface-root", "surface-child"],
+        ])
+        defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -289,7 +320,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["agents", "tree", "--agent", "codex", "--all"],
+            arguments: ["--socket", responder.path, "agents", "tree", "--agent", "codex", "--all"],
             environment: environment,
             timeout: 5
         )
@@ -352,6 +383,16 @@ extension CMUXCLIErrorOutputRegressionTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": [
+                "surface-parent-a",
+                "surface-parent-b",
+                "surface-ambiguous-child",
+                "surface-unique-parent",
+                "surface-unique-child",
+            ],
+        ])
+        defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -359,7 +400,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["agents", "tree", "--agent", "codex", "--all", "--json"],
+            arguments: ["--socket", responder.path, "agents", "tree", "--agent", "codex", "--all", "--json"],
             environment: environment,
             timeout: 5
         )
@@ -579,6 +620,37 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["codex_indexed"] as? Bool == false)
         #expect(session["codex_transcript_found"] as? Bool == false)
         #expect(session["session_home"] as? String == codexHome.path)
+    }
+
+    private func agentsInstanceResponder(
+        workspaces: [String: [String]]
+    ) throws -> UnixSocketResponder {
+        let workspacePayloads = workspaces.keys.sorted().map { workspaceID in
+            [
+                "id": workspaceID,
+                "panes": [[
+                    "id": "pane-\(workspaceID)",
+                    "surfaces": (workspaces[workspaceID] ?? []).sorted().map { surfaceID in
+                        ["id": surfaceID, "type": "terminal"]
+                    },
+                ]],
+            ] as [String: Any]
+        }
+        let payload: [String: Any] = [
+            "ok": true,
+            "result": [
+                "windows": [[
+                    "id": "window-local",
+                    "workspaces": workspacePayloads,
+                ]],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        let response = String(decoding: data, as: UTF8.self)
+        return try UnixSocketResponder(
+            path: "/tmp/cmux-agents-scope-\(UUID().uuidString.prefix(8)).sock",
+            response: response
+        )
     }
 
 }
