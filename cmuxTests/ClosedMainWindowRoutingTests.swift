@@ -329,6 +329,51 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
     }
 
+    @Test("Ordered-out recoverable owner can commit its close")
+    func orderedOutRecoverableOwnerCanCommitItsClose() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        window.orderOut(nil)
+
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window === window)
+        #expect(app.commitMainWindowClose(window))
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(manager.tabs.isEmpty)
+        #expect(workspace.isRetiredFromOwningTabManager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+    }
+
     @Test("Retained closed window cannot respawn its context or terminal")
     func retainedClosedWindowCannotRespawnItsContextOrTerminal() throws {
         _ = NSApplication.shared
