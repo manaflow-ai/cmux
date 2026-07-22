@@ -8,6 +8,8 @@ extension ArtifactCaptureConfiguration {
         case maximumFileBytes
         case maximumTextFileBytes
         case maximumFilesPerCapture
+        case deduplicationScanNodeLimit
+        case deduplicationHashByteLimit
         case contentSearchMaximumBytes
         case contentSearchTotalMaximumBytes
         case maximumSearchResults
@@ -33,6 +35,14 @@ extension ArtifactCaptureConfiguration {
                 ?? defaults.maximumTextFileBytes,
             maximumFilesPerCapture: try values.decodeIfPresent(Int.self, forKey: .maximumFilesPerCapture)
                 ?? defaults.maximumFilesPerCapture,
+            deduplicationScanNodeLimit: try values.decodeIfPresent(
+                Int.self,
+                forKey: .deduplicationScanNodeLimit
+            ) ?? defaults.deduplicationScanNodeLimit,
+            deduplicationHashByteLimit: try values.decodeIfPresent(
+                Int64.self,
+                forKey: .deduplicationHashByteLimit
+            ) ?? defaults.deduplicationHashByteLimit,
             contentSearchMaximumBytes: try values.decodeIfPresent(Int64.self, forKey: .contentSearchMaximumBytes)
                 ?? defaults.contentSearchMaximumBytes,
             contentSearchTotalMaximumBytes: try values.decodeIfPresent(
@@ -57,6 +67,8 @@ extension ArtifactCaptureConfiguration {
         try values.encode(maximumFileBytes, forKey: .maximumFileBytes)
         try values.encode(maximumTextFileBytes, forKey: .maximumTextFileBytes)
         try values.encode(maximumFilesPerCapture, forKey: .maximumFilesPerCapture)
+        try values.encode(deduplicationScanNodeLimit, forKey: .deduplicationScanNodeLimit)
+        try values.encode(deduplicationHashByteLimit, forKey: .deduplicationHashByteLimit)
         try values.encode(contentSearchMaximumBytes, forKey: .contentSearchMaximumBytes)
         try values.encode(contentSearchTotalMaximumBytes, forKey: .contentSearchTotalMaximumBytes)
         try values.encode(maximumSearchResults, forKey: .maximumSearchResults)

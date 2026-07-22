@@ -72,6 +72,18 @@ struct ArtifactGitIgnoreManager {
         ) else {
             return Self.ignoreEntry
         }
-        return relativePath + "/" + Self.ignoreEntry
+        return escapedGitPattern(relativePath) + "/" + Self.ignoreEntry
+    }
+
+    private func escapedGitPattern(_ path: String) -> String {
+        var escaped = ""
+        escaped.reserveCapacity(path.count)
+        for character in path {
+            if "\\*?[]#! \t".contains(character) {
+                escaped.append("\\")
+            }
+            escaped.append(character)
+        }
+        return escaped
     }
 }

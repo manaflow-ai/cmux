@@ -14,6 +14,10 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     public var maximumTextFileBytes: Int64
     /// Maximum candidates handled in one persistence batch before backlog continuation.
     public var maximumFilesPerCapture: Int
+    /// Maximum files and folders visited while recovering a moved deduplication target.
+    public var deduplicationScanNodeLimit: Int
+    /// Maximum matching-size bytes hashed during one deduplication recovery scan.
+    public var deduplicationHashByteLimit: Int64
     /// Maximum text bytes decoded while content-searching one artifact.
     public var contentSearchMaximumBytes: Int64
     /// Maximum aggregate text bytes decoded by one content search.
@@ -33,6 +37,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         maximumFileBytes: 50 * 1024 * 1024,
         maximumTextFileBytes: 2 * 1024 * 1024,
         maximumFilesPerCapture: 32,
+        deduplicationScanNodeLimit: 100_000,
+        deduplicationHashByteLimit: 512 * 1024 * 1024,
         contentSearchMaximumBytes: 1024 * 1024,
         contentSearchTotalMaximumBytes: 16 * 1024 * 1024,
         maximumSearchResults: 500,
@@ -54,6 +60,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     ///   - maximumFileBytes: Maximum bytes for rich-media and document imports.
     ///   - maximumTextFileBytes: Maximum bytes for plain and structured text imports.
     ///   - maximumFilesPerCapture: Maximum candidates processed in one persistence batch.
+    ///   - deduplicationScanNodeLimit: Maximum nodes visited during moved-file recovery.
+    ///   - deduplicationHashByteLimit: Maximum matching-size bytes hashed during recovery.
     ///   - contentSearchMaximumBytes: Maximum bytes decoded from one searchable file.
     ///   - contentSearchTotalMaximumBytes: Maximum aggregate bytes decoded by one search.
     ///   - maximumSearchResults: Maximum matches returned by one search.
@@ -66,6 +74,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         maximumFileBytes: Int64,
         maximumTextFileBytes: Int64,
         maximumFilesPerCapture: Int,
+        deduplicationScanNodeLimit: Int,
+        deduplicationHashByteLimit: Int64,
         contentSearchMaximumBytes: Int64,
         contentSearchTotalMaximumBytes: Int64,
         maximumSearchResults: Int,
@@ -78,6 +88,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         self.maximumFileBytes = maximumFileBytes
         self.maximumTextFileBytes = maximumTextFileBytes
         self.maximumFilesPerCapture = maximumFilesPerCapture
+        self.deduplicationScanNodeLimit = deduplicationScanNodeLimit
+        self.deduplicationHashByteLimit = deduplicationHashByteLimit
         self.contentSearchMaximumBytes = contentSearchMaximumBytes
         self.contentSearchTotalMaximumBytes = contentSearchTotalMaximumBytes
         self.maximumSearchResults = maximumSearchResults
@@ -91,6 +103,11 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         value.maximumFileBytes = min(max(1, maximumFileBytes), 512 * 1024 * 1024)
         value.maximumTextFileBytes = min(max(1, maximumTextFileBytes), value.maximumFileBytes)
         value.maximumFilesPerCapture = min(max(1, maximumFilesPerCapture), 256)
+        value.deduplicationScanNodeLimit = min(max(1, deduplicationScanNodeLimit), 1_000_000)
+        value.deduplicationHashByteLimit = min(
+            max(1, deduplicationHashByteLimit),
+            4 * 1024 * 1024 * 1024
+        )
         value.contentSearchMaximumBytes = min(max(1, contentSearchMaximumBytes), 8 * 1024 * 1024)
         value.contentSearchTotalMaximumBytes = min(
             max(value.contentSearchMaximumBytes, contentSearchTotalMaximumBytes),

@@ -15,6 +15,7 @@ struct ArtifactSearchEngine {
             let pathScore = matcher.score(candidate: node.relativePath, query: query).map { $0 - 250 }
             let contentMatch = contentMatch(
                 node: node,
+                artifactsRoot: snapshot.artifactsRoot,
                 query: query,
                 remainingBytes: &remainingContentBytes
             )
@@ -37,18 +38,23 @@ struct ArtifactSearchEngine {
 
     private func contentMatch(
         node: ArtifactNode,
+        artifactsRoot: URL,
         query: String,
         remainingBytes: inout Int64
     ) -> String? {
-        guard node.fileKind?.isTextSearchable == true,
-              let size = node.size,
-              size <= configuration.contentSearchMaximumBytes,
-              size <= remainingBytes else {
+        guard node.fileKind?.isTextSearchable == true, remainingBytes > 0 else {
             return nil
         }
-        remainingBytes -= size
+        let maximumBytes = min(configuration.contentSearchMaximumBytes, remainingBytes)
+        guard let data = ArtifactBoundedFileReader().data(
+            url: URL(fileURLWithPath: node.absolutePath),
+            artifactsRoot: artifactsRoot,
+            maximumBytes: maximumBytes
+        ) else {
+            return nil
+        }
+        remainingBytes -= Int64(data.count)
         guard
-              let data = try? Data(contentsOf: URL(fileURLWithPath: node.absolutePath), options: .mappedIfSafe),
               let text = String(data: data, encoding: .utf8),
               let range = text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) else {
             return nil
