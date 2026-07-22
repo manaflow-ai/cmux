@@ -3,15 +3,19 @@ extension CMUXCLI {
 }
 
 // When the inherited CMUX_SURFACE_ID no longer resolves (for example Pi is
-// running in a nested terminal multiplexer that inherited cmux environment
-// from the pane that launched it), every cmux call fails the same way. Warn
-// once, then stop dispatching for the rest of the process instead of paying
-// a subprocess round-trip per event.
+// running in a nested terminal multiplexer that inherited cmux environment),
+// an explicit surface resume operation provides concrete evidence that the
+// target is stale. Warn once, then stop dispatching instead of paying a
+// subprocess round-trip per event. Generic hook failures never trip this.
 let surfaceUnavailable = false;
 
 function markSurfaceUnavailable(ctx: ExtensionContext, result: CommandResult, operation: string): boolean {
   const stderr = result.stderr.toLowerCase();
-  if (!stderr.includes("not_found") && !stderr.includes("not found") && !stderr.includes("invalid surface handle")) return false;
+  const isExplicitSurfaceOperation = operation.startsWith("surface resume ");
+  const isSurfaceResolutionFailure =
+    stderr.includes("not_found: surface not found") ||
+    stderr.includes("invalid surface handle");
+  if (!isExplicitSurfaceOperation || !isSurfaceResolutionFailure) return false;
   if (!surfaceUnavailable) {
     surfaceUnavailable = true;
     warn(ctx, "cmux surface not found; disabling cmux Pi hooks for this process", {

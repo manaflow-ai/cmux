@@ -363,7 +363,9 @@ function runCmuxOnce(args: string[], cwd: string, input?: string): Promise<Comma
       }, 5000);
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
+      child.stdout.on("error", () => {});
       child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+      child.stderr.on("error", () => {});
       child.stderr.on("data", (chunk: string) => { stderr += chunk; });
       child.on("error", (error) => settle({ ok: false, status: null, stdout, stderr, error }));
       child.on("close", (code) => {
