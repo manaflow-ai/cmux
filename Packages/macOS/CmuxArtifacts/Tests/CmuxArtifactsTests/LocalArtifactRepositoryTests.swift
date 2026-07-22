@@ -89,6 +89,52 @@ struct LocalArtifactRepositoryTests {
         #expect(record.relativePath == "organized/final.txt")
     }
 
+    @Test("Moved-file deduplication is independent of the sidebar node budget")
+    func deduplicatesMovedFileBeyondSidebarBudget() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let source = try ArtifactTestSupport.write(
+            "same bytes",
+            named: "result.txt",
+            under: root.appendingPathComponent("outside")
+        )
+        let repository = LocalArtifactRepository(nodeBudget: 1)
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            workspaceID: "one",
+            sessionID: "two"
+        )
+        let first = try await repository.importFile(
+            sourceURL: source,
+            context: context,
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: .now
+        )
+        let original = try #require(first.record)
+        let originalURL = root.appendingPathComponent(".cmux/artifacts/\(original.relativePath)")
+        let movedURL = root.appendingPathComponent(".cmux/artifacts/organized/final.txt")
+        try FileManager.default.createDirectory(
+            at: movedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.moveItem(at: originalURL, to: movedURL)
+
+        let second = try await repository.importFile(
+            sourceURL: source,
+            context: context,
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: .now
+        )
+
+        guard case .deduplicated(let record) = second else {
+            Issue.record("Expected content deduplication beyond the sidebar budget")
+            return
+        }
+        #expect(record.relativePath == "organized/final.txt")
+    }
+
     @Test("Content deduplication includes unmanaged ordinary store files")
     func deduplicatesUnmanagedStoreFile() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
