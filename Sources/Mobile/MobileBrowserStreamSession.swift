@@ -22,7 +22,6 @@ final class MobileBrowserStreamSession {
     private var deadlineTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
     private var dialogEventTask: Task<Void, Never>?
-    private var reflowSettleTask: Task<Void, Never>?
     private var isDriving = false
     private var needsDrive = false
     private var isStopped = false
@@ -69,8 +68,6 @@ final class MobileBrowserStreamSession {
         stateTask = nil
         dialogEventTask?.cancel()
         dialogEventTask = nil
-        reflowSettleTask?.cancel()
-        reflowSettleTask = nil
         driveTask?.cancel()
         driveTask = nil
         panel.removeMobileBrowserStreamSignalHandler(id: signalHandlerID)
@@ -96,10 +93,6 @@ final class MobileBrowserStreamSession {
             pacing.noteDirty(at: clock.now)
             emitStateImmediately()
             requestDrive()
-        case .reflowed:
-            pacing.noteDirty(at: clock.now)
-            requestDrive()
-            scheduleReflowSettleCaptures()
         case let .dialog(dialog):
             emitDialog(dialog)
         case let .dialogResolved(resolved):
@@ -235,32 +228,6 @@ final class MobileBrowserStreamSession {
                 guard !Task.isCancelled else { return }
                 self?.requestDrive()
             } catch {}
-        }
-    }
-
-    /// Forces a short burst of re-captures after a viewport reflow.
-    ///
-    /// The reflow relayouts and the repaint nudge paints asynchronously, but an
-    /// already-loaded idle page then sends no further dirty signal, so a single
-    /// capture can lock in a blank frame. This dedicated task (independent of the
-    /// cadence `deadlineTask`, which per-signal churn would otherwise cancel)
-    /// marks dirty and re-captures at increasing delays that straddle the
-    /// relayout+paint window, so whichever capture lands after the page has
-    /// painted replaces the premature blank frame. Cheap when the frame is
-    /// already correct: the pacing coalesces identical follow-ups.
-    private func scheduleReflowSettleCaptures() {
-        guard !isStopped else { return }
-        reflowSettleTask?.cancel()
-        let clock = clock
-        reflowSettleTask = Task { @MainActor [weak self, clock] in
-            for delay in [0.12, 0.30, 0.60, 1.10, 1.80] {
-                do {
-                    try await clock.sleep(for: delay)
-                } catch { return }
-                guard let self, !self.isStopped, !Task.isCancelled else { return }
-                self.pacing.noteDirty(at: self.clock.now)
-                self.requestDrive()
-            }
         }
     }
 

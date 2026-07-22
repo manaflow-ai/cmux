@@ -2736,8 +2736,9 @@ final class BrowserPanel: Panel, ObservableObject {
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]
     var mobileBrowserStreamMessageHandler: MobileBrowserDirtyMessageHandler?
     var mobileBrowserStreamScriptInstanceID: UUID?
-    var mobileBrowserStreamViewportIsActive = false
-    var mobileBrowserStreamPreviousAutomationViewport: BrowserViewport?
+    var mobileBrowserStreamRenderHost: BrowserOffscreenRenderHost?
+    var mobileBrowserStreamPreviousViewport: BrowserViewport?
+    var mobileBrowserStreamPreviousViewportWasCaptured = false
     var mobileBrowserStreamViewport: MobileBrowserViewport?
     let mobileBrowserDialogBroker: MobileBrowserDialogBroker
 
