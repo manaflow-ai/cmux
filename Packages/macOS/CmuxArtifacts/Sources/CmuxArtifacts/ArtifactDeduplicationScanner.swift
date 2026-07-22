@@ -28,36 +28,24 @@ struct ArtifactDeduplicationScanner {
         try Task.checkCancellation()
         var remainingNodes = nodeLimit
         var remainingHashBytes = hashByteLimit
-        _ = try scanDirectory(
-            paths.artifactsRoot,
-            paths: paths,
-            matchingSizes: matchingSizes,
-            remainingNodes: &remainingNodes,
-            remainingHashBytes: &remainingHashBytes,
-            visitor: visitor
-        )
-    }
-
-    private func scanDirectory(
-        _ directory: URL,
-        paths: ArtifactStorePaths,
-        matchingSizes: Set<Int64>,
-        remainingNodes: inout Int,
-        remainingHashBytes: inout Int64,
-        visitor: (URL, Int64) -> Bool
-    ) throws -> Bool {
         let keys: Set<URLResourceKey> = [
             .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
         ]
-        guard let children = fileManager.enumerator(
-            at: directory,
+        guard let rootEnumerator = fileManager.enumerator(
+            at: paths.artifactsRoot,
             includingPropertiesForKeys: Array(keys),
             options: [.skipsSubdirectoryDescendants]
-        ) else { return false }
+        ) else { return }
+        var enumerators = [rootEnumerator]
         let pathResolver = ArtifactPathResolver()
-        while let url = children.nextObject() as? URL {
+
+        while let enumerator = enumerators.last {
             try Task.checkCancellation()
-            guard remainingNodes > 0 else { return true }
+            guard remainingNodes > 0 else { return }
+            guard let url = enumerator.nextObject() as? URL else {
+                enumerators.removeLast()
+                continue
+            }
             remainingNodes -= 1
             if pathResolver.refersToSameLocation(url, paths.metadataRoot) {
                 continue
@@ -68,15 +56,12 @@ struct ArtifactDeduplicationScanner {
                 continue
             }
             if values.isDirectory == true {
-                if try scanDirectory(
-                    url,
-                    paths: paths,
-                    matchingSizes: matchingSizes,
-                    remainingNodes: &remainingNodes,
-                    remainingHashBytes: &remainingHashBytes,
-                    visitor: visitor
+                if let childEnumerator = fileManager.enumerator(
+                    at: url,
+                    includingPropertiesForKeys: Array(keys),
+                    options: [.skipsSubdirectoryDescendants]
                 ) {
-                    return true
+                    enumerators.append(childEnumerator)
                 }
                 continue
             }
@@ -89,8 +74,7 @@ struct ArtifactDeduplicationScanner {
             let size = Int64(rawSize)
             guard matchingSizes.contains(size), size <= remainingHashBytes else { continue }
             remainingHashBytes -= size
-            if visitor(url, size) { return true }
+            if visitor(url, size) { return }
         }
-        return false
     }
 }
