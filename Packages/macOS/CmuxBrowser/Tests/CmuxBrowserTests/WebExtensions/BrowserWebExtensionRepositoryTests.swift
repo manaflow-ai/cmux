@@ -146,6 +146,48 @@ struct BrowserWebExtensionRepositoryTests {
         #expect(discovery.failures.isEmpty)
     }
 
+    @Test func conditionalManagementMutationsRejectStaleRecords() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let original = BrowserWebExtensionManagedRecord(
+            id: "disk:test",
+            displayName: "Original",
+            version: "1",
+            source: .directory(filename: "extension", digest: "digest"),
+            isEnabled: true,
+            grantedPermissions: [],
+            grantedMatchPatterns: []
+        )
+        var replacement = original
+        replacement.displayName = "Replacement"
+        var staleReplacement = original
+        staleReplacement.displayName = "Stale"
+        try await repository.upsertManagedRecord(original, in: root)
+
+        #expect(try await repository.replaceManagedRecord(
+            replacement,
+            expectedPreviousRecord: original,
+            in: root
+        ))
+        #expect(try await !repository.replaceManagedRecord(
+            staleReplacement,
+            expectedPreviousRecord: original,
+            in: root
+        ))
+        #expect(try await !repository.removeManagedRecord(
+            id: original.id,
+            expectedPreviousRecord: original,
+            in: root
+        ))
+        #expect(try await repository.removeManagedRecord(
+            id: replacement.id,
+            expectedPreviousRecord: replacement,
+            in: root
+        ))
+        #expect(try await repository.managementLedger(in: root).records.isEmpty)
+    }
+
     @Test func discoveryDefersManagedPackageIntegrityCheckUntilLoad() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -1844,7 +1844,8 @@ struct BrowserWebExtensionsManagerTests {
         #expect(receipt.name == "cmux test extension")
         let ledger = try await BrowserWebExtensionDirectoryRepository()
             .managementLedger(in: managedRoot)
-        let record = try #require(ledger.records["sample"])
+        let record = try #require(ledger.records.values.first)
+        #expect(record.id.hasPrefix(BrowserWebExtensionManagementIdentity.diskPrefix))
         guard case .directory(let filename, _) = record.source else {
             Issue.record("Expected an immutable managed directory")
             return
@@ -1962,6 +1963,201 @@ struct BrowserWebExtensionsManagerTests {
         #expect(!updatedRecord.isEnabled)
         #expect(manager.loadedContexts.isEmpty)
         #expect(manager.controller.extensionContexts.isEmpty)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func staleToolbarPinDoesNotOverwriteNewerManagementState() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        var manifest = Self.minimalManifest
+        manifest["action"] = ["default_title": "Pin action"]
+        let source = try Self.writeExtension(
+            named: "stale-pin",
+            in: sourceRoot,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository
+        )
+        _ = try await manager.installExtension(from: source)
+        let context = try #require(manager.loadedContexts.first)
+        let managementID = try #require(
+            try await repository.managementLedger(in: managedRoot).records.keys.first
+        )
+        var newerRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        newerRecord.displayName = "Externally changed"
+        try await repository.upsertManagedRecord(newerRecord, in: managedRoot)
+
+        await #expect(throws: BrowserWebExtensionManagementError.stateChanged) {
+            try await manager.setToolbarActionPinned(
+                true,
+                uniqueIdentifier: context.uniqueIdentifier
+            )
+        }
+
+        let persisted = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        #expect(persisted.displayName == "Externally changed")
+        #expect(!persisted.isToolbarPinned)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func staleDisableDoesNotOverwriteNewerManagementState() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(
+            named: "stale-disable",
+            in: sourceRoot,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository
+        )
+        _ = try await manager.installExtension(from: source)
+        let managementID = try #require(
+            try await repository.managementLedger(in: managedRoot).records.keys.first
+        )
+        var newerRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        newerRecord.displayName = "Externally changed"
+        try await repository.upsertManagedRecord(newerRecord, in: managedRoot)
+
+        await #expect(throws: BrowserWebExtensionManagementError.stateChanged) {
+            try await manager.setExtensionEnabled(
+                managementID: managementID,
+                isEnabled: false
+            )
+        }
+
+        let persisted = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        #expect(persisted.displayName == "Externally changed")
+        #expect(persisted.isEnabled)
+        #expect(manager.loadedContexts.count == 1)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func staleEnableDoesNotOverwriteNewerManagementState() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(
+            named: "stale-enable",
+            in: sourceRoot,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository
+        )
+        _ = try await manager.installExtension(from: source)
+        let managementID = try #require(
+            try await repository.managementLedger(in: managedRoot).records.keys.first
+        )
+        try await manager.setExtensionEnabled(managementID: managementID, isEnabled: false)
+        var newerRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        newerRecord.displayName = "Externally changed"
+        try await repository.upsertManagedRecord(newerRecord, in: managedRoot)
+
+        await #expect(throws: BrowserWebExtensionManagementError.stateChanged) {
+            try await manager.setExtensionEnabled(
+                managementID: managementID,
+                isEnabled: true
+            )
+        }
+
+        let persisted = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        #expect(persisted.displayName == "Externally changed")
+        #expect(!persisted.isEnabled)
+        #expect(manager.loadedContexts.isEmpty)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func staleRemovalDoesNotDeleteNewerManagementState() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(
+            named: "stale-remove",
+            in: sourceRoot,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository
+        )
+        _ = try await manager.installExtension(from: source)
+        let managementID = try #require(
+            try await repository.managementLedger(in: managedRoot).records.keys.first
+        )
+        var newerRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        newerRecord.displayName = "Externally changed"
+        try await repository.upsertManagedRecord(newerRecord, in: managedRoot)
+
+        await #expect(throws: BrowserWebExtensionManagementError.stateChanged) {
+            try await manager.removeExtension(managementID: managementID)
+        }
+
+        let persisted = try #require(
+            try await repository.managementLedger(in: managedRoot).records[managementID]
+        )
+        #expect(persisted.displayName == "Externally changed")
+        #expect(manager.loadedContexts.count == 1)
     }
 
     @available(macOS 15.4, *)
@@ -2096,10 +2292,11 @@ struct BrowserWebExtensionsManagerTests {
         let receipt = try await installTask.value
         #expect(receipt.name == "cmux test extension")
         let ledger = try await repository.managementLedger(in: managedRoot)
-        #expect(ledger.records["commit-cancellation"] != nil)
+        let committedRecord = try #require(ledger.records.values.first)
+        #expect(committedRecord.id.hasPrefix(BrowserWebExtensionManagementIdentity.diskPrefix))
         #expect(manager.loadedContexts.count == 1)
         let item = try #require(manager.presentationSnapshot().extensions.first)
-        #expect(item.managementID == "commit-cancellation")
+        #expect(item.managementID == committedRecord.id)
         #expect(item.isEnabled)
     }
 
@@ -2170,10 +2367,13 @@ struct BrowserWebExtensionsManagerTests {
             installationName: "com.example.password-manager.safari"
         )
         let ledger = try await repository.managementLedger(in: managedRoot)
-        #expect(ledger.records["com.example.password-manager.safari"]?.source == .safariApp(reference))
+        let managementID = BrowserWebExtensionManagementIdentity.safariApp(
+            bundleIdentifier: "com.example.password-manager.safari"
+        )
+        #expect(ledger.records[managementID]?.source == .safariApp(reference))
         #expect(manager.loadedContexts.first?.uniqueIdentifier
             == BrowserWebExtensionsManager.contextIdentifier(
-                for: "com.example.password-manager.safari"
+                for: managementID
             ))
         #expect(manager.loadedContexts.first?.unsupportedAPIs
             .contains("browser.runtime.sendNativeMessage") == false)
@@ -2194,7 +2394,7 @@ struct BrowserWebExtensionsManagerTests {
         #expect(relaunchedManager.loadErrors.isEmpty)
         #expect(relaunchedManager.loadedContexts.first?.uniqueIdentifier
             == BrowserWebExtensionsManager.contextIdentifier(
-                for: "com.example.password-manager.safari"
+                for: managementID
             ))
     }
 
@@ -5899,7 +6099,8 @@ struct BrowserWebExtensionsManagerTests {
         )
         let ledger = try await BrowserWebExtensionDirectoryRepository()
             .managementLedger(in: profileDirectory)
-        let record = try #require(ledger.records[source.lastPathComponent])
+        let record = try #require(ledger.records.values.first)
+        #expect(record.id.hasPrefix(BrowserWebExtensionManagementIdentity.diskPrefix))
         guard case .directory(let filename, _) = record.source else {
             Issue.record("Expected an immutable managed directory")
             return
