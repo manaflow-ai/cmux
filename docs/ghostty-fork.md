@@ -12,12 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `fedd33703`. It combines indented
+Current cmux pinned fork patch head: `b211341be`. It combines indented
 hard-newline link continuations with the presentation-token runtime from
 `24284c3ba` and is published through
 https://github.com/manaflow-ai/ghostty/pull/124.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fedd33703c3c49641e4d8b18ca969b5274cd0a91-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Indented hard-newline link continuations
@@ -36,8 +36,28 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `8eb1857c4` (fix: retain wrapped-path trailing spaces)
   - `3288abc24` (test: cover inherited presentation callbacks)
   - `fedd33703` (fix: inherit render presentation callbacks)
+  - `f1602d2e8` (test: cover reviewed link and render regressions)
+  - `5038188f1` (fix: close reviewed render and link gaps)
+  - `e4851d3d7` (test: cover presentation teardown and deferral)
+  - `da0372405` (fix: harden tokened render completion)
+  - `cc1574d2d` (test: cover callback registration lifetime)
+  - `91de70f2d` (test: cover OpenGL presentation completion)
+  - `56e3fcfd5` (fix: make presentation registration one-shot)
+  - `56f0479de` (test: cover stalled Metal teardown lifetime)
+  - `ecc2479dd` (test: cover out-of-order frame completion)
+  - `34627914a` (test: reject stale frame generations)
+  - `d5d3dec57` (fix: make stalled frame teardown lifetime-safe)
+  - `79c8c3643` (test: preserve tokened Metal targets through assignment)
+  - `f22ef7896` (fix: freeze tokened Metal presentations)
+  - `3fa2305e1` (test: cover presentation ownership and GL ordering)
+  - `fb97d47a0` (fix: preserve presentation ownership and GL ordering)
+  - `fa6e8eae2` (test: cover synchronous presentation reentrancy)
+  - `fe44a2ef4` (fix: deliver synchronous presentations after thread cleanup)
+  - `79ebe478e` (test: preserve OpenGL presentation errors)
+  - `b211341be` (fix: preserve OpenGL presentation errors)
 - Files:
   - `build.zig`
+  - `include/ghostty.h`
   - `src/Surface.zig`
   - `src/apprt.zig`
   - `src/apprt/embedded.zig`
@@ -46,8 +66,17 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `src/input/Link.zig`
   - `src/link.zig`
   - `src/link_wrap.zig`
+  - `src/renderer.zig`
+  - `src/renderer/Metal.zig`
+  - `src/renderer/OpenGL.zig`
+  - `src/renderer/Thread.zig`
   - `src/renderer/generic.zig`
   - `src/renderer/link.zig`
+  - `src/renderer/metal/CompletionLifetime.zig`
+  - `src/renderer/metal/Frame.zig`
+  - `src/renderer/metal/IOSurfaceLayer.zig`
+  - `src/renderer/metal/Target.zig`
+  - `src/renderer/opengl/Frame.zig`
 - Summary:
   - Resolves each link to one exact value and exact terminal-cell set shared
     by hit testing, open/copy actions, previews, always highlighting, and
@@ -66,11 +95,25 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - Bounds cell, byte, candidate, and regex work; compressed pages stay cold.
     Regex work runs outside the terminal lock and stale snapshots are
     revalidated before results are applied.
-  - Preserves render-presentation callbacks and userdata when child surfaces
-    inherit options. macOS Zig tests select the embedded runtime so this
-    integration path remains covered.
-  - Conflict note: future link matching or renderer string-map changes must
-    keep click actions and highlighted cells on the shared exact resolver.
+  - Keeps the public surface config at 120 bytes and registers each surface's
+    callback through a one-shot post-construction setter. Callback state is
+    never inherited, and its userdata remains valid until surface destruction.
+  - Carries presentation tokens through every backend. Metal uses exact
+    in-flight slot ownership plus ref-counted renderer generations, so stalled,
+    late, reordered, and post-teardown command-buffer completions cannot touch
+    freed renderer or callback state.
+  - Freezes each tokened Metal frame onto its rendered IOSurface while a
+    replacement target re-enters the swap chain. The queued main-layer update
+    retains those exact pixels, applies the size and teardown gates, and only
+    then acknowledges the token; ordinary frames keep the allocation-free path.
+  - OpenGL blits before its finish fence, preserves blit and cleanup failures,
+    and acknowledges only after GPU validation, renderer cleanup, draw-lock
+    release, and thread instrumentation. A reentrant callback may free its
+    surface because delivery is the thread path's final operation.
+  - Conflict note: future link matching changes must keep actions and highlights
+    on the shared exact resolver. Renderer changes must preserve one-shot
+    registration, exact-frame presentation, teardown cancellation, and final
+    callback delivery together.
 
 The presentation-token-only predecessor `24284c3ba` is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-24284c3ba4ebe79860d2b4e8d5d710fde2e1ebd3-crashsubdir-cmux-crash-v1
