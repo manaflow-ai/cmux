@@ -16487,7 +16487,7 @@ private extension NSApplication {
             let responder = event.window?.firstResponder
                 ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
-            if let ghosttyView = responder.cmuxStrictOwningGhosttyView() {
+            if let ghosttyView = responder.cmuxTerminalKeyEquivalentOwningGhosttyView() {
                 ghosttyView.keyDown(with: event)
 #if DEBUG
                 cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to terminal")
