@@ -867,7 +867,7 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
+    @State private var sidebarResizerCursorReleaseGeneration: UInt64 = 0
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
@@ -898,7 +898,7 @@ struct ContentView: View {
     @State private var cachedCommandPaletteFingerprint: Int?
     @State private var cachedDefaultTerminalIsDefault = DefaultTerminalRegistration.currentStatus().isDefault
     @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
-    @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
+    @State private var commandPaletteRestoreTimeoutGeneration: UInt64 = 0
     @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
@@ -1349,8 +1349,7 @@ struct ContentView: View {
     }
 
     private func activateSidebarResizerCursor() {
-        sidebarResizerCursorReleaseWorkItem?.cancel()
-        sidebarResizerCursorReleaseWorkItem = nil
+        sidebarResizerCursorReleaseGeneration &+= 1
         isSidebarResizerCursorActive = true
         Self.fixedSidebarResizeCursor.set()
     }
@@ -1366,16 +1365,16 @@ struct ContentView: View {
     }
 
     private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: TimeInterval = 0) {
-        sidebarResizerCursorReleaseWorkItem?.cancel()
-        let workItem = DispatchWorkItem {
-            sidebarResizerCursorReleaseWorkItem = nil
+        sidebarResizerCursorReleaseGeneration &+= 1
+        let generation = sidebarResizerCursorReleaseGeneration
+        let release = {
+            guard sidebarResizerCursorReleaseGeneration == generation else { return }
             releaseSidebarResizerCursorIfNeeded(force: force)
         }
-        sidebarResizerCursorReleaseWorkItem = workItem
         if delay > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: release)
         } else {
-            DispatchQueue.main.async(execute: workItem)
+            DispatchQueue.main.async(execute: release)
         }
     }
 
@@ -9450,13 +9449,12 @@ struct ContentView: View {
 
     private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
         commandPalettePendingDismissFocusTarget = target
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        let timeoutWork = DispatchWorkItem {
+        commandPaletteRestoreTimeoutGeneration &+= 1
+        let generation = commandPaletteRestoreTimeoutGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard commandPaletteRestoreTimeoutGeneration == generation else { return }
             commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem = nil
         }
-        commandPaletteRestoreTimeoutWorkItem = timeoutWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: timeoutWork)
         attemptCommandPaletteFocusRestoreIfNeeded()
     }
 
@@ -9464,9 +9462,8 @@ struct ContentView: View {
         guard !isCommandPalettePresented else { return }
         guard let target = commandPalettePendingDismissFocusTarget else { return }
         guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
+            commandPaletteRestoreTimeoutGeneration &+= 1
             commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem?.cancel()
-            commandPaletteRestoreTimeoutWorkItem = nil
             return
         }
 
@@ -9486,9 +9483,8 @@ struct ContentView: View {
             return
         }
         guard context.panel.restoreFocusIntent(target.intent) else { return }
+        commandPaletteRestoreTimeoutGeneration &+= 1
         commandPalettePendingDismissFocusTarget = nil
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        commandPaletteRestoreTimeoutWorkItem = nil
     }
 
 #if DEBUG
