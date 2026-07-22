@@ -52,7 +52,40 @@ struct SessionIndexTableViewportTests {
 
     @MainActor
     @Test
-    func vaultUsesViewportBoundedAppKitRowsAtScale() throws {
+    func tableApplyDefersAndCoalescesUntilAfterTheCurrentCallback() async {
+        let controller = SessionIndexTableController()
+        let container = controller.makeContainerView()
+        let actions = SectionGapActions(
+            currentDraggedKey: { nil },
+            moveSection: { _, _ in },
+            clearDraggedKey: {}
+        )
+        let environment = SessionIndexTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100
+        )
+        let first = SessionIndexTableRow.gap(
+            beforeKey: .directory("/tmp/first"),
+            isValidDrop: true,
+            actions: actions
+        )
+        let second = SessionIndexTableRow.gap(
+            beforeKey: .directory("/tmp/second"),
+            isValidDrop: true,
+            actions: actions
+        )
+
+        controller.apply(rows: [first], environment: environment)
+        controller.apply(rows: [first, second], environment: environment)
+
+        #expect(container.tableView.numberOfRows == 0)
+        await flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 2)
+    }
+
+    @MainActor
+    @Test
+    func vaultUsesViewportBoundedAppKitRowsAtScale() async throws {
         let defaults = SessionIndexDefaultsSnapshot()
         defer { defaults.restore() }
 
@@ -77,6 +110,9 @@ struct SessionIndexTableViewportTests {
         host.frame = window.contentView?.bounds ?? .zero
         host.layoutSubtreeIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+        host.layoutSubtreeIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
 
         let table = try #require(host.firstDescendant(of: NSTableView.self))
         let visibleRows = table.rows(in: table.visibleRect)
@@ -88,6 +124,15 @@ struct SessionIndexTableViewportTests {
         #expect(visibleRows.length > 0)
         #expect(table.numberOfRows > visibleRows.length)
         #expect(realizedRows.count <= visibleRows.length + 2)
+    }
+
+    @MainActor
+    private func flushStagedTableMutations() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
     }
 
     private static func makeEntry(index: Int) -> SessionEntry {

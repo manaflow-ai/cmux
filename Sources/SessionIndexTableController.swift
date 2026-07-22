@@ -11,6 +11,9 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
     private var rows: [SessionIndexTableRow] = []
     private var environment: SessionIndexTableEnvironmentSnapshot?
     private let rowHeightCalculator = SessionIndexTableRowHeightCalculator()
+    private lazy var mutationScheduler = SessionIndexTableMutationScheduler(
+        applyFlush: { [weak self] in self?.flushApply($0) }
+    )
 
     func makeContainerView() -> SessionIndexTableContainerView {
         let container = SessionIndexTableContainerView()
@@ -55,7 +58,15 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         rows nextRows: [SessionIndexTableRow],
         environment nextEnvironment: SessionIndexTableEnvironmentSnapshot
     ) {
+        mutationScheduler.stageApply(
+            SessionIndexTableApplyInput(rows: nextRows, environment: nextEnvironment)
+        )
+    }
+
+    private func flushApply(_ input: SessionIndexTableApplyInput) {
         guard let table = containerView?.tableView else { return }
+        let nextRows = input.rows
+        let nextEnvironment = input.environment
         let previousRows = rows
         let hasStructuralChanges = previousRows.map(\.id) != nextRows.map(\.id)
         let hasEnvironmentChanges = environment?.hasEquivalentPresentation(
