@@ -56,23 +56,26 @@ struct ArtifactTreeScanner {
             .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey,
             .fileSizeKey, .contentModificationDateKey,
         ]
-        let children = try fileManager.contentsOfDirectory(
+        guard let children = fileManager.enumerator(
             at: directory,
             includingPropertiesForKeys: Array(keys),
-            options: []
-        )
+            options: [.skipsSubdirectoryDescendants]
+        ) else { return [] }
         var nodes: [ArtifactNode] = []
-        for url in children where !isManagedMarker(url) && !isManagedMetadataRoot(url, artifactsRoot: root) {
+        while let url = children.nextObject() as? URL {
             guard remaining > 0 else {
                 truncated = true
                 break
             }
+            guard !isManagedMarker(url), !isManagedMetadataRoot(url, artifactsRoot: root) else {
+                continue
+            }
+            remaining -= 1
             let values = try url.resourceValues(forKeys: keys)
             guard values.isSymbolicLink != true else { continue }
             let isDirectory = values.isDirectory == true
             guard isDirectory || values.isRegularFile == true else { continue }
             guard let relativePath = relativePath(url, root: root) else { continue }
-            remaining -= 1
             let nested: [ArtifactNode]
             if isDirectory, depth < maximumDepth {
                 nested = try scanDirectory(

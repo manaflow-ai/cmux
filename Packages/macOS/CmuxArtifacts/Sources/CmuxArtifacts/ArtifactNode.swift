@@ -55,3 +55,10 @@ public struct ArtifactNode: Identifiable, Equatable, Sendable {
         self.children = children
     }
 }
+
+extension Array where Element == ArtifactNode {
+    /// Returns every node in depth-first tree order.
+    func flattenedArtifactNodes() -> [ArtifactNode] {
+        flatMap { [$0] + $0.children.flattenedArtifactNodes() }
+    }
+}

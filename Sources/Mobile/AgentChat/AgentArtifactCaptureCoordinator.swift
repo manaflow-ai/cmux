@@ -21,7 +21,8 @@ actor AgentArtifactCaptureCoordinator {
         record: AgentChatSessionRecord,
         snapshot: AgentChatArtifactIndex.Snapshot
     ) async {
-        guard !snapshot.artifacts.isEmpty,
+        guard !Task.isCancelled,
+              !snapshot.artifacts.isEmpty,
               let workingDirectory = record.workingDirectory,
               !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               completedGenerationBySession[record.sessionID] != snapshot.generation,
@@ -55,6 +56,7 @@ actor AgentArtifactCaptureCoordinator {
             agentName: record.agentKind.sourceName
         )
         while !pending.isEmpty {
+            guard !Task.isCancelled else { return }
             let outcomes = await captureService.capture(
                 candidates: pending,
                 context: context
@@ -66,6 +68,7 @@ actor AgentArtifactCaptureCoordinator {
             pending = backlog
             await Task.yield()
         }
+        guard !Task.isCancelled else { return }
         completedGenerationBySession[record.sessionID] = snapshot.generation
     }
 

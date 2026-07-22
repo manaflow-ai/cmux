@@ -129,8 +129,10 @@ private extension ArtifactStoreError {
             return .unsupportedExtension
         case .fileTooLarge:
             return .exceedsSizeLimit
-        case .artifactNotFound, .ambiguousArtifactName, .pathOutsideStore:
+        case .artifactNotFound, .ambiguousArtifactName:
             return .notARegularFile
+        case .pathOutsideStore:
+            return .pathOutsideStore
         }
     }
 }

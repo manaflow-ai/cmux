@@ -19,8 +19,8 @@ struct ArtifactPathResolver: Sendable {
 
     func isInsideStore(_ url: URL, paths: ArtifactStorePaths) -> Bool {
         contains(
-            path: url.resolvingSymlinksInPath().standardizedFileURL.path,
-            under: paths.artifactsRoot.resolvingSymlinksInPath().standardizedFileURL.path
+            path: canonicalPath(url),
+            under: canonicalPath(paths.artifactsRoot)
         )
     }
 

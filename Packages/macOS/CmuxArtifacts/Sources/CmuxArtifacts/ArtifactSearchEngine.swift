@@ -10,7 +10,7 @@ struct ArtifactSearchEngine {
         let matcher = ArtifactFuzzyMatcher()
         var remainingContentBytes = configuration.contentSearchTotalMaximumBytes
         var results: [ArtifactSearchResult] = []
-        for node in flatten(snapshot.nodes) where !node.isDirectory {
+        for node in snapshot.nodes.flattenedArtifactNodes() where !node.isDirectory {
             let nameScore = matcher.score(candidate: node.name, query: query)
             let pathScore = matcher.score(candidate: node.relativePath, query: query).map { $0 - 250 }
             let contentMatch = contentMatch(
@@ -33,10 +33,6 @@ struct ArtifactSearchEngine {
         }
         .prefix(configuration.maximumSearchResults)
         .map { $0 }
-    }
-
-    private func flatten(_ nodes: [ArtifactNode]) -> [ArtifactNode] {
-        nodes.flatMap { [$0] + flatten($0.children) }
     }
 
     private func contentMatch(

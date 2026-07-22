@@ -58,6 +58,7 @@ struct AgentChatTranscriptResolver: Sendable {
     ///   - record: The session's registry record.
     /// - Returns: An existing transcript path, or `nil` when none is found.
     func transcriptPath(for record: AgentChatSessionRecord) -> String? {
+        guard !Task.isCancelled else { return nil }
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
         }
@@ -119,6 +120,7 @@ struct AgentChatTranscriptResolver: Sendable {
         ) else { return nil }
         let needle = sessionID.lowercased()
         for case let url as URL in enumerator {
+            guard !Task.isCancelled else { return nil }
             guard url.pathExtension == "jsonl" else { continue }
             if url.lastPathComponent.lowercased().contains(needle) {
                 return url.path

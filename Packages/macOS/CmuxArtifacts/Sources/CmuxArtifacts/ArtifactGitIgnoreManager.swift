@@ -66,11 +66,12 @@ struct ArtifactGitIgnoreManager {
     }
 
     private func relativeIgnoreEntry(projectRoot: URL, worktreeRoot: URL) -> String {
-        let rootPath = worktreeRoot.standardizedFileURL.path
-        let projectPath = projectRoot.standardizedFileURL.path
-        guard projectPath != rootPath, projectPath.hasPrefix(rootPath + "/") else {
+        guard let relativePath = ArtifactPathResolver().relativePath(
+            projectRoot,
+            root: worktreeRoot
+        ) else {
             return Self.ignoreEntry
         }
-        return String(projectPath.dropFirst(rootPath.count + 1)) + "/" + Self.ignoreEntry
+        return relativePath + "/" + Self.ignoreEntry
     }
 }

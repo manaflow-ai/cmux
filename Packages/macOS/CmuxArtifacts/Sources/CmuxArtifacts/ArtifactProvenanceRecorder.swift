@@ -6,10 +6,11 @@ struct ArtifactProvenanceRecorder {
     let encoder: JSONEncoder
     let decoder: JSONDecoder
 
-    func document(paths: ArtifactStorePaths, digest: String) -> ArtifactMetadataDocument? {
+    func document(paths: ArtifactStorePaths, digest: String) throws -> ArtifactMetadataDocument? {
         let url = metadataURL(paths: paths, digest: digest)
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? decoder.decode(ArtifactMetadataDocument.self, from: data)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        let data = try Data(contentsOf: url)
+        return try decoder.decode(ArtifactMetadataDocument.self, from: data)
     }
 
     func record(
@@ -19,13 +20,17 @@ struct ArtifactProvenanceRecorder {
         size: Int64,
         event: ArtifactProvenanceEvent
     ) throws {
+        try rejectSymbolicLink(at: paths.cmuxDirectory)
+        try rejectSymbolicLink(at: paths.artifactsRoot)
         try rejectSymbolicLink(at: paths.metadataRoot)
         try rejectSymbolicLink(at: paths.provenanceRoot)
         try fileManager.createDirectory(at: paths.provenanceRoot, withIntermediateDirectories: true)
+        try rejectSymbolicLink(at: paths.cmuxDirectory)
+        try rejectSymbolicLink(at: paths.artifactsRoot)
         try rejectSymbolicLink(at: paths.metadataRoot)
         try rejectSymbolicLink(at: paths.provenanceRoot)
         try rejectSymbolicLink(at: metadataURL(paths: paths, digest: digest))
-        var document = document(paths: paths, digest: digest) ?? ArtifactMetadataDocument(
+        var document = try document(paths: paths, digest: digest) ?? ArtifactMetadataDocument(
             version: 1,
             digest: digest,
             lastKnownRelativePath: relativePath,

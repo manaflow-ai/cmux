@@ -8,6 +8,8 @@ public enum ArtifactSkipReason: String, Equatable, Sendable {
     case provenanceNotEligible
     /// The path does not resolve to a regular file.
     case notARegularFile
+    /// The requested path does not remain confined to the local artifact store.
+    case pathOutsideStore
     /// The filename extension is not allowlisted.
     case unsupportedExtension
     /// The file exceeds the configured size limit.

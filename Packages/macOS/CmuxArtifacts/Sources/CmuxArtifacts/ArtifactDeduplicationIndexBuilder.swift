@@ -14,7 +14,7 @@ struct ArtifactDeduplicationIndexBuilder {
         var unresolvedBySize: [Int64: Set<String>] = [:]
         for item in prepared {
             let size = item.snapshot.size
-            if let document = recorder.document(paths: paths, digest: item.digest),
+            if let document = try recorder.document(paths: paths, digest: item.digest),
                document.size == size {
                 let lastKnownURL = paths.artifactsRoot
                     .appendingPathComponent(document.lastKnownRelativePath, isDirectory: false)

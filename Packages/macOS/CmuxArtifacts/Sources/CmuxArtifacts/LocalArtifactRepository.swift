@@ -261,7 +261,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
     public func resolve(projectRoot: URL, name rawName: String) throws -> ArtifactNode {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let snapshot = try snapshot(projectRoot: projectRoot)
-        let files = flatten(snapshot.nodes).filter { !$0.isDirectory }
+        let files = snapshot.nodes.flattenedArtifactNodes().filter { !$0.isDirectory }
         if let exact = files.first(where: { $0.relativePath == name }) {
             return exact
         }
@@ -434,9 +434,5 @@ public actor LocalArtifactRepository: ArtifactStoring {
                 capturedAt: record.capturedAt
             )
         )
-    }
-
-    private func flatten(_ nodes: [ArtifactNode]) -> [ArtifactNode] {
-        nodes.flatMap { [$0] + flatten($0.children) }
     }
 }

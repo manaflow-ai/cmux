@@ -58,6 +58,7 @@ struct ArtifactSidebarPanelView: View {
             }
             .buttonStyle(.plain)
             .safeHelp(String(localized: "rightSidebar.artifacts.add.tooltip", defaultValue: "Add files to Artifacts"))
+            .accessibilityLabel(String(localized: "rightSidebar.artifacts.add.tooltip", defaultValue: "Add files to Artifacts"))
             .disabled(workspace == nil)
             .accessibilityIdentifier("ArtifactSidebarAddButton")
         }
@@ -88,7 +89,7 @@ struct ArtifactSidebarPanelView: View {
                     showsAddButton: false
                 )
                 Button(String(localized: "rightSidebar.artifacts.retry", defaultValue: "Retry")) {
-                    Task { await model.refresh() }
+                    model.requestRefresh()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -100,7 +101,7 @@ struct ArtifactSidebarPanelView: View {
                         ? String(localized: "rightSidebar.artifacts.empty.title", defaultValue: "No Artifacts Yet")
                         : String(localized: "rightSidebar.artifacts.noResults.title", defaultValue: "No Matches"),
                     message: model.query.isEmpty
-                        ? String(localized: "rightSidebar.artifacts.empty.message", defaultValue: "Agent-created files saved to this project will appear here.")
+                        ? String(localized: "rightSidebar.artifacts.empty.message", defaultValue: "Files saved or added to this project’s Artifacts will appear here.")
                         : String(localized: "rightSidebar.artifacts.noResults.message", defaultValue: "Try another filename or text search."),
                     showsAddButton: model.query.isEmpty
                 )
@@ -172,7 +173,7 @@ struct ArtifactSidebarPanelView: View {
         panel.allowsMultipleSelection = true
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
-        Task { await model.addFiles(urls) }
+        model.requestAddFiles(urls)
     }
 
     private func copyToPasteboard(_ value: String) {

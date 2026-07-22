@@ -61,10 +61,13 @@ extension CMUXCLI {
                     context: context
                 )
                 guard let record = outcome.record else {
-                    throw CLIError(message: String(
-                        localized: "cli.artifact.error.addRejected",
-                        defaultValue: "The artifact was not added."
-                    ))
+                    guard case .skipped(let reason) = outcome else {
+                        throw CLIError(message: String(
+                            localized: "cli.artifact.error.addRejected",
+                            defaultValue: "The artifact was not added."
+                        ))
+                    }
+                    throw CLIError(message: artifactSkipMessage(reason), exitCode: 2)
                 }
                 let absolutePath = ArtifactStorePaths(projectRoot: projectRoot).artifactsRoot
                     .appendingPathComponent(record.relativePath, isDirectory: false).path
@@ -247,6 +250,46 @@ extension CMUXCLI {
         case .deduplicated: return "deduplicated"
         case .alreadyStored: return "already_stored"
         case .skipped: return "skipped"
+        }
+    }
+
+    private func artifactSkipMessage(_ reason: ArtifactSkipReason) -> String {
+        switch reason {
+        case .automaticCaptureDisabled:
+            return String(
+                localized: "cli.artifact.error.captureDisabled",
+                defaultValue: "Automatic artifact capture is disabled for this project."
+            )
+        case .provenanceNotEligible:
+            return String(
+                localized: "cli.artifact.error.provenanceRejected",
+                defaultValue: "The file does not meet this project's artifact capture rules."
+            )
+        case .notARegularFile:
+            return String(
+                localized: "cli.artifact.error.rejectedNotFile",
+                defaultValue: "The artifact path is not a regular file."
+            )
+        case .pathOutsideStore:
+            return String(
+                localized: "cli.artifact.error.rejectedOutsideStore",
+                defaultValue: "The artifact path escaped the local store."
+            )
+        case .unsupportedExtension:
+            return String(
+                localized: "cli.artifact.error.rejectedExtension",
+                defaultValue: "The file extension is not allowed by this project's artifact settings."
+            )
+        case .exceedsSizeLimit:
+            return String(
+                localized: "cli.artifact.error.rejectedSize",
+                defaultValue: "The file exceeds this project's artifact size limit."
+            )
+        case .candidateLimitReached:
+            return String(
+                localized: "cli.artifact.error.candidateLimit",
+                defaultValue: "The artifact capture batch reached its file limit."
+            )
         }
     }
 

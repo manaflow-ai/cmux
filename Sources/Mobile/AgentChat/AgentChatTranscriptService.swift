@@ -15,6 +15,7 @@ final class AgentChatTranscriptService {
     let resolver: AgentChatTranscriptResolver
     let artifactIndex: AgentChatArtifactIndex
     let artifactCaptureCoordinator: AgentArtifactCaptureCoordinator?
+    var artifactCaptureTasks: [String: Task<Void, Never>] = [:]
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
@@ -464,6 +465,7 @@ final class AgentChatTranscriptService {
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         proseStreamer.turnEnded(sessionID: record.sessionID)
+        artifactCaptureTasks.removeValue(forKey: record.sessionID)?.cancel()
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
         }

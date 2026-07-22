@@ -28,6 +28,7 @@ public final class ArtifactSidebarModel {
     private var hasInitializedExpansion = false
     private var watcherTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
+    private var actionTask: Task<Void, Never>?
     private var bindingRequestRevision: UInt64 = 0
     private var bindingRevision: UInt64 = 0
     private var latestWorkspaceTitle: (id: String, title: String?)?
@@ -54,6 +55,7 @@ public final class ArtifactSidebarModel {
         MainActor.assumeIsolated {
             watcherTask?.cancel()
             searchTask?.cancel()
+            actionTask?.cancel()
         }
     }
 
@@ -90,6 +92,8 @@ public final class ArtifactSidebarModel {
         watcherTask = nil
         searchTask?.cancel()
         searchTask = nil
+        actionTask?.cancel()
+        actionTask = nil
         self.workspace = workspace
         projectRoot = nil
         nodes = []
@@ -111,6 +115,14 @@ public final class ArtifactSidebarModel {
         await reload(projectRoot: projectRoot, revision: bindingRevision)
     }
 
+    /// Starts a refresh owned by this model and cancels any obsolete sidebar action.
+    public func requestRefresh() {
+        actionTask?.cancel()
+        actionTask = Task { [weak self] in
+            await self?.refresh()
+        }
+    }
+
     /// Stops long-lived observation tasks when the owning UI is torn down.
     public func stop() {
         bindingRequestRevision &+= 1
@@ -119,6 +131,8 @@ public final class ArtifactSidebarModel {
         watcherTask = nil
         searchTask?.cancel()
         searchTask = nil
+        actionTask?.cancel()
+        actionTask = nil
         workspace = nil
         projectRoot = nil
         nodes = []
@@ -174,15 +188,30 @@ public final class ArtifactSidebarModel {
         )
         do {
             for url in urls {
+                try Task.checkCancellation()
                 _ = try await captureService.add(
                     sourceURL: url,
                     context: context,
                     capturedAt: .now
                 )
             }
+            try Task.checkCancellation()
             await reload(projectRoot: projectRoot, revision: bindingRevision)
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled else { return }
             actionFailure = .add
+        }
+    }
+
+    /// Starts manual capture owned by this model and cancels any obsolete sidebar action.
+    ///
+    /// - Parameter urls: Existing local regular files selected by the user.
+    public func requestAddFiles(_ urls: [URL]) {
+        actionTask?.cancel()
+        actionTask = Task { [weak self] in
+            await self?.addFiles(urls)
         }
     }
 
