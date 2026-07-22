@@ -89,6 +89,17 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
         self.beforeRegisteringSleeper = beforeRegisteringSleeper
     }
 
+    private var isIdleLocked: Bool {
+        sleepers.isEmpty && pendingSleeperRegistrationIDs.isEmpty
+    }
+
+    private func takeIdleWaitersIfIdleLocked() -> [CheckedContinuation<Void, Never>] {
+        guard isIdleLocked else { return [] }
+        let waiters = idleWaiters
+        idleWaiters.removeAll()
+        return waiters
+    }
+
     var now: Instant {
         lock.lock()
         defer { lock.unlock() }
@@ -114,13 +125,17 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
                 lock.lock()
                 pendingSleeperRegistrationIDs.remove(id)
                 if cancelledSleeperIDs.remove(id) != nil {
+                    let waiters = takeIdleWaitersIfIdleLocked()
                     lock.unlock()
                     continuation.resume(throwing: CancellationError())
+                    for waiter in waiters { waiter.resume() }
                     return
                 }
                 if deadline <= _now {
+                    let waiters = takeIdleWaitersIfIdleLocked()
                     lock.unlock()
                     continuation.resume()
+                    for waiter in waiters { waiter.resume() }
                     return
                 }
                 sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
@@ -139,8 +154,7 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
             if sleeper == nil, pendingSleeperRegistrationIDs.contains(id) {
                 cancelledSleeperIDs.insert(id)
             }
-            let waiters = sleepers.isEmpty ? idleWaiters : []
-            if sleepers.isEmpty { idleWaiters.removeAll() }
+            let waiters = takeIdleWaitersIfIdleLocked()
             lock.unlock()
             sleeper?.continuation.resume(throwing: CancellationError())
             for waiter in waiters { waiter.resume() }
@@ -171,8 +185,7 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
             sleeper.deadline <= _now ? id : nil
         }
         let due = dueIDs.compactMap { sleepers.removeValue(forKey: $0) }
-        let waiters = sleepers.isEmpty ? idleWaiters : []
-        if sleepers.isEmpty { idleWaiters.removeAll() }
+        let waiters = takeIdleWaitersIfIdleLocked()
         lock.unlock()
         beforeResuming()
         for sleeper in due {
@@ -184,7 +197,7 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
     func waitUntilIdle() async {
         await withCheckedContinuation { continuation in
             lock.lock()
-            if sleepers.isEmpty {
+            if isIdleLocked {
                 lock.unlock()
                 continuation.resume()
             } else {
