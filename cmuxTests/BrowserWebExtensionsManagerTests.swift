@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxBrowser
 import CryptoKit
 import Foundation
