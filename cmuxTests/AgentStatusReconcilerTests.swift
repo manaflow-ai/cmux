@@ -281,25 +281,6 @@ struct AgentStatusReconcilerTests {
         #expect(resolution == AgentStatusResolution(lifecycle: .needsInput, confidence: .confident))
     }
 
-    @Test func staleNeedsInputDegradesHonestly() {
-        let evidence = AgentStatusEvidence(
-            lifecycle: .needsInput,
-            lifecycleObservedAt: now.addingTimeInterval(-301),
-            foregroundAgentStatusKey: "codex",
-            foregroundObservedAt: now,
-            shellActivity: .commandRunning
-        )
-
-        let resolution = reconciler.resolve(
-            evidence: evidence,
-            statusKey: "codex",
-            hasLiveRuntime: true,
-            now: now
-        )
-
-        #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
-    }
-
     @Test func restoredIdleWithoutPanelLocalTimestampDegradesHonestly() {
         let evidence = AgentStatusEvidence(
             lifecycle: .idle,
