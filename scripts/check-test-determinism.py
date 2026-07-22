@@ -3276,6 +3276,16 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "tests/defaulted_sleep_module_parameter.py",
+            "import time as wall_clock\n"
+            "def verify(\n"
+            "    clock=wall_clock,\n"
+            "):\n"
+            "    clock.sleep(0.3)\n"
+            "    assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/multiple_sleep_calls.py",
             "fake.sleep(); time.sleep(0.3)\n"
             "assert widget.is_rendered\n",
@@ -3430,6 +3440,20 @@ def _self_test() -> int:
             "func verify(fixture: Fixture) async {\n"
             "    try await fixture.clock.sleep(for: .milliseconds(300))\n"
             "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/LongRealClockMemberChainTests.swift",
+            "struct Fixture {\n"
+            "    let clock: ContinuousClock\n"
+            "}\n"
+            "struct Harness {\n"
+            "    let fixture: Fixture\n"
+            "    func verify() async {\n"
+            "        try await self.fixture.clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
             "}\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
@@ -3784,6 +3808,16 @@ def _self_test() -> int:
             "Packages/CmuxClock/Tests/ExistentialDefaultVirtualClockTests.swift",
             "func verifyVirtual(\n"
             "    clock: any Clock<Duration> = TestRelayClock()\n"
+            ") async {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/LaterParameterDefaultVirtualClockTests.swift",
+            "func verifyVirtual(\n"
+            "    clock: TestRelayClock,\n"
+            "    fallback: any Clock<Duration> = ContinuousClock()\n"
             ") async {\n"
             "    try await clock.sleep(until: deadline)\n"
             "    #expect(await clockEvents.next() == expected)\n"
