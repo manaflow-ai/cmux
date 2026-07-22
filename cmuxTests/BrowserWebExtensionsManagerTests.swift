@@ -491,6 +491,12 @@ struct BrowserWebExtensionsManagerTests {
         throw BehaviorFixtureError.timedOutWaitingForJavaScript(label)
     }
 
+    private static func waitForMainQueueTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
     private static func postScriptMessage(
         named name: String,
         body: String,
@@ -950,21 +956,47 @@ struct BrowserWebExtensionsManagerTests {
                 window.contentView = nil
             }
             try await Self.waitUntil("mounted toolbar snapshot") { loadCount == 1 }
-            window.displayIfNeeded()
-            hostingView.layoutSubtreeIfNeeded()
-            for _ in 0..<3 { await Task.yield() }
-            return Self.accessibilityIdentifiers(in: hostingView)
-                .filter { $0.hasPrefix("BrowserExtensionToolbarAction-") }
-                .sorted()
+            await Self.waitForMainQueueTurn()
+            let expectedCount = BrowserExtensionsToolbarButton.maximumPinnedActions(
+                availableWidth: width,
+                hitSize: 24
+            )
+            var identifiers: [String] = []
+            try await Self.waitUntil("mounted toolbar width \(width)") {
+                window.displayIfNeeded()
+                hostingView.layoutSubtreeIfNeeded()
+                identifiers = Self.accessibilityIdentifiers(in: hostingView)
+                    .filter { $0.hasPrefix("BrowserExtensionToolbarAction-") }
+                    .sorted()
+                return identifiers.count == min(pinCount, expectedCount)
+            }
+            return identifiers
         }
 
-        #expect(try await visiblePinnedIdentifiers(width: 24, pinCount: 0) == [])
-        #expect(try await visiblePinnedIdentifiers(width: 24, pinCount: 4) == [])
-        #expect(try await visiblePinnedIdentifiers(width: 48, pinCount: 4) == [
+        #expect(BrowserExtensionsToolbarButton.maximumPinnedActions(
+            availableWidth: 24,
+            hitSize: 24
+        ) == 0)
+        #expect(BrowserExtensionsToolbarButton.maximumPinnedActions(
+            availableWidth: 48,
+            hitSize: 24
+        ) == 1)
+        #expect(BrowserExtensionsToolbarButton.maximumPinnedActions(
+            availableWidth: 120,
+            hitSize: 24
+        ) == 4)
+        let width24Empty = try await visiblePinnedIdentifiers(width: 24, pinCount: 0)
+        let width24Pinned = try await visiblePinnedIdentifiers(width: 24, pinCount: 4)
+        let width48Pinned = try await visiblePinnedIdentifiers(width: 48, pinCount: 4)
+        let width120FourPins = try await visiblePinnedIdentifiers(width: 120, pinCount: 4)
+        let width120TwelvePins = try await visiblePinnedIdentifiers(width: 120, pinCount: 12)
+        #expect(width24Empty == [])
+        #expect(width24Pinned == [])
+        #expect(width48Pinned == [
             "BrowserExtensionToolbarAction-pin-0"
         ])
-        #expect(try await visiblePinnedIdentifiers(width: 120, pinCount: 4).count == 4)
-        #expect(try await visiblePinnedIdentifiers(width: 120, pinCount: 12).count == 4)
+        #expect(width120FourPins.count == 4)
+        #expect(width120TwelvePins.count == 4)
     }
 
     @available(macOS 15.4, *)
@@ -991,7 +1023,11 @@ struct BrowserWebExtensionsManagerTests {
             manager,
             profileID: BrowserProfileStore.shared.builtInDefaultProfileID
         )
-        let panel = BrowserPanel(workspaceId: UUID(), browserServices: services)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+            browserServices: services
+        )
         let appearance = PanelAppearance(
             backgroundColor: .windowBackgroundColor,
             foregroundColor: .labelColor,
@@ -1015,38 +1051,44 @@ struct BrowserWebExtensionsManagerTests {
         hostingView.frame = window.contentLayoutRect
         window.contentView = hostingView
         window.makeKeyAndOrderFront(nil)
-        defer {
-            Task { await requestGate.release() }
+
+        func cleanup() async {
+            await requestGate.release()
             SuspendedCatalogURLProtocol.gate = nil
             window.orderOut(nil)
             window.contentView = nil
             panel.close()
-            manager.shutdown()
+            await manager.shutdownAndWait()
         }
 
-        var getButton: Any?
-        let buttonDeadline = Date().addingTimeInterval(3)
-        repeat {
-            window.displayIfNeeded()
-            hostingView.layoutSubtreeIfNeeded()
-            getButton = Self.accessibilityElement(
-                identifier: "BrowserExtensionsCatalogGet-1password",
-                in: hostingView
-            )
-            if getButton != nil { break }
-            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
-            await Task.yield()
-        } while Date() < buttonDeadline
-        #expect(Self.pressAccessibilityElement(try #require(getButton)))
-        await requestGate.waitUntilStarted()
+        do {
+            var getButton: Any?
+            let buttonDeadline = Date().addingTimeInterval(3)
+            repeat {
+                window.displayIfNeeded()
+                hostingView.layoutSubtreeIfNeeded()
+                getButton = Self.accessibilityElement(
+                    identifier: "BrowserExtensionsCatalogGet-1password",
+                    in: hostingView
+                )
+                if getButton != nil { break }
+                _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+                await Task.yield()
+            } while Date() < buttonDeadline
+            #expect(Self.pressAccessibilityElement(try #require(getButton)))
+            await requestGate.waitUntilStarted()
 
-        window.contentView = nil
-        for _ in 0..<100 where !(await requestGate.wasCancelled()) {
-            try await Task.sleep(for: .milliseconds(10))
+            window.contentView = nil
+            for _ in 0..<100 where !(await requestGate.wasCancelled()) {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+
+            #expect(await requestGate.wasCancelled())
+        } catch {
+            await cleanup()
+            throw error
         }
-
-        #expect(await requestGate.wasCancelled())
-        await requestGate.release()
+        await cleanup()
     }
 
     @Test func extensionManagerSocketShowRejectsStaleTabAndPaneAliasesWithoutSideEffects() throws {
@@ -1288,9 +1330,9 @@ struct BrowserWebExtensionsManagerTests {
         #expect(placementLock.lastStabilizedFrame != nil)
         placementLock.stop()
         popover.performClose(nil)
-        for _ in 0..<4 { await Task.yield() }
+        await Self.waitForMainQueueTurn()
         window.close()
-        for _ in 0..<2 { await Task.yield() }
+        await Self.waitForMainQueueTurn()
     }
 
     @Test func iconEncodingUsesStableBoundedAspectPreservingPixels() throws {
@@ -1546,6 +1588,7 @@ struct BrowserWebExtensionsManagerTests {
             directory: root,
             controllerConfiguration: .nonPersistent()
         )
+        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
         let context = try #require(manager.loadedContexts.first)
@@ -3522,6 +3565,7 @@ struct BrowserWebExtensionsManagerTests {
         let workspace = try #require(tabManager.selectedWorkspace)
         let panel = BrowserPanel(
             workspaceId: workspace.id,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             browserServices: services
         )
         services.registerBrowserPanel(panel, workspace: workspace)
@@ -3697,8 +3741,10 @@ struct BrowserWebExtensionsManagerTests {
         )
         let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let manager = try #require(services.webExtensionsManager)
+        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
+        do {
         let context = try #require(manager.loadedContexts.first)
         let popupURL = context.baseURL.appendingPathComponent("popup.html")
         let suppliedConfiguration = try #require(
@@ -3717,7 +3763,6 @@ struct BrowserWebExtensionsManagerTests {
             sharedController.removeScriptMessageHandler(
                 forName: BrowserSSLTrustBypassMessageHandler.name
             )
-            manager.shutdown()
         }
         let originalScriptSources = sharedController.userScripts.map(\.source)
         let siblingWebView = try await Self.loadExtensionPage(
@@ -3792,6 +3837,8 @@ struct BrowserWebExtensionsManagerTests {
             try await secondPopup.webView.evaluateJavaScript("document.title") as? String
                 == "Shared popup fixture"
         )
+        }
+        await manager.shutdownAndWait()
     }
 
     @available(macOS 15.4, *)
@@ -5060,35 +5107,41 @@ struct BrowserWebExtensionsManagerTests {
             toEqual: "ready",
             in: panel.webView
         )
-        let context = try #require(manager.loadedContexts.first)
-        let tabs = manager
-            .webExtensionController(manager.controller, openWindowsFor: context)
-            .flatMap { $0.tabs?(for: context) ?? [] }
-        let tab = try #require(tabs.first)
-        let action = try #require(context.action(for: tab))
+        do {
+            let context = try #require(manager.loadedContexts.first)
+            let tabs = manager
+                .webExtensionController(manager.controller, openWindowsFor: context)
+                .flatMap { $0.tabs?(for: context) ?? [] }
+            let tab = try #require(tabs.first)
+            let action = try #require(context.action(for: tab))
 
-        #expect(manager.performAction(
-            uniqueIdentifier: context.uniqueIdentifier,
-            in: panel,
-            anchorView: anchor
-        ))
-        try await Self.waitUntil("action popup presentation") {
-            action.popupPopover?.isShown == true && action.popupWebView != nil
+            #expect(manager.performAction(
+                uniqueIdentifier: context.uniqueIdentifier,
+                in: panel,
+                anchorView: anchor
+            ))
+            try await Self.waitUntil("action popup presentation") {
+                action.popupPopover?.isShown == true && action.popupWebView != nil
+            }
+            let popupWebView = try #require(action.popupWebView)
+            try await Self.waitForJavaScriptString(
+                "document.documentElement.dataset.cmuxPopup || ''",
+                toEqual: "delivered",
+                in: popupWebView
+            )
+            try await Self.waitForJavaScriptString(
+                "document.documentElement.dataset.cmuxPopupReceiver || ''",
+                toEqual: "delivered",
+                in: panel.webView
+            )
+            action.popupPopover?.performClose(nil)
+            await manager.waitForPopupQuiescenceForTesting(
+                extensionIdentifier: context.uniqueIdentifier
+            )
+            #expect(action.popupPopover?.isShown != true)
         }
-        let popupWebView = try #require(action.popupWebView)
-        try await Self.waitForJavaScriptString(
-            "document.documentElement.dataset.cmuxPopup || ''",
-            toEqual: "delivered",
-            in: popupWebView
-        )
-        try await Self.waitForJavaScriptString(
-            "document.documentElement.dataset.cmuxPopupReceiver || ''",
-            toEqual: "delivered",
-            in: panel.webView
-        )
-        action.popupPopover?.performClose(nil)
-        for _ in 0..<4 { await Task.yield() }
-        #expect(action.popupPopover?.isShown != true)
+        manager.unregister(panelID: panel.id)
+        await manager.shutdownAndWait()
     }
 
     @available(macOS 15.4, *)
@@ -5762,6 +5815,7 @@ struct BrowserWebExtensionsManagerTests {
                 performCount.withLock { $0 += 1 }
             }
         )
+        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
         let panel = BrowserPanel(workspaceId: UUID())
@@ -5785,43 +5839,48 @@ struct BrowserWebExtensionsManagerTests {
         window.orderFront(nil)
         defer { window.close() }
 
-        let context = try #require(manager.loadedContexts.first)
-        let openWindows = manager.webExtensionController(
-            manager.controller,
-            openWindowsFor: context
-        )
-        let openTabs = openWindows.flatMap { window in
-            window.tabs?(for: context) ?? []
+        do {
+            let context = try #require(manager.loadedContexts.first)
+            let openWindows = manager.webExtensionController(
+                manager.controller,
+                openWindowsFor: context
+            )
+            let openTabs = openWindows.flatMap { window in
+                window.tabs?(for: context) ?? []
+            }
+            let tab = try #require(openTabs.first)
+            let action = try #require(context.action(for: tab))
+            let popover = try #require(action.popupPopover)
+
+            #expect(!popover.isShown)
+            #expect(manager.performAction(
+                uniqueIdentifier: context.uniqueIdentifier,
+                in: panel,
+                anchorView: anchor
+            ))
+            #expect(performCount.withLock { $0 } == 1)
+            #expect(!popover.isShown)
+
+            var presentationError: (any Error)?
+            manager.webExtensionController(
+                manager.controller,
+                presentActionPopup: action,
+                for: context
+            ) { error in
+                presentationError = error
+            }
+
+            #expect(presentationError == nil)
+            #expect(popover.isShown)
+            #expect(popover.positioningRect == anchor.bounds)
+            #expect(performCount.withLock { $0 } == 1)
+            manager.unregister(panelID: panel.id)
+            await manager.waitForPopupQuiescenceForTesting(
+                extensionIdentifier: context.uniqueIdentifier
+            )
+            #expect(!popover.isShown)
         }
-        let tab = try #require(openTabs.first)
-        let action = try #require(context.action(for: tab))
-        let popover = try #require(action.popupPopover)
-
-        #expect(!popover.isShown)
-        #expect(manager.performAction(
-            uniqueIdentifier: context.uniqueIdentifier,
-            in: panel,
-            anchorView: anchor
-        ))
-        #expect(performCount.withLock { $0 } == 1)
-        #expect(!popover.isShown)
-
-        var presentationError: (any Error)?
-        manager.webExtensionController(
-            manager.controller,
-            presentActionPopup: action,
-            for: context
-        ) { error in
-            presentationError = error
-        }
-
-        #expect(presentationError == nil)
-        #expect(popover.isShown)
-        #expect(popover.positioningRect == anchor.bounds)
-        #expect(performCount.withLock { $0 } == 1)
-        manager.unregister(panelID: panel.id)
         await manager.shutdownAndWait()
-        #expect(!popover.isShown)
     }
 
     @available(macOS 15.4, *)
@@ -5844,13 +5903,11 @@ struct BrowserWebExtensionsManagerTests {
             directory: root,
             controllerConfiguration: .nonPersistent()
         )
+        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
         let panel = BrowserPanel(workspaceId: UUID())
-        defer {
-            manager.shutdown()
-            panel.close()
-        }
+        defer { panel.close() }
         manager.register(
             panel: panel,
             ownerID: UUID(),
@@ -5869,35 +5926,39 @@ struct BrowserWebExtensionsManagerTests {
         window.orderFront(nil)
         defer { window.close() }
 
-        let context = try #require(manager.loadedContexts.first)
-        let tabs = manager
-            .webExtensionController(manager.controller, openWindowsFor: context)
-            .flatMap { $0.tabs?(for: context) ?? [] }
-        let tab = try #require(tabs.first)
-        let action = try #require(context.action(for: tab))
-        #expect(manager.performAction(
-            uniqueIdentifier: context.uniqueIdentifier,
-            in: panel,
-            anchorView: anchor
-        ))
-        manager.webExtensionController(
-            manager.controller,
-            presentActionPopup: action,
-            for: context
-        ) { error in
-            #expect(error == nil)
+        do {
+            let context = try #require(manager.loadedContexts.first)
+            let tabs = manager
+                .webExtensionController(manager.controller, openWindowsFor: context)
+                .flatMap { $0.tabs?(for: context) ?? [] }
+            let tab = try #require(tabs.first)
+            let action = try #require(context.action(for: tab))
+            #expect(manager.performAction(
+                uniqueIdentifier: context.uniqueIdentifier,
+                in: panel,
+                anchorView: anchor
+            ))
+            manager.webExtensionController(
+                manager.controller,
+                presentActionPopup: action,
+                for: context
+            ) { error in
+                #expect(error == nil)
+            }
+            let popover = try #require(action.popupPopover)
+            #expect(popover.isShown)
+
+            manager.unregister(panelID: panel.id)
+            await manager.waitForPopupQuiescenceForTesting(
+                extensionIdentifier: context.uniqueIdentifier
+            )
+
+            #expect(!popover.isShown)
+            #expect(manager.transientStateCountsForTesting(
+                panelID: panel.id,
+                extensionIdentifier: context.uniqueIdentifier
+            ).total == 0)
         }
-        let popover = try #require(action.popupPopover)
-        #expect(popover.isShown)
-
-        manager.unregister(panelID: panel.id)
-
-        #expect(!popover.isShown)
-        for _ in 0..<4 { await Task.yield() }
-        #expect(manager.transientStateCountsForTesting(
-            panelID: panel.id,
-            extensionIdentifier: context.uniqueIdentifier
-        ).total == 0)
         await manager.shutdownAndWait()
     }
 
@@ -5926,6 +5987,7 @@ struct BrowserWebExtensionsManagerTests {
             directory: root,
             controllerConfiguration: .nonPersistent()
         )
+        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
         let panel = BrowserPanel(workspaceId: UUID())
@@ -5939,7 +6001,6 @@ struct BrowserWebExtensionsManagerTests {
         )
         defer {
             manager.unregister(panelID: panel.id)
-            manager.shutdown()
             panel.close()
         }
 
@@ -5954,44 +6015,48 @@ struct BrowserWebExtensionsManagerTests {
         window.orderFront(nil)
         defer { window.close() }
 
-        let context = try #require(manager.loadedContexts.first)
-        let tabs = manager
-            .webExtensionController(manager.controller, openWindowsFor: context)
-            .flatMap { $0.tabs?(for: context) ?? [] }
-        let tab = try #require(tabs.first)
-        let action = try #require(context.action(for: tab))
-        #expect(manager.performAction(
-            uniqueIdentifier: context.uniqueIdentifier,
-            in: panel,
-            anchorView: anchor
-        ))
-        manager.webExtensionController(
-            manager.controller,
-            presentActionPopup: action,
-            for: context
-        ) { error in
-            #expect(error == nil)
+        do {
+            let context = try #require(manager.loadedContexts.first)
+            let tabs = manager
+                .webExtensionController(manager.controller, openWindowsFor: context)
+                .flatMap { $0.tabs?(for: context) ?? [] }
+            let tab = try #require(tabs.first)
+            let action = try #require(context.action(for: tab))
+            #expect(manager.performAction(
+                uniqueIdentifier: context.uniqueIdentifier,
+                in: panel,
+                anchorView: anchor
+            ))
+            manager.webExtensionController(
+                manager.controller,
+                presentActionPopup: action,
+                for: context
+            ) { error in
+                #expect(error == nil)
+            }
+            let popover = try #require(action.popupPopover)
+            #expect(popover.isShown)
+
+            manager.register(
+                panel: panel,
+                ownerID: secondOwnerID,
+                activePanelID: { panel.id },
+                focusPanel: { _ in }
+            )
+
+            #expect(manager.registrationOwner(for: panel.id)?.id == secondOwnerID)
+            #expect(popover.isShown)
+            let normalWindows = manager
+                .webExtensionController(manager.controller, openWindowsFor: context)
+                .compactMap { $0 as? BrowserWebExtensionWindowAdapter }
+            #expect(normalWindows.map(\.ownerID) == [secondOwnerID])
+
+            popover.performClose(nil)
+            await manager.waitForPopupQuiescenceForTesting(
+                extensionIdentifier: context.uniqueIdentifier
+            )
+            #expect(!popover.isShown)
         }
-        let popover = try #require(action.popupPopover)
-        #expect(popover.isShown)
-
-        manager.register(
-            panel: panel,
-            ownerID: secondOwnerID,
-            activePanelID: { panel.id },
-            focusPanel: { _ in }
-        )
-
-        #expect(manager.registrationOwner(for: panel.id)?.id == secondOwnerID)
-        #expect(popover.isShown)
-        let normalWindows = manager
-            .webExtensionController(manager.controller, openWindowsFor: context)
-            .compactMap { $0 as? BrowserWebExtensionWindowAdapter }
-        #expect(normalWindows.map(\.ownerID) == [secondOwnerID])
-
-        popover.performClose(nil)
-        for _ in 0..<4 { await Task.yield() }
-        #expect(!popover.isShown)
         await manager.shutdownAndWait()
     }
 
@@ -6023,9 +6088,9 @@ struct BrowserWebExtensionsManagerTests {
                 performCount.withLock { $0 += 1 }
             }
         )
+        defer { manager.shutdown() }
         try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
-        let context = try #require(manager.loadedContexts.first)
 
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
@@ -6047,56 +6112,61 @@ struct BrowserWebExtensionsManagerTests {
         window.orderFront(nil)
         defer { window.close() }
 
-        let openWindows = manager.webExtensionController(
-            manager.controller,
-            openWindowsFor: context
-        )
-        let openTabs = openWindows.flatMap { window in
-            window.tabs?(for: context) ?? []
+        do {
+            let context = try #require(manager.loadedContexts.first)
+            let openWindows = manager.webExtensionController(
+                manager.controller,
+                openWindowsFor: context
+            )
+            let openTabs = openWindows.flatMap { window in
+                window.tabs?(for: context) ?? []
+            }
+            let tab = try #require(openTabs.first)
+            let defaultUpdatedAction = try #require(context.action(for: nil))
+            #expect(defaultUpdatedAction.associatedTab == nil)
+            manager.seedPendingActionInvocationForTesting(
+                panelID: panel.id,
+                extensionIdentifier: context.uniqueIdentifier,
+                anchorView: anchor
+            )
+            manager.webExtensionController(
+                manager.controller,
+                didUpdate: defaultUpdatedAction,
+                forExtensionContext: context
+            )
+            manager.webExtensionController(
+                manager.controller,
+                didUpdate: defaultUpdatedAction,
+                forExtensionContext: context
+            )
+            #expect(performCount.withLock { $0 } == 1)
+
+            let updatedAction = try #require(context.action(for: tab))
+            #expect(updatedAction.presentsPopup)
+            var presentationError: (any Error)?
+            manager.webExtensionController(
+                manager.controller,
+                presentActionPopup: updatedAction,
+                for: context
+            ) { presentationError = $0 }
+
+            #expect(presentationError == nil)
+            let updatedPopover = try #require(updatedAction.popupPopover)
+            #expect(updatedPopover.isShown)
+            #expect(updatedPopover.positioningRect == anchor.bounds)
+            #expect(performCount.withLock { $0 } == 1)
+
+            manager.webExtensionController(
+                manager.controller,
+                didUpdate: defaultUpdatedAction,
+                forExtensionContext: context
+            )
+            #expect(performCount.withLock { $0 } == 1)
+            updatedPopover.performClose(nil)
+            await manager.waitForPopupQuiescenceForTesting(
+                extensionIdentifier: context.uniqueIdentifier
+            )
         }
-        let tab = try #require(openTabs.first)
-        let defaultUpdatedAction = try #require(context.action(for: nil))
-        #expect(defaultUpdatedAction.associatedTab == nil)
-        manager.seedPendingActionInvocationForTesting(
-            panelID: panel.id,
-            extensionIdentifier: context.uniqueIdentifier,
-            anchorView: anchor
-        )
-        manager.webExtensionController(
-            manager.controller,
-            didUpdate: defaultUpdatedAction,
-            forExtensionContext: context
-        )
-        manager.webExtensionController(
-            manager.controller,
-            didUpdate: defaultUpdatedAction,
-            forExtensionContext: context
-        )
-        #expect(performCount.withLock { $0 } == 1)
-
-        let updatedAction = try #require(context.action(for: tab))
-        #expect(updatedAction.presentsPopup)
-        var presentationError: (any Error)?
-        manager.webExtensionController(
-            manager.controller,
-            presentActionPopup: updatedAction,
-            for: context
-        ) { presentationError = $0 }
-
-        #expect(presentationError == nil)
-        let updatedPopover = try #require(updatedAction.popupPopover)
-        #expect(updatedPopover.isShown)
-        #expect(updatedPopover.positioningRect == anchor.bounds)
-        #expect(performCount.withLock { $0 } == 1)
-
-        manager.webExtensionController(
-            manager.controller,
-            didUpdate: defaultUpdatedAction,
-            forExtensionContext: context
-        )
-        #expect(performCount.withLock { $0 } == 1)
-        updatedPopover.performClose(nil)
-        for _ in 0..<4 { await Task.yield() }
         await manager.shutdownAndWait()
     }
 
@@ -6169,7 +6239,16 @@ struct BrowserWebExtensionsManagerTests {
         #expect(replacement.configuration.webExtensionController === services.webExtensionsManager?.controller)
     }
 
-    @Test func openingExtensionsManagerHidesPortalHostedPage() throws {
+    @available(macOS 15.4, *)
+    @Test func openingExtensionsManagerHidesPortalHostedPage() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let services = BrowserServices(
+            extensionDirectory: root,
+            usesNonPersistentWebExtensionStorage: true
+        )
+        let manager = try #require(services.webExtensionsManager)
+        defer { manager.shutdown() }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -6184,8 +6263,10 @@ struct BrowserWebExtensionsManagerTests {
 
         let panel = BrowserPanel(
             workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             initialURL: URL(string: "about:blank"),
-            renderInitialNavigation: false
+            renderInitialNavigation: false,
+            browserServices: services
         )
         defer { panel.close() }
         BrowserWindowPortalRegistry.bind(
@@ -6210,6 +6291,9 @@ struct BrowserWebExtensionsManagerTests {
         #expect(panel.internalPage == .extensions)
         #expect(!hiddenSnapshot.visibleInUI)
         #expect(hiddenSnapshot.containerHidden)
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
+        panel.close()
+        await manager.shutdownAndWait()
     }
 
     @available(macOS 15.4, *)
@@ -6224,6 +6308,7 @@ struct BrowserWebExtensionsManagerTests {
         )
         let services = BrowserServices(extensionDirectory: root, usesNonPersistentWebExtensionStorage: true)
         let manager = try #require(services.webExtensionsManager)
+        defer { manager.shutdown() }
         let extensionContext = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: directory))
         let store = DockSplitStore(
             workspaceId: UUID(),
@@ -6247,6 +6332,7 @@ struct BrowserWebExtensionsManagerTests {
         ))
         let firstPanel = try #require(store.browserPanel(for: firstPanelID))
         let secondPanel = try #require(store.browserPanel(for: secondPanelID))
+        store.setVisibleInUI(true)
         store.focusPanel(firstPanelID)
         store.applyFocusedDockSelection()
         #expect(store.lastActivatedWebExtensionPanelID == firstPanelID)
@@ -6297,6 +6383,8 @@ struct BrowserWebExtensionsManagerTests {
             .webExtensionController(manager.controller, openWindowsFor: extensionContext)
             .flatMap { $0.tabs?(for: extensionContext) ?? [] }
         #expect(!remainingTabs.contains { $0.webView?(for: extensionContext) === firstPanel.webView })
+        store.closeAllPanels()
+        await manager.shutdownAndWait()
     }
 
     @available(macOS 15.4, *)
@@ -6710,6 +6798,44 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func manifestValidationRejectsFatalErrorsButAllowsRecoverableEntryErrors() {
+        let recoverableErrors: [any Error] = [
+            NSError(
+                domain: WKWebExtension.errorDomain,
+                code: WKWebExtension.Error.resourceNotFound.rawValue
+            ),
+            NSError(
+                domain: WKWebExtension.errorDomain,
+                code: WKWebExtension.Error.invalidManifestEntry.rawValue
+            ),
+            NSError(
+                domain: WKWebExtension.errorDomain,
+                code: WKWebExtension.Error.invalidDeclarativeNetRequestEntry.rawValue
+            ),
+            NSError(
+                domain: WKWebExtension.errorDomain,
+                code: WKWebExtension.Error.invalidBackgroundPersistence.rawValue
+            ),
+        ]
+        #expect(!BrowserWebExtensionsManager.hasFatalManifestError(recoverableErrors))
+
+        for code in [
+            WKWebExtension.Error.unknown.rawValue,
+            WKWebExtension.Error.invalidResourceCodeSignature.rawValue,
+            WKWebExtension.Error.invalidManifest.rawValue,
+            WKWebExtension.Error.unsupportedManifestVersion.rawValue,
+            WKWebExtension.Error.invalidArchive.rawValue,
+        ] {
+            #expect(BrowserWebExtensionsManager.hasFatalManifestError([
+                NSError(domain: WKWebExtension.errorDomain, code: code)
+            ]))
+        }
+        #expect(BrowserWebExtensionsManager.hasFatalManifestError([
+            NSError(domain: "unexpected.error.domain", code: 1)
+        ]))
+    }
+
+    @available(macOS 15.4, *)
     @Test func recordsErrorForInvalidManifestAndKeepsLoadingOthers() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -6730,8 +6856,14 @@ struct BrowserWebExtensionsManagerTests {
 
         let snapshot = manager.presentationSnapshot()
         #expect(snapshot.state == .ready)
-        #expect(snapshot.extensions.map(\.name) == ["cmux test extension"])
-        #expect(snapshot.failures.map(\.entryName) == ["broken"])
+        #expect(snapshot.extensions.map(\.name) == ["broken", "cmux test extension"])
+        let brokenItem = try #require(snapshot.extensions.first)
+        #expect(!brokenItem.isEnabled)
+        #expect(brokenItem.loadFailure == String(
+            localized: "browser.extensions.load.failed",
+            defaultValue: "The extension could not be loaded."
+        ))
+        #expect(snapshot.failures.isEmpty)
     }
 
     @available(macOS 15.4, *)
@@ -6749,8 +6881,8 @@ struct BrowserWebExtensionsManagerTests {
 
         await manager.loadExtensions()
 
-        let failure = try #require(manager.presentationSnapshot().failures.first)
-        #expect(failure.message == String(
+        let failure = try #require(manager.presentationSnapshot().extensions.first?.loadFailure)
+        #expect(failure == String(
             localized: "browser.extensions.load.failed",
             defaultValue: "The extension could not be loaded."
         ))

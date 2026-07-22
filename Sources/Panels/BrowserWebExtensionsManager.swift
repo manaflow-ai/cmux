@@ -1255,6 +1255,31 @@ final class BrowserWebExtensionsManager: NSObject {
         }
     }
 
+    nonisolated static func hasFatalManifestError(_ errors: [any Error]) -> Bool {
+        errors.contains { error in
+            let error = error as NSError
+            guard error.domain == WKWebExtension.errorDomain else { return true }
+            switch error.code {
+            case WKWebExtension.Error.resourceNotFound.rawValue,
+                 WKWebExtension.Error.invalidManifestEntry.rawValue,
+                 WKWebExtension.Error.invalidDeclarativeNetRequestEntry.rawValue,
+                 WKWebExtension.Error.invalidBackgroundPersistence.rawValue:
+                // WebKit reports recoverable entry errors while still producing
+                // a usable extension. Safari also loads these extensions with
+                // the affected entry omitted or normalized.
+                return false
+            case WKWebExtension.Error.unknown.rawValue,
+                 WKWebExtension.Error.invalidResourceCodeSignature.rawValue,
+                 WKWebExtension.Error.invalidManifest.rawValue,
+                 WKWebExtension.Error.unsupportedManifestVersion.rawValue,
+                 WKWebExtension.Error.invalidArchive.rawValue:
+                return true
+            default:
+                return true
+            }
+        }
+    }
+
 #if DEBUG
     func approveInstalledCandidate(_ candidate: URL) async throws {
         try requireActive()
@@ -3476,6 +3501,12 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     }
 
 #if DEBUG
+    func waitForPopupQuiescenceForTesting(
+        extensionIdentifier: String
+    ) async {
+        await closePresentedPopups(forExtensionIdentifier: extensionIdentifier)
+    }
+
     struct DebugTransientStateCounts: Equatable {
         let pendingInvocations: Int
         let lastInvocations: Int
