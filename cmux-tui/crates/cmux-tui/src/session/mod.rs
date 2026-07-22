@@ -796,12 +796,11 @@ impl Session {
                         "machine provider did not supply workspace mirror authority; upgrade the provider before attaching"
                     )
                 })?;
-                remote
-                    .request(json!({
-                        "cmd": "mark-workspaces-provider-managed",
-                        "authority": authority.expose(),
-                    }))
-                    .map(|_| ())
+                remote.request(json!({
+                    "cmd": "mark-workspaces-provider-managed",
+                    "authority": authority.expose(),
+                }))?;
+                remote.confirm_provider_workspace_guard()
             }
         }
     }
@@ -809,7 +808,7 @@ impl Session {
     pub fn workspaces_are_provider_managed(&self) -> bool {
         match self {
             Session::Local(mux) => mux.workspaces_are_provider_managed(),
-            Session::Remote(remote) => remote.provider_workspace_authority().is_some(),
+            Session::Remote(remote) => remote.provider_workspaces_are_guarded(),
         }
     }
 
