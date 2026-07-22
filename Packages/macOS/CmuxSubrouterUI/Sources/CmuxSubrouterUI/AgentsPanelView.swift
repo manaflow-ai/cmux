@@ -10,6 +10,8 @@ public import CmuxSubrouter
 public struct AgentsPanelView: View {
     private let store: SubrouterStore
     private let isPanelVisible: Bool
+    private let onVisibilityChange: (Bool) -> Void
+    @State private var isRegisteredVisible = false
 
     /// Creates the panel.
     /// - Parameters:
@@ -18,9 +20,19 @@ public struct AgentsPanelView: View {
     ///     screen. Hosts that keep hidden content mounted (the right
     ///     sidebar shell never unmounts once shown) must pass their real
     ///     visibility here so polling stops while the panel is hidden.
-    public init(store: SubrouterStore, isPanelVisible: Bool = true) {
+    ///   - onVisibilityChange: Balanced per-instance visibility
+    ///     transitions (`true` then `false`, never repeated). The host
+    ///     must reference-count these into the store's `.agentsPanel`
+    ///     surface: several windows can each show a panel against the one
+    ///     shared store, so no instance may write the shared bit directly.
+    public init(
+        store: SubrouterStore,
+        isPanelVisible: Bool = true,
+        onVisibilityChange: @escaping (Bool) -> Void
+    ) {
         self.store = store
         self.isPanelVisible = isPanelVisible
+        self.onVisibilityChange = onVisibilityChange
     }
 
     public var body: some View {
@@ -75,12 +87,21 @@ public struct AgentsPanelView: View {
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .onAppear { store.setSurfaceVisible(.agentsPanel, isPanelVisible) }
-        .onDisappear { store.setSurfaceVisible(.agentsPanel, false) }
+        .onAppear { updateVisibilityRegistration(isPanelVisible) }
+        .onDisappear { updateVisibilityRegistration(false) }
         .onChange(of: isPanelVisible) { _, visible in
-            store.setSurfaceVisible(.agentsPanel, visible)
+            updateVisibilityRegistration(visible)
         }
         .accessibilityIdentifier("SubrouterAgentsPanel")
+    }
+
+    /// Forwards deduplicated show/hide transitions to the host, so its
+    /// reference count stays balanced no matter how appear/disappear and
+    /// visibility changes interleave.
+    private func updateVisibilityRegistration(_ visible: Bool) {
+        guard visible != isRegisteredVisible else { return }
+        isRegisteredVisible = visible
+        onVisibilityChange(visible)
     }
 
     private func switchAccount(_ account: SubrouterAccountUsageStatus) {

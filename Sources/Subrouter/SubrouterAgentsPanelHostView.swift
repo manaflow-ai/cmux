@@ -14,7 +14,17 @@ struct SubrouterAgentsPanelHostView: View {
     var body: some View {
         AgentsPanelView(
             store: SubrouterAppRuntime.shared.store,
-            isPanelVisible: isSidebarVisible
+            isPanelVisible: isSidebarVisible,
+            onVisibilityChange: { visible in
+                // Reference-counted through the runtime: each window's
+                // panel registers independently, so hiding one window's
+                // sidebar cannot stop polling for another window's panel.
+                if visible {
+                    SubrouterAppRuntime.shared.agentsPanelDidBecomeVisible()
+                } else {
+                    SubrouterAppRuntime.shared.agentsPanelDidBecomeHidden()
+                }
+            }
         )
     }
 }

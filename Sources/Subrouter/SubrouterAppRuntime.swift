@@ -16,14 +16,22 @@ final class SubrouterAppRuntime {
     let store: SubrouterStore
 
     private var footerVisibleCount = 0
+    private var agentsPanelVisibleCount = 0
     private var appIsActive = NSApp.isActive
     private var observationTasks: [Task<Void, Never>] = []
 
     /// The cached `sr server` default from `~/.subrouter/codex/servers.json`.
-    /// Loaded off-main at init and on app activation; the hot
-    /// `UserDefaults` did-change path composes configuration from this
-    /// cache instead of re-reading disk on every defaults write.
+    /// Read once synchronously at init — the store must never start against
+    /// the loopback endpoint while the registry selects a remote server, or
+    /// an early socket `subrouter.switch` could pass the local-switch guard
+    /// — then re-read off-main on app activation. The hot `UserDefaults`
+    /// did-change path composes configuration from this cache instead of
+    /// re-reading disk on every defaults write.
     private var serverSelection: SubrouterServerSelection.Server?
+
+    /// Discards stale async registry reads: only the newest refresh may
+    /// overwrite ``serverSelection``.
+    private var serverSelectionGeneration = 0
 
     private init() {
         let historyURL = FileManager.default
@@ -31,9 +39,9 @@ final class SubrouterAppRuntime {
             .first?
             .appendingPathComponent("cmux/subrouter-usage-history.json")
         store = SubrouterStore(historyStorageURL: historyURL)
+        serverSelection = SubrouterIntegrationSettings.loadDefaultServerSelection()
         applyCurrentConfiguration()
         startObservers()
-        refreshServerSelection()
     }
 
     deinit {
@@ -60,6 +68,25 @@ final class SubrouterAppRuntime {
         store.setSurfaceVisible(.footerSwitcher, footerVisibleCount > 0 && appIsActive)
     }
 
+    /// Called by each window's Agents panel on a balanced show transition.
+    /// Reference-counted like the footer switcher: several windows can show
+    /// the panel against the one shared store, so one window hiding its
+    /// sidebar must not stop polling for the others.
+    func agentsPanelDidBecomeVisible() {
+        agentsPanelVisibleCount += 1
+        syncAgentsPanelSurfaceVisibility()
+    }
+
+    /// See ``agentsPanelDidBecomeVisible()``.
+    func agentsPanelDidBecomeHidden() {
+        agentsPanelVisibleCount = max(0, agentsPanelVisibleCount - 1)
+        syncAgentsPanelSurfaceVisibility()
+    }
+
+    private func syncAgentsPanelSurfaceVisibility() {
+        store.setSurfaceVisible(.agentsPanel, agentsPanelVisibleCount > 0)
+    }
+
     private func applyCurrentConfiguration() {
         store.updateConfiguration(
             SubrouterIntegrationSettings.currentConfiguration(serverSelection: serverSelection)
@@ -70,11 +97,13 @@ final class SubrouterAppRuntime {
     /// configuration. `updateConfiguration` no-ops on equal values, so a
     /// selection that has not changed costs nothing beyond the read.
     private func refreshServerSelection() {
+        serverSelectionGeneration += 1
+        let generation = serverSelectionGeneration
         Task { @MainActor [weak self] in
             let selection = await Task.detached(priority: .utility) {
                 SubrouterIntegrationSettings.loadDefaultServerSelection()
             }.value
-            guard let self else { return }
+            guard let self, self.serverSelectionGeneration == generation else { return }
             self.serverSelection = selection
             self.applyCurrentConfiguration()
         }
