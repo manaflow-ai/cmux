@@ -1040,6 +1040,50 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertTrue(confirmed)
     }
 
+    func testLatestStateRequestStartsANewReconciliationGeneration() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+
+        XCTAssertTrue(panel.requestReactGrabActive(true, reason: "test.activate"))
+        let activationGeneration = panel.reactGrabStateReconciliationGeneration
+
+        XCTAssertTrue(panel.requestReactGrabActive(false, reason: "test.deactivate"))
+
+        XCTAssertEqual(
+            panel.reactGrabStateReconciliationGeneration,
+            activationGeneration + 1
+        )
+        XCTAssertEqual(panel.requestedReactGrabActive, false)
+    }
+
+    func testWebViewReplacementInvalidatesReactGrabStateAndRoundTrip() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let returnPanelID = UUID()
+
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        panel.armReactGrabRoundTrip(returnTo: returnPanelID)
+        XCTAssertTrue(panel.requestReactGrabActive(true, reason: "test.pending"))
+        let reconciliationGeneration = panel.reactGrabStateReconciliationGeneration
+        let originalWebView = panel.webView
+
+        panel.replaceWebViewPreservingState(
+            from: originalWebView,
+            websiteDataStore: panel.websiteDataStore,
+            reason: "test.replacement"
+        )
+
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertFalse(panel.isReactGrabActive)
+        XCTAssertNil(panel.requestedReactGrabActive)
+        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+        XCTAssertGreaterThan(
+            panel.reactGrabStateReconciliationGeneration,
+            reconciliationGeneration
+        )
+    }
+
     @MainActor
     func testExplicitWebViewFocusDoesNotSuppressOmnibarAutofocusWhenFocusFails() {
         let panel = BrowserPanel(workspaceId: UUID())
