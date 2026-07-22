@@ -248,6 +248,122 @@ struct ArtifactRepositorySafetyTests {
         #expect(try Data(contentsOf: exclude) == existing)
     }
 
+    @Test("Malformed configuration fails closed for automatic capture")
+    func malformedConfigurationDisablesAutomaticCapture() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        _ = try ArtifactTestSupport.write(
+            #"{"automaticCaptureEnabled":false,"maximumFileBytes":"invalid"}"#,
+            named: "artifacts.json",
+            under: root.appendingPathComponent(".cmux")
+        )
+
+        let configuration = await LocalArtifactRepository().configuration(projectRoot: root)
+
+        #expect(!configuration.automaticCaptureEnabled)
+    }
+
+    @Test("Canceled scans stop before traversing the artifact tree")
+    func canceledTreeScanThrowsCancellation() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        _ = try ArtifactTestSupport.write("artifact", named: "one.txt", under: paths.artifactsRoot)
+        let scan = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try ArtifactTreeScanner(
+                fileManager: .default,
+                maximumDepth: 4,
+                nodeBudget: 100
+            ).snapshot(paths: paths)
+        }
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await scan.value
+        }
+    }
+
+    @Test("Canceled content search stops before inspecting artifacts")
+    func canceledContentSearchThrowsCancellation() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let node = ArtifactTestSupport.artifactNode(
+            root: root,
+            relativePath: "one.txt",
+            kind: .text
+        )
+        let snapshot = ArtifactSnapshot(
+            projectRoot: root,
+            artifactsRoot: ArtifactStorePaths(projectRoot: root).artifactsRoot,
+            nodes: [node],
+            isTruncated: false
+        )
+        let search = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try ArtifactSearchEngine(configuration: .defaultValue).results(
+                snapshot: snapshot,
+                query: "one"
+            )
+        }
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await search.value
+        }
+    }
+
+    @Test("A provenance failure rolls back the newly copied artifact")
+    func rollsBackCopyWhenProvenanceFails() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let source = try ArtifactTestSupport.write(
+            "artifact",
+            named: "plan.md",
+            under: root.appendingPathComponent("outside")
+        )
+        let digest = try ArtifactDigestCalculator().digest(url: source)
+        let fileManager = ProvenanceCorruptingFileManager(
+            metadataURL: ArtifactStorePaths(projectRoot: root).provenanceRoot
+                .appendingPathComponent("\(digest).json")
+        )
+        let repository = LocalArtifactRepository(fileManager: fileManager)
+
+        await #expect(throws: ArtifactStoreError.self) {
+            try await repository.importFile(
+                sourceURL: source,
+                context: ArtifactCaptureContext(projectRoot: root),
+                provenance: .created,
+                configuration: .defaultValue,
+                capturedAt: .now
+            )
+        }
+        let files = try await repository.snapshot(projectRoot: root)
+            .nodes
+            .flattenedArtifactNodes()
+            .filter { !$0.isDirectory }
+        #expect(files.isEmpty)
+    }
+
+    @Test("Untrusted Git directory redirects are not mutated")
+    func rejectsUntrustedGitDirectoryRedirect() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let other = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(other) }
+        let otherGit = other.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: otherGit, withIntermediateDirectories: true)
+        try "gitdir: \(otherGit.path)\n".write(
+            to: root.appendingPathComponent(".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+
+        #expect(!FileManager.default.fileExists(
+            atPath: otherGit.appendingPathComponent("info/exclude").path
+        ))
+    }
+
     @MainActor
     @Test("A canceled deduplication scan stops before visiting files")
     func cancelsDeduplicationScan() async throws {
