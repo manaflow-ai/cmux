@@ -35,6 +35,25 @@ import Testing
         store.connectPreviewHost()
 
         #expect(!store.isReconnectingStoredMac)
+    @Test func macSurfaceSelectionIsExplicitAndIndependentFromTerminalSelection() {
+        let store = MobileShellComposite.preview()
+        let terminal = MobileTerminalPreview(id: "terminal", name: "Shell")
+        let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
+        let first = MobileWorkspacePreview(
+            id: "first", name: "First", terminals: [terminal], surfaces: [surface]
+        )
+        let second = MobileWorkspacePreview(
+            id: "second", name: "Second", terminals: [MobileTerminalPreview(id: "other", name: "Other")]
+        )
+        store.replaceForegroundWorkspaceState([first, second])
+        store.selectedWorkspaceID = first.id
+        #expect(store.selectedMacSurfaceID == nil)
+        let terminalSelection = store.selectedTerminalID
+        store.selectMacSurface(surface.id)
+        #expect(store.selectedMacSurfaceID == surface.id)
+        #expect(store.selectedTerminalID == terminalSelection)
+        store.selectedWorkspaceID = second.id
+        #expect(store.selectedMacSurfaceID == nil)
     }
 
     @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {

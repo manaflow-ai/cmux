@@ -75,6 +75,26 @@ import Testing
         #expect(noTerminals.selectedName == nil)
     }
 
+    @Test func nonTerminalSurfacesAppearInTheirOwnRowsAndCanBeSelected() {
+        let surface = MobileSurfacePreview(id: "surface-1", kind: .markdown, title: "README")
+        let value = TerminalPickerMenuValue(
+            liveTerminals: [MobileTerminalPreview(id: "terminal-1", name: "Shell")],
+            liveSurfaces: [
+                MobileSurfacePreview(id: "terminal-1", kind: .terminal, title: "Shell"),
+                surface,
+            ],
+            snapshotRows: [],
+            selectedID: "terminal-1",
+            selectedMacSurfaceID: surface.id,
+            canCreateWorkspace: true,
+            hasActiveBrowser: false,
+            isChatMode: false
+        )
+        #expect(value.terminalRows.count == 1)
+        #expect(value.macSurfaceRows == [TerminalPickerMenuRow(surface)])
+        #expect(value.selectedName == "README")
+    }
+
     private func menuValue(
         liveTerminals: [MobileTerminalPreview],
         snapshotRows: [TerminalPickerMenuRow],

@@ -526,9 +526,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
+            if selectedWorkspaceID != oldValue { selectedMacSurfaceID = nil }
             syncSelectedTerminalForWorkspace()
         }
     }
+    /// Explicitly selected non-terminal Mac surface, independent of terminal state.
+    public var selectedMacSurfaceID: MobileSurfacePreview.ID?
     /// The terminal whose surface (and composer draft) is currently shown.
     ///
     /// Changing it swaps the composer draft: `willSet` captures the outgoing
@@ -1070,6 +1073,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.activeRoute = nil
         self.activeMacInstanceTag = nil
         self.selectedWorkspaceID = workspaces.first?.id
+        self.selectedMacSurfaceID = nil
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
         self.terminalEventListenerTask = nil
@@ -4323,7 +4327,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Select the active terminal by id without changing workspace selection.
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
+        selectedMacSurfaceID = nil
         selectedTerminalID = id
+    }
+
+    /// Selects a non-terminal surface without disturbing terminal selection.
+    public func selectMacSurface(_ id: MobileSurfacePreview.ID) {
+        guard selectedWorkspace?.surfaces.contains(where: { $0.id == id && !$0.kind.isTerminal }) == true else {
+            return
+        }
+        selectedMacSurfaceID = id
     }
 
     /// One-shot "actually navigate" deep-link intent; API in
@@ -4339,6 +4352,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// surface's next autofocus. Re-confirming the already-selected terminal is
     /// a no-op suppression, since no surface re-attach happens.
     public func selectTerminalFromChrome(_ id: MobileTerminalPreview.ID) {
+        selectedMacSurfaceID = nil
         if id != selectedTerminalID {
             terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
         }
@@ -6093,8 +6107,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func syncSelectedTerminalForWorkspace() {
         guard let selectedWorkspace else {
+            selectedMacSurfaceID = nil
             selectedTerminalID = nil
             return
+        }
+        if let selectedMacSurfaceID,
+           !selectedWorkspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID && !$0.kind.isTerminal }) {
+            self.selectedMacSurfaceID = nil
         }
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),

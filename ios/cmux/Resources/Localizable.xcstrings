@@ -16371,7 +16371,22 @@
           }
         }
       }
-    }
+    },
+    "mobile.surface.kind.agentSession": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agent Session"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントセッション"}}}},
+    "mobile.surface.kind.browser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザ"}}}},
+    "mobile.surface.kind.cloudVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"クラウドVM"}}}},
+    "mobile.surface.kind.customSidebar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Custom Sidebar"}},"ja":{"stringUnit":{"state":"translated","value":"カスタムサイドバー"}}}},
+    "mobile.surface.kind.extensionBrowser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Extension Browser"}},"ja":{"stringUnit":{"state":"translated","value":"拡張機能ブラウザ"}}}},
+    "mobile.surface.kind.filePreview": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File Preview"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルプレビュー"}}}},
+    "mobile.surface.kind.markdown": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Markdown"}},"ja":{"stringUnit":{"state":"translated","value":"Markdown"}}}},
+    "mobile.surface.kind.other": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Other Surface"}},"ja":{"stringUnit":{"state":"translated","value":"その他のサーフェス"}}}},
+    "mobile.surface.kind.project": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Project"}},"ja":{"stringUnit":{"state":"translated","value":"プロジェクト"}}}},
+    "mobile.surface.kind.rightSidebarTool": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sidebar Tool"}},"ja":{"stringUnit":{"state":"translated","value":"サイドバーツール"}}}},
+    "mobile.surface.kind.terminal": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Terminal"}},"ja":{"stringUnit":{"state":"translated","value":"ターミナル"}}}},
+    "mobile.surface.kind.todo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"ja":{"stringUnit":{"state":"translated","value":"ToDo"}}}},
+    "mobile.surface.openOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open on Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Macで開く"}}}},
+    "mobile.surface.renderedOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Rendered on your Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Mac上でレンダリングされています"}}}},
+    "mobile.surface.section": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac Surfaces"}},"ja":{"stringUnit":{"state":"translated","value":"Macのサーフェス"}}}}
   },
   "version": "1.0"
 }

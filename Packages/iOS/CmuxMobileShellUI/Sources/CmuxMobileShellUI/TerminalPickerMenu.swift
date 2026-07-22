@@ -42,18 +42,35 @@ struct TerminalPickerMenu: View, Equatable {
     @ViewBuilder
     private var menuContent: some View {
         Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(value.rows) { terminal in
+            ForEach(value.terminalRows) { terminal in
                 Button {
-                    actions.selectTerminal(terminal.id)
+                    if let id = terminal.terminalID { actions.selectTerminal(id) }
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == value.selectedID && !value.hasActiveBrowser
+                        systemImage: terminal.id == value.selectedID.map(TerminalPickerMenuRow.ID.terminal) && !value.hasActiveBrowser
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )
                 }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
+                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.terminalID?.rawValue ?? "")")
+            }
+        }
+
+        if !value.macSurfaceRows.isEmpty {
+            Section(L10n.string("mobile.surface.section", defaultValue: "Mac Surfaces")) {
+                ForEach(value.macSurfaceRows) { surface in
+                    Button {
+                        if let id = surface.macSurfaceID { actions.selectMacSurface(id) }
+                    } label: {
+                        Label(
+                            surface.name,
+                            systemImage: surface.id == value.selectedMacSurfaceID.map(TerminalPickerMenuRow.ID.macSurface)
+                                ? "checkmark.circle.fill"
+                                : surface.surfaceKind.systemImage
+                        )
+                    }
+                }
             }
         }
 

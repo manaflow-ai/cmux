@@ -28,6 +28,15 @@ extension WorkspaceDetailView {
             } else if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if case let .macSurface(macSurface) = surface {
+                SurfaceFallbackCardView(
+                    surface: macSurface,
+                    canOpenOnMac: store.supportsSurfaceFocus(in: workspace.id),
+                    openOnMac: {
+                        Task { await store.focusSurfaceOnMac(workspaceID: workspace.id, surfaceID: macSurface.id) }
+                    }
+                )
+                .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
         }
         .onChange(of: surface) { _, newSurface in
