@@ -3484,11 +3484,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         surfaceConfig.io_write_userdata = bridgePointer
-        surfaceConfig.render_presented_cb = { userdata, token in
-            GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
+        guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
+            return nil
         }
-        surfaceConfig.render_presented_userdata = bridgePointer
-        return ghostty_surface_new(app, &surfaceConfig)
+        guard ghostty_surface_set_render_presented_callback(
+            createdSurface,
+            { userdata, token in
+                GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
+            },
+            bridgePointer
+        ) else {
+            ghostty_surface_free(createdSurface)
+            return nil
+        }
+        return createdSurface
     }
 
     func handleOutboundBytes(_ bytes: Data) {

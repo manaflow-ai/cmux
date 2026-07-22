@@ -66,6 +66,7 @@ struct WorkspaceListView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
     var showAddDevice: (() -> Void)?
+    var showPairingScanner: (() -> Void)?
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
@@ -109,6 +110,7 @@ struct WorkspaceListView: View {
     var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
+    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
@@ -368,10 +370,17 @@ struct WorkspaceListView: View {
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()
         }
-        .sheet(isPresented: $showingSettings) {
+        .sheet(isPresented: $showingSettings, onDismiss: {
+            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+        }) {
             MobileSettingsView(
                 connectedHostName: host,
                 rescanQR: rescanQR,
+                startPairingScanner: {
+                    settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                        isSettingsPresented: $showingSettings
+                    )
+                },
                 signOut: signOut,
                 store: store
             )
@@ -600,20 +609,36 @@ struct WorkspaceListView: View {
             case .groupHeader(let group, let hasUnread):
                 let anchorCapabilities = workspaces.first(where: { $0.id == group.anchorWorkspaceID })?.actionCapabilities ?? .none
                 WorkspaceGroupHeaderRow(
-                    group: group,
-                    hasUnread: hasUnread,
-                    navigationStyle: navigationStyle,
-                    isAnchorSelected: navigationStyle == .sidebar
-                        && selectedWorkspaceID == group.anchorWorkspaceID,
-                    selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
-                    createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
-                    renameGroup: anchorCapabilities.supportsGroupActions ? renameWorkspaceGroup : nil,
-                    setGroupPinned: anchorCapabilities.supportsGroupActions ? setGroupPinned : nil,
-                    ungroupWorkspaceGroup: anchorCapabilities.supportsGroupActions ? ungroupWorkspaceGroup : nil,
-                    deleteWorkspaceGroup: anchorCapabilities.supportsGroupActions ? deleteWorkspaceGroup : nil,
-                    toggleCollapsed: toggleGroupCollapsed,
-                    unreadIndicatorLeftShift: unreadIndicatorLeftShift
+                    value: WorkspaceGroupHeaderRowValue(
+                        group: group,
+                        hasUnread: hasUnread,
+                        navigationStyle: navigationStyle,
+                        isAnchorSelected: navigationStyle == .sidebar
+                            && selectedWorkspaceID == group.anchorWorkspaceID,
+                        canCreateWorkspaceInGroup: canCreateWorkspaceInGroups
+                            && createWorkspaceInGroup != nil,
+                        canRenameGroup: anchorCapabilities.supportsGroupActions
+                            && renameWorkspaceGroup != nil,
+                        canSetGroupPinned: anchorCapabilities.supportsGroupActions
+                            && setGroupPinned != nil,
+                        canUngroupWorkspaceGroup: anchorCapabilities.supportsGroupActions
+                            && ungroupWorkspaceGroup != nil,
+                        canDeleteWorkspaceGroup: anchorCapabilities.supportsGroupActions
+                            && deleteWorkspaceGroup != nil,
+                        canToggleCollapsed: toggleGroupCollapsed != nil,
+                        unreadIndicatorLeftShift: unreadIndicatorLeftShift
+                    ),
+                    actions: WorkspaceGroupHeaderRowActions(
+                        selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
+                        createWorkspaceInGroup: createWorkspaceInGroup,
+                        renameGroup: renameWorkspaceGroup,
+                        setGroupPinned: setGroupPinned,
+                        ungroupWorkspaceGroup: ungroupWorkspaceGroup,
+                        deleteWorkspaceGroup: deleteWorkspaceGroup,
+                        toggleCollapsed: toggleGroupCollapsed
+                    )
                 )
+                .equatable()
                 // The list-wide minimum row height is lowered for the
                 // invisible end-of-group spacer; interactive rows keep the
                 // 44pt tap target (32 content + 6/6 insets) explicitly.
