@@ -3,7 +3,9 @@ import CmuxFoundation
 
 /// Computes Vault table heights without instantiating offscreen SwiftUI rows.
 @MainActor
-struct SessionIndexTableRowHeightCalculator {
+final class SessionIndexTableRowHeightCalculator {
+    private var fontHeightByPointSize: [CGFloat: CGFloat] = [:]
+
     func height(
         for row: SessionIndexTableRow,
         environment: SessionIndexTableEnvironmentSnapshot
@@ -52,7 +54,13 @@ struct SessionIndexTableRowHeightCalculator {
             baseFontSize,
             percent: environment.globalFontMagnificationPercent
         )
-        let fontHeight = NSFont.systemFont(ofSize: pointSize).boundingRectForFont.height
+        let fontHeight: CGFloat
+        if let cachedFontHeight = fontHeightByPointSize[pointSize] {
+            fontHeight = cachedFontHeight
+        } else {
+            fontHeight = NSFont.systemFont(ofSize: pointSize).boundingRectForFont.height
+            fontHeightByPointSize[pointSize] = fontHeight
+        }
         return ceil(max(fontHeight, minimumContentHeight) + verticalPadding)
     }
 }
