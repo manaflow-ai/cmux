@@ -89,8 +89,8 @@ struct LocalArtifactRepositoryTests {
         #expect(record.relativePath == "organized/final.txt")
     }
 
-    @Test("Moved artifact deduplication is complete beyond the sidebar scan budget")
-    func deduplicatesMovedArtifactBeyondScanBudget() async throws {
+    @Test("Content deduplication includes unmanaged ordinary store files")
+    func deduplicatesUnmanagedStoreFile() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
         let source = try ArtifactTestSupport.write(
@@ -98,25 +98,15 @@ struct LocalArtifactRepositoryTests {
             named: "result.txt",
             under: root.appendingPathComponent("outside")
         )
-        let repository = LocalArtifactRepository(nodeBudget: 1)
+        _ = try ArtifactTestSupport.write(
+            "same bytes",
+            named: "organized/final.txt",
+            under: root.appendingPathComponent(".cmux/artifacts")
+        )
+        let repository = LocalArtifactRepository()
         let context = ArtifactCaptureContext(projectRoot: root, workspaceID: "one", sessionID: "two")
-        let first = try await repository.importFile(
-            sourceURL: source,
-            context: context,
-            provenance: .manual,
-            configuration: .defaultValue,
-            capturedAt: .now
-        )
-        let firstRecord = try #require(first.record)
-        let originalURL = root.appendingPathComponent(".cmux/artifacts/\(firstRecord.relativePath)")
-        let movedURL = root.appendingPathComponent(".cmux/artifacts/z/organized/final.txt")
-        try FileManager.default.createDirectory(
-            at: movedURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.moveItem(at: originalURL, to: movedURL)
 
-        let second = try await repository.importFile(
+        let outcome = try await repository.importFile(
             sourceURL: source,
             context: context,
             provenance: .manual,
@@ -124,11 +114,11 @@ struct LocalArtifactRepositoryTests {
             capturedAt: .now
         )
 
-        guard case .deduplicated(let record) = second else {
-            Issue.record("Expected moved content to deduplicate despite the tree budget")
+        guard case .deduplicated(let record) = outcome else {
+            Issue.record("Expected unmanaged ordinary file content to deduplicate")
             return
         }
-        #expect(record.relativePath == "z/organized/final.txt")
+        #expect(record.relativePath == "organized/final.txt")
     }
 
     @Test("A moved session folder remains the target for later captures")

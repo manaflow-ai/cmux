@@ -56,6 +56,7 @@ struct ArtifactSidebarModelTests {
         let store = SidebarArtifactStore(root: root, nodes: [])
         let model = ArtifactSidebarModel(store: store, captureService: SidebarCaptureSpy())
         await model.bind(workspace: workspace(root: root))
+        #expect(await store.waitUntilWatching())
         let appeared = ArtifactTestSupport.artifactNode(root: root, relativePath: "appeared.md", kind: .markdown)
 
         await store.replaceNodes([appeared], notify: true)
@@ -80,6 +81,29 @@ struct ArtifactSidebarModelTests {
         #expect(call?.context.projectRoot == root.standardizedFileURL)
         #expect(call?.context.workspaceID == "workspace-1")
         #expect(call?.context.workspaceTitle == "Artifacts Test")
+    }
+
+    @Test("Working-directory and title churn within one project does not rescan")
+    func sameProjectWorkspaceUpdatesDoNotRescan() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let store = SidebarArtifactStore(root: root, nodes: [])
+        let capture = SidebarCaptureSpy()
+        let model = ArtifactSidebarModel(store: store, captureService: capture)
+        await model.bind(workspace: workspace(root: root))
+        let snapshotCountBeforeUpdate = await store.snapshotCount
+
+        model.updateWorkspaceTitle(workspaceID: "workspace-1", title: "Renamed")
+        await model.bind(workspace: ArtifactSidebarWorkspace(
+            id: "workspace-1",
+            title: "Renamed",
+            workingDirectory: root.appendingPathComponent("nested/directory")
+        ))
+        let snapshotCountAfterUpdate = await store.snapshotCount
+        await model.addFiles([root.appendingPathComponent("outside.md")])
+
+        #expect(snapshotCountAfterUpdate == snapshotCountBeforeUpdate)
+        #expect(await capture.lastAdd?.context.workspaceTitle == "Renamed")
     }
 
     private func workspace(root: URL) -> ArtifactSidebarWorkspace {

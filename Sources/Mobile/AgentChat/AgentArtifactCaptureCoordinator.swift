@@ -40,24 +40,33 @@ actor AgentArtifactCaptureCoordinator {
             startingAt: workingDirectoryURL,
             fileManager: fileManager
         )
-        let candidates = snapshot.artifacts.map {
-            ArtifactCandidate(
-                sourceURL: URL(fileURLWithPath: $0.path),
-                provenance: artifactProvenance($0.provenance)
+        var seenPaths: Set<String> = []
+        var pending = snapshot.artifacts.compactMap { artifact -> ArtifactCandidate? in
+            guard seenPaths.insert(artifact.path).inserted else { return nil }
+            return ArtifactCandidate(
+                sourceURL: URL(fileURLWithPath: artifact.path),
+                provenance: artifactProvenance(artifact.provenance)
             )
         }
-        let outcomes = await captureService.capture(
-            candidates: candidates,
-            context: ArtifactCaptureContext(
-                projectRoot: projectRoot,
-                workspaceID: record.workspaceID,
-                sessionID: record.sessionID,
-                agentName: record.agentKind.sourceName
-            )
+        let context = ArtifactCaptureContext(
+            projectRoot: projectRoot,
+            workspaceID: record.workspaceID,
+            sessionID: record.sessionID,
+            agentName: record.agentKind.sourceName
         )
-        if outcomes.contains(where: { $0.record != nil }) {
-            completedGenerationBySession[record.sessionID] = snapshot.generation
+        while !pending.isEmpty {
+            let outcomes = await captureService.capture(
+                candidates: pending,
+                context: context
+            )
+            let backlog = zip(pending, outcomes).compactMap { candidate, outcome in
+                outcome == .skipped(.candidateLimitReached) ? candidate : nil
+            }
+            guard backlog.count < pending.count else { return }
+            pending = backlog
+            await Task.yield()
         }
+        completedGenerationBySession[record.sessionID] = snapshot.generation
     }
 
     func save(

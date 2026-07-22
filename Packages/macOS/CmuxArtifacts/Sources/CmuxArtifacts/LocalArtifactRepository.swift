@@ -73,18 +73,117 @@ public actor LocalArtifactRepository: ArtifactStoring {
         configuration: ArtifactCaptureConfiguration,
         capturedAt: Date
     ) throws -> ArtifactImportOutcome {
-        let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
-        try prepare(paths: paths)
-        let source = sourceURL.standardizedFileURL
-        let pathResolver = ArtifactPathResolver()
-        let snapshot = try ArtifactSourceSnapshotter(fileManager: fileManager).snapshot(
-            source: source,
-            paths: paths,
-            configuration: configuration
+        let attempts = importFiles(
+            candidates: [ArtifactCandidate(sourceURL: sourceURL, provenance: provenance)],
+            context: context,
+            configuration: configuration,
+            capturedAt: capturedAt
         )
-        defer { try? fileManager.removeItem(at: snapshot.url) }
-        let size = snapshot.size
-        let digest = try ArtifactDigestCalculator().digest(url: snapshot.url)
+        guard let attempt = attempts.first else {
+            throw ArtifactStoreError.sourceNotRegularFile(sourceURL.path)
+        }
+        switch attempt {
+        case .imported(let outcome):
+            return outcome
+        case .rejected(let error):
+            throw error
+        }
+    }
+
+    /// Imports a capture batch with one bounded live-store deduplication scan.
+    public func importFiles(
+        candidates: [ArtifactCandidate],
+        context: ArtifactCaptureContext,
+        configuration: ArtifactCaptureConfiguration,
+        capturedAt: Date
+    ) -> [ArtifactImportAttempt] {
+        guard !candidates.isEmpty else { return [] }
+        let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
+        do {
+            try prepare(paths: paths)
+        } catch let error as ArtifactStoreError {
+            return candidates.map { _ in .rejected(error) }
+        } catch {
+            return candidates.map { _ in .rejected(.pathOutsideStore(paths.artifactsRoot.path)) }
+        }
+
+        var attempts = Array<ArtifactImportAttempt?>(repeating: nil, count: candidates.count)
+        var preparedByIndex: [Int: PreparedArtifactImport] = [:]
+        for (index, candidate) in candidates.enumerated() {
+            let source = candidate.sourceURL.standardizedFileURL
+            do {
+                let snapshot = try ArtifactSourceSnapshotter(fileManager: fileManager).snapshot(
+                    source: source,
+                    paths: paths,
+                    configuration: configuration
+                )
+                preparedByIndex[index] = PreparedArtifactImport(
+                    candidate: ArtifactCandidate(sourceURL: source, provenance: candidate.provenance),
+                    snapshot: snapshot,
+                    digest: try ArtifactDigestCalculator().digest(url: snapshot.url)
+                )
+            } catch let error as ArtifactStoreError {
+                attempts[index] = .rejected(error)
+            } catch {
+                attempts[index] = .rejected(.sourceNotRegularFile(source.path))
+            }
+        }
+        defer {
+            for prepared in preparedByIndex.values {
+                try? fileManager.removeItem(at: prepared.snapshot.url)
+            }
+        }
+
+        var existingByDigest: [String: URL]
+        do {
+            existingByDigest = try ArtifactDeduplicationIndexBuilder(
+                recorder: ArtifactProvenanceRecorder(
+                    fileManager: fileManager,
+                    encoder: encoder,
+                    decoder: decoder
+                ),
+                scanner: scanner
+            ).build(
+                prepared: Array(preparedByIndex.values),
+                paths: paths
+            )
+        } catch {
+            existingByDigest = [:]
+        }
+        var captureDirectory: URL?
+        for (index, prepared) in preparedByIndex.sorted(by: { $0.key < $1.key }) {
+            do {
+                attempts[index] = .imported(try importPrepared(
+                    prepared,
+                    context: context,
+                    paths: paths,
+                    capturedAt: capturedAt,
+                    existingByDigest: &existingByDigest,
+                    captureDirectory: &captureDirectory
+                ))
+            } catch let error as ArtifactStoreError {
+                attempts[index] = .rejected(error)
+            } catch {
+                attempts[index] = .rejected(.sourceNotRegularFile(prepared.candidate.sourceURL.path))
+            }
+        }
+        return attempts.enumerated().map { index, attempt in
+            attempt ?? .rejected(.sourceNotRegularFile(candidates[index].sourceURL.path))
+        }
+    }
+
+    private func importPrepared(
+        _ prepared: PreparedArtifactImport,
+        context: ArtifactCaptureContext,
+        paths: ArtifactStorePaths,
+        capturedAt: Date,
+        existingByDigest: inout [String: URL],
+        captureDirectory: inout URL?
+    ) throws -> ArtifactImportOutcome {
+        let source = prepared.candidate.sourceURL
+        let size = prepared.snapshot.size
+        let digest = prepared.digest
+        let pathResolver = ArtifactPathResolver()
 
         if pathResolver.isInsideStore(source, paths: paths),
            let relativePath = pathResolver.relativePath(source, root: paths.artifactsRoot) {
@@ -93,22 +192,23 @@ public actor LocalArtifactRepository: ArtifactStoring {
                 source: source,
                 relativePath: relativePath,
                 context: context,
-                provenance: provenance,
+                provenance: prepared.candidate.provenance,
                 capturedAt: capturedAt,
                 size: size
             )
             try recordProvenance(record, paths: paths)
+            existingByDigest[digest] = source
             return .alreadyStored(record)
         }
 
-        if let existing = try existingFile(digest: digest, size: size, paths: paths),
+        if let existing = existingByDigest[digest],
            let relativePath = pathResolver.relativePath(existing, root: paths.artifactsRoot) {
             let record = makeRecord(
                 digest: digest,
                 source: source,
                 relativePath: relativePath,
                 context: context,
-                provenance: provenance,
+                provenance: prepared.candidate.provenance,
                 capturedAt: capturedAt,
                 size: size
             )
@@ -116,25 +216,30 @@ public actor LocalArtifactRepository: ArtifactStoring {
             return .deduplicated(record)
         }
 
-        let captureDirectoryResolution = ArtifactCaptureDirectoryFinder(
-            fileManager: fileManager,
-            decoder: decoder,
-            nodeBudget: nodeBudget
-        ).resolve(paths: paths, context: context, pathResolver: pathResolver)
-        let captureDirectory = captureDirectoryResolution.directory
-        try createCaptureDirectory(
-            captureDirectory,
-            paths: paths,
-            context: context,
-            capturedAt: capturedAt,
-            writesWorkspaceMarker: !captureDirectoryResolution.reusedSessionMarker
-        )
+        if captureDirectory == nil {
+            let resolution = ArtifactCaptureDirectoryFinder(
+                fileManager: fileManager,
+                decoder: decoder,
+                nodeBudget: nodeBudget
+            ).resolve(paths: paths, context: context, pathResolver: pathResolver)
+            try createCaptureDirectory(
+                resolution.directory,
+                paths: paths,
+                context: context,
+                capturedAt: capturedAt,
+                writesWorkspaceMarker: !resolution.reusedSessionMarker
+            )
+            captureDirectory = resolution.directory
+        }
+        guard let captureDirectory else {
+            throw ArtifactStoreError.pathOutsideStore(paths.artifactsRoot.path)
+        }
         let destination = pathResolver.uniqueDestination(
             source: source,
             directory: captureDirectory,
             fileManager: fileManager
         )
-        try fileManager.moveItem(at: snapshot.url, to: destination)
+        try fileManager.moveItem(at: prepared.snapshot.url, to: destination)
         guard let relativePath = pathResolver.relativePath(destination, root: paths.artifactsRoot) else {
             throw ArtifactStoreError.pathOutsideStore(destination.path)
         }
@@ -143,11 +248,12 @@ public actor LocalArtifactRepository: ArtifactStoring {
             source: source,
             relativePath: relativePath,
             context: context,
-            provenance: provenance,
+            provenance: prepared.candidate.provenance,
             capturedAt: capturedAt,
             size: size
         )
         try recordProvenance(record, paths: paths)
+        existingByDigest[digest] = destination
         return .copied(record)
     }
 
@@ -228,41 +334,6 @@ public actor LocalArtifactRepository: ArtifactStoring {
             through: paths.importStagingRoot
         )
         try ArtifactGitIgnoreManager(fileManager: fileManager).ensureIgnored(projectRoot: paths.projectRoot)
-    }
-
-    private func existingFile(digest: String, size: Int64, paths: ArtifactStorePaths) throws -> URL? {
-        let recorder = ArtifactProvenanceRecorder(
-            fileManager: fileManager,
-            encoder: encoder,
-            decoder: decoder
-        )
-        guard let document = recorder.document(paths: paths, digest: digest),
-              document.size == size else {
-            return nil
-        }
-        let pathResolver = ArtifactPathResolver()
-        let lastKnownURL = paths.artifactsRoot
-            .appendingPathComponent(document.lastKnownRelativePath, isDirectory: false)
-        if pathResolver.isInsideStore(lastKnownURL, paths: paths),
-           matches(file: lastKnownURL, digest: digest, size: size) {
-            return lastKnownURL
-        }
-        return scanner.firstFile(paths: paths) {
-            matches(file: $0, digest: digest, size: size)
-        }
-    }
-
-    private func matches(file: URL, digest: String, size: Int64) -> Bool {
-        guard let values = try? file.resourceValues(forKeys: [
-            .fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey,
-        ]),
-        values.isRegularFile == true,
-        values.isSymbolicLink != true,
-        Int64(values.fileSize ?? -1) == size,
-        let existingDigest = try? ArtifactDigestCalculator().digest(url: file) else {
-            return false
-        }
-        return existingDigest == digest
     }
 
     private func createCaptureDirectory(

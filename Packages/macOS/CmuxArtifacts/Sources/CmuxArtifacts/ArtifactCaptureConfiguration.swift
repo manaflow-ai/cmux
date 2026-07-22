@@ -12,7 +12,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     public var maximumFileBytes: Int64
     /// Stricter maximum bytes for plain and structured-text imports.
     public var maximumTextFileBytes: Int64
-    /// Maximum candidates handled from one transcript or terminal scan.
+    /// Maximum candidates handled in one persistence batch before backlog continuation.
     public var maximumFilesPerCapture: Int
     /// Maximum text bytes decoded while content-searching one artifact.
     public var contentSearchMaximumBytes: Int64
@@ -53,7 +53,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     ///   - captureReferencedEphemeral: Whether ephemeral unstructured references are eligible.
     ///   - maximumFileBytes: Maximum bytes for rich-media and document imports.
     ///   - maximumTextFileBytes: Maximum bytes for plain and structured text imports.
-    ///   - maximumFilesPerCapture: Maximum candidates processed from one scan.
+    ///   - maximumFilesPerCapture: Maximum candidates processed in one persistence batch.
     ///   - contentSearchMaximumBytes: Maximum bytes decoded from one searchable file.
     ///   - contentSearchTotalMaximumBytes: Maximum aggregate bytes decoded by one search.
     ///   - maximumSearchResults: Maximum matches returned by one search.

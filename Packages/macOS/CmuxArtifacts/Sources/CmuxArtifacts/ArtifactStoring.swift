@@ -18,8 +18,44 @@ public protocol ArtifactStoring: Sendable {
         configuration: ArtifactCaptureConfiguration,
         capturedAt: Date
     ) async throws -> ArtifactImportOutcome
+    /// Imports one homogeneous candidate batch with shared filesystem work.
+    func importFiles(
+        candidates: [ArtifactCandidate],
+        context: ArtifactCaptureContext,
+        configuration: ArtifactCaptureConfiguration,
+        capturedAt: Date
+    ) async -> [ArtifactImportAttempt]
     /// Resolves an exact relative path, unique basename, or unique fuzzy filename.
     func resolve(projectRoot: URL, name: String) async throws -> ArtifactNode
     /// Emits recursive filesystem changes for one project's artifact root.
     func changes(projectRoot: URL) async -> AsyncStream<Void>
+}
+
+extension ArtifactStoring {
+    /// Default batch behavior for injected stores that only implement single-file import.
+    public func importFiles(
+        candidates: [ArtifactCandidate],
+        context: ArtifactCaptureContext,
+        configuration: ArtifactCaptureConfiguration,
+        capturedAt: Date
+    ) async -> [ArtifactImportAttempt] {
+        var attempts: [ArtifactImportAttempt] = []
+        attempts.reserveCapacity(candidates.count)
+        for candidate in candidates {
+            do {
+                attempts.append(.imported(try await importFile(
+                    sourceURL: candidate.sourceURL,
+                    context: context,
+                    provenance: candidate.provenance,
+                    configuration: configuration,
+                    capturedAt: capturedAt
+                )))
+            } catch let error as ArtifactStoreError {
+                attempts.append(.rejected(error))
+            } catch {
+                attempts.append(.rejected(.sourceNotRegularFile(candidate.sourceURL.path)))
+            }
+        }
+        return attempts
+    }
 }

@@ -7,6 +7,7 @@ actor SidebarArtifactStore: ArtifactStoring {
     private var searchResults: [ArtifactSearchResult] = []
     private var continuations: [AsyncStream<Void>.Continuation] = []
     private(set) var lastQuery: String?
+    private(set) var snapshotCount = 0
 
     init(root: URL, nodes: [ArtifactNode]) {
         self.root = root.standardizedFileURL
@@ -22,10 +23,20 @@ actor SidebarArtifactStore: ArtifactStoring {
         if notify { continuations.forEach { $0.yield(()) } }
     }
 
+    func waitUntilWatching() async -> Bool {
+        for _ in 0..<100 {
+            if !continuations.isEmpty { return true }
+            // Bounded test deadline while the model starts its watcher task.
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return !continuations.isEmpty
+    }
+
     func locateProjectRoot(startingAt: URL) -> URL { root }
     func configuration(projectRoot: URL) -> ArtifactCaptureConfiguration { .defaultValue }
     func snapshot(projectRoot: URL) -> ArtifactSnapshot {
-        ArtifactSnapshot(
+        snapshotCount += 1
+        return ArtifactSnapshot(
             projectRoot: root,
             artifactsRoot: root.appendingPathComponent(".cmux/artifacts", isDirectory: true),
             nodes: nodes,
@@ -55,7 +66,6 @@ actor SidebarArtifactStore: ArtifactStoring {
     func changes(projectRoot: URL) -> AsyncStream<Void> {
         let pair = AsyncStream<Void>.makeStream()
         continuations.append(pair.continuation)
-        pair.continuation.yield(())
         return pair.stream
     }
 }

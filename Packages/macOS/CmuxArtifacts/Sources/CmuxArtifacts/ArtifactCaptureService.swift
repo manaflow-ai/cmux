@@ -39,31 +39,36 @@ public actor ArtifactCaptureService: ArtifactCapturing {
             return distinctCandidates.map { _ in .skipped(.automaticCaptureDisabled) }
         }
 
-        var outcomes: [ArtifactImportOutcome] = []
+        var outcomes = Array<ArtifactImportOutcome?>(repeating: nil, count: distinctCandidates.count)
+        var importCandidates: [ArtifactCandidate] = []
+        var importIndices: [Int] = []
         for (index, candidate) in distinctCandidates.enumerated() {
             guard index < configuration.maximumFilesPerCapture else {
-                outcomes.append(.skipped(.candidateLimitReached))
+                outcomes[index] = .skipped(.candidateLimitReached)
                 continue
             }
             guard isEligible(candidate, configuration: configuration) else {
-                outcomes.append(.skipped(.provenanceNotEligible))
+                outcomes[index] = .skipped(.provenanceNotEligible)
                 continue
             }
-            do {
-                outcomes.append(try await store.importFile(
-                    sourceURL: candidate.sourceURL,
-                    context: context,
-                    provenance: candidate.provenance,
-                    configuration: configuration,
-                    capturedAt: capturedAt
-                ))
-            } catch let error as ArtifactStoreError {
-                outcomes.append(.skipped(error.skipReason))
-            } catch {
-                outcomes.append(.skipped(.notARegularFile))
+            importCandidates.append(candidate)
+            importIndices.append(index)
+        }
+        let attempts = await store.importFiles(
+            candidates: importCandidates,
+            context: context,
+            configuration: configuration,
+            capturedAt: capturedAt
+        )
+        for (index, attempt) in zip(importIndices, attempts) {
+            switch attempt {
+            case .imported(let outcome):
+                outcomes[index] = outcome
+            case .rejected(let error):
+                outcomes[index] = .skipped(error.skipReason)
             }
         }
-        return outcomes
+        return outcomes.map { $0 ?? .skipped(.notARegularFile) }
     }
 
     /// Explicitly adds one file through the same validated persistence path.

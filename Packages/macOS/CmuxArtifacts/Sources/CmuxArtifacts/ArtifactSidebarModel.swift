@@ -28,7 +28,9 @@ public final class ArtifactSidebarModel {
     private var hasInitializedExpansion = false
     private var watcherTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
+    private var bindingRequestRevision: UInt64 = 0
     private var bindingRevision: UInt64 = 0
+    private var latestWorkspaceTitle: (id: String, title: String?)?
 
     /// Creates a sidebar model with injected filesystem and capture seams.
     ///
@@ -46,9 +48,13 @@ public final class ArtifactSidebarModel {
         self.searchDebounce = searchDebounce
     }
 
-    isolated deinit {
-        watcherTask?.cancel()
-        searchTask?.cancel()
+    deinit {
+        // This model is created and released by SwiftUI on the main actor.
+        // `isolated deinit` is unavailable in Xcode 16.4.
+        MainActor.assumeIsolated {
+            watcherTask?.cancel()
+            searchTask?.cancel()
+        }
     }
 
     /// Binds the model to a selected local workspace and loads its initial tree.
@@ -58,6 +64,26 @@ public final class ArtifactSidebarModel {
     /// - Parameter workspace: Selected local workspace, or `nil` when unavailable.
     public func bind(workspace: ArtifactSidebarWorkspace?) async {
         guard self.workspace != workspace else { return }
+        bindingRequestRevision &+= 1
+        let requestRevision = bindingRequestRevision
+        guard var workspace else {
+            stop()
+            return
+        }
+        if latestWorkspaceTitle?.id == workspace.id {
+            workspace = ArtifactSidebarWorkspace(
+                id: workspace.id,
+                title: latestWorkspaceTitle?.title,
+                workingDirectory: workspace.workingDirectory
+            )
+        }
+        let root = await store.locateProjectRoot(startingAt: workspace.workingDirectory)
+        guard requestRevision == bindingRequestRevision, !Task.isCancelled else { return }
+        if self.workspace?.id == workspace.id, projectRoot == root {
+            self.workspace = workspace
+            return
+        }
+
         bindingRevision &+= 1
         let revision = bindingRevision
         watcherTask?.cancel()
@@ -72,14 +98,7 @@ public final class ArtifactSidebarModel {
         hasInitializedExpansion = false
         actionFailure = nil
 
-        guard let workspace else {
-            phase = .unavailable
-            return
-        }
-
         phase = .loading
-        let root = await store.locateProjectRoot(startingAt: workspace.workingDirectory)
-        guard revision == bindingRevision, !Task.isCancelled else { return }
         projectRoot = root
         await reload(projectRoot: root, revision: revision)
         guard revision == bindingRevision, !Task.isCancelled else { return }
@@ -94,6 +113,7 @@ public final class ArtifactSidebarModel {
 
     /// Stops long-lived observation tasks when the owning UI is torn down.
     public func stop() {
+        bindingRequestRevision &+= 1
         bindingRevision &+= 1
         watcherTask?.cancel()
         watcherTask = nil
@@ -107,6 +127,17 @@ public final class ArtifactSidebarModel {
         hasInitializedExpansion = false
         actionFailure = nil
         phase = .unavailable
+    }
+
+    /// Updates cosmetic workspace metadata without rebinding the filesystem watcher.
+    public func updateWorkspaceTitle(workspaceID: String, title: String?) {
+        latestWorkspaceTitle = (workspaceID, title)
+        guard let workspace, workspace.id == workspaceID else { return }
+        self.workspace = ArtifactSidebarWorkspace(
+            id: workspace.id,
+            title: title,
+            workingDirectory: workspace.workingDirectory
+        )
     }
 
     /// Updates filename/content search and schedules a repository query.

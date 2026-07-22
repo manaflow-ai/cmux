@@ -15,12 +15,20 @@ struct ArtifactSidebarPanelView: View {
                 .rightSidebarChromeBottomBorder()
             content
         }
-        .task(id: ArtifactSidebarBinding(workspace: workspace, isVisible: isVisible)) {
+        .task(id: ArtifactSidebarBinding(
+            workspaceID: workspace?.id,
+            workingDirectory: workspace?.workingDirectory,
+            isVisible: isVisible
+        )) {
             if isVisible {
                 await model.bind(workspace: workspace)
             } else {
                 model.stop()
             }
+        }
+        .onChange(of: workspace?.title) { _, title in
+            guard let workspaceID = workspace?.id else { return }
+            model.updateWorkspaceTitle(workspaceID: workspaceID, title: title)
         }
         .onDisappear {
             model.stop()
@@ -199,6 +207,7 @@ struct ArtifactSidebarPanelView: View {
 }
 
 private struct ArtifactSidebarBinding: Equatable {
-    let workspace: ArtifactSidebarWorkspace?
+    let workspaceID: String?
+    let workingDirectory: URL?
     let isVisible: Bool
 }

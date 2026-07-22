@@ -24,27 +24,20 @@ struct ArtifactTreeScanner {
         )
     }
 
-    func firstFile(
+    func files(
         paths: ArtifactStorePaths,
-        matching predicate: (URL) -> Bool
-    ) -> URL? {
-        guard fileManager.fileExists(atPath: paths.artifactsRoot.path) else { return nil }
-        guard let enumerator = fileManager.enumerator(
-            at: paths.artifactsRoot,
-            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey],
-            options: [.skipsPackageDescendants]
-        ) else { return nil }
-        for case let url as URL in enumerator {
-            if isManagedMetadataRoot(url, artifactsRoot: paths.artifactsRoot) {
-                enumerator.skipDescendants()
-                continue
-            }
-            if isManagedMarker(url) { continue }
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-            guard values?.isSymbolicLink != true, values?.isRegularFile == true else { continue }
-            if predicate(url) { return url }
+        matchingSizes: Set<Int64>
+    ) throws -> [URL] {
+        guard !matchingSizes.isEmpty else { return [] }
+        let snapshot = try snapshot(paths: paths)
+        var matches: [URL] = []
+        var pending = snapshot.nodes
+        while let node = pending.popLast() {
+            pending.append(contentsOf: node.children)
+            guard !node.isDirectory, let size = node.size, matchingSizes.contains(size) else { continue }
+            matches.append(URL(fileURLWithPath: node.absolutePath, isDirectory: false))
         }
-        return nil
+        return matches
     }
 
     private func scanDirectory(
