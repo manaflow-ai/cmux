@@ -202,6 +202,7 @@ struct SignInView: View {
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .contentShape(.capsule)
+                        .mobileButtonLoading(authManager.isLoading, tint: .white)
                 }
                 .disabled(code.count != 6 || isAuthInProgress)
                 .mobileGlassProminentButton()
