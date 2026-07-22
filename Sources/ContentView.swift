@@ -9480,12 +9480,7 @@ struct ContentView: View {
                     return false
                 }
                 sidebarState.isVisible = true
-                if WorkspaceTodoFeature.checklistStyle == .popover {
-                    checklistPopoverWorkspaceId = workspaceID
-                } else {
-                    expandedChecklistWorkspaceIds.insert(workspaceID)
-                }
-                checklistAddFieldActivationTokens[workspaceID, default: 0] += 1
+                WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspaceID)
                 return true
             }
         )
