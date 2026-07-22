@@ -57,9 +57,17 @@ struct TextBoxIMECompositionLayoutTests {
             window.close()
         }
         var completedLayoutCount = 0
-        textView.onLayoutCompleted = { textView, lineFragmentCount in
+        var markedTextLayoutCount = 0
+        textView.onLayoutCompleted = { textView in
             completedLayoutCount += 1
-            coordinator.recalculateHeight(textView, lineFragmentCount: lineFragmentCount)
+            coordinator.recalculateHeight(textView)
+        }
+        textView.onMarkedTextLayoutChanged = { textView, previousUsedRectHeight in
+            markedTextLayoutCount += 1
+            coordinator.recalculateMarkedTextHeight(
+                textView,
+                previousUsedRectHeight: previousUsedRectHeight
+            )
         }
         textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
             coordinator?.noteMarkedTextStateChanged(hasMarkedText, from: textView)
@@ -79,16 +87,15 @@ struct TextBoxIMECompositionLayoutTests {
 
         #expect(textView.hasMarkedText())
         #expect(markedTextStates == [true])
-        #expect(textView.needsLayout)
         #expect(completedLayoutCount == 0)
-        textView.layoutSubtreeIfNeeded()
-        #expect(completedLayoutCount == 1)
+        #expect(markedTextLayoutCount == 1)
         #expect(textViewHeight > committedOnlyHeight)
         #expect(textView.frame.height == textViewHeight)
         #expect(textView.needsDisplay)
 
         let firstCompositionHeight = textViewHeight
         completedLayoutCount = 0
+        markedTextLayoutCount = 0
         textView.needsDisplay = false
         let expandedPreedit = String(repeating: "ㄅ", count: 40)
         textView.setMarkedText(
@@ -99,10 +106,8 @@ struct TextBoxIMECompositionLayoutTests {
 
         #expect(textView.hasMarkedText())
         #expect(markedTextStates == [true])
-        #expect(textView.needsLayout)
         #expect(completedLayoutCount == 0)
-        textView.layoutSubtreeIfNeeded()
-        #expect(completedLayoutCount == 1)
+        #expect(markedTextLayoutCount == 1)
         #expect(textViewHeight > firstCompositionHeight)
         #expect(textView.frame.height == textViewHeight)
         #expect(textView.needsDisplay)
@@ -127,6 +132,7 @@ struct TextBoxIMECompositionLayoutTests {
             width: width,
             height: CGFloat.greatestFiniteMagnitude
         )
+        textView.layoutManager?.allowsNonContiguousLayout = true
         textView.textContainerInset = TextBoxLayout.textInset
         textView.textContainer?.lineFragmentPadding = 0
         return textView
