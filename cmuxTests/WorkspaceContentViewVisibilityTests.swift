@@ -82,18 +82,50 @@ final class WorkspaceContentViewVisibilityTests {
         var searchStart = source.startIndex
         while let workItemRange = source.range(of: "DispatchWorkItem", range: searchStart..<source.endIndex) {
             searchStart = workItemRange.upperBound
-            guard let openingBrace = source[workItemRange.upperBound...].firstIndex(of: "{") else {
-                continue
-            }
-            guard !source[workItemRange.upperBound..<openingBrace].contains("\n") else {
-                continue
-            }
-
-            var next = source.index(after: openingBrace)
+            var next = workItemRange.upperBound
             while next < source.endIndex, source[next].isWhitespace {
                 next = source.index(after: next)
             }
-            if next < source.endIndex, source[next] == "[" {
+
+            let openingBrace: String.Index?
+            if next < source.endIndex, source[next] == "{" {
+                openingBrace = next
+            } else if next < source.endIndex, source[next] == "(" {
+                var depth = 0
+                var index = next
+                var closureBrace: String.Index?
+                while index < source.endIndex {
+                    switch source[index] {
+                    case "(":
+                        depth += 1
+                    case ")":
+                        depth -= 1
+                        if depth == 0 {
+                            index = source.endIndex
+                            continue
+                        }
+                    case "{":
+                        closureBrace = index
+                        index = source.endIndex
+                        continue
+                    default:
+                        break
+                    }
+                    if index < source.endIndex {
+                        index = source.index(after: index)
+                    }
+                }
+                openingBrace = closureBrace
+            } else {
+                continue
+            }
+            guard let openingBrace else { continue }
+
+            var closureStart = source.index(after: openingBrace)
+            while closureStart < source.endIndex, source[closureStart].isWhitespace {
+                closureStart = source.index(after: closureStart)
+            }
+            if closureStart < source.endIndex, source[closureStart] == "[" {
                 continue
             }
             references.append(lineReference(in: source, at: workItemRange.lowerBound))
@@ -136,17 +168,19 @@ final class WorkspaceContentViewVisibilityTests {
             "scheduleSidebarResizerCursorRelease",
             "requestCommandPaletteFocusRestore",
         ]
-        let functionsConstructingWorkItems = try coalescedReplacementFunctions.compactMap { name -> String? in
+        let functionsConstructingGCDWork = try coalescedReplacementFunctions.compactMap { name -> String? in
             let body = try Self.functionBody(named: name, in: source)
-            guard body.contains("DispatchWorkItem") else { return nil }
+            guard body.contains("DispatchWorkItem")
+                || body.contains("DispatchQueue.main.async")
+                || body.contains("DispatchQueue.main.asyncAfter") else { return nil }
             return name
         }
         #expect(
-            functionsConstructingWorkItems.isEmpty,
+            functionsConstructingGCDWork.isEmpty,
             """
             High-frequency ContentView replacement paths must use generation tokens or another \
-            reference-free invalidation scheme instead of constructing DispatchWorkItems:
-            \(functionsConstructingWorkItems.joined(separator: "\n"))
+            reference-free invalidation scheme instead of constructing GCD work:
+            \(functionsConstructingGCDWork.joined(separator: "\n"))
             """
         )
     }

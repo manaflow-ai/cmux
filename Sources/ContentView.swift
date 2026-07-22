@@ -867,7 +867,6 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    @State private var sidebarResizerCursorReleaseGeneration: UInt64 = 0
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
@@ -897,8 +896,7 @@ struct ContentView: View {
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
     @State private var cachedDefaultTerminalIsDefault = DefaultTerminalRegistration.currentStatus().isDefault
-    @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
-    @State private var commandPaletteRestoreTimeoutGeneration: UInt64 = 0
+    @State private var commandPaletteFocusRestoreCoordinator = CommandPaletteFocusRestoreCoordinator()
     @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
@@ -939,6 +937,30 @@ struct ContentView: View {
         let workspaceId: UUID
         let panelId: UUID
         let intent: PanelFocusIntent
+    }
+
+    @MainActor
+    private final class CommandPaletteFocusRestoreCoordinator {
+        private let clock = ContinuousClock()
+        private var timeoutTask: Task<Void, Never>?
+        private(set) var pendingTarget: CommandPaletteRestoreFocusTarget?
+
+        func request(target: CommandPaletteRestoreFocusTarget) {
+            pendingTarget = target
+            timeoutTask?.cancel()
+            timeoutTask = Task { [weak self, clock] in
+                try? await clock.sleep(for: .milliseconds(500))
+                guard let self, !Task.isCancelled else { return }
+                pendingTarget = nil
+                timeoutTask = nil
+            }
+        }
+
+        func clear() {
+            timeoutTask?.cancel()
+            timeoutTask = nil
+            pendingTarget = nil
+        }
     }
 
     static func tmuxWorkspacePaneExactRect(
@@ -1349,7 +1371,6 @@ struct ContentView: View {
     }
 
     private func activateSidebarResizerCursor() {
-        sidebarResizerCursorReleaseGeneration &+= 1
         isSidebarResizerCursorActive = true
         Self.fixedSidebarResizeCursor.set()
     }
@@ -1364,18 +1385,8 @@ struct ContentView: View {
         NSCursor.arrow.set()
     }
 
-    private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: TimeInterval = 0) {
-        sidebarResizerCursorReleaseGeneration &+= 1
-        let generation = sidebarResizerCursorReleaseGeneration
-        let release = {
-            guard sidebarResizerCursorReleaseGeneration == generation else { return }
-            releaseSidebarResizerCursorIfNeeded(force: force)
-        }
-        if delay > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: release)
-        } else {
-            DispatchQueue.main.async(execute: release)
-        }
+    private func scheduleSidebarResizerCursorRelease(force: Bool = false) {
+        releaseSidebarResizerCursorIfNeeded(force: force)
     }
 
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
@@ -1600,9 +1611,7 @@ struct ContentView: View {
                         // cursorUpdate events from overlapping views do not flash arrow.
                         activateSidebarResizerCursor()
                     } else {
-                        // Give mouse-down + drag-start callbacks time to establish state
-                        // before any cursor pop is attempted.
-                        scheduleSidebarResizerCursorRelease(delay: 0.05)
+                        scheduleSidebarResizerCursorRelease()
                     }
                 }
                 updateSidebarResizerBandState()
@@ -9448,22 +9457,15 @@ struct ContentView: View {
     }
 
     private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
-        commandPalettePendingDismissFocusTarget = target
-        commandPaletteRestoreTimeoutGeneration &+= 1
-        let generation = commandPaletteRestoreTimeoutGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            guard commandPaletteRestoreTimeoutGeneration == generation else { return }
-            commandPalettePendingDismissFocusTarget = nil
-        }
+        commandPaletteFocusRestoreCoordinator.request(target: target)
         attemptCommandPaletteFocusRestoreIfNeeded()
     }
 
     private func attemptCommandPaletteFocusRestoreIfNeeded() {
         guard !isCommandPalettePresented else { return }
-        guard let target = commandPalettePendingDismissFocusTarget else { return }
+        guard let target = commandPaletteFocusRestoreCoordinator.pendingTarget else { return }
         guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
-            commandPaletteRestoreTimeoutGeneration &+= 1
-            commandPalettePendingDismissFocusTarget = nil
+            commandPaletteFocusRestoreCoordinator.clear()
             return
         }
 
@@ -9483,8 +9485,7 @@ struct ContentView: View {
             return
         }
         guard context.panel.restoreFocusIntent(target.intent) else { return }
-        commandPaletteRestoreTimeoutGeneration &+= 1
-        commandPalettePendingDismissFocusTarget = nil
+        commandPaletteFocusRestoreCoordinator.clear()
     }
 
 #if DEBUG
