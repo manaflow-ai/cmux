@@ -9358,7 +9358,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if case .failed(let code) = agentSurfaceLaunchExecutor.submitPrompt(
             surfaceID: surfaceId,
-            text: text
+            text: text,
+            ticketID: nil
         ) {
             NSLog("[AgentPrompt] Feed reply failed for surface %@: %@", surfaceId, code)
         }

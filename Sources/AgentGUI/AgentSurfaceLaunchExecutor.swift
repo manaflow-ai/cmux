@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 
 @MainActor
 final class AgentSurfaceLaunchExecutor: AgentLaunchExecuting {
@@ -17,7 +18,7 @@ final class AgentSurfaceLaunchExecutor: AgentLaunchExecuting {
         terminalInjector.typeLaunchCommand(surfaceID: surfaceID, command: command)
     }
 
-    func submitPrompt(surfaceID: String, text: String) -> AgentLaunchExecutionResult {
-        service.submitCmuxOwnedPrompt(surfaceID: surfaceID, text: text)
+    func submitPrompt(surfaceID: String, text: String, ticketID: UUID?) -> AgentLaunchExecutionResult {
+        service.submitCmuxOwnedPrompt(surfaceID: surfaceID, text: text, ticketID: ticketID)
     }
 }

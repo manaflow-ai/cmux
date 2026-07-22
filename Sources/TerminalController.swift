@@ -14495,7 +14495,7 @@ class TerminalController {
         }
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
-        if submitKeyName != nil, let agentResult = handleCmuxOwnedMobileAgentInput(text: text, surfaceID: surfaceId, workspaceID: resolved.workspace.id, terminalPanel: terminalPanel) { return agentResult }
+        if submitKeyName != nil, let agentResult = handleCmuxOwnedMobileAgentInput(params: params, text: text, surfaceID: surfaceId, workspaceID: resolved.workspace.id, terminalPanel: terminalPanel) { return agentResult }
         // Send through the TerminalPanel explicit-input wrappers (not the raw
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile

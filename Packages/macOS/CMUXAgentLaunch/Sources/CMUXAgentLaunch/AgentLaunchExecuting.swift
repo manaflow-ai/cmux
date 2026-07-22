@@ -1,3 +1,5 @@
+import Foundation
+
 /// Performs the terminal mutations selected by ``AgentLaunchGuard``.
 @MainActor
 public protocol AgentLaunchExecuting: AnyObject {
@@ -14,6 +16,7 @@ public protocol AgentLaunchExecuting: AnyObject {
     /// - Parameters:
     ///   - surfaceID: The stable terminal surface identifier.
     ///   - text: The prompt to submit.
+    ///   - ticketID: A client-minted idempotency identifier, when available.
     /// - Returns: Whether the full input sequence was accepted or phase-gated into a queue.
-    func submitPrompt(surfaceID: String, text: String) -> AgentLaunchExecutionResult
+    func submitPrompt(surfaceID: String, text: String, ticketID: UUID?) -> AgentLaunchExecutionResult
 }

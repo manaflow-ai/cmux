@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct MobileTerminalPasteAgentRoutingTests {
     @Test func unflaggedAgentPrefixedTextUsesOrdinaryPastePath() throws {
-        try withRunningAgentHarness { controller, workspace, panel in
+        try Self.withRunningAgentHarness { controller, workspace, panel in
             let result = controller.v2MobileTerminalPaste(params: [
                 "workspace_id": workspace.id.uuidString,
                 "surface_id": panel.id.uuidString,
@@ -25,12 +25,12 @@ struct MobileTerminalPasteAgentRoutingTests {
             #expect(payload["launch_suppressed"] == nil)
             #expect(pending.pasteTextItems == 1)
             #expect(pending.keyEvents == 1)
-            #expect(pending.bytes == "claude doctor says this is fine".utf8.count)
+            #expect(panel.surface.debugPendingPasteTextsForTesting() == ["claude doctor says this is fine"])
         }
     }
 
     @Test func flaggedPromptLaunchIntoRunningAgentReroutesOnlyPrompt() throws {
-        try withRunningAgentHarness { controller, workspace, panel in
+        try Self.withRunningAgentHarness { controller, workspace, panel in
             let prompt = "Answer only 42"
             let result = controller.v2MobileTerminalPaste(params: [
                 "workspace_id": workspace.id.uuidString,
@@ -48,7 +48,7 @@ struct MobileTerminalPasteAgentRoutingTests {
             #expect(payload["launch_suppressed"] == nil)
             #expect(pending.pasteTextItems == 1)
             #expect(pending.keyEvents == 4)
-            #expect(pending.bytes == prompt.utf8.count)
+            #expect(panel.surface.debugPendingPasteTextsForTesting() == [prompt])
         }
     }
 

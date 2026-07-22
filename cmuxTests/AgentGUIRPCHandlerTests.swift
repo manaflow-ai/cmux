@@ -221,6 +221,36 @@ struct AgentGUIRPCHandlerTests {
         #expect(injector.prompts == ["first delivery"])
     }
 
+    @Test func cmuxOwnedPromptUsesClientTicketForSessionIdempotency() {
+        let injector = RPCFakeAgentGUITerminalInjector()
+        let service = AgentGUIService(macDeviceID: "mac-test", terminalInjector: injector)
+        let surfaceID = UUID().uuidString
+        let ticketID = UUID()
+        service.handleHookEventSerial(WorkstreamEvent(
+            sessionId: "session-ticket",
+            hookEventName: .sessionStart,
+            source: "codex",
+            surfaceId: surfaceID,
+            cwd: "/repo",
+            ppid: 123
+        ))
+
+        let first = service.submitCmuxOwnedPrompt(
+            surfaceID: surfaceID,
+            text: "first delivery",
+            ticketID: ticketID
+        )
+        let retry = service.submitCmuxOwnedPrompt(
+            surfaceID: surfaceID,
+            text: "retry must not inject",
+            ticketID: ticketID
+        )
+
+        #expect(first == .accepted)
+        #expect(retry == .accepted)
+        #expect(injector.prompts == ["first delivery"])
+    }
+
     private static func okPayload(_ result: MobileHostRPCResult?) throws -> [String: Any] {
         guard case .ok(let payload)? = result,
               let dictionary = payload as? [String: Any] else {

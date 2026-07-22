@@ -5,7 +5,7 @@ import Foundation
 public final class AgentLaunchGuard {
     private let observer: any AgentLaunchObserving
     private let executor: any AgentLaunchExecuting
-    private var pendingSurfaceIDs: Set<String> = []
+    private var requiredPostLaunchObservationBySurfaceID: [String: UInt64] = [:]
 
     /// Creates a guard with injected observation and terminal mutation seams.
     ///
@@ -19,9 +19,10 @@ public final class AgentLaunchGuard {
 
     /// Performs a guarded launch or reroutes its prompt to the running agent.
     ///
-    /// A successful launch claims the surface until an agent observation appears or an ended
-    /// session is observed. This closes the window where two quick requests both see the same
-    /// idle shell before the launched process becomes observable.
+    /// A successful launch claims the surface until its cache-bypassing post-launch process
+    /// observation completes. Observations started before the launch cannot release that claim.
+    /// A post-launch observation that still sees an idle shell releases a failed or instant-exit
+    /// launch.
     ///
     /// - Parameters:
     ///   - surfaceID: The stable terminal surface identifier.
@@ -34,14 +35,16 @@ public final class AgentLaunchGuard {
         intent: AgentLaunchIntent
     ) -> AgentLaunchGuardResult {
         let state = observer.agentLaunchState(surfaceID: surfaceID)
-        if state != .idleShell {
-            pendingSurfaceIDs.remove(surfaceID)
+        let observationGeneration = observer.agentLaunchObservationGeneration(surfaceID: surfaceID)
+        if state != .idleShell
+            || requiredPostLaunchObservationBySurfaceID[surfaceID].map({ observationGeneration >= $0 }) == true {
+            requiredPostLaunchObservationBySurfaceID.removeValue(forKey: surfaceID)
         }
 
         if state == .runningAgent {
             return handleRunningAgent(surfaceID: surfaceID, intent: intent)
         }
-        if pendingSurfaceIDs.contains(surfaceID) {
+        if requiredPostLaunchObservationBySurfaceID[surfaceID] != nil {
             return .suppressed(.launchAlreadyPending)
         }
 
@@ -49,25 +52,15 @@ public final class AgentLaunchGuard {
         guard !trimmedCommand.isEmpty else {
             return .failed("empty_launch_command")
         }
-        pendingSurfaceIDs.insert(surfaceID)
+        requiredPostLaunchObservationBySurfaceID[surfaceID] = .max
         switch executor.typeLaunchCommand(surfaceID: surfaceID, command: trimmedCommand) {
         case .accepted, .queued:
-            return submitInitialPromptIfNeeded(surfaceID: surfaceID, intent: intent)
-        case .failed(let code):
-            pendingSurfaceIDs.remove(surfaceID)
-            return .failed(code)
-        }
-    }
-
-    private func submitInitialPromptIfNeeded(
-        surfaceID: String,
-        intent: AgentLaunchIntent
-    ) -> AgentLaunchGuardResult {
-        guard case .launchThenSubmitPrompt(let prompt) = intent else { return .launched }
-        switch executor.submitPrompt(surfaceID: surfaceID, text: prompt) {
-        case .accepted, .queued:
+            requiredPostLaunchObservationBySurfaceID[surfaceID] = observer.requestAgentLaunchObservation(
+                surfaceID: surfaceID
+            )
             return .launched
         case .failed(let code):
+            requiredPostLaunchObservationBySurfaceID.removeValue(forKey: surfaceID)
             return .failed(code)
         }
     }
@@ -79,8 +72,8 @@ public final class AgentLaunchGuard {
         switch intent {
         case .launchOnly:
             return .suppressed(.agentAlreadyRunning)
-        case .launchThenSubmitPrompt(let prompt):
-            switch executor.submitPrompt(surfaceID: surfaceID, text: prompt) {
+        case .launchThenSubmitPrompt(let prompt, let ticketID):
+            switch executor.submitPrompt(surfaceID: surfaceID, text: prompt, ticketID: ticketID) {
             case .accepted:
                 return .promptRerouted(queued: false)
             case .queued:

@@ -25,6 +25,7 @@ final class AgentGUIService {
     private var reevaluationTimer: DispatchSourceTimer?
     private var pipelines: [AgentSessionID: AgentGUIJournalPipeline] = [:]
     private var sendLedgers: [AgentSessionID: AgentGUISendLedger] = [:]
+    private let fallbackPromptLedger: AgentGUIFallbackPromptLedger
     private let askRegistry: AgentGUIAskRegistry
     private let incrementalState = AgentGUIIncrementalState()
     private var streamProducer: AgentGUIStreamProducer?
@@ -52,6 +53,7 @@ final class AgentGUIService {
         self.hasEventSubscribers = hasEventSubscribers
         let resolvedTerminalInjector = terminalInjector ?? AgentGUITerminalInjector()
         self.terminalInjector = resolvedTerminalInjector
+        self.fallbackPromptLedger = AgentGUIFallbackPromptLedger(clock: clock)
         self.askRegistry = AgentGUIAskRegistry(
             clock: clock,
             injector: resolvedTerminalInjector,
@@ -216,13 +218,15 @@ final class AgentGUIService {
         let matches = reducer.snapshots.values.filter { $0.surfaceID == surfaceID }
         return matches.first(where: { $0.phase != .ended }) ?? matches.first
     }
-    func submitCmuxOwnedPrompt(surfaceID: String, text: String, ticketID _: UUID? = nil) -> AgentLaunchExecutionResult {
+    func submitCmuxOwnedPrompt(surfaceID: String, text: String, ticketID: UUID? = nil) -> AgentLaunchExecutionResult {
         guard let snapshot = sessionSnapshot(surfaceID: surfaceID), snapshot.phase != .ended else {
-            return launchExecutionResult(terminalInjector.submitPrompt(surfaceID: surfaceID, text: text))
+            return fallbackPromptLedger.submit(surfaceID: surfaceID, ticketID: ticketID) {
+                terminalInjector.submitPrompt(surfaceID: surfaceID, text: text)
+            }
         }
         do {
             let result = try ledger(sessionID: snapshot.id).submit(
-                ticketID: UUID(),
+                ticketID: ticketID ?? UUID(),
                 text: text,
                 attachmentCount: 0,
                 snapshot: snapshot
@@ -235,6 +239,7 @@ final class AgentGUIService {
             return .failed("prompt_injection_failed")
         }
     }
+
     /// Wire attachment descriptors are rejected with `send_rejected` and `attachment_unsupported` until binary transfer is implemented.
     func sendResult(params: GuiSendParams) throws -> GuiSendResult {
         guard let ticketID = UUID(uuidString: params.ticketID) else {
@@ -265,20 +270,6 @@ final class AgentGUIService {
         return result
     }
 
-    private func launchExecutionResult(
-        _ result: AgentGUITerminalInjectionResult
-    ) -> AgentLaunchExecutionResult {
-        switch result {
-        case .accepted:
-            .accepted
-        case .bindingLost:
-            .failed("binding_lost")
-        case .inputQueueFull:
-            .failed("input_queue_full")
-        case .processExited:
-            .failed("process_exited")
-        }
-    }
     func interruptResult(params: GuiInterruptParams) throws -> GuiInterruptResult {
         guard let snapshot = reducer.snapshot(for: params.sessionID) else {
             throw AgentGUIRPCError.notFound

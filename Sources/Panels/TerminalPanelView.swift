@@ -149,7 +149,8 @@ struct TerminalPanelView: View {
                         }
                         return executor.submitPrompt(
                             surfaceID: panel.id.uuidString,
-                            text: prompt
+                            text: prompt,
+                            ticketID: nil
                         )
                     },
                     onRecordLaunchCommand: { command in

@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 @Suite
@@ -199,7 +200,7 @@ private final class FakeAgentLaunchExecutor: AgentLaunchExecuting {
         return launchResult
     }
 
-    func submitPrompt(surfaceID: String, text: String) -> AgentLaunchExecutionResult {
+    func submitPrompt(surfaceID: String, text: String, ticketID: UUID?) -> AgentLaunchExecutionResult {
         prompts.append(text)
         return promptResult
     }

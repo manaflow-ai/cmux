@@ -1,6 +1,52 @@
+import CMUXAgentLaunch
 import CmuxAgentReplica
 import CmuxAgentWire
 import Foundation
+
+@MainActor
+final class AgentGUIFallbackPromptLedger {
+    private let clock: () -> Int
+    private var acceptedTickets: [String: Int] = [:]
+
+    init(clock: @escaping () -> Int) {
+        self.clock = clock
+    }
+
+    func submit(
+        surfaceID: String,
+        ticketID: UUID?,
+        inject: () -> AgentGUITerminalInjectionResult
+    ) -> AgentLaunchExecutionResult {
+        let now = clock()
+        acceptedTickets = acceptedTickets.filter {
+            now - $0.value < AgentGUIConstants.sendTicketIdempotencyWindowMS
+        }
+        let ticketKey = ticketID.map { "\(surfaceID):\($0.uuidString)" }
+        if let ticketKey, acceptedTickets[ticketKey] != nil {
+            return .accepted
+        }
+
+        let injection = inject()
+        guard injection.accepted, let ticketKey else {
+            return launchResult(injection)
+        }
+        acceptedTickets[ticketKey] = now
+        if acceptedTickets.count > AgentGUIConstants.resolvedSendTicketRetentionLimit,
+           let oldest = acceptedTickets.min(by: { $0.value < $1.value })?.key {
+            acceptedTickets.removeValue(forKey: oldest)
+        }
+        return .accepted
+    }
+
+    private func launchResult(_ result: AgentGUITerminalInjectionResult) -> AgentLaunchExecutionResult {
+        switch result {
+        case .accepted: .accepted
+        case .bindingLost: .failed("binding_lost")
+        case .inputQueueFull: .failed("input_queue_full")
+        case .processExited: .failed("process_exited")
+        }
+    }
+}
 
 @MainActor
 final class AgentGUISendLedger {
@@ -91,7 +137,9 @@ final class AgentGUISendLedger {
             failQueuedTickets()
             return
         }
-        guard previous != nil, previous != .idle, snapshot.phase == .idle else { return }
+        let enteredIdle = previous != nil && previous != .idle && snapshot.phase == .idle
+        let workingBecameNeedsInput = previous == .working && snapshot.phase == .needsInput
+        guard enteredIdle || workingBecameNeedsInput else { return }
         injectNextQueued(snapshot: snapshot)
     }
 
@@ -242,7 +290,7 @@ final class AgentGUISendLedger {
     }
 
     private func shouldQueue(phase: SessionPhase) -> Bool {
-        phase == .working || phase == .needsInput
+        phase == .working
     }
 
     private func normalized(_ value: String) -> String {
