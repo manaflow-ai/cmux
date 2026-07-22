@@ -12,6 +12,8 @@ public enum ArtifactStoreError: Error, Equatable, Sendable {
     case artifactNotFound(String)
     /// A name matched more than one artifact and requires a more specific path.
     case ambiguousArtifactName(String, matches: [String])
+    /// A bounded filesystem scan stopped before it could produce an authoritative result.
+    case scanIncomplete(String)
     /// The resolved path escaped the artifact store boundary.
     case pathOutsideStore(String)
     /// Existing content-addressed provenance could not be decoded safely.

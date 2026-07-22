@@ -33,10 +33,10 @@ struct ArtifactScanBoundaryTests {
         _ = try ArtifactTestSupport.write("two", named: "two.md", under: artifactRoot)
         let repository = LocalArtifactRepository(nodeBudget: 1)
 
-        await #expect(throws: ArtifactStoreError.self) {
+        await #expect(throws: ArtifactStoreError.scanIncomplete(artifactRoot.path)) {
             _ = try await repository.snapshot(projectRoot: root)
         }
-        await #expect(throws: ArtifactStoreError.self) {
+        await #expect(throws: ArtifactStoreError.scanIncomplete(artifactRoot.path)) {
             _ = try await repository.search(projectRoot: root, query: "one")
         }
     }

@@ -10,6 +10,22 @@ struct ShellArtifactMutationPathDetector: Sendable {
 
     func paths(in command: String) -> [String] {
         let tokens = tokenize(command)
+        return paths(in: tokens)
+    }
+
+    /// Returns mutation targets only when one successful status attributes execution directly.
+    func pathsAttributedToSuccessfulCommand(in command: String) -> [String] {
+        let tokens = tokenize(command)
+        guard !tokens.contains(where: { token in
+            if case .boundary = token { return true }
+            return false
+        }), !containsCompoundGrouping(command) else {
+            return []
+        }
+        return paths(in: tokens)
+    }
+
+    private func paths(in tokens: [Token]) -> [String] {
         var paths: [String] = []
         var seen: Set<String> = []
 
@@ -30,6 +46,31 @@ struct ShellArtifactMutationPathDetector: Sendable {
         }
 
         return paths
+    }
+
+    private func containsCompoundGrouping(_ command: String) -> Bool {
+        var quote: Character?
+        var escaped = false
+        for character in command {
+            if escaped {
+                escaped = false
+                continue
+            }
+            if character == "\\", quote != "'" {
+                escaped = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote { quote = nil }
+                continue
+            }
+            if character == "'" || character == "\"" {
+                quote = character
+            } else if "(){}".contains(character) {
+                return true
+            }
+        }
+        return false
     }
 
     private func tokenize(_ command: String) -> [Token] {

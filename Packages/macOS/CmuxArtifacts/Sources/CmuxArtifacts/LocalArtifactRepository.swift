@@ -97,7 +97,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
     public func snapshot(projectRoot: URL) throws -> ArtifactSnapshot {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         try prepare(paths: paths)
-        return try scanner.snapshot(paths: paths)
+        return try completeSnapshot(paths: paths)
     }
 
     /// Searches fuzzy filenames and bounded UTF-8 contents from a live scan.
@@ -140,11 +140,16 @@ public actor LocalArtifactRepository: ArtifactStoring {
     /// Resolves an exact relative path, unique basename, or unique fuzzy match.
     public func resolve(projectRoot: URL, name rawName: String) throws -> ArtifactNode {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let snapshot = try snapshot(projectRoot: projectRoot)
-        let files = snapshot.nodes.flattenedArtifactNodes().filter { !$0.isDirectory }
-        if let exact = files.first(where: { $0.relativePath == name }) {
+        let paths = ArtifactStorePaths(projectRoot: projectRoot)
+        try prepare(paths: paths)
+        if let exact = try ArtifactExactPathResolver().fileNode(
+            relativePath: name,
+            paths: paths
+        ) {
             return exact
         }
+        let snapshot = try completeSnapshot(paths: paths)
+        let files = snapshot.nodes.flattenedArtifactNodes().filter { !$0.isDirectory }
         let basenameMatches = files.filter { $0.name == name }
         if basenameMatches.count == 1, let match = basenameMatches.first { return match }
         if basenameMatches.count > 1 {
@@ -197,6 +202,14 @@ public actor LocalArtifactRepository: ArtifactStoring {
             maximumDepth: maximumScanDepth,
             nodeBudget: nodeBudget
         )
+    }
+
+    private func completeSnapshot(paths: ArtifactStorePaths) throws -> ArtifactSnapshot {
+        let snapshot = try scanner.snapshot(paths: paths)
+        guard !snapshot.isTruncated else {
+            throw ArtifactStoreError.scanIncomplete(paths.artifactsRoot.path)
+        }
+        return snapshot
     }
 
     func prepare(paths: ArtifactStorePaths) throws {
