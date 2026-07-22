@@ -24,6 +24,8 @@ struct BrowserWebExtensionOperationErrorPayloadTests {
         #expect(payload.method == "browser.extensions.add")
         #expect(errorData["domain"] as? String == error.domain)
         #expect(errorData["code"] as? Int == error.code)
+        #expect(Set(payload.foundationData.keys) == ["method", "error"])
+        #expect(Set(errorData.keys) == ["domain", "code"])
         #expect(payload.debugDescription == nil)
         #expect(!payload.message.contains(sentinel))
         #expect(!wireDescription.contains(sentinel))

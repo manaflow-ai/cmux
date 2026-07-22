@@ -8546,10 +8546,21 @@ class TerminalController {
                 )
             }
         } catch {
+            let includeDebugDescription: Bool
+#if DEBUG
+            includeDebugDescription = true
+#else
+            includeDebugDescription = false
+#endif
+            let payload = BrowserWebExtensionOperationErrorPayload(
+                method: method,
+                error: error,
+                includeDebugDescription: includeDebugDescription
+            )
             return .err(
                 code: "extension_error",
-                message: error.localizedDescription,
-                data: ["method": method]
+                message: payload.message,
+                data: payload.foundationData
             )
         }
     }

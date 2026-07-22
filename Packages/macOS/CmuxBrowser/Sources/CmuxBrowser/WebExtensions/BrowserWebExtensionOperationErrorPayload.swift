@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 public struct BrowserWebExtensionOperationErrorPayload: Equatable, Sendable {
     public let message: String
@@ -13,12 +13,14 @@ public struct BrowserWebExtensionOperationErrorPayload: Equatable, Sendable {
         includeDebugDescription: Bool
     ) {
         let nsError = error as NSError
-        let description = error.localizedDescription
-        self.message = description
+        self.message = String(
+            localized: "cli.browser.extensions.error.operationFailed",
+            defaultValue: "Extension operation failed"
+        )
         self.method = method
         self.errorDomain = nsError.domain
         self.errorCode = nsError.code
-        self.debugDescription = description
+        self.debugDescription = includeDebugDescription ? error.localizedDescription : nil
     }
 
     public var foundationData: [String: Any] {
