@@ -2861,6 +2861,37 @@ mod tests {
     }
 
     #[test]
+    fn reconnect_open_failure_preserves_snapshot_notice() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (_first_stream, _first_reader) = serve_initial_snapshot(
+                &listener,
+                snapshot(1, "Before reconnect", protocol::MachineStatus::Running),
+            );
+            let mut reconnected =
+                snapshot(2, "Still provisioning", protocol::MachineStatus::Connecting);
+            reconnected.notice = Some(protocol::ProviderNotice {
+                level: protocol::NoticeLevel::Warning,
+                message: "provider maintenance".into(),
+            });
+            let (_second_stream, _second_reader) = serve_initial_snapshot(&listener, reconnected);
+            finished.recv().unwrap();
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let result = runtime.perform_request(MachineRequest::ReconnectProvider).unwrap();
+        let notice = result.ui.notice.as_deref().unwrap();
+
+        finish.send(()).unwrap();
+        assert!(notice.contains("provider maintenance"));
+        assert!(notice.contains(localization::catalog().sidebar.machine_reconnect_failed));
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn deleting_open_managed_machine_restarts_updates_for_replacement() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
