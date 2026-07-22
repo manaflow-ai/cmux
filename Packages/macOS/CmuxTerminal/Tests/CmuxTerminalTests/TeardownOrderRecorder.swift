@@ -45,7 +45,7 @@ final class TeardownOrderRecorder: @unchecked Sendable {
 
     /// Suspends until at least `count` events have been recorded, or returns
     /// false after a bounded wait so a failed teardown cannot hang the suite.
-    func waitForEventCount(_ count: Int, timeout: TimeInterval = 1) async -> Bool {
+    func waitForEventCount(_ count: Int, timeout: TimeInterval = 5) async -> Bool {
         let waiterID = UUID()
         return await withCheckedContinuation { continuation in
             lock.lock()

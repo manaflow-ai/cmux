@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import Foundation
 import GhosttyKit
 import Testing
@@ -40,8 +41,12 @@ import Testing
 
     @Test func agentHibernationSuspendKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
-        let surface = makeSurface()
-        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer { runtimeSurface.deallocate() }
         surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
             recorder.record(.nativeFree)
@@ -143,7 +148,9 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
-    private func makeSurface() -> TerminalSurface {
+    private func makeSurface(
+        registry: any TerminalSurfaceRegistering = FakeSurfaceRegistry()
+    ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         return TerminalSurface(
@@ -151,7 +158,7 @@ import Testing
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             dependencies: TerminalSurfaceRuntimeDependencies(
-                registry: FakeSurfaceRegistry(),
+                registry: registry,
                 engine: FakeTerminalEngine(),
                 viewProvider: FakeTerminalSurfaceViewProvider(surfaceView: nativeView, paneHost: paneHost),
                 spawnPolicy: FakeSpawnPolicyProvider(),
