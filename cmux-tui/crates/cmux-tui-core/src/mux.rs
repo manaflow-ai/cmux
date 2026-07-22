@@ -548,6 +548,10 @@ pub struct Mux {
 }
 
 impl Mux {
+    fn default_workspace_name(state: &State) -> String {
+        state.workspaces.len().to_string()
+    }
+
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
         Self::new_with_test_surface_runtime(session, surface_options, false)
     }
@@ -1968,7 +1972,7 @@ impl Mux {
         let notifications = self.surface_notifications();
         let delta = {
             let mut state = self.state.lock().unwrap();
-            let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            let name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
             state.insert_pane(pane);
             stamp_pane_focus(self, &mut state, pane_id);
             state.push_workspace(Workspace {
@@ -2038,7 +2042,7 @@ impl Mux {
                 anyhow::bail!("workspace key already exists: {key}");
             }
             let ws_id = self.next_id();
-            let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            let name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
             let selection_resync = !state.workspaces.is_empty();
             state.push_workspace(Workspace {
                 id: ws_id,
@@ -2098,8 +2102,7 @@ impl Mux {
             let notifications = self.surface_notifications();
             let delta = {
                 let mut state = self.state.lock().unwrap();
-                let workspace_name =
-                    name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+                let workspace_name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
                 state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.push_workspace(Workspace {
@@ -2602,7 +2605,7 @@ impl Mux {
             let notifications = self.surface_notifications();
             let delta = {
                 let mut state = self.state.lock().unwrap();
-                let name = format!("{}", state.workspaces.len() + 1);
+                let name = Self::default_workspace_name(&state);
                 state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.push_workspace(Workspace {

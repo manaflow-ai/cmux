@@ -79,7 +79,7 @@ Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a 
 
 ## Number Selection
 
-`0` through `9` are regular configurable screen-selection bindings. The old `Ctrl-b 1` through `Ctrl-b 9` tab selectors can be restored with `select-tab-1` through `select-tab-9`.
+`0` through `9` are regular configurable screen-selection bindings. Zero-based tab selectors are available as `select-tab-0` through `select-tab-9`; they are unbound by default because the number keys select screens.
 
 ## Remapping
 
@@ -94,8 +94,8 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "alt_shortcuts": false,
     "new-tab": ["t", "alt+t"],
     "new-pane-smart": "alt+n",
+    "select-screen-0": "0",
     "select-screen-1": "1",
-    "select-screen-2": "2",
     "next-screen": ["n", "alt+]"],
     "prev-screen": ["p", "alt+["],
     "focus-left": ["h", "left", "alt+h", "alt+left"],
@@ -103,7 +103,7 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "rename-screen": ",",
     "close-pane": "x",
     "close-tab": "X",
-    "select-tab-1": "none"
+    "select-tab-0": "none"
   }
 }
 ```
@@ -116,6 +116,7 @@ new_browser_tab
 new-pane-smart
 next-tab
 prev-tab
+select-tab-0
 select-tab-1
 select-tab-2
 select-tab-3

@@ -379,6 +379,7 @@ assert ident["data"]["protocol"] == 9, ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]
+assert ws0["name"] == "0", ws0
 screen0 = active_screen(ws0)
 panes = screen0["panes"]
 assert len(panes) == 1, ws0
@@ -397,7 +398,7 @@ print("initial surface spawned at final size ok")
 # numbered tab and the + button in the top border.
 drain(0.5)
 text = output.decode("utf-8", "replace")
-assert " 1 " in text, text[-500:]
+assert " 0 " in text, text[-500:]
 assert " + " in text, text[-500:]
 print("always-on tab bar with numbered tab ok")
 
@@ -684,6 +685,7 @@ drain(1.0)
 workspaces = tree()
 assert len(workspaces) == 2, workspaces
 assert workspaces[1]["active"], workspaces
+assert workspaces[1]["name"] == "1", workspaces
 print("prefix-W new workspace ok")
 
 # Drag the original workspace below the new one. Layout: row 0 header,

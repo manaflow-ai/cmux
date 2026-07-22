@@ -75,7 +75,7 @@
 //! chord string, an array of chord strings, or `"none"`. Overrides replace
 //! all default chords for that action. Action names are:
 //! `new-tab`, `new-browser-tab` (alias: `new_browser_tab`),
-//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-1` through
+//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-0` through
 //! `select-tab-9`, `split-right`, `split-down`, `close-tab`,
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
@@ -697,7 +697,7 @@ impl Action {
 
     pub fn tab_index(&self) -> Option<usize> {
         match self {
-            Action::SelectTab(number @ 1..=9) => Some((*number as usize) - 1),
+            Action::SelectTab(number @ 0..=9) => Some(*number as usize),
             _ => None,
         }
     }
@@ -894,6 +894,7 @@ fn all_actions() -> &'static [Action] {
         Action::NewPaneSmart,
         Action::NextTab,
         Action::PrevTab,
+        Action::SelectTab(0),
         Action::SelectTab(1),
         Action::SelectTab(2),
         Action::SelectTab(3),
@@ -1210,7 +1211,7 @@ pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOp
     options.browser_capture_scale = config.browser.capture_scale;
 }
 
-/// The label for a tab: user name if set, otherwise its 1-based number
+/// The label for a tab: user name if set, otherwise its zero-based index
 /// plus a recognized agent program name (or the full title when
 /// `show_titles` is on).
 pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> String {
@@ -1219,7 +1220,7 @@ pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> 
     {
         return name.to_string();
     }
-    let number = index + 1;
+    let number = index;
     let suffix = if tabs.show_titles {
         (!title.is_empty()).then(|| title.to_string())
     } else {
