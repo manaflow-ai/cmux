@@ -2162,6 +2162,104 @@ mod tests {
     }
 
     #[test]
+    fn action_selected_scope_loads_the_selected_scope_snapshot() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let mut personal = snapshot(1, "Personal machine", protocol::MachineStatus::Running);
+        personal.scopes.push(protocol::ScopeDescriptor {
+            id: id("team-1"),
+            display_name: "Team".into(),
+            kind: protocol::ScopeKind::Team,
+            can_admin: true,
+        });
+        let mut team = personal.clone();
+        team.revision = 3;
+        team.selected_scope_id = id("team-1");
+        team.machines[0].id = id("team-machine");
+        team.machines[0].display_name = "Team machine".into();
+        team.selected_machine_id = Some(id("team-machine"));
+
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) = serve_initial_snapshot(&listener, personal.clone());
+
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            let mut refreshed_personal = personal.clone();
+            refreshed_personal.revision = 2;
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, refreshed_personal.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &refreshed_personal);
+
+            let action: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                &action.request,
+                protocol::ProviderRequest::InvokeAction(params)
+                    if params.action_id == id("billing")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    action.id,
+                    protocol::InvokeActionResult {
+                        revision: 3,
+                        notice: None,
+                        url: None,
+                        selected_scope_id: Some(id("team-1")),
+                        selected_machine_id: Some(id("team-machine")),
+                    },
+                ),
+            );
+
+            let selection: protocol::RequestEnvelope = read_frame(&mut reader);
+            match selection.request {
+                protocol::ProviderRequest::SelectScope(params) => {
+                    assert_eq!(params.scope_id, id("team-1"));
+                    write_frame(
+                        &mut stream,
+                        &protocol::ResponseEnvelope::success(
+                            selection.id,
+                            protocol::SelectScopeResult { snapshot: team.clone() },
+                        ),
+                    );
+                    serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &team);
+                }
+                protocol::ProviderRequest::Snapshot(_) => {
+                    // A provider may return the action-selected scope without mutating its
+                    // process-global selection. Refreshing here therefore returns the old scope.
+                    let mut old_scope = personal;
+                    old_scope.revision = 3;
+                    write_frame(
+                        &mut stream,
+                        &protocol::ResponseEnvelope::success(selection.id, old_scope.clone()),
+                    );
+                    serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &old_scope);
+                }
+                request => panic!("unexpected request after provider action: {request:?}"),
+            }
+            finished.recv().unwrap();
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let result = runtime
+            .perform_request(MachineRequest::InvokeProviderAction {
+                action_id: "billing".into(),
+                values: BTreeMap::new(),
+            })
+            .unwrap();
+        finish.send(()).unwrap();
+        server.join().unwrap();
+
+        assert_eq!(runtime.snapshot.selected_scope_id, id("team-1"));
+        assert_eq!(runtime.snapshot.selected_machine_id, Some(id("team-machine")));
+        assert_eq!(runtime.snapshot.machines[0].id, id("team-machine"));
+        assert_eq!(runtime.machine_lifecycle_snapshot.scope_id, id("team-1"));
+        assert_eq!(result.ui.snapshot.machines[0].id, "team-machine");
+    }
+
+    #[test]
     fn failed_candidate_open_preserves_the_current_machine_transport() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
@@ -2396,6 +2494,63 @@ mod tests {
         finish.send(()).unwrap();
         drop(runtime);
         server.join().unwrap();
+    }
+
+    #[test]
+    fn stale_connection_closed_event_preserves_the_current_connection() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (trigger, triggered) = mpsc::channel();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) = serve_initial_snapshot(
+                &listener,
+                snapshot(1, "Machine", protocol::MachineStatus::Running),
+            );
+            triggered.recv().unwrap();
+            write_frame(
+                &mut stream,
+                &protocol::EventEnvelope::new(protocol::ProviderEvent::ConnectionClosed(
+                    protocol::ConnectionClosedEvent {
+                        connection_id: id("old-connection"),
+                        machine_id: id("machine-1"),
+                        reason: "old connection closed late".into(),
+                    },
+                )),
+            );
+            let request: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
+            let refreshed = snapshot(2, "Machine", protocol::MachineStatus::Running);
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(request.id, refreshed.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &refreshed);
+            finished.recv().unwrap();
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        runtime.open = Some(OpenConnection {
+            client: runtime.client.clone(),
+            connection_id: id("current-connection"),
+            machine_id: id("machine-1"),
+        });
+        let updates = runtime.subscribe_ui_updates().unwrap();
+        let (receiver, stop, worker) = updates.into_parts();
+        trigger.send(()).unwrap();
+
+        let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        stop.store(true, Ordering::Release);
+        drop(receiver);
+        worker.join().unwrap();
+        finish.send(()).unwrap();
+        runtime.open = None;
+        drop(runtime);
+        server.join().unwrap();
+
+        assert!(update.session_available);
+        assert!(update.request.is_none());
+        assert_ne!(update.notice.as_deref(), Some("old connection closed late"));
     }
 
     #[test]
