@@ -584,7 +584,10 @@ final class BrowserServices {
                     insertAtEnd: true,
                     preferredProfileID: panel.profileID
                 ) else { return nil }
-                if let localInsertionIndex {
+                if let localInsertionIndex,
+                   let newSurfaceID = workspace.surfaceIdFromPanelId(newPanel.id),
+                   workspace.bonsplitController.tabs(inPane: paneID)
+                    .firstIndex(where: { $0.id == newSurfaceID }) != localInsertionIndex {
                     _ = workspace.reorderSurface(
                         panelId: newPanel.id,
                         toIndex: localInsertionIndex,
@@ -667,7 +670,9 @@ final class BrowserServices {
                       ),
                       let newPanel = dock.browserPanel(for: newPanelID) else { return nil }
                 if let localInsertionIndex,
-                   let tabID = dock.surfaceId(forPanelId: newPanelID) {
+                   let tabID = dock.surfaceId(forPanelId: newPanelID),
+                   dock.bonsplitController.tabs(inPane: paneID)
+                    .firstIndex(where: { $0.id == tabID }) != localInsertionIndex {
                     _ = dock.bonsplitController.reorderTab(tabID, toIndex: localInsertionIndex)
                 }
                 if !shouldFocus {

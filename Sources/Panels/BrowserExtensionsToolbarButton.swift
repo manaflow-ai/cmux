@@ -18,34 +18,31 @@ struct BrowserExtensionsToolbarButton: View {
     @State private var isLoadingPresentation = false
     @State private var managerAnchorHolder = BrowserExtensionActionAnchorHolder()
     @State private var actionRefreshTask: Task<Void, Never>?
+    @State private var subscriptionGeneration = 0
     @State private var actionRefreshGeneration = 0
     @State private var interactionError: String?
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(snapshot.extensions.filter { $0.hasAction && $0.isToolbarPinned }) { item in
-                BrowserExtensionToolbarActionButton(
-                    item: item,
-                    iconPointSize: iconPointSize,
-                    hitSize: hitSize,
-                    performAction: performToolbarAction
-                )
-            }
-
-            managerButton
+        ViewThatFits(in: .horizontal) {
+            toolbarContent(maximumPinnedActions: 4)
+            toolbarContent(maximumPinnedActions: 2)
+            toolbarContent(maximumPinnedActions: 1)
+            toolbarContent(maximumPinnedActions: 0)
         }
         .task(id: profileID) {
             actionRefreshTask?.cancel()
+            subscriptionGeneration &+= 1
             actionRefreshGeneration &+= 1
-            let profileGeneration = actionRefreshGeneration
+            let lifecycleGeneration = subscriptionGeneration
+            let refreshGeneration = actionRefreshGeneration
             snapshot = .loading
             interactionError = nil
             isLoadingPresentation = false
             isPresented = false
-            guard await refreshSnapshot(generation: profileGeneration) else { return }
+            guard await refreshSnapshot(generation: refreshGeneration) else { return }
             for await update in updates() {
                 guard !Task.isCancelled,
-                      profileGeneration == actionRefreshGeneration else { return }
+                      lifecycleGeneration == subscriptionGeneration else { return }
                 switch update {
                 case .actionChanged(let actionUpdate):
                     guard actionUpdate.profileID == profileID,
@@ -75,8 +72,29 @@ struct BrowserExtensionsToolbarButton: View {
         }
         .onDisappear {
             actionRefreshTask?.cancel()
+            subscriptionGeneration &+= 1
             actionRefreshGeneration &+= 1
+            isLoadingPresentation = false
         }
+    }
+
+    private var pinnedActions: [BrowserWebExtensionPresentationItem] {
+        snapshot.extensions.filter { $0.hasAction && $0.isToolbarPinned }
+    }
+
+    private func toolbarContent(maximumPinnedActions: Int) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(pinnedActions.prefix(maximumPinnedActions))) { item in
+                BrowserExtensionToolbarActionButton(
+                    item: item,
+                    iconPointSize: iconPointSize,
+                    hitSize: hitSize,
+                    performAction: performToolbarAction
+                )
+            }
+            managerButton
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var managerButton: some View {
@@ -89,8 +107,8 @@ struct BrowserExtensionsToolbarButton: View {
             isLoadingPresentation = true
             let profileGeneration = actionRefreshGeneration
             Task { @MainActor in
+                defer { isLoadingPresentation = false }
                 guard await refreshSnapshot(generation: profileGeneration) else { return }
-                isLoadingPresentation = false
                 isPresented = true
             }
         } label: {
@@ -404,6 +422,9 @@ struct BrowserExtensionsManagerPage: View {
     @State private var preparedInstall: BrowserWebExtensionInstallPreview?
     @State private var pendingPreparedInstallID: UUID?
     @State private var removalCandidate: BrowserWebExtensionPresentationItem?
+    @State private var preparationTask: Task<Void, Never>?
+    @State private var preparationGeneration = 0
+    @State private var isManagerPageActive = false
 
     static func discoverTrustedLocalApps(
         applicationsDirectories: [URL] = [
@@ -447,7 +468,9 @@ struct BrowserExtensionsManagerPage: View {
                     ),
                     icon: "lock.shield",
                     sourceURL: verifiedIdentity.containingAppURL,
-                    installedManagementID: "com.bitwarden.desktop.safari"
+                    installedManagementID: BrowserWebExtensionManagementIdentity.safariApp(
+                        bundleIdentifier: "com.bitwarden.desktop.safari"
+                    )
                 )
             case "ublock-origin-lite-safari-app":
                 BrowserExtensionLocalAppItem(
@@ -462,7 +485,9 @@ struct BrowserExtensionsManagerPage: View {
                     ),
                     icon: "shield.lefthalf.filled",
                     sourceURL: verifiedIdentity.containingAppURL,
-                    installedManagementID: "net.raymondhill.uBlock-Origin-Lite.Extension"
+                    installedManagementID: BrowserWebExtensionManagementIdentity.safariApp(
+                        bundleIdentifier: "net.raymondhill.uBlock-Origin-Lite.Extension"
+                    )
                 )
             default:
                 nil
@@ -539,7 +564,16 @@ struct BrowserExtensionsManagerPage: View {
         managementID: String,
         in snapshot: BrowserWebExtensionsPresentationSnapshot
     ) -> BrowserWebExtensionPresentationItem? {
-        snapshot.extensions.first { $0.managementID == managementID }
+        if let exact = snapshot.extensions.first(where: { $0.managementID == managementID }) {
+            return exact
+        }
+        guard managementID.hasPrefix(BrowserWebExtensionManagementIdentity.safariAppPrefix) else {
+            return nil
+        }
+        let legacyID = String(
+            managementID.dropFirst(BrowserWebExtensionManagementIdentity.safariAppPrefix.count)
+        )
+        return snapshot.extensions.first { $0.managementID == legacyID }
     }
 
     var body: some View {
@@ -589,6 +623,22 @@ struct BrowserExtensionsManagerPage: View {
         .background(Color(nsColor: appearance.backgroundColor))
         .environment(\.colorScheme, cmuxReadableColorScheme(for: appearance.backgroundColor))
         .accessibilityIdentifier("BrowserExtensionsManagerPage")
+        .onAppear {
+            isManagerPageActive = true
+        }
+        .onDisappear {
+            isManagerPageActive = false
+            preparationGeneration &+= 1
+            preparationTask?.cancel()
+            preparationTask = nil
+            let previewID = pendingPreparedInstallID
+            pendingPreparedInstallID = nil
+            preparedInstall = nil
+            guard let previewID else { return }
+            Task {
+                await panel.cancelPreparedBrowserWebExtensionInstall(id: previewID)
+            }
+        }
         .task {
             async let nextSnapshot = panel.browserWebExtensionsPresentationSnapshot()
             async let localApps = Self.discoverTrustedLocalApps()
@@ -638,17 +688,11 @@ struct BrowserExtensionsManagerPage: View {
         picker.canChooseFiles = true
         picker.allowsMultipleSelection = false
         picker.begin { response in
-            guard response == .OK, let source = picker.url else { return }
-            Task { @MainActor in
-                installStatus = .installing
-                do {
-                    presentPreparedInstall(
-                        try await panel.prepareBrowserWebExtensionInstall(from: source)
-                    )
-                    installStatus = nil
-                } catch {
-                    installStatus = .failed(error.localizedDescription)
-                }
+            guard response == .OK,
+                  let source = picker.url,
+                  isManagerPageActive else { return }
+            beginPreparation {
+                try await panel.prepareBrowserWebExtensionInstall(from: source)
             }
         }
     }
@@ -657,17 +701,8 @@ struct BrowserExtensionsManagerPage: View {
     private func installCatalogExtension(_ item: BrowserExtensionCatalogItem) {
         guard installingCatalogID == nil else { return }
         installingCatalogID = item.id
-        installStatus = .installing
-        Task { @MainActor in
-            defer { installingCatalogID = nil }
-            do {
-                presentPreparedInstall(
-                    try await panel.prepareBrowserWebExtensionInstall(item.entry)
-                )
-                installStatus = nil
-            } catch {
-                installStatus = .failed(error.localizedDescription)
-            }
+        beginPreparation {
+            try await panel.prepareBrowserWebExtensionInstall(item.entry)
         }
     }
 
@@ -675,17 +710,47 @@ struct BrowserExtensionsManagerPage: View {
     private func installLocalAppExtension(_ item: BrowserExtensionLocalAppItem) {
         guard installingLocalAppID == nil else { return }
         installingLocalAppID = item.id
+        beginPreparation {
+            try await panel.prepareBrowserWebExtensionInstall(from: item.sourceURL)
+        }
+    }
+
+    @MainActor
+    private func beginPreparation(
+        _ operation: @escaping @MainActor () async throws -> BrowserWebExtensionInstallPreview
+    ) {
+        guard isManagerPageActive else { return }
+        preparationTask?.cancel()
+        preparationGeneration &+= 1
+        let generation = preparationGeneration
         installStatus = .installing
-        Task { @MainActor in
-            defer { installingLocalAppID = nil }
+        preparationTask = Task { @MainActor in
             do {
-                presentPreparedInstall(
-                    try await panel.prepareBrowserWebExtensionInstall(from: item.sourceURL)
-                )
+                let preview = try await operation()
+                guard !Task.isCancelled,
+                      isManagerPageActive,
+                      generation == preparationGeneration else {
+                    await panel.cancelPreparedBrowserWebExtensionInstall(id: preview.id)
+                    return
+                }
+                presentPreparedInstall(preview)
                 installStatus = nil
+            } catch is CancellationError {
+                // Page teardown owns cancellation and must not publish an error
+                // into a view that is no longer reachable.
             } catch {
-                installStatus = .failed(error.localizedDescription)
+                guard isManagerPageActive,
+                      generation == preparationGeneration else { return }
+                if error as? BrowserWebExtensionManagementError == .upToDate {
+                    installStatus = .upToDate
+                } else {
+                    installStatus = .failed(error.localizedDescription)
+                }
             }
+            guard generation == preparationGeneration else { return }
+            installingCatalogID = nil
+            installingLocalAppID = nil
+            preparationTask = nil
         }
     }
 
@@ -783,20 +848,8 @@ struct BrowserExtensionsManagerPage: View {
     @MainActor
     private func prepareUpdate(_ item: BrowserWebExtensionPresentationItem) {
         guard let managementID = item.managementID else { return }
-        installStatus = .installing
-        Task { @MainActor in
-            do {
-                presentPreparedInstall(
-                    try await panel.prepareBrowserWebExtensionUpdate(managementID: managementID)
-                )
-                installStatus = nil
-            } catch {
-                if error as? BrowserWebExtensionManagementError == .upToDate {
-                    installStatus = .upToDate
-                } else {
-                    installStatus = .failed(error.localizedDescription)
-                }
-            }
+        beginPreparation {
+            try await panel.prepareBrowserWebExtensionUpdate(managementID: managementID)
         }
     }
 

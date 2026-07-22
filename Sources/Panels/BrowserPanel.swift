@@ -6438,6 +6438,10 @@ extension BrowserPanel {
     }
 
     func resetForWorkspaceContextChange(reason: String) {
+        // The next document must derive its configuration from its own origin.
+        // Keeping an extension origin here can make a normal page reuse the
+        // extension controller, then block a later same-origin re-entry.
+        webExtensionPageBaseURL = nil
         guard needsWorkspaceContextReset else {
             resetWebViewLifecycleMetadata()
 #if DEBUG

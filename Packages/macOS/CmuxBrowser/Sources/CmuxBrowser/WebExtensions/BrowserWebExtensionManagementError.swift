@@ -3,6 +3,7 @@ public import Foundation
 /// Errors produced by extension enable, remove, revoke, and update actions.
 public enum BrowserWebExtensionManagementError: LocalizedError, Equatable {
     case extensionNotFound
+    case stateChanged
     case updateUnavailable
     case upToDate
 
@@ -12,6 +13,11 @@ public enum BrowserWebExtensionManagementError: LocalizedError, Equatable {
             return String(
                 localized: "browser.extensions.management.notFound",
                 defaultValue: "The extension is no longer installed."
+            )
+        case .stateChanged:
+            return String(
+                localized: "browser.extensions.management.stateChanged",
+                defaultValue: "The extension changed while this action was running. Try again."
             )
         case .updateUnavailable:
             return String(

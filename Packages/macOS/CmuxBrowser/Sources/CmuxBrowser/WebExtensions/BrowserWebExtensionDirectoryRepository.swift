@@ -137,6 +137,22 @@ public actor BrowserWebExtensionDirectoryRepository {
         try writeManagementLedger(ledger, in: directory)
     }
 
+    /// Replaces one record only when it is still the value reviewed by the
+    /// caller. The actor-isolated compare-and-swap closes the suspension race
+    /// between permission decisions, updates, and management UI actions.
+    @discardableResult
+    public func replaceManagedRecord(
+        _ record: BrowserWebExtensionManagedRecord,
+        expectedPreviousRecord: BrowserWebExtensionManagedRecord?,
+        in directory: URL
+    ) throws -> Bool {
+        var ledger = try managementLedger(in: directory)
+        guard ledger.records[record.id] == expectedPreviousRecord else { return false }
+        ledger.records[record.id] = record
+        try writeManagementLedger(ledger, in: directory)
+        return true
+    }
+
     /// Removes one durable record and returns its previous value.
     @discardableResult
     public func removeManagedRecord(
@@ -147,6 +163,21 @@ public actor BrowserWebExtensionDirectoryRepository {
         let removed = ledger.records.removeValue(forKey: id)
         try writeManagementLedger(ledger, in: directory)
         return removed
+    }
+
+    /// Removes one record only when it is still the value the caller acted on.
+    /// This prevents a delayed remove action from deleting a newer update.
+    @discardableResult
+    public func removeManagedRecord(
+        id: String,
+        expectedPreviousRecord: BrowserWebExtensionManagedRecord,
+        in directory: URL
+    ) throws -> Bool {
+        var ledger = try managementLedger(in: directory)
+        guard ledger.records[id] == expectedPreviousRecord else { return false }
+        ledger.records.removeValue(forKey: id)
+        try writeManagementLedger(ledger, in: directory)
+        return true
     }
 
     /// Resolves every enabled ledger record without exposing filesystem errors.
@@ -225,28 +256,25 @@ public actor BrowserWebExtensionDirectoryRepository {
 
         guard sourceValues.isDirectory == true else {
             let extensionName = source.pathExtension.lowercased()
-            guard extensionName != "zip" && extensionName != "xpi" else {
-                switch archivePolicy {
-                case .reject:
-                    throw BrowserWebExtensionInstallError.compressedPackagesNotAllowed
-                case .verifiedCatalog(let expectedSHA256, let limits):
-                    let archiveData = try readBoundedRegularFile(
-                        at: source,
-                        maximumByteCount: limits.maximumCompressedByteCount
-                    )
-                    let archiveDigest = Self.hexDigest(SHA256.hash(data: archiveData))
-                    guard archiveDigest.caseInsensitiveCompare(expectedSHA256) == .orderedSame else {
-                        throw BrowserWebExtensionInstallError.integrityMismatch
-                    }
-                    try BrowserWebExtensionArchivePreflight().validate(
-                        archiveData,
-                        packageName: source.lastPathComponent,
-                        limits: limits
-                    )
+            guard extensionName == "zip" || extensionName == "xpi" else {
+                throw BrowserWebExtensionInstallError.invalidPackage(source.lastPathComponent)
+            }
+            switch archivePolicy {
+            case .reject:
+                throw BrowserWebExtensionInstallError.compressedPackagesNotAllowed
+            case .verifiedCatalog(let expectedSHA256, let limits):
+                let archiveData = try readBoundedRegularFile(
+                    at: source,
+                    maximumByteCount: limits.maximumCompressedByteCount
+                )
+                let archiveDigest = Self.hexDigest(SHA256.hash(data: archiveData))
+                guard archiveDigest.caseInsensitiveCompare(expectedSHA256) == .orderedSame else {
+                    throw BrowserWebExtensionInstallError.integrityMismatch
                 }
-                return .managedPackage(
-                    packageURL: source,
-                    installationName: source.lastPathComponent
+                try BrowserWebExtensionArchivePreflight().validate(
+                    archiveData,
+                    packageName: source.lastPathComponent,
+                    limits: limits
                 )
             }
             return .managedPackage(
@@ -287,10 +315,7 @@ public actor BrowserWebExtensionDirectoryRepository {
             }
             return safariSources[0]
         default:
-            return .managedPackage(
-                packageURL: source,
-                installationName: source.lastPathComponent
-            )
+            throw BrowserWebExtensionInstallError.invalidPackage(source.lastPathComponent)
         }
     }
 

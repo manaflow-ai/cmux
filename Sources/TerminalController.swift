@@ -2494,12 +2494,9 @@ class TerminalController {
             "browser.devtools.toggle",
             "browser.extensions.show",
             "browser.extensions.list",
-            "browser.extensions.add",
             "browser.extensions.action",
             "browser.extensions.errors",
             "browser.extensions.webviews",
-            "browser.extensions.eval",
-            "browser.extensions.console",
             "browser.console.show",
             "browser.focus_mode.set",
             "browser.zoom.set",
@@ -2585,6 +2582,11 @@ class TerminalController {
             "browser.input_touch",
         ]
 #if DEBUG
+        methods.append(contentsOf: [
+            "browser.extensions.add",
+            "browser.extensions.eval",
+            "browser.extensions.console",
+        ])
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
 
@@ -8241,7 +8243,10 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        if let err = v2RejectUnresolvedHandles(
+            params,
+            ["surface_id", "tab_id", "pane_id", "workspace_id", "window_id"]
+        ) { return err }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
             let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
@@ -8270,7 +8275,10 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        if let err = v2RejectUnresolvedHandles(
+            params,
+            ["surface_id", "tab_id", "pane_id", "workspace_id", "window_id"]
+        ) { return err }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
             let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
@@ -8284,11 +8292,19 @@ class TerminalController {
                 result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled]))
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
-            guard let managerPanel = ws.openBrowserExtensionsManager(from: target.panel.id) else { return }
+            let resolution = v2ResolveBrowserPanelContext(
+                params: params,
+                tabManager: tabManager,
+                allowSoleBrowserFallback: true
+            )
+            if let error = resolution.error {
+                result = error
+                return
+            }
+            guard let context = resolution.context,
+                  let managerPanel = context.browserPanel.openBrowserExtensionsManager() else { return }
             result = .ok(v2BrowserActionPayload(
-                workspace: ws,
+                workspaceId: context.workspaceId,
                 surfaceId: managerPanel.id,
                 tabManager: tabManager,
                 extra: ["handled": true]
@@ -8304,7 +8320,7 @@ class TerminalController {
         if let error = v2MainSync({
             self.v2RejectUnresolvedHandles(
                 params,
-                ["surface_id", "workspace_id", "window_id"]
+                ["surface_id", "tab_id", "pane_id", "workspace_id", "window_id"]
             )
         }) {
             return error

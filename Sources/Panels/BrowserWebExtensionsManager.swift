@@ -388,6 +388,7 @@ final class BrowserWebExtensionsManager: NSObject {
     private var managedLoadFailureURLPaths = Set<String>()
     private var permissionPromptTasks: [UUID: Task<Void, Never>] = [:]
     private var pendingPermissionResolutions: [UUID: PendingPermissionResolution] = [:]
+    private var permissionRequestContextIdentifiers: [UUID: ObjectIdentifier] = [:]
     private var permissionPromptTail: Task<Void, Never>?
     private(set) var isShutDown = false
     private var didFinalizeShutdown = false
@@ -418,6 +419,7 @@ final class BrowserWebExtensionsManager: NSObject {
         let logicalID: String
         let source: Source
         let expectedPackageDigest: String?
+        let expectedPreviousRecord: BrowserWebExtensionManagedRecord?
     }
 
     private struct PresentationIconCacheEntry {
@@ -526,6 +528,7 @@ final class BrowserWebExtensionsManager: NSObject {
             resolution.finishDenying()
         }
         pendingPermissionResolutions.removeAll()
+        permissionRequestContextIdentifiers.removeAll()
         for task in permissionPromptTasks.values { task.cancel() }
         permissionPromptTasks.removeAll()
         permissionPromptTail?.cancel()
@@ -632,6 +635,7 @@ final class BrowserWebExtensionsManager: NSObject {
 
     private func startLoadingAttempt() {
         for context in loadedContexts {
+            cancelPermissionPrompts(for: context)
             _ = try? controller.unload(context)
         }
         loadedContexts.removeAll()
@@ -683,7 +687,9 @@ final class BrowserWebExtensionsManager: NSObject {
             guard !Task.isCancelled, !isShutDown else { return .degraded(.loadFailed) }
             managedRecords = ledger.records
             toolbarPinnedExtensionIdentifiers = Set(ledger.records.values.compactMap { record in
-                record.isToolbarPinned ? Self.contextIdentifier(for: record.id) : nil
+                record.isEnabled && record.isToolbarPinned
+                    ? Self.contextIdentifier(for: record.id)
+                    : nil
             })
             await removeOrphanedManagedData(authoritativeRecordIDs: Set(ledger.records.keys))
             try await directoryRepository.removeUnreferencedManagedPackages(in: directory)
@@ -802,6 +808,7 @@ final class BrowserWebExtensionsManager: NSObject {
         let ledger = try await directoryRepository.managementLedger(in: directory)
         let preparedSource: PreparedInstall.Source
         let logicalID: String
+        let previousRecord: BrowserWebExtensionManagedRecord?
         let webExtension: WKWebExtension
         let expectedPackageDigest: String?
         switch installSource {
@@ -815,6 +822,7 @@ final class BrowserWebExtensionsManager: NSObject {
             }
             try requireActive()
             webExtension = try await WKWebExtension(resourceBaseURL: packageURL)
+            try validateLoadableManifest(webExtension)
             try requireActive()
             let digestAfterReview = try await directoryRepository.digestForManagedPackage(at: packageURL)
             guard digestBeforeReview.caseInsensitiveCompare(digestAfterReview) == .orderedSame,
@@ -824,9 +832,34 @@ final class BrowserWebExtensionsManager: NSObject {
             }
             expectedPackageDigest = trustedArchiveDigest ?? digestAfterReview
             if let catalogID {
-                logicalID = "catalog:\(catalogID)"
+                previousRecord = try uniqueManagedRecord(in: ledger) { record in
+                    guard case .catalogArchive(_, _, let installedCatalogID) = record.source else {
+                        return false
+                    }
+                    return installedCatalogID == catalogID
+                }
+                let canonicalID = BrowserWebExtensionManagementIdentity.catalog(id: catalogID)
+                if previousRecord == nil,
+                   ledger.records[canonicalID] != nil {
+                    throw BrowserWebExtensionInstallError.installPreviewExpired
+                }
+                logicalID = previousRecord?.id ?? canonicalID
             } else {
-                logicalID = installationName
+                previousRecord = try uniqueManagedRecord(in: ledger) { record in
+                    guard case .directory(_, let installedDigest) = record.source else {
+                        return false
+                    }
+                    return installedDigest.caseInsensitiveCompare(digestAfterReview) == .orderedSame
+                }
+                if let previousRecord {
+                    logicalID = previousRecord.id
+                } else {
+                    var candidateID: String
+                    repeat {
+                        candidateID = BrowserWebExtensionManagementIdentity.disk()
+                    } while ledger.records[candidateID] != nil
+                    logicalID = candidateID
+                }
             }
             preparedSource = .package(
                 url: packageURL,
@@ -837,9 +870,23 @@ final class BrowserWebExtensionsManager: NSObject {
             _ = try await verifySafariAppExtension(reference.bundleURL)
             try requireActive()
             webExtension = try await self.webExtension(for: reference)
+            try validateLoadableManifest(webExtension)
             try requireActive()
             expectedPackageDigest = nil
-            logicalID = reference.bundleIdentifier
+            previousRecord = try uniqueManagedRecord(in: ledger) { record in
+                guard case .safariApp(let installedReference) = record.source else {
+                    return false
+                }
+                return installedReference.bundleIdentifier == reference.bundleIdentifier
+            }
+            let canonicalID = BrowserWebExtensionManagementIdentity.safariApp(
+                bundleIdentifier: reference.bundleIdentifier
+            )
+            if previousRecord == nil,
+               ledger.records[canonicalID] != nil {
+                throw BrowserWebExtensionInstallError.installPreviewExpired
+            }
+            logicalID = previousRecord?.id ?? canonicalID
             preparedSource = .safariApp(reference)
         }
         let previewID = UUID()
@@ -861,16 +908,28 @@ final class BrowserWebExtensionsManager: NSObject {
             requiredHosts: requiredPatterns.map(\.string),
             optionalPermissions: webExtension.optionalPermissions.map(\.rawValue),
             optionalHosts: optionalPatterns.map(\.string),
-            isUpdate: ledger.records[logicalID] != nil,
+            isUpdate: previousRecord != nil,
             capabilityNotices: notices
         )
         preparedInstalls[previewID] = PreparedInstall(
             preview: preview,
             logicalID: logicalID,
             source: preparedSource,
-            expectedPackageDigest: expectedPackageDigest
+            expectedPackageDigest: expectedPackageDigest,
+            expectedPreviousRecord: previousRecord
         )
         return preview
+    }
+
+    private func uniqueManagedRecord(
+        in ledger: BrowserWebExtensionManagementLedger,
+        matching predicate: (BrowserWebExtensionManagedRecord) -> Bool
+    ) throws -> BrowserWebExtensionManagedRecord? {
+        let matches = ledger.records.values.filter(predicate)
+        guard matches.count <= 1 else {
+            throw BrowserWebExtensionInstallError.installPreviewExpired
+        }
+        return matches.first
     }
 
     func cancelPreparedInstall(id: UUID) async {
@@ -934,6 +993,40 @@ final class BrowserWebExtensionsManager: NSObject {
         try requireActive()
         let ledger = try await directoryRepository.managementLedger(in: directory)
         let previousRecord = ledger.records[prepared.logicalID]
+        guard previousRecord == prepared.expectedPreviousRecord else {
+            throw BrowserWebExtensionInstallError.installPreviewExpired
+        }
+        let currentSourceRecord: BrowserWebExtensionManagedRecord?
+        switch prepared.source {
+        case .package(_, let catalogID, _):
+            if let catalogID {
+                currentSourceRecord = try uniqueManagedRecord(in: ledger) { record in
+                    guard case .catalogArchive(_, _, let installedCatalogID) = record.source else {
+                        return false
+                    }
+                    return installedCatalogID == catalogID
+                }
+            } else if let expectedPackageDigest = prepared.expectedPackageDigest {
+                currentSourceRecord = try uniqueManagedRecord(in: ledger) { record in
+                    guard case .directory(_, let installedDigest) = record.source else {
+                        return false
+                    }
+                    return installedDigest.caseInsensitiveCompare(expectedPackageDigest) == .orderedSame
+                }
+            } else {
+                currentSourceRecord = nil
+            }
+        case .safariApp(let reference):
+            currentSourceRecord = try uniqueManagedRecord(in: ledger) { record in
+                guard case .safariApp(let installedReference) = record.source else {
+                    return false
+                }
+                return installedReference.bundleIdentifier == reference.bundleIdentifier
+            }
+        }
+        guard currentSourceRecord == prepared.expectedPreviousRecord else {
+            throw BrowserWebExtensionInstallError.installPreviewExpired
+        }
         let previousContext = previousRecord.flatMap { record in
             loadedContexts.first { managedRecordIDsByContextIdentifier[$0.uniqueIdentifier] == record.id }
         }
@@ -979,7 +1072,7 @@ final class BrowserWebExtensionsManager: NSObject {
                     displayName: prepared.preview.name,
                     version: prepared.preview.version,
                     source: managedSource,
-                    isEnabled: true,
+                    isEnabled: previousRecord?.isEnabled ?? true,
                     isToolbarPinned: previousRecord?.isToolbarPinned ?? false,
                     grantedPermissions: Array(requiredPermissions.union(allowedOptionalPermissions)),
                     requiredPermissions: Array(requiredPermissions),
@@ -1002,7 +1095,7 @@ final class BrowserWebExtensionsManager: NSObject {
                     displayName: prepared.preview.name,
                     version: prepared.preview.version,
                     source: .safariApp(reference),
-                    isEnabled: true,
+                    isEnabled: previousRecord?.isEnabled ?? true,
                     isToolbarPinned: previousRecord?.isToolbarPinned ?? false,
                     grantedPermissions: Array(requiredPermissions.union(allowedOptionalPermissions)),
                     requiredPermissions: Array(requiredPermissions),
@@ -1014,6 +1107,7 @@ final class BrowserWebExtensionsManager: NSObject {
                 )
             }
             if let previousContext {
+                cancelPermissionPrompts(for: previousContext)
                 await closePresentedPopups(
                     forExtensionIdentifier: previousContext.uniqueIdentifier
                 )
@@ -1032,27 +1126,41 @@ final class BrowserWebExtensionsManager: NSObject {
                 _ = try await verifySafariAppExtension(safariReference.bundleURL)
                 try requireActive()
             }
-            let context = try loadExtension(
-                reviewedWebExtension,
-                installationName: installationName,
-                supportsNativeMessaging: safariReference != nil,
-                managedRecord: record
-            )
-            try requireActive()
+            let context: WKWebExtensionContext?
+            if record.isEnabled {
+                context = try loadExtension(
+                    reviewedWebExtension,
+                    installationName: installationName,
+                    supportsNativeMessaging: safariReference != nil,
+                    managedRecord: record
+                )
+                try requireActive()
+            } else {
+                context = nil
+            }
             // The package is immutable and the new context is healthy. The
             // atomic ledger write is now the only commit point.
-            try await directoryRepository.upsertManagedRecord(record, in: directory)
+            guard try await directoryRepository.replaceManagedRecord(
+                record,
+                expectedPreviousRecord: previousRecord,
+                in: directory
+            ) else {
+                throw BrowserWebExtensionInstallError.installPreviewExpired
+            }
             committedRecord = record
             let receipt = BrowserWebExtensionInstallReceipt(
-                name: context.webExtension.displayName ?? record.displayName
+                name: context?.webExtension.displayName
+                    ?? reviewedWebExtension.displayName
+                    ?? record.displayName
             )
             committedReceipt = receipt
             try await postManagementCommitHook()
             managedRecords[record.id] = record
-            if record.isToolbarPinned {
-                toolbarPinnedExtensionIdentifiers.insert(context.uniqueIdentifier)
+            let contextIdentifier = Self.contextIdentifier(for: record.id)
+            if record.isEnabled, record.isToolbarPinned {
+                toolbarPinnedExtensionIdentifiers.insert(contextIdentifier)
             } else {
-                toolbarPinnedExtensionIdentifiers.remove(context.uniqueIdentifier)
+                toolbarPinnedExtensionIdentifiers.remove(contextIdentifier)
             }
             if let previousRecord,
                let previousPackageURL = managedPackageURL(for: previousRecord),
@@ -1071,7 +1179,7 @@ final class BrowserWebExtensionsManager: NSObject {
             if let committedRecord, let committedReceipt {
                 managedRecords[committedRecord.id] = committedRecord
                 let identifier = Self.contextIdentifier(for: committedRecord.id)
-                if committedRecord.isToolbarPinned {
+                if committedRecord.isEnabled, committedRecord.isToolbarPinned {
                     toolbarPinnedExtensionIdentifiers.insert(identifier)
                 } else {
                     toolbarPinnedExtensionIdentifiers.remove(identifier)
@@ -1084,12 +1192,16 @@ final class BrowserWebExtensionsManager: NSObject {
             }
             let newContextIdentifier = Self.contextIdentifier(for: prepared.logicalID)
             if let newContext = loadedContexts.first(where: { $0.uniqueIdentifier == newContextIdentifier }) {
+                cancelPermissionPrompts(for: newContext)
                 _ = try? controller.unload(newContext)
                 loadedContexts.removeAll { $0 === newContext }
                 managedRecordIDsByContextIdentifier.removeValue(forKey: newContextIdentifier)
             }
-            if let previousRecord {
-                _ = try? await loadManagedRecord(previousRecord)
+            if let authoritativeLedger = try? await directoryRepository
+                .managementLedger(in: directory),
+               let authoritativeRecord = authoritativeLedger.records[prepared.logicalID],
+               authoritativeRecord.isEnabled {
+                _ = try? await loadManagedRecord(authoritativeRecord)
             }
             if let installedPackage {
                 try? await directoryRepository.removeManagedPackageIfUnreferenced(
@@ -1105,6 +1217,7 @@ final class BrowserWebExtensionsManager: NSObject {
         _ webExtension: WKWebExtension,
         against preview: BrowserWebExtensionInstallPreview
     ) throws {
+        try validateLoadableManifest(webExtension)
         let optionalPatterns = webExtension.optionalPermissionMatchPatterns
         let requiredPatterns = webExtension.allRequestedMatchPatterns
             .union(webExtension.requestedPermissionMatchPatterns)
@@ -1116,6 +1229,24 @@ final class BrowserWebExtensionsManager: NSObject {
               Set(webExtension.optionalPermissions.map(\.rawValue)) == Set(preview.optionalPermissions),
               Set(optionalPatterns.map(\.string)) == Set(preview.optionalHosts) else {
             throw BrowserWebExtensionInstallError.integrityMismatch
+        }
+    }
+
+    private func validateLoadableManifest(_ webExtension: WKWebExtension) throws {
+        let displayName = webExtension.displayName?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let version = webExtension.version?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !webExtension.manifest.isEmpty,
+              webExtension.manifestVersion > 0,
+              !displayName.isEmpty,
+              !version.isEmpty else {
+            throw BrowserWebExtensionApprovalValidationError(
+                message: String(
+                    localized: "browser.extensions.load.failed",
+                    defaultValue: "The extension could not be loaded."
+                )
+            )
         }
     }
 
@@ -1166,9 +1297,16 @@ final class BrowserWebExtensionsManager: NSObject {
             )
             throw BrowserWebExtensionToolbarPinError.actionUnavailable
         }
+        let previousRecord = record
         record.isToolbarPinned = isPinned
         do {
-            try await directoryRepository.upsertManagedRecord(record, in: directory)
+            guard try await directoryRepository.replaceManagedRecord(
+                record,
+                expectedPreviousRecord: previousRecord,
+                in: directory
+            ) else {
+                throw BrowserWebExtensionManagementError.stateChanged
+            }
         } catch {
             publishActionFailure(
                 .toolbarPinFailed,
@@ -1212,11 +1350,18 @@ final class BrowserWebExtensionsManager: NSObject {
             let newContext = try await loadManagedRecord(record)
             record.isEnabled = true
             do {
-                try await directoryRepository.upsertManagedRecord(record, in: directory)
+                guard try await directoryRepository.replaceManagedRecord(
+                    record,
+                    expectedPreviousRecord: previousRecord,
+                    in: directory
+                ) else {
+                    throw BrowserWebExtensionManagementError.stateChanged
+                }
             } catch {
                 _ = try? controller.unload(newContext)
                 loadedContexts.removeAll { $0 === newContext }
                 managedRecordIDsByContextIdentifier.removeValue(forKey: newContext.uniqueIdentifier)
+                await restoreAuthoritativeManagedRecord(managementID: managementID)
                 throw error
             }
             managedRecords[managementID] = record
@@ -1228,6 +1373,7 @@ final class BrowserWebExtensionsManager: NSObject {
             clearManagedLoadFailure(for: record)
         } else {
             if let context {
+                cancelPermissionPrompts(for: context)
                 await closePresentedPopups(
                     forExtensionIdentifier: context.uniqueIdentifier
                 )
@@ -1237,9 +1383,15 @@ final class BrowserWebExtensionsManager: NSObject {
             }
             record.isEnabled = false
             do {
-                try await directoryRepository.upsertManagedRecord(record, in: directory)
+                guard try await directoryRepository.replaceManagedRecord(
+                    record,
+                    expectedPreviousRecord: previousRecord,
+                    in: directory
+                ) else {
+                    throw BrowserWebExtensionManagementError.stateChanged
+                }
             } catch {
-                if context != nil { _ = try? await loadManagedRecord(previousRecord) }
+                await restoreAuthoritativeManagedRecord(managementID: managementID)
                 throw error
             }
             managedRecords[managementID] = record
@@ -1264,15 +1416,22 @@ final class BrowserWebExtensionsManager: NSObject {
         try requireActive()
         let context = loadedContext(managementID: managementID)
         if let context {
+            cancelPermissionPrompts(for: context)
             await closePresentedPopups(forExtensionIdentifier: context.uniqueIdentifier)
             try controller.unload(context)
             loadedContexts.removeAll { $0 === context }
             managedRecordIDsByContextIdentifier.removeValue(forKey: context.uniqueIdentifier)
         }
         do {
-            _ = try await directoryRepository.removeManagedRecord(id: managementID, in: directory)
+            guard try await directoryRepository.removeManagedRecord(
+                id: managementID,
+                expectedPreviousRecord: record,
+                in: directory
+            ) else {
+                throw BrowserWebExtensionManagementError.stateChanged
+            }
         } catch {
-            if context != nil { _ = try? await loadManagedRecord(record) }
+            await restoreAuthoritativeManagedRecord(managementID: managementID)
             throw error
         }
         managedRecords.removeValue(forKey: managementID)
@@ -1295,6 +1454,7 @@ final class BrowserWebExtensionsManager: NSObject {
         guard var record = managedRecords[managementID] else {
             throw BrowserWebExtensionManagementError.extensionNotFound
         }
+        let previousRecord = record
         let expiration = Date.distantFuture
         record.grantedPermissions = Dictionary(uniqueKeysWithValues: record.requiredPermissions.map {
             ($0, expiration)
@@ -1305,12 +1465,36 @@ final class BrowserWebExtensionsManager: NSObject {
         })
         record.deniedMatchPatterns = [:]
         record.hasRequestedOptionalAccessToAllHosts = false
-        try await directoryRepository.upsertManagedRecord(record, in: directory)
+        guard try await directoryRepository.replaceManagedRecord(
+            record,
+            expectedPreviousRecord: previousRecord,
+            in: directory
+        ) else {
+            throw BrowserWebExtensionManagementError.stateChanged
+        }
         managedRecords[managementID] = record
         if let context = loadedContext(managementID: managementID) {
             applyPersistedPermissions(in: context, record: record)
         }
         profileRuntime.invalidateSnapshot()
+    }
+
+    private func restoreAuthoritativeManagedRecord(managementID: String) async {
+        guard let ledger = try? await directoryRepository.managementLedger(in: directory),
+              let record = ledger.records[managementID] else {
+            managedRecords.removeValue(forKey: managementID)
+            toolbarPinnedExtensionIdentifiers.remove(Self.contextIdentifier(for: managementID))
+            return
+        }
+        managedRecords[managementID] = record
+        let identifier = Self.contextIdentifier(for: managementID)
+        if record.isEnabled, record.isToolbarPinned {
+            toolbarPinnedExtensionIdentifiers.insert(identifier)
+        } else {
+            toolbarPinnedExtensionIdentifiers.remove(identifier)
+        }
+        guard record.isEnabled, loadedContext(managementID: managementID) == nil else { return }
+        _ = try? await loadManagedRecord(record)
     }
 
     func prepareUpdate(managementID: String) async throws -> BrowserWebExtensionInstallPreview {
@@ -2006,14 +2190,7 @@ final class BrowserWebExtensionsManager: NSObject {
         managedRecord: BrowserWebExtensionManagedRecord?
     ) throws -> WKWebExtensionContext {
         try requireActive()
-        guard webExtension.errors.isEmpty else {
-            throw BrowserWebExtensionApprovalValidationError(
-                message: String(
-                    localized: "browser.extensions.load.failed",
-                    defaultValue: "The extension could not be loaded."
-                )
-            )
-        }
+        try validateLoadableManifest(webExtension)
         let context = WKWebExtensionContext(for: webExtension)
         // Stable identifier derived from the managed entry or app-extension
         // bundle identifier so storage survives extension and app updates.
@@ -2250,9 +2427,7 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func performAction(matching identifier: String, panelID: UUID) throws -> [String: Any] {
-        guard let context = matchingContexts(identifier).first else {
-            throw BrowserWebExtensionDiagnosticsError.extensionNotFound(identifier)
-        }
+        let context = try resolvedContext(matching: identifier)
         guard let panel = tabAdapters[panelID]?.panel else {
             throw BrowserWebExtensionDiagnosticsError.tabUnavailable
         }
@@ -2280,9 +2455,7 @@ final class BrowserWebExtensionsManager: NSObject {
         throw BrowserWebExtensionDiagnosticsError.debugBuildRequired
 #else
         compactPopupWebViews()
-        guard let context = matchingContexts(identifier).first else {
-            throw BrowserWebExtensionDiagnosticsError.extensionNotFound(identifier)
-        }
+        let context = try resolvedContext(matching: identifier)
         let expectedWebViewIdentifier = popupWebViewIdentifier(for: context)
         if let webViewIdentifier, webViewIdentifier != expectedWebViewIdentifier {
             throw BrowserWebExtensionDiagnosticsError.webViewNotFound(webViewIdentifier)
@@ -2319,12 +2492,28 @@ final class BrowserWebExtensionsManager: NSObject {
 
     private func matchingContexts(_ identifier: String?) -> [WKWebExtensionContext] {
         guard let identifier, !identifier.isEmpty else { return loadedContexts }
+        if let exactContext = loadedContexts.first(where: { $0.uniqueIdentifier == identifier }) {
+            return [exactContext]
+        }
         let folded = identifier.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         return loadedContexts.filter { context in
-            if context.uniqueIdentifier == identifier { return true }
             let name = context.webExtension.displayName ?? ""
             return name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == folded
         }
+    }
+
+    private func resolvedContext(matching identifier: String) throws -> WKWebExtensionContext {
+        if let exactContext = loadedContexts.first(where: { $0.uniqueIdentifier == identifier }) {
+            return exactContext
+        }
+        let matches = matchingContexts(identifier)
+        guard !matches.isEmpty else {
+            throw BrowserWebExtensionDiagnosticsError.extensionNotFound(identifier)
+        }
+        guard matches.count == 1, let match = matches.first else {
+            throw BrowserWebExtensionDiagnosticsError.ambiguousExtensionName(identifier)
+        }
+        return match
     }
 
     func pageConfiguration(
@@ -3077,7 +3266,8 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         matchPatterns: [WKWebExtension.MatchPattern] = []
     ) -> BrowserWebExtensionPermissionRequest? {
         guard let managementID = managedRecordIDsByContextIdentifier[context.uniqueIdentifier],
-              managedRecords[managementID] != nil else {
+              managedRecords[managementID] != nil,
+              loadedContext(managementID: managementID) === context else {
             return nil
         }
         let optionalPermissions = Set(context.webExtension.optionalPermissions.map(\.rawValue))
@@ -3108,17 +3298,25 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     ) {
         profileRuntime.publishPermissionRequest(request)
         pendingPermissionResolutions[request.id] = resolution
+        let contextIdentifier = ObjectIdentifier(context)
+        permissionRequestContextIdentifiers[request.id] = contextIdentifier
         let previousTask = permissionPromptTail
         let presenter = presentPermissionPrompt
         let window = permissionPromptWindow(for: context)
         let task = Task { @MainActor [weak self] in
             if let previousTask { await previousTask.value }
-            guard let self, !self.isShutDown, !Task.isCancelled else {
+            guard let self,
+                  !self.isShutDown,
+                  !Task.isCancelled,
+                  self.permissionRequestContextIdentifiers[request.id] == contextIdentifier,
+                  self.loadedContext(managementID: request.managementID) === context else {
                 resolution.finishDenying()
                 return
             }
             let decision = await presenter(request, window)
             guard !self.isShutDown, !Task.isCancelled,
+                  self.permissionRequestContextIdentifiers[request.id] == contextIdentifier,
+                  self.loadedContext(managementID: request.managementID) === context,
                   let previousRecord = self.managedRecords[request.managementID] else {
                 resolution.finishDenying()
                 self.finishPermissionPrompt(id: request.id)
@@ -3144,6 +3342,21 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     private func finishPermissionPrompt(id: UUID) {
         pendingPermissionResolutions.removeValue(forKey: id)
         permissionPromptTasks.removeValue(forKey: id)
+        permissionRequestContextIdentifiers.removeValue(forKey: id)
+    }
+
+    private func cancelPermissionPrompts(for context: WKWebExtensionContext) {
+        let contextIdentifier = ObjectIdentifier(context)
+        let requestIDs = permissionRequestContextIdentifiers.compactMap { requestID, identifier in
+            identifier == contextIdentifier ? requestID : nil
+        }
+        guard !requestIDs.isEmpty else { return }
+        for requestID in requestIDs {
+            pendingPermissionResolutions.removeValue(forKey: requestID)?.finishDenying()
+            permissionPromptTasks.removeValue(forKey: requestID)?.cancel()
+            permissionRequestContextIdentifiers.removeValue(forKey: requestID)
+        }
+        permissionPromptTail = nil
     }
 
     private func permissionPromptWindow(for context: WKWebExtensionContext) -> NSWindow? {
@@ -3157,9 +3370,11 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         _ context: WKWebExtensionContext,
         managementID: String
     ) async throws {
-        guard var record = managedRecords[managementID] else {
+        guard loadedContext(managementID: managementID) === context,
+              var record = managedRecords[managementID] else {
             throw BrowserWebExtensionManagementError.extensionNotFound
         }
+        let previousRecord = record
         record.grantedPermissions = Dictionary(uniqueKeysWithValues: context.grantedPermissions.map {
             ($0.key.rawValue, $0.value)
         })
@@ -3177,7 +3392,13 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
             }
         )
         record.hasRequestedOptionalAccessToAllHosts = context.hasRequestedOptionalAccessToAllHosts
-        try await directoryRepository.upsertManagedRecord(record, in: directory)
+        guard try await directoryRepository.replaceManagedRecord(
+            record,
+            expectedPreviousRecord: previousRecord,
+            in: directory
+        ), loadedContext(managementID: managementID) === context else {
+            throw BrowserWebExtensionManagementError.extensionNotFound
+        }
         managedRecords[managementID] = record
         profileRuntime.invalidateSnapshot()
     }
@@ -3618,6 +3839,7 @@ private enum BrowserWebExtensionToolbarPinError: LocalizedError {
 @available(macOS 15.4, *)
 private enum BrowserWebExtensionDiagnosticsError: LocalizedError {
     case extensionNotFound(String)
+    case ambiguousExtensionName(String)
     case tabUnavailable
     case webViewNotFound(String)
     case popupNotOpen(String)
@@ -3632,6 +3854,14 @@ private enum BrowserWebExtensionDiagnosticsError: LocalizedError {
                     defaultValue: "Extension not found: %@"
                 ),
                 identifier
+            )
+        case .ambiguousExtensionName(let name):
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.extensions.diagnostics.ambiguousExtensionName",
+                    defaultValue: "More than one extension is named %@. Use the extension ID instead."
+                ),
+                name
             )
         case .tabUnavailable:
             return String(

@@ -13656,6 +13656,31 @@ struct CMUXCLI {
             // enough to receive that terminal result instead of failing at the
             // generic 15-second socket default.
             let responseTimeout: TimeInterval? = method == "browser.extensions.show" ? nil : 125
+            if method == "browser.extensions.add" {
+                let prepared = try client.sendV2(
+                    method: method,
+                    params: params,
+                    responseTimeout: responseTimeout
+                )
+                guard let previewID = prepared["preview_id"] as? String,
+                      UUID(uuidString: previewID) != nil else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.extensions.error.invalidPrepareResponse",
+                        defaultValue: "The extension could not be confirmed after preparation"
+                    ))
+                }
+                var confirmationParams = params
+                confirmationParams.removeValue(forKey: "path")
+                confirmationParams["preview_id"] = previewID
+                confirmationParams["confirm"] = true
+                let installed = try client.sendV2(
+                    method: method,
+                    params: confirmationParams,
+                    responseTimeout: responseTimeout
+                )
+                output(installed, fallback: "OK")
+                return
+            }
             let payload = try client.sendV2(
                 method: method,
                 params: params,
@@ -15021,6 +15046,15 @@ struct CMUXCLI {
 
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
+#if DEBUG
+        let browserExtensionDevelopmentSubcommands = """
+              \(String(localized: "cli.browser.help.extensionsAdd", defaultValue: "extensions add <folder-or-zip> [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsEval", defaultValue: "extensions eval --extension <id-or-name> [--webview <id>] --script <javascript> [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsConsole", defaultValue: "extensions console --extension <id-or-name> [--surface <id>]"))
+        """
+#else
+        let browserExtensionDevelopmentSubcommands = ""
+#endif
         switch command {
         case "remotes", "remote":
             return Self.remotesUsage
@@ -16920,12 +16954,10 @@ struct CMUXCLI {
               devtools toggle|console [--surface <id>]
               \(String(localized: "cli.browser.help.extensionsShow", defaultValue: "extensions show [--surface <id>]"))
               \(String(localized: "cli.browser.help.extensionsList", defaultValue: "extensions list [--surface <id>]"))
-              \(String(localized: "cli.browser.help.extensionsAdd", defaultValue: "extensions add <folder-or-zip> [--surface <id>]"))
               \(String(localized: "cli.browser.help.extensionsAction", defaultValue: "extensions action --extension <id-or-name> [--surface <id>]"))
               \(String(localized: "cli.browser.help.extensionsErrors", defaultValue: "extensions errors [--extension <id-or-name>] [--surface <id>]"))
               \(String(localized: "cli.browser.help.extensionsWebViews", defaultValue: "extensions webviews [--extension <id-or-name>] [--surface <id>]"))
-              \(String(localized: "cli.browser.help.extensionsEval", defaultValue: "extensions eval --extension <id-or-name> [--webview <id>] --script <javascript> [--surface <id>]"))
-              \(String(localized: "cli.browser.help.extensionsConsole", defaultValue: "extensions console --extension <id-or-name> [--surface <id>]"))
+            \(browserExtensionDevelopmentSubcommands)
                 \(String(localized: "cli.browser.help.extensionsDefaultProfile", defaultValue: "Without --surface, extension commands target the caller's sole browser or the default browser profile."))
               focus-mode enter|exit|toggle [--surface <id>]
               zoom in|out|reset [--surface <id>]
@@ -35197,6 +35229,15 @@ export default CMUXSessionRestore;
     }
 
     private func usage() -> String {
+#if DEBUG
+        let browserExtensionDevelopmentUsage = """
+          browser \(String(localized: "cli.browser.help.extensionsAdd", defaultValue: "extensions add <folder-or-zip> [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsEval", defaultValue: "extensions eval --extension <id-or-name> [--webview <id>] --script <javascript> [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsConsole", defaultValue: "extensions console --extension <id-or-name> [--surface <id>]"))
+        """
+#else
+        let browserExtensionDevelopmentUsage = ""
+#endif
         return """
         cmux - control cmux via Unix socket
 
@@ -35364,12 +35405,10 @@ export default CMUXSessionRestore;
           browser devtools toggle|console [--surface <id>]
           browser \(String(localized: "cli.browser.help.extensionsShow", defaultValue: "extensions show [--surface <id>]"))
           browser \(String(localized: "cli.browser.help.extensionsList", defaultValue: "extensions list [--surface <id>]"))
-          browser \(String(localized: "cli.browser.help.extensionsAdd", defaultValue: "extensions add <folder-or-zip> [--surface <id>]"))
           browser \(String(localized: "cli.browser.help.extensionsAction", defaultValue: "extensions action --extension <id-or-name> [--surface <id>]"))
           browser \(String(localized: "cli.browser.help.extensionsErrors", defaultValue: "extensions errors [--extension <id-or-name>] [--surface <id>]"))
           browser \(String(localized: "cli.browser.help.extensionsWebViews", defaultValue: "extensions webviews [--extension <id-or-name>] [--surface <id>]"))
-          browser \(String(localized: "cli.browser.help.extensionsEval", defaultValue: "extensions eval --extension <id-or-name> [--webview <id>] --script <javascript> [--surface <id>]"))
-          browser \(String(localized: "cli.browser.help.extensionsConsole", defaultValue: "extensions console --extension <id-or-name> [--surface <id>]"))
+        \(browserExtensionDevelopmentUsage)
             \(String(localized: "cli.browser.help.extensionsDefaultProfile", defaultValue: "Without --surface, extension commands target the caller's sole browser or the default browser profile."))
           browser focus-mode enter|exit|toggle [--surface <id>]
           \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]"))

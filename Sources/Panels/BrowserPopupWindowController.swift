@@ -35,6 +35,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let popupNavigationDelegate: PopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
+    private let ownsUserContentControllerHandlers: Bool
     private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
     private var didRegisterWebExtensionWindow = false
@@ -55,12 +56,24 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         self.parentPopupController = parentPopupController
         self.nestingDepth = nestingDepth
 
-        BrowserPanel.configureWebViewConfiguration(
-            configuration,
-            profileID: browserContext.profileID,
-            websiteDataStore: browserContext.websiteDataStore,
-            browserServices: browserContext.browserServices
-        )
+        let isWebKitSuppliedConfiguration: Bool
+        if #available(macOS 15.4, *),
+           let expectedExtensionController = browserContext.browserServices?
+            .webExtensionsManager(for: browserContext.profileID).controller {
+            isWebKitSuppliedConfiguration = configuration.webExtensionController === expectedExtensionController
+                && configuration.websiteDataStore === browserContext.websiteDataStore
+        } else {
+            isWebKitSuppliedConfiguration = false
+        }
+        self.ownsUserContentControllerHandlers = !isWebKitSuppliedConfiguration
+        if !isWebKitSuppliedConfiguration {
+            BrowserPanel.configureWebViewConfiguration(
+                configuration,
+                profileID: browserContext.profileID,
+                websiteDataStore: browserContext.websiteDataStore,
+                browserServices: browserContext.browserServices
+            )
+        }
 
         // Create popup web view with WebKit's supplied configuration after
         // overlaying the opener's browser context so OAuth popups keep cmux's
@@ -176,20 +189,22 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         webView.onSubframeDownloadIntent = { [weak navDel] in navDel?.recordSubframeDownloadIntent($0) }
         webView.uiDelegate = uiDel
         webView.navigationDelegate = navDel
-        let sslTrustBypassMessageHandler = BrowserSSLTrustBypassMessageHandler(
-            canHandleToken: { [weak navDel] token in
-                navDel?.canHandleSSLTrustBypassToken(token) ?? false
-            },
-            handleToken: { [weak navDel, weak webView] token in
-                guard let webView else { return }
-                navDel?.handleSSLTrustBypassToken(token, in: webView)
-            }
-        )
-        self.sslTrustBypassMessageHandler = sslTrustBypassMessageHandler
-        let userContentController = webView.configuration.userContentController
-        userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
-        userContentController.add(sslTrustBypassMessageHandler, name: BrowserSSLTrustBypassMessageHandler.name)
-        webAuthnCoordinator.install(on: webView)
+        if ownsUserContentControllerHandlers {
+            let sslTrustBypassMessageHandler = BrowserSSLTrustBypassMessageHandler(
+                canHandleToken: { [weak navDel] token in
+                    navDel?.canHandleSSLTrustBypassToken(token) ?? false
+                },
+                handleToken: { [weak navDel, weak webView] token in
+                    guard let webView else { return }
+                    navDel?.handleSSLTrustBypassToken(token, in: webView)
+                }
+            )
+            self.sslTrustBypassMessageHandler = sslTrustBypassMessageHandler
+            let userContentController = webView.configuration.userContentController
+            userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
+            userContentController.add(sslTrustBypassMessageHandler, name: BrowserSSLTrustBypassMessageHandler.name)
+            webAuthnCoordinator.install(on: webView)
+        }
 
         // Context menu "Open Link in New Tab" → open in opener's workspace,
         // not as a nested popup. Falls back to system browser if opener is gone.
@@ -322,11 +337,14 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         urlObservation = nil
 
         // Tear down web view
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: BrowserSSLTrustBypassMessageHandler.name
-        )
+        if ownsUserContentControllerHandlers {
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: BrowserSSLTrustBypassMessageHandler.name
+            )
+            webAuthnCoordinator.tearDown(from: webView)
+        }
         sslTrustBypassMessageHandler = nil
-        webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
+        webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
 
