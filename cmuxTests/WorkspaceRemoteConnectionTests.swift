@@ -1312,11 +1312,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
-        let replacement = workspace.createReplacementTerminalPanel()
+        let replacement = try XCTUnwrap(workspace.createReplacementTerminalPanel())
         let firstReplacementCommand = replacement.surface.initialCommand
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64034)
-        let secondReplacement = workspace.createReplacementTerminalPanel()
+        let secondReplacement = try XCTUnwrap(workspace.createReplacementTerminalPanel())
 
         XCTAssertNotNil(firstReplacementCommand)
         XCTAssertNil(secondReplacement.surface.initialCommand)

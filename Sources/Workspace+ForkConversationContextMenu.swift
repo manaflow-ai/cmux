@@ -134,14 +134,18 @@ extension Workspace {
             return false
         }
 
-        let forkWorkspace = owningTabManager.addWorkspace(
-            workingDirectory: launch.terminalWorkingDirectory,
-            initialTerminalCommand: launch.initialTerminalCommand,
-            initialTerminalInput: launch.initialTerminalInput,
-            initialTerminalEnvironment: launch.initialTerminalEnvironment,
-            inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-            autoWelcomeIfNeeded: false
-        )
+        guard let forkWorkspace = owningTabManager.acquireWorkspaceIfActive({
+            owningTabManager.addWorkspace(
+                workingDirectory: launch.terminalWorkingDirectory,
+                initialTerminalCommand: launch.initialTerminalCommand,
+                initialTerminalInput: launch.initialTerminalInput,
+                initialTerminalEnvironment: launch.initialTerminalEnvironment,
+                inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
+                autoWelcomeIfNeeded: false
+            )
+        }) else {
+            return false
+        }
         if let remoteConfiguration = launch.remoteConfiguration {
             forkWorkspace.configureRemoteConnection(
                 remoteConfiguration,

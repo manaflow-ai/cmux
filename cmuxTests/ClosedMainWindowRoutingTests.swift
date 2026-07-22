@@ -226,10 +226,15 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         )
         staleDuplicate.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         defer { staleDuplicate.orderOut(nil) }
+        staleDuplicate.makeKeyAndOrderFront(nil)
 
         #expect(!app.commitMainWindowClose(staleDuplicate))
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(!app.focusMainWindow(windowId: windowId))
+        #expect(app.scriptableMainWindow(windowId: windowId) == nil)
         #expect(app.tabManagerFor(windowId: windowId) === manager)
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window == nil)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
     }
 }
@@ -263,6 +268,65 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(!manager.recoverEmptyWorkspaceAfterStartupIfNeeded())
         #expect(manager.tabs.isEmpty)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+    }
+
+    @Test("Finalized manager rejects late workspace acquisition")
+    func finalizedManagerRejectsLateWorkspaceAcquisition() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+        let registryIdsAfterFinalization = Set(
+            GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)
+        )
+        var acquisitionExecuted = false
+
+        let lateWorkspace = manager.acquireWorkspaceIfActive {
+            acquisitionExecuted = true
+            return manager.addWorkspace(initialTerminalCommand: "/usr/bin/true")
+        }
+
+        #expect(!acquisitionExecuted)
+        #expect(lateWorkspace.map { _ in true } == nil)
+        #expect(manager.tabs.isEmpty)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+        #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
+    }
+
+    @Test("Retired workspace rejects late terminal surface acquisition")
+    func retiredWorkspaceRejectsLateTerminalSurfaceAcquisition() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        let paneId = try #require(
+            workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        )
+        defer {
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+        let registryIdsAfterFinalization = Set(
+            GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)
+        )
+
+        let latePanel = workspace.newTerminalSurface(
+            inPane: paneId,
+            initialCommand: "/usr/bin/true"
+        )
+
+        #expect(workspace.isRetiredFromOwningTabManager)
+        #expect(latePanel == nil)
+        #expect(workspace.panels.isEmpty)
+        #expect(manager.tabs.isEmpty)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+        #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
     }
 
     @Test("Retained closed window cannot respawn its context or terminal")

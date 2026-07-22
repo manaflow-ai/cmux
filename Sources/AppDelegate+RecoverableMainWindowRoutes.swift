@@ -67,16 +67,13 @@ extension AppDelegate {
 
     func liveRecoverableMainWindow(windowId: UUID, cachedWindow: NSWindow?) -> NSWindow? {
         let appKitWindows = NSApp.windows
-        let isLiveOwner: (NSWindow) -> Bool = { window in
-            appKitWindows.contains(where: { $0 === window })
-                && (window.isVisible || window.isMiniaturized)
-                && self.mainWindowId(from: window) == windowId
+        guard let cachedWindow,
+              appKitWindows.contains(where: { $0 === cachedWindow }),
+              cachedWindow.isVisible || cachedWindow.isMiniaturized,
+              mainWindowId(from: cachedWindow) == windowId else {
+            return nil
         }
-
-        if let cachedWindow, isLiveOwner(cachedWindow) {
-            return cachedWindow
-        }
-        return appKitWindows.first(where: isLiveOwner)
+        return cachedWindow
     }
 
     private func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {

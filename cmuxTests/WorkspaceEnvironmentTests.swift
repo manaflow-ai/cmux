@@ -101,9 +101,9 @@ struct WorkspaceEnvironmentTests {
     /// When the last surface exits it is replaced by a fresh local shell via
     /// `createReplacementTerminalPanel`; that shell must inherit the workspace env.
     @Test
-    func replacementTerminalInheritsWorkspaceEnvironment() {
+    func replacementTerminalInheritsWorkspaceEnvironment() throws {
         let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod"])
-        let replacement = workspace.createReplacementTerminalPanel()
+        let replacement = try #require(workspace.createReplacementTerminalPanel())
         #expect(replacement.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
     }
 

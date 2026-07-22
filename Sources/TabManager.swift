@@ -1031,6 +1031,14 @@ class TabManager: ObservableObject {
     }
 #endif
 
+    /// Runs workspace acquisition only while this window manager still owns runtime work.
+    func acquireWorkspaceIfActive<Result>(
+        _ acquisition: () throws -> Result
+    ) rethrows -> Result? {
+        guard !isFinalizedForWindowClose else { return nil }
+        return try acquisition()
+    }
+
     @discardableResult
     func addWorkspace(
         title: String? = nil,
@@ -2123,12 +2131,10 @@ class TabManager: ObservableObject {
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.withClosedPanelHistorySuppressed {
-            workspace.teardownAllPanels()
+            workspace.retireFromOwningTabManager()
         }
-        workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: workspace.id)
-        workspace.owningTabManager = nil
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -5976,9 +5982,7 @@ extension TabManager {
         // restored ones. Tear the old graph down after the atomic swap so late
         // panel/socket callbacks cannot keep mutating hidden pre-restore state.
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.teardownAllPanels()
-        workspace.teardownRemoteConnection()
-        workspace.owningTabManager = nil
+        workspace.retireFromOwningTabManager()
     }
 
     private static func normalizedCloudVMSessionRestoreWorkspaces<S: Sequence>(

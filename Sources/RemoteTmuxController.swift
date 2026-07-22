@@ -296,15 +296,21 @@ final class RemoteTmuxController {
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
-        // Attach (and start the ssh process) BEFORE creating the workspace, so a
-        // failed connection doesn't leave an orphaned empty mirror workspace in
-        // the sidebar.
-        let connection = try attach(host: host, sessionName: sessionName)
-        let workspace = tabManager.addWorkspace(
-            title: sessionName,
-            select: false,
-            autoWelcomeIfNeeded: false
-        )
+        // Admit the connection and workspace as one active-manager acquisition:
+        // a finalized window must start neither the ssh process nor a workspace.
+        guard let acquisition = try tabManager.acquireWorkspaceIfActive({
+            let connection = try attach(host: host, sessionName: sessionName)
+            let workspace = tabManager.addWorkspace(
+                title: sessionName,
+                select: false,
+                autoWelcomeIfNeeded: false
+            )
+            return (connection: connection, workspace: workspace)
+        }) else {
+            return false
+        }
+        let connection = acquisition.connection
+        let workspace = acquisition.workspace
         workspace.isRemoteTmuxMirror = true
         workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
             guard let self, let workspace else { return false }
@@ -604,7 +610,11 @@ final class RemoteTmuxController {
                 // Preserve a usable owning window when the remote disappears.
                 // The replacement is local and must not inherit the remote path.
                 if manager.tabs.count == 1 {
-                    _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                    guard manager.acquireWorkspaceIfActive({
+                        manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                    }) != nil else {
+                        return
+                    }
                 }
                 manager.closeWorkspace(workspace)
             case .explicitDetach:
