@@ -6,12 +6,7 @@ extension TaskComposerSheet {
     func selectTemplate(_ template: MobileTaskTemplate) {
         updateSubmissionRequest {
             selectedTemplateID = template.id
-            guard !didEditDirectory else { return }
-            directory = Self.suggestedDirectory(
-                    template: template,
-                    macDeviceID: selectedMacDeviceID,
-                    templateStore: store.taskTemplateStore
-            )
+            syncSuggestedDirectory()
         }
     }
 

@@ -2,6 +2,7 @@
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 import SwiftUI
@@ -46,9 +47,20 @@ public struct TaskComposerAccessibilityPreviewView: View {
         let presentsDirectoryPermissionFailure = environment[
             "CMUX_UITEST_TASK_DIRECTORY_PERMISSION_FAILURE_PREVIEW"
         ] == "1"
+        let presentsOpenDirectory = environment[
+            "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW"
+        ] == "1"
+        let templateStore = TaskComposerAccessibilityTemplateStore()
+        if presentsOpenDirectory {
+            templateStore.setLastDirectory(
+                "/Users/ui/previous-task",
+                macDeviceID: Self.previewMac.macDeviceID
+            )
+        }
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
-            taskTemplateStore: TaskComposerAccessibilityTemplateStore()
+            workspaces: presentsOpenDirectory ? [Self.openDirectoryWorkspace] : [],
+            taskTemplateStore: templateStore
         )
         self.returnsSubmissionFailure = environment[
             "CMUX_UITEST_TASK_COMPOSER_FAILURE"
@@ -189,6 +201,14 @@ public struct TaskComposerAccessibilityPreviewView: View {
         lastSeenAt: Date(timeIntervalSince1970: 1),
         isActive: true,
         stackUserID: nil
+    )
+
+    private static let openDirectoryWorkspace = MobileWorkspacePreview(
+        id: "workspace-current",
+        macDeviceID: previewMac.macDeviceID,
+        name: "Current project",
+        currentDirectory: "/Users/ui/current-project",
+        terminals: []
     )
 
     private static func searchPreviewDirectories(

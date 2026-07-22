@@ -463,6 +463,27 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Switching templates without a template-specific directory must keep the
+    /// selected Mac's focused project instead of restoring older task history.
+    @MainActor
+    func testTaskComposerTemplateSwitchPreservesFocusedDirectory() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        let directory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(directory.waitForExistence(timeout: 3))
+        XCTAssertEqual(directory.value as? String, "/Users/ui/current-project")
+
+        selectTaskComposerAgent(named: "Codex", in: app)
+
+        XCTAssertEqual(app.buttons["MobileTaskComposerCreateButton"].label, "Start Codex")
+        XCTAssertEqual(directory.value as? String, "/Users/ui/current-project")
+    }
+
     /// The composer keeps the launch route visible while the prompt receives
     /// focus, so the user can verify the agent, Mac, and folder while typing.
     @MainActor
