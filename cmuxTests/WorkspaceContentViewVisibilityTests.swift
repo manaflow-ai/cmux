@@ -77,6 +77,52 @@ final class WorkspaceContentViewVisibilityTests {
         return ""
     }
 
+    private static func stateDispatchWorkItemDeclarations(in source: String) -> [String] {
+        let declarationBoundaryPrefixes = [
+            "@",
+            "private var ",
+            "private let ",
+            "var ",
+            "let ",
+            "static ",
+            "func ",
+            "}",
+        ]
+        var references: [String] = []
+        var searchStart = source.startIndex
+        while let stateRange = source.range(of: "@State", range: searchStart..<source.endIndex) {
+            searchStart = stateRange.upperBound
+            let searchEnd = source.endIndex
+            guard source.range(of: "var ", range: stateRange.upperBound..<searchEnd) != nil else {
+                continue
+            }
+
+            var declarationEnd = searchEnd
+            var index = stateRange.upperBound
+            while index < searchEnd {
+                if source[index] == "\n" {
+                    let nextLineStart = source.index(after: index)
+                    let nextLineEnd = source[nextLineStart...].firstIndex(of: "\n") ?? source.endIndex
+                    let nextLine = source[nextLineStart..<nextLineEnd].trimmingCharacters(in: .whitespaces)
+                    if !nextLine.isEmpty,
+                       declarationBoundaryPrefixes.contains(where: { nextLine.hasPrefix($0) }) {
+                        declarationEnd = index
+                        break
+                    }
+                } else if source[index] == ";" || source[index] == "{" {
+                    declarationEnd = index
+                    break
+                }
+                index = source.index(after: index)
+            }
+
+            let declaration = source[stateRange.lowerBound..<declarationEnd]
+            guard declaration.contains("DispatchWorkItem") else { continue }
+            references.append(lineReference(in: source, at: stateRange.lowerBound))
+        }
+        return references
+    }
+
     private static func dispatchWorkItemClosuresWithoutCaptureList(in source: String) -> [String] {
         var references: [String] = []
         var searchStart = source.startIndex
@@ -136,13 +182,8 @@ final class WorkspaceContentViewVisibilityTests {
     @Test
     func contentViewDoesNotChainQueuedDispatchWorkItemsThroughSwiftUIState() throws {
         let source = try Self.sourceText("Sources/ContentView.swift")
-        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
 
-        let stateWorkItemLines = lines.enumerated().compactMap { index, line -> String? in
-            guard line.contains("@State"),
-                  line.contains("DispatchWorkItem") else { return nil }
-            return "\(index + 1): \(line.trimmingCharacters(in: .whitespaces))"
-        }
+        let stateWorkItemLines = Self.stateDispatchWorkItemDeclarations(in: source)
         #expect(
             stateWorkItemLines.isEmpty,
             """
