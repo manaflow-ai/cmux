@@ -7,6 +7,7 @@ extension ArtifactCaptureConfiguration {
         case captureReferencedEphemeral
         case maximumFileBytes
         case maximumTextFileBytes
+        case maximumTranscriptScanBytes
         case maximumFilesPerCapture
         case deduplicationScanNodeLimit
         case deduplicationHashByteLimit
@@ -33,6 +34,10 @@ extension ArtifactCaptureConfiguration {
                 ?? defaults.maximumFileBytes,
             maximumTextFileBytes: try values.decodeIfPresent(Int64.self, forKey: .maximumTextFileBytes)
                 ?? defaults.maximumTextFileBytes,
+            maximumTranscriptScanBytes: try values.decodeIfPresent(
+                Int64.self,
+                forKey: .maximumTranscriptScanBytes
+            ) ?? defaults.maximumTranscriptScanBytes,
             maximumFilesPerCapture: try values.decodeIfPresent(Int.self, forKey: .maximumFilesPerCapture)
                 ?? defaults.maximumFilesPerCapture,
             deduplicationScanNodeLimit: try values.decodeIfPresent(
@@ -66,6 +71,7 @@ extension ArtifactCaptureConfiguration {
         try values.encode(captureReferencedEphemeral, forKey: .captureReferencedEphemeral)
         try values.encode(maximumFileBytes, forKey: .maximumFileBytes)
         try values.encode(maximumTextFileBytes, forKey: .maximumTextFileBytes)
+        try values.encode(maximumTranscriptScanBytes, forKey: .maximumTranscriptScanBytes)
         try values.encode(maximumFilesPerCapture, forKey: .maximumFilesPerCapture)
         try values.encode(deduplicationScanNodeLimit, forKey: .deduplicationScanNodeLimit)
         try values.encode(deduplicationHashByteLimit, forKey: .deduplicationHashByteLimit)

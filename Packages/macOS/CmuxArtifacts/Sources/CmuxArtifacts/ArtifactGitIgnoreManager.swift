@@ -15,7 +15,12 @@ struct ArtifactGitIgnoreManager {
         let infoDirectory = commonGitDirectory.appendingPathComponent("info", isDirectory: true)
         let excludeURL = infoDirectory.appendingPathComponent("exclude", isDirectory: false)
         try fileManager.createDirectory(at: infoDirectory, withIntermediateDirectories: true)
-        let existing = (try? String(contentsOf: excludeURL, encoding: .utf8)) ?? ""
+        let existing: String
+        if fileManager.fileExists(atPath: excludeURL.path) {
+            existing = try String(contentsOf: excludeURL, encoding: .utf8)
+        } else {
+            existing = ""
+        }
         let lines = existing.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard !lines.contains(ignoreEntry) else { return }
         var updated = existing

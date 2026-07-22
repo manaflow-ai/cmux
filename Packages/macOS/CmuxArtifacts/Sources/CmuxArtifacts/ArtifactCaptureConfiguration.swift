@@ -12,6 +12,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     public var maximumFileBytes: Int64
     /// Stricter maximum bytes for plain and structured-text imports.
     public var maximumTextFileBytes: Int64
+    /// Maximum transcript bytes parsed by one automatic capture scan.
+    public var maximumTranscriptScanBytes: Int64
     /// Maximum candidates handled in one persistence batch before backlog continuation.
     public var maximumFilesPerCapture: Int
     /// Maximum files and folders visited while recovering a moved deduplication target.
@@ -36,6 +38,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         captureReferencedEphemeral: true,
         maximumFileBytes: 50 * 1024 * 1024,
         maximumTextFileBytes: 2 * 1024 * 1024,
+        maximumTranscriptScanBytes: 8 * 1024 * 1024,
         maximumFilesPerCapture: 32,
         deduplicationScanNodeLimit: 100_000,
         deduplicationHashByteLimit: 512 * 1024 * 1024,
@@ -59,6 +62,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     ///   - captureReferencedEphemeral: Whether ephemeral unstructured references are eligible.
     ///   - maximumFileBytes: Maximum bytes for rich-media and document imports.
     ///   - maximumTextFileBytes: Maximum bytes for plain and structured text imports.
+    ///   - maximumTranscriptScanBytes: Maximum transcript bytes parsed per automatic scan.
     ///   - maximumFilesPerCapture: Maximum candidates processed in one persistence batch.
     ///   - deduplicationScanNodeLimit: Maximum nodes visited during moved-file recovery.
     ///   - deduplicationHashByteLimit: Maximum matching-size bytes hashed during recovery.
@@ -73,6 +77,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         captureReferencedEphemeral: Bool,
         maximumFileBytes: Int64,
         maximumTextFileBytes: Int64,
+        maximumTranscriptScanBytes: Int64,
         maximumFilesPerCapture: Int,
         deduplicationScanNodeLimit: Int,
         deduplicationHashByteLimit: Int64,
@@ -87,6 +92,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         self.captureReferencedEphemeral = captureReferencedEphemeral
         self.maximumFileBytes = maximumFileBytes
         self.maximumTextFileBytes = maximumTextFileBytes
+        self.maximumTranscriptScanBytes = maximumTranscriptScanBytes
         self.maximumFilesPerCapture = maximumFilesPerCapture
         self.deduplicationScanNodeLimit = deduplicationScanNodeLimit
         self.deduplicationHashByteLimit = deduplicationHashByteLimit
@@ -102,6 +108,10 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         var value = self
         value.maximumFileBytes = min(max(1, maximumFileBytes), 512 * 1024 * 1024)
         value.maximumTextFileBytes = min(max(1, maximumTextFileBytes), value.maximumFileBytes)
+        value.maximumTranscriptScanBytes = min(
+            max(1, maximumTranscriptScanBytes),
+            128 * 1024 * 1024
+        )
         value.maximumFilesPerCapture = min(max(1, maximumFilesPerCapture), 256)
         value.deduplicationScanNodeLimit = min(max(1, deduplicationScanNodeLimit), 1_000_000)
         value.deduplicationHashByteLimit = min(

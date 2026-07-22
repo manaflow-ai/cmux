@@ -308,7 +308,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         guard let watcher = RecursivePathWatcher(paths: [paths.artifactsRoot.path]) else {
             return AsyncStream { $0.finish() }
         }
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             continuation.yield(())
             let task = Task {
                 for await _ in watcher.events {

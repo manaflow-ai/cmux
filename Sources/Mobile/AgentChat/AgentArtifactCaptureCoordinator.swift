@@ -18,13 +18,17 @@ actor AgentArtifactCaptureCoordinator {
         self.fileManager = fileManager
     }
 
+    func maximumTranscriptScanBytes(for record: AgentChatSessionRecord) async -> UInt64? {
+        guard let projectRoot = projectRoot(for: record) else { return nil }
+        return await captureService.automaticTranscriptScanByteLimit(projectRoot: projectRoot)
+    }
+
     func capture(
         record: AgentChatSessionRecord,
         snapshot: AgentChatArtifactIndex.Snapshot
     ) async {
         guard !Task.isCancelled,
-              let workingDirectory = record.workingDirectory,
-              !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let projectRoot = projectRoot(for: record),
               completedRevisionBySession[record.sessionID].map({ snapshot.revision > $0 }) ?? true,
               inFlightRevisionBySession[record.sessionID].map({ snapshot.revision > $0 }) ?? true else {
             return
@@ -36,11 +40,6 @@ actor AgentArtifactCaptureCoordinator {
             }
         }
 
-        let workingDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
-        let projectRoot = ArtifactProjectLocator().projectRoot(
-            startingAt: workingDirectoryURL,
-            fileManager: fileManager
-        )
         let completedCursor = completedReferenceCursorBySession[record.sessionID]
         var seenPaths: Set<String> = []
         let pending = snapshot.artifacts
@@ -99,14 +98,9 @@ actor AgentArtifactCaptureCoordinator {
         sourceURL: URL,
         capturedAt: Date = .now
     ) async throws -> ChatArtifactSaveResult {
-        guard let workingDirectory = record.workingDirectory,
-              !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let projectRoot = projectRoot(for: record) else {
             throw AgentArtifactCaptureSaveError.missingWorkingDirectory
         }
-        let projectRoot = ArtifactProjectLocator().projectRoot(
-            startingAt: URL(fileURLWithPath: workingDirectory, isDirectory: true),
-            fileManager: fileManager
-        )
         let outcome = try await captureService.add(
             sourceURL: sourceURL,
             context: ArtifactCaptureContext(
@@ -126,6 +120,17 @@ actor AgentArtifactCaptureCoordinator {
             path: path.path,
             relativePath: importedRecord.relativePath,
             reference: ".cmux/artifacts/\(importedRecord.relativePath)"
+        )
+    }
+
+    private func projectRoot(for record: AgentChatSessionRecord) -> URL? {
+        guard let workingDirectory = record.workingDirectory,
+              !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return ArtifactProjectLocator().projectRoot(
+            startingAt: URL(fileURLWithPath: workingDirectory, isDirectory: true),
+            fileManager: fileManager
         )
     }
 

@@ -4,11 +4,12 @@ import Foundation
 extension AgentChatTranscriptService {
     /// Captures one authoritative transcript generation after an agent turn.
     func scheduleArtifactCapture(for record: AgentChatSessionRecord) {
-        guard let artifactCaptureCoordinator else { return }
+        guard let artifactCaptureCoordinator, isAutomaticArtifactCaptureEnabled() else { return }
         let resolver = self.resolver
         let artifactIndex = self.artifactIndex
+        let isAutomaticArtifactCaptureEnabled = self.isAutomaticArtifactCaptureEnabled
         replaceArtifactCaptureTask(sessionID: record.sessionID) {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, await isAutomaticArtifactCaptureEnabled() else { return }
             let transcriptPath: String
             do {
                 guard let resolved = try resolver.transcriptPath(for: record) else { return }
@@ -17,15 +18,21 @@ extension AgentChatTranscriptService {
                 return
             }
             guard !Task.isCancelled else { return }
+            guard let maximumFileBytes = await artifactCaptureCoordinator.maximumTranscriptScanBytes(
+                for: record
+            ) else {
+                return
+            }
             guard let snapshot = try? await artifactIndex.snapshot(
                 sessionID: record.sessionID,
                 agentKind: record.agentKind,
                 transcriptPath: transcriptPath,
-                workingDirectory: record.workingDirectory
+                workingDirectory: record.workingDirectory,
+                maximumFileBytes: maximumFileBytes
             ) else {
                 return
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, await isAutomaticArtifactCaptureEnabled() else { return }
             await artifactCaptureCoordinator.capture(record: record, snapshot: snapshot)
         }
     }
@@ -35,9 +42,10 @@ extension AgentChatTranscriptService {
         record: AgentChatSessionRecord,
         snapshot: AgentChatArtifactIndex.Snapshot
     ) {
-        guard let artifactCaptureCoordinator else { return }
+        guard let artifactCaptureCoordinator, isAutomaticArtifactCaptureEnabled() else { return }
+        let isAutomaticArtifactCaptureEnabled = self.isAutomaticArtifactCaptureEnabled
         replaceArtifactCaptureTask(sessionID: record.sessionID) {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, await isAutomaticArtifactCaptureEnabled() else { return }
             await artifactCaptureCoordinator.capture(record: record, snapshot: snapshot)
         }
     }

@@ -44,9 +44,18 @@ actor AgentChatArtifactIndex {
         sessionID: String,
         agentKind: ChatAgentKind,
         transcriptPath: String,
-        workingDirectory: String?
+        workingDirectory: String?,
+        maximumFileBytes: UInt64? = nil
     ) async throws -> Snapshot {
         let key = try Self.cacheKey(transcriptPath: transcriptPath, workingDirectory: workingDirectory)
+        if let maximumFileBytes, key.fileSize > maximumFileBytes {
+            throw CocoaError(
+                .fileReadTooLarge,
+                userInfo: [
+                    NSFilePathErrorKey: transcriptPath,
+                ]
+            )
+        }
         if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
             return cached.snapshot
         }

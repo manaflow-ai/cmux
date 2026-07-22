@@ -15,6 +15,7 @@ final class AgentChatTranscriptService {
     let resolver: AgentChatTranscriptResolver
     let artifactIndex: AgentChatArtifactIndex
     let artifactCaptureCoordinator: AgentArtifactCaptureCoordinator?
+    let isAutomaticArtifactCaptureEnabled: @MainActor @Sendable () -> Bool
     var artifactCaptureTasks: [String: (
         token: UUID,
         task: Task<Void, Never>?,
@@ -55,6 +56,7 @@ final class AgentChatTranscriptService {
         },
         artifactIndex: AgentChatArtifactIndex = AgentChatArtifactIndex(),
         artifactCaptureCoordinator: AgentArtifactCaptureCoordinator? = nil,
+        isAutomaticArtifactCaptureEnabled: @escaping @MainActor @Sendable () -> Bool = { true },
         now: @escaping () -> Date = { Date() }
     ) {
         self.registry = registry
@@ -63,6 +65,7 @@ final class AgentChatTranscriptService {
         self.emitEventPayload = emitEventPayload
         self.artifactIndex = artifactIndex
         self.artifactCaptureCoordinator = artifactCaptureCoordinator
+        self.isAutomaticArtifactCaptureEnabled = isAutomaticArtifactCaptureEnabled
         self.now = now
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)

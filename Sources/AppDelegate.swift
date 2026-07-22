@@ -788,7 +788,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     lazy var artifactCaptureService = ArtifactCaptureService(store: artifactRepository)
     private lazy var agentArtifactCaptureCoordinator = AgentArtifactCaptureCoordinator(captureService: artifactCaptureService)
     private lazy var agentChatTranscriptService = AgentChatTranscriptService(
-        artifactCaptureCoordinator: agentArtifactCaptureCoordinator
+        artifactCaptureCoordinator: agentArtifactCaptureCoordinator,
+        isAutomaticArtifactCaptureEnabled: {
+            RightSidebarBetaFeatureSettings.isArtifactsEnabled()
+        }
     )
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the

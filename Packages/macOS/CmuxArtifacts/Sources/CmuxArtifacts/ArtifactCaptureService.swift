@@ -18,6 +18,16 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         self.temporaryDirectory = temporaryDirectory.standardizedFileURL
     }
 
+    /// Returns the transcript budget when automatic capture is enabled.
+    ///
+    /// - Parameter projectRoot: Canonical project root containing `.cmux`.
+    /// - Returns: Normalized byte limit, or `nil` when automatic capture is disabled.
+    public func automaticTranscriptScanByteLimit(projectRoot: URL) async -> UInt64? {
+        let configuration = await store.configuration(projectRoot: projectRoot)
+        guard configuration.automaticCaptureEnabled else { return nil }
+        return UInt64(configuration.maximumTranscriptScanBytes)
+    }
+
     /// Captures eligible detected paths using the project's effective policy.
     ///
     /// Duplicate path detections in one scan are folded together and the
