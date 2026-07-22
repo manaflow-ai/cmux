@@ -1,0 +1,458 @@
+name: Mixed workload performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_sha:
+        description: Exact 40-hex baseline commit
+        required: true
+        type: string
+      candidate_sha:
+        description: Exact 40-hex candidate commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# A single repository-wide lane keeps two manually dispatched experiments from
+# contending for the same class of GitHub-hosted macOS benchmark host.
+concurrency:
+  group: perf-mixed-workload-macos-15
+  cancel-in-progress: false
+
+jobs:
+  paired-experiment:
+    runs-on: macos-15
+    # The driver performs 108 measured clean invocations, plus warmups, fixture
+    # recreation, profiling, and two clean builds. Use the hosted-runner maximum.
+    timeout-minutes: 360
+    env:
+      BASELINE_TAG: perfmixedb${{ github.run_id }}a${{ github.run_attempt }}
+      CANDIDATE_TAG: perfmixedc${{ github.run_id }}a${{ github.run_attempt }}
+      RESULTS_DIR: ${{ runner.temp }}/perf-mixed-workload-${{ github.run_id }}-${{ github.run_attempt }}
+      PERF_HOST_CONTROLS_PATH: ${{ runner.temp }}/perf-mixed-workload-${{ github.run_id }}-${{ github.run_attempt }}/host-controls.json
+    steps:
+      - name: Initialize evidence directory
+        env:
+          BASELINE_SHA_INPUT: ${{ inputs.baseline_sha }}
+          CANDIDATE_SHA_INPUT: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RESULTS_DIR"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          context = {
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "workflow_sha": os.environ["GITHUB_SHA"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "baseline_sha_input": os.environ["BASELINE_SHA_INPUT"],
+              "candidate_sha_input": os.environ["CANDIDATE_SHA_INPUT"],
+          }
+          path = Path(os.environ["RESULTS_DIR"]) / "workflow-context.json"
+          path.write_text(json.dumps(context, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Validate immutable experiment inputs
+        env:
+          BASELINE_SHA_INPUT: ${{ inputs.baseline_sha }}
+          CANDIDATE_SHA_INPUT: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REPOSITORY" != "usr-bin-roygbiv/cmux" ]]; then
+            echo "::error::This workflow may run only in usr-bin-roygbiv/cmux."
+            exit 1
+          fi
+          if [[ ! "$BASELINE_SHA_INPUT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::baseline_sha must be exactly 40 hexadecimal characters."
+            exit 1
+          fi
+          if [[ ! "$CANDIDATE_SHA_INPUT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::candidate_sha must be exactly 40 hexadecimal characters."
+            exit 1
+          fi
+          BASELINE_SHA="$(printf '%s' "$BASELINE_SHA_INPUT" | tr '[:upper:]' '[:lower:]')"
+          CANDIDATE_SHA="$(printf '%s' "$CANDIDATE_SHA_INPUT" | tr '[:upper:]' '[:lower:]')"
+          if [[ "$BASELINE_SHA" == "$CANDIDATE_SHA" ]]; then
+            echo "::error::baseline_sha and candidate_sha must identify distinct commits."
+            exit 1
+          fi
+          {
+            echo "BASELINE_SHA=$BASELINE_SHA"
+            echo "CANDIDATE_SHA=$CANDIDATE_SHA"
+            echo "BASELINE_DERIVED_DATA=$HOME/Library/Developer/Xcode/DerivedData/cmux-$BASELINE_TAG"
+            echo "CANDIDATE_DERIVED_DATA=$HOME/Library/Developer/Xcode/DerivedData/cmux-$CANDIDATE_TAG"
+            echo "BASELINE_APP=$HOME/Library/Developer/Xcode/DerivedData/cmux-$BASELINE_TAG/Build/Products/Debug/cmux DEV $BASELINE_TAG.app"
+            echo "CANDIDATE_APP=$HOME/Library/Developer/Xcode/DerivedData/cmux-$CANDIDATE_TAG/Build/Products/Debug/cmux DEV $CANDIDATE_TAG.app"
+          } >> "$GITHUB_ENV"
+
+      - name: Checkout workflow and harness ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: usr-bin-roygbiv/cmux
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Checkout exact baseline commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: usr-bin-roygbiv/cmux
+          ref: ${{ inputs.baseline_sha }}
+          path: variants/baseline
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Checkout exact candidate commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: usr-bin-roygbiv/cmux
+          ref: ${{ inputs.candidate_sha }}
+          path: variants/candidate
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify exact variant commits
+        run: |
+          set -euo pipefail
+          baseline_head="$(git -C variants/baseline rev-parse HEAD)"
+          candidate_head="$(git -C variants/candidate rev-parse HEAD)"
+          [[ "$baseline_head" == "$BASELINE_SHA" ]] || {
+            echo "::error::Baseline checkout resolved to $baseline_head, expected $BASELINE_SHA."
+            exit 1
+          }
+          [[ "$candidate_head" == "$CANDIDATE_SHA" ]] || {
+            echo "::error::Candidate checkout resolved to $candidate_head, expected $CANDIDATE_SHA."
+            exit 1
+          }
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Record host and control metadata
+        env:
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+          RUNNER_CONTEXT_OS: ${{ runner.os }}
+          RUNNER_CONTEXT_ARCH: ${{ runner.arch }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+
+          def capture(*command):
+              try:
+                  completed = subprocess.run(
+                      command,
+                      check=False,
+                      capture_output=True,
+                      text=True,
+                      timeout=30,
+                  )
+              except (OSError, subprocess.TimeoutExpired) as error:
+                  return {"available": False, "error": str(error)}
+              return {
+                  "available": True,
+                  "returncode": completed.returncode,
+                  "stdout": completed.stdout.strip(),
+                  "stderr": completed.stderr.strip(),
+              }
+
+          controls = {}
+          for name in ("pmset", "powermetrics", "caffeinate"):
+              controls[name] = shutil.which(name)
+          controls["passwordless_sudo"] = capture("sudo", "-n", "true")
+          if controls["pmset"]:
+              controls["power_settings"] = capture("pmset", "-g", "custom")
+              controls["thermal_state"] = capture("pmset", "-g", "therm")
+
+          metadata = {
+              "runner": {
+                  "name": os.environ.get("RUNNER_CONTEXT_NAME"),
+                  "os": os.environ.get("RUNNER_CONTEXT_OS"),
+                  "arch": os.environ.get("RUNNER_CONTEXT_ARCH"),
+                  "image_os": os.environ.get("ImageOS"),
+                  "image_version": os.environ.get("ImageVersion"),
+                  "machine_arch": capture("uname", "-m"),
+              },
+              "macos": capture("sw_vers"),
+              "xcode": capture("xcodebuild", "-version"),
+              "sdk_version": capture("xcrun", "--sdk", "macosx", "--show-sdk-version"),
+              "sdk_path": capture("xcrun", "--sdk", "macosx", "--show-sdk-path"),
+              "uptime": capture("uptime"),
+              "load_average": capture("sysctl", "-n", "vm.loadavg"),
+              "available_controls": controls,
+          }
+          output = Path(os.environ["PERF_HOST_CONTROLS_PATH"])
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Install build dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          ./scripts/install-rust-ci.sh
+
+      - name: Download pre-built GhosttyKit frameworks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          (
+            cd variants/baseline
+            ./scripts/download-prebuilt-ghosttykit.sh
+          )
+          (
+            cd variants/candidate
+            ./scripts/download-prebuilt-ghosttykit.sh
+          )
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            variants/baseline/.ci-source-packages
+            variants/candidate/.ci-source-packages
+          key: spm-mixed-${{ runner.os }}-${{ runner.arch }}-${{ inputs.baseline_sha }}-${{ inputs.candidate_sha }}-${{ hashFiles('variants/baseline/cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'variants/candidate/cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
+      - name: Resolve Swift packages for both commits
+        run: |
+          set -euo pipefail
+          resolve_packages() {
+            local checkout="$1"
+            local derived_data="$2"
+            local source_packages="$checkout/.ci-source-packages"
+            mkdir -p "$source_packages"
+            python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$source_packages"
+            (
+              cd "$checkout"
+              for attempt in 1 2 3; do
+                if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+                  -derivedDataPath "$derived_data" \
+                  -clonedSourcePackagesDirPath "$source_packages" \
+                  -resolvePackageDependencies; then
+                  exit 0
+                fi
+                if [[ "$attempt" -eq 3 ]]; then
+                  echo "Failed to resolve Swift packages for $checkout after 3 attempts" >&2
+                  exit 1
+                fi
+                sleep $((attempt * 5))
+              done
+            )
+          }
+          resolve_packages "$GITHUB_WORKSPACE/variants/baseline" "$BASELINE_DERIVED_DATA"
+          resolve_packages "$GITHUB_WORKSPACE/variants/candidate" "$CANDIDATE_DERIVED_DATA"
+
+      - name: Build exact tagged variants
+        run: |
+          set -euo pipefail
+          (
+            cd variants/baseline
+            CMUX_SKIP_ZIG_BUILD=1 \
+              CMUX_RELOAD_NO_GLOBAL_CLI_LINKS=1 \
+              CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+              CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
+              ./scripts/reload.sh --tag "$BASELINE_TAG"
+          )
+          (
+            cd variants/candidate
+            CMUX_SKIP_ZIG_BUILD=1 \
+              CMUX_RELOAD_NO_GLOBAL_CLI_LINKS=1 \
+              CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+              CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
+              ./scripts/reload.sh --tag "$CANDIDATE_TAG"
+          )
+          [[ -x "$BASELINE_APP/Contents/MacOS/cmux DEV" ]] || {
+            echo "::error::Baseline binary missing at $BASELINE_APP/Contents/MacOS/cmux DEV"
+            exit 1
+          }
+          [[ -x "$CANDIDATE_APP/Contents/MacOS/cmux DEV" ]] || {
+            echo "::error::Candidate binary missing at $CANDIDATE_APP/Contents/MacOS/cmux DEV"
+            exit 1
+          }
+
+      - name: Run focused prompt detector tests for both commits
+        run: |
+          set -euo pipefail
+          swift test \
+            --package-path variants/baseline/Packages/macOS/CmuxTerminalCore \
+            --filter PromptLineTurnDetectorTests
+          swift test \
+            --package-path variants/candidate/Packages/macOS/CmuxTerminalCore \
+            --filter PromptLineTurnDetectorTests
+
+      - name: Run complete paired mixed-workload matrix
+        env:
+          CMUX_PERF_HOST_CONTROLS_PATH: ${{ env.PERF_HOST_CONTROLS_PATH }}
+        run: |
+          set -euo pipefail
+          python3 scripts/perf_mixed_workload_driver.py \
+            --baseline-sha "$BASELINE_SHA" \
+            --baseline-tag "$BASELINE_TAG" \
+            --baseline-app "$BASELINE_APP" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --candidate-tag "$CANDIDATE_TAG" \
+            --candidate-app "$CANDIDATE_APP" \
+            --output-dir "$RESULTS_DIR" \
+            --warmups 1 \
+            --repetitions 3
+
+      - name: Upload complete experiment evidence
+        id: evidence-upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-mixed-workload-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RESULTS_DIR }}/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Append experiment summary
+        if: always()
+        env:
+          ARTIFACT_URL: ${{ steps.evidence-upload.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+          from pathlib import Path
+
+          results = Path(os.environ["RESULTS_DIR"])
+          manifest_path = results / "experiment-manifest.json"
+          analysis_path = results / "analysis.json"
+
+          def load(path):
+              try:
+                  return json.loads(path.read_text())
+              except (OSError, json.JSONDecodeError):
+                  return None
+
+          manifest = load(manifest_path)
+          analysis = load(analysis_path)
+          print("## Mixed workload performance")
+          print()
+          print(f"- Baseline: `{os.environ.get('BASELINE_SHA', 'unavailable')}`")
+          print(f"- Candidate: `{os.environ.get('CANDIDATE_SHA', 'unavailable')}`")
+          run_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          print(f"- Run: [{os.environ['GITHUB_RUN_ID']}]({run_url})")
+          artifact_url = os.environ.get("ARTIFACT_URL")
+          print(f"- Evidence: [artifact]({artifact_url})" if artifact_url else "- Evidence: artifact upload unavailable")
+
+          if manifest is None or analysis is None:
+              missing = []
+              if manifest is None:
+                  missing.append("experiment-manifest.json")
+              if analysis is None:
+                  missing.append("analysis.json")
+              print(f"- Result: **incomplete** (missing or invalid {', '.join(missing)})")
+          else:
+              for key in ("schema", "status", "final_acceptance"):
+                  if key in analysis:
+                      print(f"- {key.replace('_', ' ').title()}: `{analysis[key]}`")
+                  elif key in manifest:
+                      print(f"- {key.replace('_', ' ').title()}: `{manifest[key]}`")
+
+              failures = []
+              for document in (manifest, analysis):
+                  value = document.get("failures", [])
+                  if isinstance(value, list):
+                      failures.extend(value)
+              if failures:
+                  print(f"- Failures: **{len(failures)}**")
+                  for failure in failures[:10]:
+                      detail = failure if isinstance(failure, str) else json.dumps(failure, sort_keys=True)
+                      print(f"  - `{detail}`")
+
+              conclusions = analysis.get("scenario_conclusions", analysis.get("scenarios", []))
+              if isinstance(conclusions, dict):
+                  conclusions = [dict({"scenario": key}, **value) if isinstance(value, dict) else {"scenario": key, "conclusion": value} for key, value in sorted(conclusions.items())]
+              if isinstance(conclusions, list) and conclusions:
+                  print("- Scenario conclusions:")
+                  for conclusion in conclusions:
+                      if isinstance(conclusion, dict):
+                          scenario = conclusion.get("scenario_id", conclusion.get("scenario", "unknown"))
+                          verdict = conclusion.get("conclusion", conclusion.get("status", conclusion.get("verdict", "reported")))
+                          print(f"  - `{scenario}`: {verdict}")
+          PY
+
+      - name: Require complete accepted results
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          results = Path(os.environ["RESULTS_DIR"])
+          paths = [
+              results / "host-controls.json",
+              results / "experiment-manifest.json",
+              results / "analysis.json",
+          ]
+          missing = [str(path) for path in paths if not path.is_file()]
+          if missing:
+              raise SystemExit("required experiment evidence is missing: " + ", ".join(missing))
+
+          documents = []
+          for path in paths:
+              try:
+                  documents.append(json.loads(path.read_text()))
+              except json.JSONDecodeError as error:
+                  raise SystemExit(f"invalid JSON in {path}: {error}") from error
+
+          manifest, analysis = documents[1:]
+          failures = []
+          for name, document in (("manifest", manifest), ("analysis", analysis)):
+              value = document.get("failures", [])
+              if not isinstance(value, list):
+                  raise SystemExit(f"{name} failures must be an array")
+              failures.extend((name, failure) for failure in value)
+          if failures:
+              raise SystemExit(f"experiment reported {len(failures)} failure(s)")
+          if analysis.get("final_acceptance") is False:
+              raise SystemExit("analysis final_acceptance is false")
+          if str(analysis.get("status", "")).lower() in {"failed", "failure", "incomplete", "rejected"}:
+              raise SystemExit(f"analysis status is {analysis['status']!r}")
+          PY
+
+      - name: Cleanup owned tagged state
+        if: always()
+        run: |
+          set -euo pipefail
+          cleanup_tag() {
+            local tag="$1"
+            local derived_data="$2"
+            local bundle_id="com.cmuxterm.app.debug.${tag}"
+            pkill -f "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
+            rm -rf \
+              "$derived_data" \
+              "/tmp/cmux-${tag}" \
+              "$HOME/Library/Application Support/cmux/${bundle_id}" \
+              "$HOME/Library/Saved Application State/${bundle_id}.savedState"
+            rm -f \
+              "/tmp/cmux-debug-${tag}.sock" \
+              "/tmp/cmux-debug-${tag}.log" \
+              "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock" \
+              "$HOME/Library/Application Support/cmux/session-${bundle_id}.json" \
+              "$HOME/Library/Application Support/cmux/session-${bundle_id}-previous.json" \
+              "$HOME/Library/Preferences/${bundle_id}.plist"
+          }
+          cleanup_tag "$BASELINE_TAG" "$HOME/Library/Developer/Xcode/DerivedData/cmux-$BASELINE_TAG"
+          cleanup_tag "$CANDIDATE_TAG" "$HOME/Library/Developer/Xcode/DerivedData/cmux-$CANDIDATE_TAG"
