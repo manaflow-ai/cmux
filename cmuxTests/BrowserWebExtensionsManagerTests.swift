@@ -2757,6 +2757,7 @@ struct BrowserWebExtensionsManagerTests {
             browserAvailabilityProvider: { true }
         )
         defer { store.closeAllPanels() }
+        store.setVisibleInUI(true)
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let firstID = try #require(store.newSurface(
             kind: .browser,
@@ -6213,6 +6214,8 @@ struct BrowserWebExtensionsManagerTests {
         let firstPanel = try #require(store.browserPanel(for: firstPanelID))
         let secondPanel = try #require(store.browserPanel(for: secondPanelID))
         store.focusPanel(firstPanelID)
+        store.applyFocusedDockSelection()
+        #expect(store.lastActivatedWebExtensionPanelID == firstPanelID)
 
         let windows = manager.webExtensionController(manager.controller, openWindowsFor: extensionContext)
         let dockWindow = try #require(windows.first(where: { window in
@@ -6236,6 +6239,8 @@ struct BrowserWebExtensionsManagerTests {
             }
         }
         #expect(store.focusedPanelId == secondPanelID)
+        store.applyFocusedDockSelection()
+        #expect(store.lastActivatedWebExtensionPanelID == secondPanelID)
 
         let openEventsBeforeManagerPage = manager.debugDidOpenTabEventCount
         let closeEventsBeforeManagerPage = manager.debugDidCloseTabEventCount
@@ -6247,6 +6252,11 @@ struct BrowserWebExtensionsManagerTests {
         #expect(store.openBrowserExtensionsManager(from: secondPanelID) === managerPage)
         #expect(manager.debugDidOpenTabEventCount == openEventsBeforeManagerPage)
         #expect(manager.debugDidCloseTabEventCount == closeEventsBeforeManagerPage)
+        store.applyFocusedDockSelection()
+        #expect(
+            store.lastActivatedWebExtensionPanelID == nil,
+            "An internal manager page must clear the active content-tab selection"
+        )
 
         #expect(store.closePanel(firstPanelID, force: true))
         let remainingTabs = manager
