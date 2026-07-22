@@ -1049,7 +1049,10 @@ fn run_provider_machine_client(
 
     let (session, label, machine_ui) = match runtime.open_selected() {
         Ok(opened) => opened,
-        Err(error) => runtime.placeholder(format!("Could not connect: {error}")),
+        Err(error) => runtime.placeholder(initial_provider_connection_notice(
+            &localization::catalog().sidebar,
+            &error,
+        )),
     };
     let controller: Box<dyn MachineController> = Box::new(runtime);
     match run_tui_once(session, label, Some(machine_ui), Some(controller))? {
@@ -1058,6 +1061,13 @@ fn run_provider_machine_client(
             anyhow::bail!("provider request escaped its in-place controller")
         }
     }
+}
+
+fn initial_provider_connection_notice(
+    _messages: &localization::SidebarMessages,
+    error: &dyn std::fmt::Display,
+) -> String {
+    format!("Could not connect: {error}")
 }
 
 fn run_tui_once(
@@ -1115,6 +1125,25 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn initial_provider_connection_failure_uses_the_selected_locale() {
+        let error = io::Error::other("offline");
+        assert_eq!(
+            initial_provider_connection_notice(
+                &localization::catalog_for_locale("en_US.UTF-8").sidebar,
+                &error,
+            ),
+            "Could not connect: offline"
+        );
+        assert_eq!(
+            initial_provider_connection_notice(
+                &localization::catalog_for_locale("ja_JP.UTF-8").sidebar,
+                &error,
+            ),
+            "マシンに接続できませんでした: offline"
+        );
     }
 
     #[cfg(unix)]

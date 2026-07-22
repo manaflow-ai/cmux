@@ -687,6 +687,7 @@ mod tests {
     use std::io::{BufRead, BufReader};
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
     use super::*;
@@ -844,6 +845,50 @@ mod tests {
                 break;
             }
             assert!(Instant::now() < deadline, "provider child {pid} survived cleanup");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn dropping_command_io_terminates_background_descendants_without_blocking() {
+        let directory = TestDirectory::new();
+        let descendant_path = directory.path.join("descendant-pid");
+        let script = directory.script(
+            "background-descendant",
+            "descendant_path=$1; shift; sleep 300 & descendant=$!; printf '%s' \"$descendant\" > \"$descendant_path\"; exit 0",
+        );
+        let connector = CommandProviderConnector::new([
+            script.into_os_string(),
+            descendant_path.clone().into_os_string(),
+        ])
+        .expect("create command connector");
+        let connection = connector.connect().expect("start provider child");
+        let (_, control, _) = connection.into_parts();
+        wait_for_file(&descendant_path);
+        let descendant = fs::read_to_string(&descendant_path)
+            .expect("read descendant pid")
+            .parse::<i32>()
+            .expect("parse descendant pid");
+        assert_eq!(unsafe { libc::kill(descendant, 0) }, 0, "provider descendant must be alive");
+
+        let (finished_tx, finished_rx) = mpsc::sync_channel(1);
+        let cleanup = thread::spawn(move || {
+            drop(control);
+            let _ = finished_tx.send(());
+        });
+        let completed = finished_rx.recv_timeout(Duration::from_secs(2)).is_ok();
+        if !completed {
+            let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
+            finished_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("cleanup finishes after the leaked descendant is killed");
+        }
+        cleanup.join().expect("join provider cleanup");
+
+        assert!(completed, "provider cleanup blocked on a descendant-owned diagnostic pipe");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while unsafe { libc::kill(descendant, 0) } == 0 {
+            assert!(Instant::now() < deadline, "provider descendant {descendant} survived cleanup");
             thread::sleep(Duration::from_millis(10));
         }
     }
