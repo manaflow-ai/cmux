@@ -120,9 +120,14 @@ import Testing
 }
 
 @Suite struct SessionStatsTests {
-    private func session(_ account: String, agedSeconds: TimeInterval, now: Date) -> SubrouterSessionAssignment {
+    private func session(
+        _ account: String,
+        agedSeconds: TimeInterval,
+        now: Date,
+        agentType: String = "codex"
+    ) -> SubrouterSessionAssignment {
         SubrouterSessionAssignment(
-            agentType: "codex",
+            agentType: agentType,
             sessionID: UUID().uuidString,
             accountID: account,
             userEmail: nil,
@@ -147,6 +152,28 @@ import Testing
         #expect(activity.map(\.accountID) == ["a", "b"])
         #expect(activity[0].sessionCount == 2)
         #expect(activity[1].sessionCount == 1)
+    }
+
+    @Test func scopesActivityByAgentType() {
+        // The same account ID under two agent types must stay two rows
+        // (same identity rule as the provider-scoped usage-history keys).
+        let now = Date(timeIntervalSince1970: 4_100_000)
+        let sessions = [
+            session("a", agedSeconds: 100, now: now, agentType: "codex"),
+            session("a", agedSeconds: 90, now: now, agentType: "codex"),
+            session("a", agedSeconds: 80, now: now, agentType: "claude"),
+        ]
+        let activity = SubrouterSessionStats.accountActivity(
+            sessions: sessions,
+            window: 7 * 24 * 3600,
+            now: now
+        )
+        #expect(activity.count == 2)
+        #expect(activity[0].agentType == "codex")
+        #expect(activity[0].sessionCount == 2)
+        #expect(activity[1].agentType == "claude")
+        #expect(activity[1].sessionCount == 1)
+        #expect(Set(activity.map(\.id)).count == 2)
     }
 }
 

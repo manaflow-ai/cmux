@@ -74,6 +74,12 @@ final class SubrouterAppRuntime {
     /// sidebar must not stop polling for the others.
     func agentsPanelDidBecomeVisible() {
         agentsPanelVisibleCount += 1
+        if agentsPanelVisibleCount == 1 {
+            // Opening the panel is an authoritative boundary: pick up an
+            // `sr server use` run while the app stayed active (activation
+            // never fires when the change happens inside a cmux terminal).
+            refreshServerSelection()
+        }
         syncAgentsPanelSurfaceVisibility()
     }
 
@@ -95,17 +101,24 @@ final class SubrouterAppRuntime {
 
     /// Re-reads the `sr` server registry off the main actor, then reapplies
     /// configuration. `updateConfiguration` no-ops on equal values, so a
-    /// selection that has not changed costs nothing beyond the read.
-    private func refreshServerSelection() {
+    /// selection that has not changed costs nothing beyond the read. Socket
+    /// verbs await this before serving so `cmux subrouter …` always answers
+    /// for the registry's current server.
+    func refreshServerSelectionAndApply() async {
         serverSelectionGeneration += 1
         let generation = serverSelectionGeneration
+        let selection = await Task.detached(priority: .utility) {
+            SubrouterIntegrationSettings.loadDefaultServerSelection()
+        }.value
+        guard serverSelectionGeneration == generation else { return }
+        serverSelection = selection
+        applyCurrentConfiguration()
+    }
+
+    /// Fire-and-forget ``refreshServerSelectionAndApply()``.
+    private func refreshServerSelection() {
         Task { @MainActor [weak self] in
-            let selection = await Task.detached(priority: .utility) {
-                SubrouterIntegrationSettings.loadDefaultServerSelection()
-            }.value
-            guard let self, self.serverSelectionGeneration == generation else { return }
-            self.serverSelection = selection
-            self.applyCurrentConfiguration()
+            await self?.refreshServerSelectionAndApply()
         }
     }
 

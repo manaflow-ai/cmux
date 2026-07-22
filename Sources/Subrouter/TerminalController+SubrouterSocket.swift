@@ -29,7 +29,7 @@ extension TerminalController {
         switch method {
         case "subrouter.status":
             return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
-                await Self.subrouterRefreshResult { snapshot, configuration in
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: false) { snapshot, configuration in
                     var payload = Self.subrouterStatusPayload(snapshot: snapshot)
                     payload["endpoint"] = configuration.endpoint.baseURL.absoluteString
                     payload["account_count"] = snapshot.usageStatuses.count
@@ -40,19 +40,19 @@ extension TerminalController {
             }
         case "subrouter.accounts":
             return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
-                await Self.subrouterRefreshResult { snapshot, _ in
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: true) { snapshot, _ in
                     ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: false) }]
                 }
             }
         case "subrouter.usage":
             return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
-                await Self.subrouterRefreshResult { snapshot, _ in
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: true) { snapshot, _ in
                     ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: true) }]
                 }
             }
         case "subrouter.sessions":
             return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
-                await Self.subrouterRefreshResult { snapshot, _ in
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: true) { snapshot, _ in
                     ["sessions": snapshot.sessions.map(Self.subrouterSessionPayload)]
                 }
             }
@@ -82,13 +82,34 @@ extension TerminalController {
     /// Refreshes through the shared store (single-flight with UI polling)
     /// and shapes a success payload from the fresh snapshot. Returns the
     /// disabled error when the master gate is off.
+    ///
+    /// Socket verbs are an authoritative boundary, so the runtime re-reads
+    /// sr's server registry first: `sr server use` inside a cmux terminal
+    /// never deactivates the app, and these commands must answer for the
+    /// registry's current server.
+    ///
+    /// - Parameter requiresHealthyDaemon: Data verbs (`accounts`, `usage`,
+    ///   `sessions`) pass `true` so an unreachable daemon becomes an error
+    ///   instead of silently serving retained (stale or empty) snapshot
+    ///   data; `status` passes `false` because reporting the failure state
+    ///   is its job.
     private nonisolated static func subrouterRefreshResult(
+        requiresHealthyDaemon: Bool,
         _ payload: @Sendable (SubrouterSnapshot, SubrouterConfiguration) -> [String: Any]
     ) async -> TerminalController.V2CallResult {
-        let store = await MainActor.run { SubrouterAppRuntime.shared.store }
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        await runtime.refreshServerSelectionAndApply()
+        let store = await MainActor.run { runtime.store }
         let configuration = await MainActor.run { store.configuration }
         guard configuration.isEnabled else { return Self.subrouterDisabledError }
         let snapshot = await store.performFreshRefresh(reason: "socket")
+        if requiresHealthyDaemon, !snapshot.daemonState.isHealthy {
+            return .err(
+                code: "daemon_unreachable",
+                message: snapshot.lastErrorDescription ?? "The subrouter daemon is unreachable.",
+                data: nil
+            )
+        }
         return .ok(payload(snapshot, configuration))
     }
 
@@ -96,7 +117,12 @@ extension TerminalController {
         providerRaw: String,
         accountID: String
     ) async -> TerminalController.V2CallResult {
-        let store = await MainActor.run { SubrouterAppRuntime.shared.store }
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        // Re-read sr's registry first: the store's remote-server guard must
+        // evaluate against the registry's current selection, not a cache
+        // from the last activation.
+        await runtime.refreshServerSelectionAndApply()
+        let store = await MainActor.run { runtime.store }
         do {
             try await store.switchAccount(
                 provider: SubrouterProvider(rawValue: providerRaw.lowercased()),
