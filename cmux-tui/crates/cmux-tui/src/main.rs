@@ -647,11 +647,8 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     let config = config::load();
-    if config.machine_sidebar.enabled || !config.machines.is_empty() {
-        return run_machine_client(MachineRuntime::new(socket_path, config.machines));
-    }
     let remote = RemoteSession::connect(&socket_path)?;
-    run_tui(Session::Remote(remote), args.session)
+    run_connected_session_client(socket_path, args.session, config, Session::Remote(remote))
 }
 
 /// Copy the control protocol byte-for-byte between stdio and a local session.
@@ -791,7 +788,12 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         && socket_path.exists()
         && let Ok(remote) = RemoteSession::connect(&socket_path)
     {
-        return run_tui(Session::Remote(remote), args.session);
+        return run_connected_session_client(
+            socket_path,
+            args.session,
+            config,
+            Session::Remote(remote),
+        );
     }
 
     let mut surface_options = SurfaceOptions::default();
@@ -865,9 +867,46 @@ fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionClientMode {
+    Plain,
+    Machines,
+}
+
+fn session_client_mode(config: &config::Config) -> SessionClientMode {
+    if config.machine_sidebar.enabled || !config.machines.is_empty() {
+        SessionClientMode::Machines
+    } else {
+        SessionClientMode::Plain
+    }
+}
+
+fn run_connected_session_client(
+    socket_path: PathBuf,
+    session_label: String,
+    config: config::Config,
+    session: Session,
+) -> anyhow::Result<()> {
+    match session_client_mode(&config) {
+        SessionClientMode::Plain => run_tui(session, session_label),
+        SessionClientMode::Machines => {
+            let runtime = MachineRuntime::new(socket_path, config.machines);
+            run_machine_client_with_initial(runtime, session)
+        }
+    }
+}
+
 fn run_machine_client(mut runtime: MachineRuntime) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let session = runtime.connect(active)?;
+    run_machine_client_with_initial(runtime, session)
+}
+
+fn run_machine_client_with_initial(
+    runtime: MachineRuntime,
+    session: Session,
+) -> anyhow::Result<()> {
+    let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
     let machine_ui = MachineUiState::new(runtime.snapshot(active));
     let controller: Box<dyn MachineController> =
@@ -1297,5 +1336,25 @@ mod tests {
         ] {
             assert!(error.contains(conflict), "missing {conflict:?} in {error:?}");
         }
+    }
+
+    #[test]
+    fn existing_session_reuse_preserves_machine_client_mode() {
+        let mut config = config::Config::default();
+        assert_eq!(session_client_mode(&config), SessionClientMode::Plain);
+
+        config.machine_sidebar.enabled = true;
+        assert_eq!(session_client_mode(&config), SessionClientMode::Machines);
+
+        config.machine_sidebar.enabled = false;
+        config.machines.push(config::MachineConfig {
+            id: "build-host".into(),
+            name: "Build host".into(),
+            subtitle: String::new(),
+            target: config::MachineTargetConfig::Unix {
+                socket: PathBuf::from("/tmp/build-host.sock"),
+            },
+        });
+        assert_eq!(session_client_mode(&config), SessionClientMode::Machines);
     }
 }
