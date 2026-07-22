@@ -2699,6 +2699,16 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "tests/restored_aliased_time_sleep.py",
+            "import time as clock_time\n"
+            "def pace():\n"
+            "    clock_time = TestClock()\n"
+            "    clock_time.sleep(0.3)\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/aliased_asyncio_sleep.py",
             "import asyncio as aio\n"
             "await aio.sleep(0.3)\n"
@@ -3425,6 +3435,17 @@ def _self_test() -> int:
             "    }\n"
             "}\n",
         ),
+        (
+            "Packages/CmuxClock/Tests/SwitchPatternVirtualClockTests.swift",
+            "func verify() async {\n"
+            "    let clock = ContinuousClock()\n"
+            "    switch state {\n"
+            "    case let .ready(clock):\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
         # Sleep-shaped fixture data and comments remain non-executable even when
         # a real clock with the same receiver name is visible.
         (
@@ -3578,6 +3599,15 @@ def _self_test() -> int:
             "clock_time = TestClock()\n"
             "clock_time.sleep(0.3)\n"
             "assert widget.is_rendered\n",
+        ),
+        (
+            "tests/MultilineParameterSleepModuleAliasTests.py",
+            "import time as clock_time\n"
+            "def verify(\n"
+            "    clock_time: TestClock,\n"
+            "):\n"
+            "    clock_time.sleep(0.3)\n"
+            "    assert widget.is_rendered\n",
         ),
         (
             "tests/ShadowedTimeModuleTests.py",
