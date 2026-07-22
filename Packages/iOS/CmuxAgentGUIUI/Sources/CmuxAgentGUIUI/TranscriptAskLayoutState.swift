@@ -1,5 +1,5 @@
 #if os(iOS)
-struct TranscriptAskLayoutState: Equatable {
+struct TranscriptAskLayoutState: Equatable, Sendable {
     let isAnswering: Bool
     let hasFailed: Bool
 

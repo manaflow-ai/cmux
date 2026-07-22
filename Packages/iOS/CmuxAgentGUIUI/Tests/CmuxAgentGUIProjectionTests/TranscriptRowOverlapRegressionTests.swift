@@ -34,11 +34,12 @@ extension TranscriptRenderingRegressionTests {
             sessionPhase: .working
         ))
         controller.scrollToBottom(animated: false)
-        Self.pumpOverlapRunLoop()
-        container.view.layoutIfNeeded()
-        controller.view.layoutIfNeeded()
-        controller.collectionView.layoutIfNeeded()
-        CATransaction.flush()
+        let settled = Self.waitForMountedCellsToMatchLayout(
+            controller: controller,
+            container: container,
+            window: window
+        )
+        #expect(settled)
 
         #expect(controller.view.safeAreaInsets.top >= 59)
         #expect(controller.view.safeAreaInsets.bottom >= 34)
@@ -62,7 +63,7 @@ extension TranscriptRenderingRegressionTests {
             #expect(abs(layoutHeight - attributes.frame.height) <= tolerance)
             #expect(
                 renderedRect.minY >= attributeRect.minY - tolerance,
-                "Rendered row \(row.rowID) starts above its attribute frame"
+                "Rendered row \(row.rowID) starts above its attribute frame: \(Self.outOfBoundsDescendants(of: cell, attributeRect: attributeRect, window: window))"
             )
             #expect(
                 renderedRect.maxY <= attributeRect.maxY + tolerance,
@@ -152,11 +153,87 @@ extension TranscriptRenderingRegressionTests {
     }
 
     private static func renderedContentRect(of cell: TranscriptCollectionCell, in window: UIWindow) -> CGRect {
-        cell.convert(cell.contentBoundsIncludingSubviews, to: window)
+        let descendantRects = Self.renderedDescendantRects(in: cell.contentView, window: window)
+        return descendantRects.reduce(CGRect.null) { $0.union($1) }
+    }
+
+    private static func outOfBoundsDescendants(
+        of cell: TranscriptCollectionCell,
+        attributeRect: CGRect,
+        window: UIWindow
+    ) -> String {
+        Self.renderedDescendants(in: cell.contentView, window: window)
+            .filter { $0.rect.minY < attributeRect.minY - 0.5 || $0.rect.maxY > attributeRect.maxY + 0.5 }
+            .map { "\($0.type)=\($0.rect)" }
+            .joined(separator: ", ")
+    }
+
+    private static func renderedDescendantRects(in view: UIView, window: UIWindow) -> [CGRect] {
+        renderedDescendants(in: view, window: window).map(\.rect)
+    }
+
+    private static func renderedDescendants(
+        in view: UIView,
+        window: UIWindow
+    ) -> [(type: String, rect: CGRect)] {
+        let ownRect: [(type: String, rect: CGRect)]
+        if view !== view.superview,
+           !view.isHidden,
+           view.alpha > 0.01,
+           view.bounds.width > 0,
+           view.bounds.height > 0,
+           Self.drawsVisibleContent(view) {
+            ownRect = [(String(describing: type(of: view)), view.convert(view.bounds, to: window).standardized)]
+        } else {
+            ownRect = []
+        }
+        return ownRect + view.subviews.flatMap { Self.renderedDescendants(in: $0, window: window) }
+    }
+
+    private static func drawsVisibleContent(_ view: UIView) -> Bool {
+        if view is UILabel || view is UITextView || view is UIImageView || view is UIButton {
+            return true
+        }
+        if let color = view.backgroundColor, color.cgColor.alpha > 0.01 {
+            return true
+        }
+        return view.layer.contents != nil || view.layer.borderWidth > 0 || view.layer.shadowOpacity > 0
     }
 
     private static func pumpOverlapRunLoop() {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private static func waitForMountedCellsToMatchLayout(
+        controller: TranscriptListViewController,
+        container: UIViewController,
+        window: UIWindow
+    ) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: 1)
+        repeat {
+            pumpOverlapRunLoop()
+            container.view.layoutIfNeeded()
+            controller.view.layoutIfNeeded()
+            controller.collectionView.layoutIfNeeded()
+            CATransaction.flush()
+            let cells = controller.collectionView.visibleCells.compactMap { $0 as? TranscriptCollectionCell }
+            let allMatch = !cells.isEmpty && cells.allSatisfy { cell in
+                guard let row = cell.row,
+                      let indexPath = controller.dataSource.indexPath(for: row.rowID),
+                      let attributes = controller.collectionView.layoutAttributesForItem(at: indexPath)
+                else {
+                    return false
+                }
+                let cellRect = cell.convert(cell.bounds, to: window).standardized
+                let attributeRect = controller.collectionView.convert(attributes.frame, to: window).standardized
+                return abs(cellRect.minY - attributeRect.minY) <= 0.5
+                    && abs(cellRect.height - attributeRect.height) <= 0.5
+            }
+            if allMatch {
+                return true
+            }
+        } while Date() < deadline
+        return false
     }
 }
 #endif

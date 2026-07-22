@@ -14,63 +14,168 @@ extension TranscriptRenderingRegressionTests {
         let scale: CGFloat = 3
         let theme = AgentGUITheme(terminalTheme: .monokai)
         var exercisedLayouts = 0
+        let rows = Self.rowLayoutContentVariants.indices.flatMap(Self.layoutHarnessRows)
+            + Self.supplementalLayoutHarnessRows
 
-        for variant in Self.rowLayoutContentVariants.indices {
-            for row in Self.layoutHarnessRows(variant: variant) {
-                for width in widths {
-                    for density in densities {
-                        let first = TranscriptRowLayout.layout(
-                            row: row,
-                            width: width,
-                            density: density,
-                            scale: scale
-                        )
-                        let second = TranscriptRowLayout.layout(
-                            row: row,
-                            width: width,
-                            density: density,
-                            scale: scale
-                        )
-                        let spacing = TranscriptRowSpacing.resolved(for: [row], density: density)[row.rowID]
-                            ?? TranscriptRowSpacing(top: 0, bottom: 0, density: density)
-                        let cell = TranscriptCollectionCell(frame: CGRect(
-                            x: 0,
-                            y: 0,
-                            width: width,
-                            height: first.height
-                        ))
-                        cell.configure(
-                            row: row,
-                            spacing: spacing,
-                            layout: first,
-                            theme: theme,
-                            answeringAskID: nil,
-                            failedAskID: nil,
-                            onShowActivity: { _ in },
-                            onAnswer: { _, _ in },
-                            onShowTerminal: {}
-                        )
-                        cell.layoutIfNeeded()
-                        cell.contentView.layoutIfNeeded()
+        for row in rows {
+            for width in widths {
+                for density in densities {
+                    let first = TranscriptRowLayout.layout(
+                        row: row,
+                        width: width,
+                        density: density,
+                        scale: scale
+                    )
+                    let second = TranscriptRowLayout.layout(
+                        row: row,
+                        width: width,
+                        density: density,
+                        scale: scale
+                    )
+                    let spacing = TranscriptRowSpacing.resolved(for: [row], density: density)[row.rowID]
+                        ?? TranscriptRowSpacing(top: 0, bottom: 0, density: density)
+                    let cell = TranscriptCollectionCell(frame: CGRect(
+                        x: 0,
+                        y: 0,
+                        width: width,
+                        height: first.height
+                    ))
+                    cell.configure(
+                        row: row,
+                        spacing: spacing,
+                        layout: first,
+                        theme: theme,
+                        answeringAskID: nil,
+                        failedAskID: nil,
+                        onShowActivity: { _ in },
+                        onAnswer: { _, _ in },
+                        onShowTerminal: {}
+                    )
+                    cell.layoutIfNeeded()
+                    cell.contentView.layoutIfNeeded()
+                    let mountedTextViews = Self.descendants(of: cell.contentView).compactMap { $0 as? UITextView }
+                    let mountedButtons = Self.descendants(of: cell.contentView).compactMap { $0 as? UIButton }
 
-                        #expect(first.height == second.height)
-                        #expect(first.elementFrames == second.elementFrames)
-                        #expect(Self.frameBytes(first.elementFrames) == Self.frameBytes(second.elementFrames))
-                        #expect(first.height == cell.bounds.height)
-                        #expect(cell.rowLayoutResult?.height == first.height)
-                        #expect(abs(first.height * scale - (first.height * scale).rounded()) < 0.000_001)
-                        #expect(first.elementFrames.allSatisfy {
-                            $0.minX >= -0.001
-                                && $0.maxX <= width + 0.001
-                                && $0.minY >= -0.001
-                                && $0.maxY <= first.height + 0.001
-                        })
-                        exercisedLayouts += 1
+                    #expect(first.height == second.height)
+                    #expect(first.elementFrames == second.elementFrames)
+                    #expect(Self.frameBytes(first.elementFrames) == Self.frameBytes(second.elementFrames))
+                    #expect(cell.rowLayoutResult?.height == first.height)
+                    #expect(mountedTextViews.count == first.textElements.count)
+                    for textView in mountedTextViews {
+                        textView.layoutManager.ensureLayout(for: textView.textContainer)
+                        let usedHeight = textView.layoutManager.usedRect(for: textView.textContainer).maxY
+                        let requiredHeight = ceil(max(usedHeight, 1) * scale) / scale
+                        #expect(
+                            abs(requiredHeight - textView.frame.height) <= 1 / scale,
+                            "Rendered TextKit height diverged for \(row.rowID)"
+                        )
                     }
+                    for button in mountedButtons {
+                        button.layoutIfNeeded()
+                        guard let titleLabel = button.titleLabel, !titleLabel.bounds.isEmpty else { continue }
+                        let titleFrame = titleLabel.convert(titleLabel.bounds, to: button)
+                        #expect(titleFrame.minX >= -1 / scale)
+                        #expect(titleFrame.maxX <= button.bounds.maxX + 1 / scale)
+                        #expect(titleFrame.minY >= -1 / scale)
+                        #expect(titleFrame.maxY <= button.bounds.maxY + 1 / scale)
+                    }
+                    if case .pendingAsk(let ask) = row.rowKind,
+                       ask.id == "wrapping-option",
+                       let titleLabel = mountedButtons.first?.titleLabel {
+                        #expect(titleLabel.bounds.height > titleLabel.font.lineHeight)
+                    }
+                    if case .streaming = row.rowKind {
+                        #expect(abs((cell.contentView.subviews.first?.alpha ?? 1) - 0.82) < 0.001)
+                    }
+                    #expect(abs(first.height * scale - (first.height * scale).rounded()) < 0.000_001)
+                    #expect(first.elementFrames.allSatisfy {
+                        $0.minX >= -0.001
+                            && $0.maxX <= width + 0.001
+                            && $0.minY >= -0.001
+                            && $0.maxY <= first.height + 0.001
+                    })
+                    exercisedLayouts += 1
                 }
             }
         }
-        #expect(exercisedLayouts == 13 * 5 * 4 * 2)
+        #expect(exercisedLayouts == ((13 * 5) + 4) * 4 * 2)
+    }
+
+    @Test func pureRowLayoutRunsOffTheMainActor() async {
+        let row = TranscriptRow(
+            rowID: .dateHeader("off-main"),
+            rowKind: .dateHeader(dayKey: "Off-main layout")
+        )
+        let result = await Task.detached {
+            TranscriptRowLayout.layout(
+                row: row,
+                width: 393,
+                density: .comfortable,
+                scale: 3
+            )
+        }.value
+
+        #expect(result.height > 0)
+        #expect(!result.textElements.isEmpty)
+    }
+
+    @Test func preferredContentSizeChangeRelaysOutVisibleTextFrames() throws {
+        let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
+        let container = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = container
+        window.makeKeyAndVisible()
+        defer {
+            controller.traitOverrides.preferredContentSizeCategory = .large
+            window.isHidden = true
+        }
+        controller.traitOverrides.preferredContentSizeCategory = .large
+        container.addChild(controller)
+        controller.view.translatesAutoresizingMaskIntoConstraints = false
+        container.view.addSubview(controller.view)
+        NSLayoutConstraint.activate([
+            controller.view.topAnchor.constraint(equalTo: container.view.topAnchor),
+            controller.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor),
+        ])
+        controller.didMove(toParent: container)
+        controller.apply(input: TranscriptProjectionInput(entries: [EntrySnapshot(
+            journalID: JournalID(rawValue: "dynamic-type-layout"),
+            seq: EntrySeq(rawValue: 1),
+            kind: .agentProse,
+            content: EntryContent(
+                contentHash: 1,
+                payload: .agentProse(AgentProsePayload(markdown: Self.rowLayoutContentVariants[1]))
+            ),
+            version: EntityVersion(rawValue: 1)
+        )]))
+        Self.pumpLayoutHarnessRunLoop()
+        controller.collectionView.layoutIfNeeded()
+        let initialCell = try #require(controller.collectionView.visibleCells.first as? TranscriptCollectionCell)
+        let initialTextView = try #require(Self.descendants(of: initialCell.contentView).first { $0 is UITextView })
+        let initialHeight = initialTextView.frame.height
+        #expect(controller.traitCollection.preferredContentSizeCategory == .large)
+
+        controller.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+        let deadline = Date(timeIntervalSinceNow: 1)
+        while Date() < deadline {
+            Self.pumpLayoutHarnessRunLoop()
+            controller.collectionView.layoutIfNeeded()
+            guard let candidate = controller.collectionView.visibleCells.first as? TranscriptCollectionCell,
+                  let textView = Self.descendants(of: candidate.contentView).first(where: { $0 is UITextView }),
+                  textView.frame.height > initialHeight
+            else {
+                continue
+            }
+            break
+        }
+
+        let updatedCell = try #require(controller.collectionView.visibleCells.first as? TranscriptCollectionCell)
+        let updatedTextView = try #require(Self.descendants(of: updatedCell.contentView).first { $0 is UITextView })
+        #expect(controller.traitCollection.preferredContentSizeCategory == .accessibilityExtraExtraExtraLarge)
+        #expect(updatedTextView.frame.height > initialHeight)
+        #expect(updatedCell.rowLayoutResult?.textElements.first?.frame.height == updatedTextView.frame.height)
     }
 
     @Test func agentMarkdownPreservesStructureCodeFontsAndLinks() throws {
@@ -208,6 +313,37 @@ extension TranscriptRenderingRegressionTests {
         ]
     }
 
+    private static var supplementalLayoutHarnessRows: [TranscriptRow] {
+        let journal = JournalID(rawValue: "layout-harness-supplemental")
+        let emptySummary = TranscriptGenericActivity(kindLabel: "tool", summary: "")
+        let wrappingOption = "Choose this deliberately long answer option whose title must wrap over several lines without painting outside the explicitly measured button frame."
+        return [
+            TranscriptRow(
+                rowID: .entry(journalID: journal, seq: EntrySeq(rawValue: 1)),
+                rowKind: .proseAgent(text: "", grouping: .single)
+            ),
+            TranscriptRow(
+                rowID: .streaming(journalID: journal, afterSeq: EntrySeq(rawValue: 2)),
+                rowKind: .streaming(textTail: "")
+            ),
+            TranscriptRow(
+                rowID: .entry(journalID: journal, seq: EntrySeq(rawValue: 3)),
+                rowKind: .genericActivity(emptySummary)
+            ),
+            TranscriptRow(
+                rowID: .pendingAsk("wrapping-option"),
+                rowKind: .pendingAsk(PendingAsk(
+                    id: "wrapping-option",
+                    sessionID: AgentSessionID(rawValue: "layout-session"),
+                    kind: .question,
+                    promptSummary: "Select one option.",
+                    options: [wrappingOption],
+                    state: .active
+                ))
+            ),
+        ]
+    }
+
     private static func perfEntries(tailRevision: Int) -> [EntrySnapshot] {
         let journal = JournalID(rawValue: "layout-perf")
         return (1...600).map { sequence in
@@ -230,6 +366,10 @@ extension TranscriptRenderingRegressionTests {
 
     private static func frameBytes(_ frames: [CGRect]) -> [UInt8] {
         frames.withUnsafeBytes { Array($0) }
+    }
+
+    private static func descendants(of view: UIView) -> [UIView] {
+        view.subviews + view.subviews.flatMap(Self.descendants)
     }
 }
 #endif

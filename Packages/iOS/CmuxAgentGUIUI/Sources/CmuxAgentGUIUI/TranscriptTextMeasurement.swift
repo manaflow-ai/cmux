@@ -1,7 +1,7 @@
 #if os(iOS)
 import CoreGraphics
 
-struct TranscriptTextMeasurement {
+struct TranscriptTextMeasurement: Sendable {
     let size: CGSize
     let codeBlockFrames: [CGRect]
 }

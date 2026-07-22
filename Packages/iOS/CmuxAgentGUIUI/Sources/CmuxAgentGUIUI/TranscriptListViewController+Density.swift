@@ -67,7 +67,8 @@ extension TranscriptListViewController {
             previousSpacing[$0] != spacingByID[$0]
         }
         let reconfiguredIDs = requestedIDs.intersection(retainedIDs).union(spacingChangedIDs)
-        heightCache = heightCache.filter { snapshot.itemIdentifiers.contains($0.key) }
+        let retained = Set(snapshot.itemIdentifiers)
+        heightCache = heightCache.filter { retained.contains($0.key) }
         let invalidatedHeightIDs = spacingChangedIDs.union(
             invalidatingLayout ? requestedIDs : []
         )

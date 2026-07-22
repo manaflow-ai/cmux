@@ -2,12 +2,13 @@
 import CmuxAgentGUIProjection
 import UIKit
 
-@MainActor struct TranscriptRowLayout {
+struct TranscriptRowLayout: Sendable {
     static func layout(
         row: TranscriptRow,
         width: CGFloat,
         density: TranscriptDensity,
-        scale: CGFloat
+        scale: CGFloat,
+        traitCollection: UITraitCollection? = nil
     ) -> TranscriptRowLayoutResult {
         let spacing = TranscriptRowSpacing.resolved(for: [row], density: density)[row.rowID]
             ?? TranscriptRowSpacing(top: 0, bottom: 0, density: density)
@@ -16,7 +17,8 @@ import UIKit
             width: width,
             spacing: spacing,
             scale: scale,
-            askState: .idle
+            askState: .idle,
+            traitCollection: traitCollection
         )
     }
 
@@ -25,23 +27,26 @@ import UIKit
         width: CGFloat,
         spacing: TranscriptRowSpacing,
         scale: CGFloat,
-        askState: TranscriptAskLayoutState
+        askState: TranscriptAskLayoutState,
+        traitCollection: UITraitCollection? = nil
     ) -> TranscriptRowLayoutResult {
         let safeWidth = max(width, 1)
+        let builder = TranscriptAttributedTextBuilder(traitCollection: traitCollection)
         switch row.rowKind {
         case .proseAgent(let text, _):
-            return proseAgent(text, width: safeWidth, spacing: spacing, scale: scale)
+            return proseAgent(text, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
         case .proseUser(let text, _, _):
-            return bubble(text, pending: false, leading: false, width: safeWidth, spacing: spacing, scale: scale)
+            return bubble(text, pending: false, leading: false, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
         case .status(let code, let detail):
             return metadata(
                 [AgentGUIL10n.statusCode(code), detail].compactMap(\.self).joined(separator: " - "),
                 width: safeWidth,
                 spacing: spacing,
-                scale: scale
+                scale: scale,
+                builder: builder
             )
         case .dateHeader(let dayKey):
-            return metadata(dayKey, width: safeWidth, spacing: spacing, scale: scale)
+            return metadata(dayKey, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
         case .boundary:
             return metadata(
                 AgentGUIL10n.string(
@@ -50,7 +55,8 @@ import UIKit
                 ),
                 width: safeWidth,
                 spacing: spacing,
-                scale: scale
+                scale: scale,
+                builder: builder
             )
         case .hole(let range):
             return metadata(
@@ -60,32 +66,35 @@ import UIKit
                 ),
                 width: safeWidth,
                 spacing: spacing,
-                scale: scale
+                scale: scale,
+                builder: builder
             )
         case .pendingTicket(let ticket):
-            return bubble(ticket.text, pending: true, leading: false, width: safeWidth, spacing: spacing, scale: scale)
+            return bubble(ticket.text, pending: true, leading: false, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
         case .pendingAsk(let ask):
             return pendingAsk(
                 ask,
                 width: safeWidth,
                 spacing: spacing,
                 scale: scale,
-                state: askState
+                state: askState,
+                builder: builder
             )
         case .streaming(let textTail):
-            return bubble(textTail, pending: false, leading: true, width: safeWidth, spacing: spacing, scale: scale)
+            return bubble(textTail, pending: false, leading: true, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
         case .genericActivity(let activity):
-            return genericActivity(activity, width: safeWidth, spacing: spacing, scale: scale)
+            return genericActivity(activity, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
         case .activitySummary(let summary):
-            return activitySummary(summary, width: safeWidth, spacing: spacing, scale: scale)
+            return activitySummary(summary, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
         case .activityItem(let item):
-            return activityItem(item, width: safeWidth, spacing: spacing, scale: scale)
+            return activityItem(item, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
         case .unsupported(let rawKind, let summary):
             return genericActivity(
                 TranscriptGenericActivity(kindLabel: rawKind, summary: summary),
                 width: safeWidth,
                 spacing: spacing,
-                scale: scale
+                scale: scale,
+                builder: builder
             )
         }
     }

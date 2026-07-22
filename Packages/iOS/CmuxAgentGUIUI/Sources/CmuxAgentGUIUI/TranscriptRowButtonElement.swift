@@ -1,7 +1,10 @@
 #if os(iOS)
 import CoreGraphics
 
-struct TranscriptRowButtonElement {
+struct TranscriptRowButtonElement: Sendable {
+    static let optionHorizontalContentInset: CGFloat = 12
+    static let optionVerticalContentInset: CGFloat = 7
+
     let frame: CGRect
     let title: String?
     let kind: TranscriptRowButtonKind

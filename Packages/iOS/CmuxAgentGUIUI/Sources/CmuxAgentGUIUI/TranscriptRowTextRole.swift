@@ -1,5 +1,5 @@
 #if os(iOS)
-enum TranscriptRowTextRole {
+enum TranscriptRowTextRole: Sendable {
     case foreground
     case dim
     case faint

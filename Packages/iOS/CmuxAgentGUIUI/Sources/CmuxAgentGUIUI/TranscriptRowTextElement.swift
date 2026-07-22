@@ -2,7 +2,7 @@
 import CoreGraphics
 import UIKit
 
-struct TranscriptRowTextElement {
+struct TranscriptRowTextElement: Sendable {
     let attributedText: TranscriptAttributedText
     let frame: CGRect
     let role: TranscriptRowTextRole

@@ -6,9 +6,10 @@ extension TranscriptRowLayout {
         _ source: String,
         width: CGFloat,
         spacing: TranscriptRowSpacing,
-        scale: CGFloat
+        scale: CGFloat,
+        builder: TranscriptAttributedTextBuilder
     ) -> TranscriptRowLayoutResult {
-        let text = TranscriptAttributedTextBuilder().make(
+        let text = builder.make(
             text: source,
             style: .agentMarkdown,
             density: spacing.density
@@ -43,9 +44,10 @@ extension TranscriptRowLayout {
         leading: Bool,
         width: CGFloat,
         spacing: TranscriptRowSpacing,
-        scale: CGFloat
+        scale: CGFloat,
+        builder: TranscriptAttributedTextBuilder
     ) -> TranscriptRowLayoutResult {
-        let text = TranscriptAttributedTextBuilder().make(
+        let text = builder.make(
             text: source,
             style: leading ? .agentMarkdown : .body,
             density: spacing.density

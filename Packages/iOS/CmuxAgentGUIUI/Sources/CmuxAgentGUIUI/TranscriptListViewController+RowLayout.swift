@@ -21,7 +21,8 @@ extension TranscriptListViewController {
             width: width,
             spacing: spacing,
             scale: scale,
-            askState: askState
+            askState: askState,
+            traitCollection: traitCollection
         )
         layoutComputationCount += 1
         heightCache[rowID] = TranscriptRowLayoutCacheEntry(
@@ -41,7 +42,21 @@ extension TranscriptListViewController {
 
     func invalidateAllRowLayouts() {
         heightCache.removeAll(keepingCapacity: true)
-        (collectionView?.collectionViewLayout as? TranscriptCollectionLayout)?.invalidateLayout()
+        guard isViewLoaded,
+              collectionView != nil,
+              dataSource != nil,
+              !currentRows.isEmpty
+        else {
+            (collectionView?.collectionViewLayout as? TranscriptCollectionLayout)?.invalidateLayout()
+            return
+        }
+        let snapshot = dataSource.snapshot()
+        applySnapshot(
+            snapshot,
+            reconfiguring: Set(snapshot.itemIdentifiers),
+            anchor: captureAnchor(pinningExactBottomRest: true),
+            invalidatingLayout: true
+        )
     }
 
     private func askLayoutState(for row: TranscriptRow) -> TranscriptAskLayoutState {

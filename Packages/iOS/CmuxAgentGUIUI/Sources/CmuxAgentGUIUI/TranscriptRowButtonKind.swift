@@ -1,5 +1,5 @@
 #if os(iOS)
-enum TranscriptRowButtonKind {
+enum TranscriptRowButtonKind: Sendable {
     case askOption(Int)
     case showTerminal
     case showActivity

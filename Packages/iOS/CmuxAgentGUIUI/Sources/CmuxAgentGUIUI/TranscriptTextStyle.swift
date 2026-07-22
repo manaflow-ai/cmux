@@ -1,5 +1,5 @@
 #if os(iOS)
-enum TranscriptTextStyle {
+enum TranscriptTextStyle: Sendable {
     case agentMarkdown
     case body
     case metadata

@@ -8,9 +8,9 @@ extension TranscriptRowLayout {
         width: CGFloat,
         spacing: TranscriptRowSpacing,
         scale: CGFloat,
-        state: TranscriptAskLayoutState
+        state: TranscriptAskLayoutState,
+        builder: TranscriptAttributedTextBuilder
     ) -> TranscriptRowLayoutResult {
-        let builder = TranscriptAttributedTextBuilder()
         let measurer = TranscriptTextMeasurer()
         let cardFrameX: CGFloat = 18
         let innerX: CGFloat = 42
@@ -66,8 +66,14 @@ extension TranscriptRowLayout {
             for (index, option) in ask.options.enumerated() {
                 y += 10
                 let optionText = builder.make(text: option, style: .body, density: spacing.density)
-                let optionSize = measurer.measure(optionText, constrainedTo: max(innerWidth - 24, 1), scale: scale).size
-                let buttonHeight = max(36, pixelCeil(optionSize.height + 14, scale: scale))
+                let horizontalBudget = 2 * TranscriptRowButtonElement.optionHorizontalContentInset
+                let verticalBudget = 2 * TranscriptRowButtonElement.optionVerticalContentInset
+                let optionSize = measurer.measure(
+                    optionText,
+                    constrainedTo: max(innerWidth - horizontalBudget, 1),
+                    scale: scale
+                ).size
+                let buttonHeight = max(36, pixelCeil(optionSize.height + verticalBudget, scale: scale))
                 buttons.append(TranscriptRowButtonElement(
                     frame: CGRect(x: innerX, y: y, width: innerWidth, height: buttonHeight),
                     title: option,

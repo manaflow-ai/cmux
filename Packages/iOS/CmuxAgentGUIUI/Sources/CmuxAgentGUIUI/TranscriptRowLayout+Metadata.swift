@@ -6,10 +6,11 @@ extension TranscriptRowLayout {
         _ label: String,
         width: CGFloat,
         spacing: TranscriptRowSpacing,
-        scale: CGFloat
+        scale: CGFloat,
+        builder: TranscriptAttributedTextBuilder
     ) -> TranscriptRowLayoutResult {
         let register = TranscriptRowSpacing.register(for: spacing.density)
-        let text = TranscriptAttributedTextBuilder().make(
+        let text = builder.make(
             text: label,
             style: .metadata,
             density: spacing.density

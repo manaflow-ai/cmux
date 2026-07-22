@@ -1,5 +1,5 @@
 #if os(iOS)
-enum TranscriptRowBackgroundKind: Equatable {
+enum TranscriptRowBackgroundKind: Equatable, Sendable {
     case userBubble
     case pendingBubble
     case askCard

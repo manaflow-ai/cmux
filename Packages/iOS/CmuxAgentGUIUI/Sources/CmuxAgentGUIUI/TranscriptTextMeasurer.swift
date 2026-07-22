@@ -2,25 +2,33 @@
 import Foundation
 import UIKit
 
-struct TranscriptTextMeasurer {
+struct TranscriptTextMeasurer: Sendable {
     init() {}
 
     func measure(
         _ text: TranscriptAttributedText,
         constrainedTo proposedWidth: CGFloat,
-        scale: CGFloat
+        scale: CGFloat,
+        maximumNumberOfLines: Int = 0,
+        lineBreakMode: NSLineBreakMode = .byWordWrapping
     ) -> TranscriptTextMeasurement {
         let width = max(proposedWidth, 1)
         let textStorage = NSTextStorage(attributedString: text.value)
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
-        configure(textContainer)
+        configure(
+            textContainer,
+            maximumNumberOfLines: maximumNumberOfLines,
+            lineBreakMode: lineBreakMode
+        )
         textStorage.addLayoutManager(layoutManager)
         layoutManager.addTextContainer(textContainer)
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
-        let fallbackHeight = (text.value.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)?.lineHeight ?? 0
-        let measuredHeight = max(used.maxY, text.value.length == 0 ? fallbackHeight : 0)
+        let fallbackHeight = text.value.length > 0
+            ? (text.value.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)?.lineHeight ?? 0
+            : 0
+        let measuredHeight = max(used.maxY, fallbackHeight)
         let size = CGSize(
             width: pixelCeiled(min(width, max(used.maxX, 1)), scale: scale),
             height: pixelCeiled(max(measuredHeight, 1), scale: scale)
@@ -46,23 +54,33 @@ struct TranscriptTextMeasurer {
         return TranscriptTextMeasurement(size: size, codeBlockFrames: codeBlockFrames)
     }
 
+    // UITextView mutation is UIKit view work; the TextKit measurement path above remains nonisolated.
     @MainActor func configure(_ textView: UITextView) {
         _ = textView.layoutManager
         textView.textContainerInset = .zero
         configure(textView.textContainer)
+        textView.contentInset = .zero
+        textView.contentOffset = .zero
         textView.backgroundColor = .clear
         textView.isEditable = false
         textView.isSelectable = true
         textView.isScrollEnabled = false
+        textView.showsHorizontalScrollIndicator = false
+        textView.showsVerticalScrollIndicator = false
+        textView.contentInsetAdjustmentBehavior = .never
         textView.adjustsFontForContentSizeCategory = true
         textView.dataDetectorTypes = [.link]
         textView.clipsToBounds = true
     }
 
-    private func configure(_ textContainer: NSTextContainer) {
+    private func configure(
+        _ textContainer: NSTextContainer,
+        maximumNumberOfLines: Int = 0,
+        lineBreakMode: NSLineBreakMode = .byWordWrapping
+    ) {
         textContainer.lineFragmentPadding = 0
-        textContainer.lineBreakMode = .byWordWrapping
-        textContainer.maximumNumberOfLines = 0
+        textContainer.lineBreakMode = lineBreakMode
+        textContainer.maximumNumberOfLines = maximumNumberOfLines
         textContainer.widthTracksTextView = false
         textContainer.heightTracksTextView = false
     }

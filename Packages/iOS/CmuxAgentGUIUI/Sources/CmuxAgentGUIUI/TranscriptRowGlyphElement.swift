@@ -1,7 +1,7 @@
 #if os(iOS)
 import CoreGraphics
 
-struct TranscriptRowGlyphElement {
+struct TranscriptRowGlyphElement: Sendable {
     let frame: CGRect
     let systemName: String
     let pointSize: CGFloat

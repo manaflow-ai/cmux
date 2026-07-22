@@ -7,30 +7,54 @@ extension TranscriptRowLayout {
         _ activity: TranscriptGenericActivity,
         width: CGFloat,
         spacing: TranscriptRowSpacing,
-        scale: CGFloat
+        scale: CGFloat,
+        builder: TranscriptAttributedTextBuilder
     ) -> TranscriptRowLayoutResult {
         let register = TranscriptRowSpacing.register(for: spacing.density)
-        let kindText = TranscriptAttributedTextBuilder().make(
+        let kindText = builder.make(
             text: AgentGUIL10n.activityKind(activity.kindLabel),
             style: .metadataEmphasized,
             density: spacing.density
         )
-        let summaryText = TranscriptAttributedTextBuilder().make(
+        let summaryText = builder.make(
             text: activity.summary,
             style: .metadata,
             density: spacing.density
         )
         let measurer = TranscriptTextMeasurer()
         let railWidth = max(width - 36, 1)
-        let kindSize = measurer.measure(kindText, constrainedTo: railWidth, scale: scale).size
+        let kindSize = measurer.measure(
+            kindText,
+            constrainedTo: railWidth,
+            scale: scale,
+            maximumNumberOfLines: 1,
+            lineBreakMode: .byTruncatingTail
+        ).size
         let summaryX = 18 + 17 + 8 + kindSize.width + 8
         let summaryWidth = max(width - 18 - summaryX, 1)
-        let summarySize = measurer.measure(summaryText, constrainedTo: summaryWidth, scale: scale).size
-        let lineHeight = max(17, kindSize.height, min(summarySize.height, kindSize.height))
+        let summarySize = measurer.measure(
+            summaryText,
+            constrainedTo: summaryWidth,
+            scale: scale,
+            maximumNumberOfLines: 1,
+            lineBreakMode: .byTruncatingTail
+        ).size
+        let summaryHeight = min(summarySize.height, kindSize.height)
+        let lineHeight = max(17, kindSize.height, summaryHeight)
         let lineY = spacing.top + register.activityVerticalPadding
         let glyphFrame = CGRect(x: 18, y: lineY + (lineHeight - 17) / 2, width: 17, height: 17)
-        let kindFrame = CGRect(x: glyphFrame.maxX + 8, y: lineY, width: kindSize.width, height: lineHeight)
-        let summaryFrame = CGRect(x: summaryX, y: lineY, width: summaryWidth, height: lineHeight)
+        let kindFrame = CGRect(
+            x: glyphFrame.maxX + 8,
+            y: lineY + (lineHeight - kindSize.height) / 2,
+            width: kindSize.width,
+            height: kindSize.height
+        )
+        let summaryFrame = CGRect(
+            x: summaryX,
+            y: lineY + (lineHeight - summaryHeight) / 2,
+            width: summaryWidth,
+            height: summaryHeight
+        )
         return result(
             height: lineY + lineHeight + register.activityVerticalPadding + spacing.bottom,
             scale: scale,
@@ -65,22 +89,29 @@ extension TranscriptRowLayout {
         _ item: TranscriptActivityItem,
         width: CGFloat,
         spacing: TranscriptRowSpacing,
-        scale: CGFloat
+        scale: CGFloat,
+        builder: TranscriptAttributedTextBuilder
     ) -> TranscriptRowLayoutResult {
         let register = TranscriptRowSpacing.register(for: spacing.density)
-        let kindText = TranscriptAttributedTextBuilder().make(
+        let kindText = builder.make(
             text: AgentGUIL10n.activityKind(item.kind),
             style: .metadataEmphasized,
             density: spacing.density
         )
-        let summaryText = TranscriptAttributedTextBuilder().make(
+        let summaryText = builder.make(
             text: item.summary,
             style: .metadata,
             density: spacing.density
         )
         let measurer = TranscriptTextMeasurer()
         let railWidth = max(width - 48, 1)
-        let kindSize = measurer.measure(kindText, constrainedTo: railWidth, scale: scale).size
+        let kindSize = measurer.measure(
+            kindText,
+            constrainedTo: railWidth,
+            scale: scale,
+            maximumNumberOfLines: 1,
+            lineBreakMode: .byTruncatingTail
+        ).size
         let summaryX = 24 + 12 + 7 + kindSize.width + 7
         let summaryWidth = max(width - 24 - summaryX, 1)
         let lineHeight = register.activityItemHeight
@@ -92,7 +123,13 @@ extension TranscriptRowLayout {
             width: kindSize.width,
             height: kindHeight
         )
-        let summarySize = measurer.measure(summaryText, constrainedTo: summaryWidth, scale: scale).size
+        let summarySize = measurer.measure(
+            summaryText,
+            constrainedTo: summaryWidth,
+            scale: scale,
+            maximumNumberOfLines: 1,
+            lineBreakMode: .byTruncatingTail
+        ).size
         let summaryHeight = min(summarySize.height, lineHeight)
         let summaryFrame = CGRect(
             x: summaryX,
@@ -134,14 +171,26 @@ extension TranscriptRowLayout {
         _ summary: TranscriptActivitySummary,
         width: CGFloat,
         spacing: TranscriptRowSpacing,
-        scale: CGFloat
+        scale: CGFloat,
+        builder: TranscriptAttributedTextBuilder
     ) -> TranscriptRowLayoutResult {
         let register = TranscriptRowSpacing.register(for: spacing.density)
         let label = AgentGUIL10n.activitySummary(summary)
-        let text = TranscriptAttributedTextBuilder().make(
+        let text = builder.make(
             text: label,
             style: .metadata,
             density: spacing.density
+        )
+        let textWidth = max(width - 24 - 12 - 7 - 24, 1)
+        let textHeight = min(
+            TranscriptTextMeasurer().measure(
+                text,
+                constrainedTo: textWidth,
+                scale: scale,
+                maximumNumberOfLines: 1,
+                lineBreakMode: .byTruncatingTail
+            ).size.height,
+            register.activitySummaryMinimumHeight
         )
         let rowHeight = register.activitySummaryMinimumHeight
         let rowY = spacing.top
@@ -153,9 +202,9 @@ extension TranscriptRowLayout {
         )
         let textFrame = CGRect(
             x: glyphFrame.maxX + 7,
-            y: rowY + (rowHeight - register.activitySummaryLabelHeight) / 2,
-            width: max(width - glyphFrame.maxX - 7 - 24, 1),
-            height: register.activitySummaryLabelHeight
+            y: rowY + (rowHeight - textHeight) / 2,
+            width: textWidth,
+            height: textHeight
         )
         return result(
             height: rowY + rowHeight + spacing.bottom,

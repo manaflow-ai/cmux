@@ -1,7 +1,7 @@
 #if os(iOS)
 import CoreGraphics
 
-struct TranscriptRowLayoutResult {
+struct TranscriptRowLayoutResult: Sendable {
     let height: CGFloat
     let textElements: [TranscriptRowTextElement]
     let backgroundElements: [TranscriptRowBackgroundElement]

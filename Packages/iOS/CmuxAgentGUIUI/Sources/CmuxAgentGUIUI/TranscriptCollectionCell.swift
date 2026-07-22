@@ -82,7 +82,8 @@ final class TranscriptCollectionCell: UICollectionViewCell {
             askState: TranscriptAskLayoutState(
                 isAnswering: answeringAskID == row.pendingAskID,
                 hasFailed: failedAskID == row.pendingAskID
-            )
+            ),
+            traitCollection: traitCollection
         )
         configure(
             row: row,

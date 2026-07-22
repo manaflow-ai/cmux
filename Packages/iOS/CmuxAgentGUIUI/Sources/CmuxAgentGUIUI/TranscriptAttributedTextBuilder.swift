@@ -2,21 +2,25 @@
 import Foundation
 import UIKit
 
-struct TranscriptAttributedTextBuilder {
-    init() {}
+struct TranscriptAttributedTextBuilder: Sendable {
+    private let traitCollection: UITraitCollection?
+
+    init(traitCollection: UITraitCollection? = nil) {
+        self.traitCollection = traitCollection
+    }
 
     func make(text: String, style: TranscriptTextStyle, density: TranscriptDensity) -> TranscriptAttributedText {
         switch style {
         case .agentMarkdown:
             return markdown(text)
         case .body:
-            return plain(text, font: .preferredFont(forTextStyle: .body))
+            return plain(text, font: preferredFont(forTextStyle: .body))
         case .metadata:
             return plain(text, font: metadataFont(for: density))
         case .metadataEmphasized:
             return plain(text, font: metadataFont(for: density, weight: .semibold))
         case .askPrompt:
-            return plain(text, font: .preferredFont(forTextStyle: .body).withTraits(.traitBold))
+            return plain(text, font: preferredFont(forTextStyle: .body).withTraits(.traitBold))
         case .askError:
             return plain(text, font: metadataFont(for: density))
         }
@@ -30,7 +34,7 @@ struct TranscriptAttributedTextBuilder {
             )
             return TranscriptAttributedText(value: renderedMarkdown(parsed))
         } catch {
-            return plain(source, font: .preferredFont(forTextStyle: .body))
+            return plain(source, font: preferredFont(forTextStyle: .body))
         }
     }
 
@@ -60,7 +64,7 @@ struct TranscriptAttributedTextBuilder {
                 if !descriptor.prefix.isEmpty {
                     output.append(NSAttributedString(
                         string: descriptor.prefix,
-                        attributes: [.font: UIFont.preferredFont(forTextStyle: .body)]
+                        attributes: [.font: preferredFont(forTextStyle: .body)]
                     ))
                 }
             }
@@ -81,7 +85,7 @@ struct TranscriptAttributedTextBuilder {
         if output.length == 0 {
             output.append(NSAttributedString(
                 string: String(source.characters),
-                attributes: [.font: UIFont.preferredFont(forTextStyle: .body)]
+                attributes: [.font: preferredFont(forTextStyle: .body)]
             ))
         }
         return output
@@ -123,7 +127,7 @@ struct TranscriptAttributedTextBuilder {
         for run: AttributedString.Runs.Run,
         blockKind: PresentationIntent.Kind?
     ) -> [NSAttributedString.Key: Any] {
-        let body = UIFont.preferredFont(forTextStyle: .body)
+        let body = preferredFont(forTextStyle: .body)
         var font = body
         if case .header(let level) = blockKind {
             let pointSize = body.pointSize + (level == 1 ? 3 : level == 2 ? 2 : 0)
@@ -184,8 +188,12 @@ struct TranscriptAttributedTextBuilder {
 
     private func metadataFont(for density: TranscriptDensity, weight: UIFont.Weight = .regular) -> UIFont {
         let style: UIFont.TextStyle = density == .comfortable ? .footnote : .caption1
-        let preferred = UIFont.preferredFont(forTextStyle: style)
+        let preferred = preferredFont(forTextStyle: style)
         return UIFont.systemFont(ofSize: preferred.pointSize, weight: weight)
+    }
+
+    private func preferredFont(forTextStyle style: UIFont.TextStyle) -> UIFont {
+        UIFont.preferredFont(forTextStyle: style, compatibleWith: traitCollection)
     }
 }
 
