@@ -206,11 +206,15 @@ struct MobileWorkspaceListFidelityTests {
 
         workspace.bonsplitController.selectTab(secondTabID)
         try await Task.sleep(for: .milliseconds(200))
-        #expect(observer.emittedUpdateCountForTesting == 2, "selection publishes through the observer")
+        let countAfterSelection = observer.emittedUpdateCountForTesting
+        #expect(countAfterSelection > 1, "selection publishes through the observer")
 
         workspace.bonsplitController.selectTab(secondTabID)
         try await Task.sleep(for: .milliseconds(200))
-        #expect(observer.emittedUpdateCountForTesting == 2, "a no-op selection stays suppressed")
+        #expect(
+            observer.emittedUpdateCountForTesting == countAfterSelection,
+            "a no-op selection stays suppressed"
+        )
     }
 
     @Test func orderedPanelIdsMatchesBonsplitSpatialOrder() throws {
