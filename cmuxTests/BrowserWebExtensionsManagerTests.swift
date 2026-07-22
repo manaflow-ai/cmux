@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CryptoKit
 import Foundation
 import ObjectiveC.runtime
 import os
@@ -1147,6 +1148,59 @@ struct BrowserWebExtensionsManagerTests {
         #expect(relaunchedManager.presentationSnapshot().extensions.first?.isToolbarPinned == true)
         try await relaunchedManager.setToolbarActionPinned(false, uniqueIdentifier: identifier)
         #expect(relaunchedManager.presentationSnapshot().extensions.first?.isToolbarPinned == false)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func catalogArchiveInstallationPreservesPinnedRawDigestAndStaysCurrent() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let archive = sourceRoot.appendingPathComponent("fixture.zip")
+        let archiveBytes = Data("verified catalog archive".utf8)
+        try archiveBytes.write(to: archive)
+        let pinnedDigest = SHA256.hash(data: archiveBytes)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let repository = BrowserWebExtensionDirectoryRepository()
+
+        let installed = try await repository.installImmutableCandidate(
+            from: archive,
+            into: managedRoot
+        )
+
+        #expect(installed.digest == pinnedDigest)
+        let entry = BrowserWebExtensionCatalogEntry(
+            id: "fixture",
+            version: "1.0",
+            packageURL: URL(string: "https://example.com/fixture.zip")!,
+            packageSHA256: pinnedDigest
+        )
+        let record = BrowserWebExtensionManagedRecord(
+            id: entry.installedManagementID,
+            displayName: "Fixture",
+            version: entry.version,
+            source: .catalogArchive(
+                filename: installed.url.lastPathComponent,
+                digest: installed.digest,
+                catalogID: entry.id
+            ),
+            isEnabled: true,
+            grantedPermissions: [],
+            grantedMatchPatterns: []
+        )
+        let catalog = BrowserWebExtensionCatalog(
+            verifiedEntries: [entry],
+            safariAppIdentities: []
+        )
+
+        #expect(!BrowserWebExtensionsManager.trustedUpdateAvailable(
+            for: record,
+            loadedVersion: entry.version,
+            catalog: catalog
+        ))
     }
 
     @available(macOS 15.4, *)

@@ -182,6 +182,22 @@ struct BrowserWebExtensionRepositoryTests {
         #expect(firstDigest != secondDigest)
     }
 
+    @Test func singleFileManagedPackageDigestRemainsRawSHA256() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archive = root.appendingPathComponent("fixture.zip")
+        let bytes = Data("verified catalog archive".utf8)
+        try bytes.write(to: archive)
+        let expectedDigest = SHA256.hash(data: bytes)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let repository = BrowserWebExtensionDirectoryRepository()
+
+        let digest = try await repository.digestForManagedPackage(at: archive)
+
+        #expect(digest == expectedDigest)
+    }
+
     @Test func catalogLogicalIdentifierSurvivesVersionChanges() {
         let first = BrowserWebExtensionCatalogEntry(
             id: "sample",
