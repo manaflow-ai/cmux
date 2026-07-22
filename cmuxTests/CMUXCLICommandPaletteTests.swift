@@ -293,6 +293,34 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["workspace_id"] == nil)
     }
 
+    @Test func vscodeDoubleDashTreatsOpenAsALiteralPath() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-vscode-open-\(UUID().uuidString.prefix(8)).sock"
+        let parentURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vscode-open-\(UUID().uuidString)", isDirectory: true)
+        let directoryURL = parentURL.appendingPathComponent("open", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parentURL) }
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"path\":\"\(directoryURL.path)\"}}"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "vscode", "--", "open"],
+            environment: commandPaletteCLIEnvironment(),
+            currentDirectoryURL: parentURL,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        #expect(request["method"] as? String == "vscode.open")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["path"] as? String == directoryURL.standardizedFileURL.path)
+    }
+
     @Test func vscodeOutputSanitizesTerminalControlsWithoutChangingJSON() throws {
         let cliPath = try bundledCLIPath()
         let path = "/tmp/project\u{001B}[31mred\u{009B}2J\u{001B}]0;owned\u{0007}"
