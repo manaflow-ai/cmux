@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Fortsæt i terminalen",
+    "returnBody": "Gå tilbage til den terminal, hvor du kørte ssh cmux.cloud, for at fortsætte.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Betalingen er gennemført",
+        "body": "Dit abonnement er bekræftet. Der kan gå et øjeblik, før de nye grænser vises."
+      },
+      "checkoutCanceled": {
+        "title": "Betalingen blev annulleret",
+        "body": "Betalingen blev lukket uden at ændre dit abonnement."
+      },
+      "portalReturn": {
+        "title": "Tilbage fra betalingsportalen",
+        "body": "Det kan tage et øjeblik, før ændringer fra betalingsportalen vises."
+      },
+      "default": {
+        "title": "Betalingen er færdig",
+        "body": "Dit betalingsforløb er afsluttet."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Terminalen bygget til multitasking",
     "description": "Gratis og open source nativ macOS-terminal bygget på Ghostty. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-værktøj. Lodrette faner, notifikationsringe, delte paneler og en socket API.",
