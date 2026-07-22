@@ -1939,6 +1939,16 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/ConditionalSameKindReassignedRealClockTests.swift",
+            "var clock: any Clock<Duration> = ContinuousClock()\n"
+            "if shouldReset {\n"
+            "    clock = ContinuousClock()\n"
+            "}\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/MultilineNamedClockTests.swift",
             "let clock =\n"
             "    ContinuousClock()\n"
@@ -2065,6 +2075,41 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "tests/aliased_time_sleep.py",
+            "import time as clock_time\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/aliased_asyncio_sleep.py",
+            "import asyncio as aio\n"
+            "await aio.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/aliased_trio_sleep.py",
+            "import trio as trio_runtime\n"
+            "await trio_runtime.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/aliased_anyio_sleep.py",
+            "import anyio as anyio_runtime\n"
+            "await anyio_runtime.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/aliased_gevent_sleep.py",
+            "import gevent as gevent_runtime\n"
+            "gevent_runtime.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/QualifiedRealClockInitializerTests.swift",
             "let clock = Swift.ContinuousClock()\n"
             "try await clock.sleep(for: .milliseconds(300))\n"
@@ -2171,6 +2216,27 @@ def _self_test() -> int:
             "            .sleep(for: .milliseconds(300))\n"
             "        #expect(widget.isRendered)\n"
             "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/TypedRealClockMemberChainTests.swift",
+            "struct Fixture {\n"
+            "    let clock: ContinuousClock\n"
+            "}\n"
+            "let fixture: Fixture = Fixture(clock: ContinuousClock())\n"
+            "try await fixture.clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/InjectedRealClockMemberChainTests.swift",
+            "struct Fixture {\n"
+            "    let clock: ContinuousClock\n"
+            "}\n"
+            "func verify(fixture: Fixture) async {\n"
+            "    try await fixture.clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
             "}\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
@@ -2888,6 +2954,13 @@ def _self_test() -> int:
             "}\n"
             "try await clock.sleep(until: deadline)\n"
             "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "tests/ShadowedSleepModuleAliasTests.py",
+            "import time as clock_time\n"
+            "clock_time = TestClock()\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
         ),
     ]
 
