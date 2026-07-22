@@ -40,10 +40,6 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
-    struct TerminalInputRecord: Sendable {
-        var surfaceID: String
-        var text: String
-    }
     struct WorkspaceCreateRecord: Sendable, Equatable {
         var groupID: String?
         var title: String?
@@ -54,13 +50,7 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
-    private(set) var terminalInputs: [TerminalInputRecord] = []
-    private var terminalInputInFlightCount = 0
-    private var terminalInputMaximumInFlightCount = 0
-    private var holdFirstTerminalInput = false
-    private var firstTerminalInputHeld = false
-    private var firstTerminalInputContinuation: CheckedContinuation<Void, Never>?
-    private var firstTerminalInputReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
     private var workspaceCreates: [WorkspaceCreateRecord] = []
@@ -121,21 +111,6 @@ actor RoutingHostRouter {
         continuation?.resume()
     }
 
-    func setHoldFirstTerminalInput(_ hold: Bool) {
-        holdFirstTerminalInput = hold
-    }
-
-    func awaitFirstTerminalInputReached() async {
-        if firstTerminalInputHeld { return }
-        await withCheckedContinuation { firstTerminalInputReachedWaiters.append($0) }
-    }
-
-    func releaseFirstTerminalInput() {
-        let continuation = firstTerminalInputContinuation
-        firstTerminalInputContinuation = nil
-        continuation?.resume()
-    }
-
     func setRejectWorkspaceCreate(_ reject: Bool) {
         rejectWorkspaceCreate = reject
     }
@@ -185,9 +160,6 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
-    func recordedTerminalInputs() -> [TerminalInputRecord] { terminalInputs }
-    func recordedTerminalInputInFlightCount() -> Int { terminalInputInFlightCount }
-    func recordedTerminalInputMaximumInFlightCount() -> Int { terminalInputMaximumInFlightCount }
     func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
     func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
         directoryListRequests
@@ -395,28 +367,7 @@ actor RoutingHostRouter {
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.input":
-            let surfaceID = info.surfaceID ?? ""
-            let text = info.text ?? ""
-            let index = terminalInputs.count
-            terminalInputs.append(TerminalInputRecord(surfaceID: surfaceID, text: text))
-            terminalInputInFlightCount += 1
-            terminalInputMaximumInFlightCount = max(
-                terminalInputMaximumInFlightCount,
-                terminalInputInFlightCount
-            )
-            if index == 0 && holdFirstTerminalInput {
-                firstTerminalInputHeld = true
-                let reachedWaiters = firstTerminalInputReachedWaiters
-                firstTerminalInputReachedWaiters = []
-                for waiter in reachedWaiters { waiter.resume() }
-                await withCheckedContinuation { firstTerminalInputContinuation = $0 }
-            }
-            terminalInputInFlightCount -= 1
-            return try? Self.resultFrame(id: id, result: [
-                "workspace_id": Self.workspaceID,
-                "surface_id": surfaceID,
-                "queued": false,
-            ])
+            return await terminalInputResponse(info)
         case "notification.dismiss":
             dismisses.append((
                 notificationIDs: info.notificationIDs ?? [],
@@ -430,7 +381,7 @@ actor RoutingHostRouter {
         }
     }
 
-    private static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
+    static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": true,
