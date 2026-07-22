@@ -694,7 +694,9 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return
         }
 
-        webView.browserPortalConfigureFirstSizedRevealGeometryNudge(forNavigationURL: url)
+        if navigationAction.targetFrame?.isMainFrame == true {
+            webView.browserPortalConfigureFirstSizedRevealGeometryNudge(forNavigationURL: url)
+        }
         if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
             #if DEBUG
             cmuxDebugLog("popup.nav.preserveSSLBypassErrorPage url=\(url.absoluteString)")
