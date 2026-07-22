@@ -1,6 +1,7 @@
 //! Config-backed machine catalog and transport connectors.
 
 use std::collections::HashSet;
+use std::ffi::OsString;
 #[cfg(test)]
 use std::io::Read;
 use std::io::{self, BufRead, BufReader, Write};
@@ -19,6 +20,10 @@ use crate::session::{
 };
 
 const SSH_DIAGNOSTIC_BYTES: usize = 4096;
+/// Provider-backed machine keys grow upward from one. Client-local overlay
+/// keys live in the upper half so the two process-local catalogs cannot
+/// collide without changing the provider protocol.
+pub(crate) const CLIENT_MACHINE_KEY_START: u64 = 1 << 63;
 
 #[derive(Debug, Clone)]
 struct Entry {
@@ -31,6 +36,7 @@ struct Entry {
 pub struct MachineRuntime {
     entries: Vec<Entry>,
     next_key: u64,
+    connect_enabled: bool,
 }
 
 impl MachineRuntime {
@@ -48,8 +54,26 @@ impl MachineRuntime {
                 target: MachineTargetConfig::Unix { socket: current_socket },
             }],
             next_key: 2,
+            connect_enabled: true,
         };
         let mut seen_ids = HashSet::from(["current".to_string()]);
+        for machine in configured {
+            if !seen_ids.insert(machine.id.clone()) {
+                continue;
+            }
+            runtime.push(machine);
+        }
+        runtime
+    }
+
+    /// Build a catalog that is overlaid on a dynamic provider. It has no
+    /// implicit "current machine" entry because the provider owns the active
+    /// session. Ephemeral SSH targets are enabled only for trusted local
+    /// launch modes such as `--cloud`.
+    pub fn external(configured: Vec<MachineConfig>, connect_enabled: bool) -> Self {
+        let mut runtime =
+            Self { entries: Vec::new(), next_key: CLIENT_MACHINE_KEY_START, connect_enabled };
+        let mut seen_ids = HashSet::new();
         for machine in configured {
             if !seen_ids.insert(machine.id.clone()) {
                 continue;
@@ -80,11 +104,19 @@ impl MachineRuntime {
     }
 
     pub fn snapshot(&self, active: MachineKey) -> MachineSnapshot {
+        self.snapshot_with_active(Some(active))
+    }
+
+    pub fn snapshot_with_active(&self, active: Option<MachineKey>) -> MachineSnapshot {
         MachineSnapshot {
             machines: self.entries.iter().map(|entry| entry.descriptor.clone()).collect(),
-            active: Some(active),
-            capabilities: MachineCapabilities { create: false, connect: true },
+            active,
+            capabilities: MachineCapabilities { create: false, connect: self.connect_enabled },
         }
+    }
+
+    pub fn contains(&self, key: MachineKey) -> bool {
+        self.entry(key).is_some()
     }
 
     pub fn name(&self, key: MachineKey) -> Option<&str> {
@@ -107,6 +139,9 @@ impl MachineRuntime {
     }
 
     pub fn connect_machine(&mut self, target: &str) -> anyhow::Result<MachineKey> {
+        if !self.connect_enabled {
+            anyhow::bail!("this client cannot connect external machines");
+        }
         let target = target.trim();
         if target.is_empty() || target.starts_with('-') || target.chars().any(char::is_whitespace) {
             anyhow::bail!("machine address must be a host or user@host without whitespace");
@@ -168,21 +203,9 @@ fn ssh_transport(
     session: &str,
     binary: &str,
 ) -> anyhow::Result<RemoteTransport> {
-    let destination = user.map_or_else(|| host.to_string(), |user| format!("{user}@{host}"));
-    let remote_command =
-        format!("{} relay --session {}", shell_quote(binary), shell_quote(session));
     let mut command = Command::new("ssh");
-    command.arg("-T");
-    if let Some(port) = port {
-        command.arg("-p").arg(port.to_string());
-    }
-    if let Some(identity_file) = identity_file {
-        command.arg("-i").arg(identity_file);
-    }
     command
-        .arg("--")
-        .arg(destination)
-        .arg(remote_command)
+        .args(ssh_arguments(host, user, port, identity_file, session, binary))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -191,6 +214,44 @@ fn ssh_transport(
         Box::new(ProcessReader { inner: BufReader::new(stdout), process: process.clone() }),
         Box::new(ProcessWriter { inner: stdin, process }),
     ))
+}
+
+fn ssh_arguments(
+    host: &str,
+    user: Option<&str>,
+    port: Option<u16>,
+    identity_file: Option<&std::path::Path>,
+    session: &str,
+    binary: &str,
+) -> Vec<OsString> {
+    let destination = user.map_or_else(|| host.to_string(), |user| format!("{user}@{host}"));
+    let remote_command =
+        format!("{} relay --session {}", shell_quote(binary), shell_quote(session));
+    let mut arguments = vec![
+        OsString::from("-T"),
+        OsString::from("-o"),
+        OsString::from("BatchMode=yes"),
+        OsString::from("-o"),
+        OsString::from("StrictHostKeyChecking=yes"),
+        OsString::from("-o"),
+        OsString::from("ForwardAgent=no"),
+        OsString::from("-o"),
+        OsString::from("ClearAllForwardings=yes"),
+    ];
+    if let Some(port) = port {
+        arguments.push(OsString::from("-p"));
+        arguments.push(OsString::from(port.to_string()));
+    }
+    if let Some(identity_file) = identity_file {
+        arguments.push(OsString::from("-i"));
+        arguments.push(identity_file.as_os_str().to_owned());
+    }
+    arguments.extend([
+        OsString::from("--"),
+        OsString::from(destination),
+        OsString::from(remote_command),
+    ]);
+    arguments
 }
 
 fn spawn_transport_process(
@@ -369,5 +430,61 @@ mod tests {
             MachineRuntime::new(PathBuf::from("/tmp/current.sock"), vec![machine.clone(), machine]);
 
         assert_eq!(runtime.snapshot(runtime.initial_key()).machines.len(), 2);
+    }
+
+    #[test]
+    fn external_catalog_has_no_implicit_machine_and_uses_disjoint_keys() {
+        let machine = MachineConfig {
+            id: "mini".into(),
+            name: "Mini".into(),
+            subtitle: "local".into(),
+            target: MachineTargetConfig::Unix { socket: PathBuf::from("/tmp/mini.sock") },
+        };
+        let runtime = MachineRuntime::external(vec![machine], false);
+        let snapshot = runtime.snapshot_with_active(None);
+
+        assert_eq!(snapshot.machines.len(), 1);
+        assert!(snapshot.machines[0].key.0 >= CLIENT_MACHINE_KEY_START);
+        assert_eq!(snapshot.active, None);
+        assert!(!snapshot.capabilities.connect);
+    }
+
+    #[test]
+    fn disabled_external_catalog_rejects_ephemeral_targets() {
+        let mut runtime = MachineRuntime::external(Vec::new(), false);
+        let error = runtime.connect_machine("mini.local").unwrap_err().to_string();
+        assert!(error.contains("cannot connect external machines"), "{error}");
+    }
+
+    #[test]
+    fn ssh_transport_is_noninteractive_and_fail_closed() {
+        let arguments = ssh_arguments(
+            "mini.local",
+            Some("lawrence"),
+            Some(2200),
+            Some(std::path::Path::new("/tmp/cloud key")),
+            "agent's work",
+            "/opt/cmux tui",
+        )
+        .into_iter()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+        for option in [
+            "BatchMode=yes",
+            "StrictHostKeyChecking=yes",
+            "ForwardAgent=no",
+            "ClearAllForwardings=yes",
+        ] {
+            assert!(arguments.windows(2).any(|pair| pair == ["-o", option]), "{arguments:?}");
+        }
+        assert!(arguments.windows(2).any(|pair| pair == ["-p", "2200"]));
+        assert!(arguments.windows(2).any(|pair| pair == ["-i", "/tmp/cloud key"]));
+        let separator = arguments.iter().position(|argument| argument == "--").unwrap();
+        assert_eq!(arguments[separator + 1], "lawrence@mini.local");
+        assert_eq!(
+            arguments[separator + 2],
+            "'/opt/cmux tui' relay --session 'agent'\"'\"'s work'"
+        );
     }
 }

@@ -10,6 +10,7 @@ use std::time::Duration;
 use cmux_tui_core::{Mux, SurfaceOptions};
 use cmux_tui_machine_protocol as protocol;
 
+use crate::config::MachineConfig;
 use crate::machine::{
     MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
     MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdateStream,
@@ -22,6 +23,7 @@ use crate::machine::{
 #[cfg(test)]
 use crate::machine_provider_client::UnixProviderConnector;
 use crate::machine_provider_client::{MachineProviderConnector, ProviderClient};
+use crate::machine_runtime::MachineRuntime;
 use crate::session::{RemoteSession, Session};
 
 struct OpenConnection {
@@ -48,6 +50,144 @@ pub(crate) struct ProviderMachineRuntime {
     mutation_sequence: AtomicU64,
     open: Option<OpenConnection>,
     notice: Option<String>,
+}
+
+/// Composes a provider-owned catalog with client-local socket and SSH targets.
+/// The provider never receives local target names, credentials, or lifecycle
+/// requests. Native provider processes can omit this wrapper entirely.
+pub(crate) struct ProviderMachineController {
+    provider: ProviderMachineRuntime,
+    local: MachineRuntime,
+    active_local: Option<MachineKey>,
+}
+
+impl ProviderMachineController {
+    pub(crate) fn connect_with(
+        connector: Arc<dyn MachineProviderConnector>,
+        configured: Vec<MachineConfig>,
+        connect_external: bool,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            provider: ProviderMachineRuntime::connect_with(connector)?,
+            local: MachineRuntime::external(configured, connect_external),
+            active_local: None,
+        })
+    }
+
+    pub(crate) fn open_selected(&mut self) -> anyhow::Result<(Session, String, MachineUiState)> {
+        let (session, label, ui) = self.provider.open_selected()?;
+        Ok((session, label, self.merge_local_ui(ui)))
+    }
+
+    pub(crate) fn placeholder(
+        &mut self,
+        notice: impl Into<String>,
+    ) -> (Session, String, MachineUiState) {
+        let (session, label, ui) = self.provider.placeholder(notice);
+        (session, label, self.merge_local_ui(ui))
+    }
+
+    fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+        match request {
+            MachineRequest::Switch(key) if self.local.contains(key) => self.switch_local(key),
+            MachineRequest::Connect(target) => {
+                let key = self.local.connect_machine(&target)?;
+                self.switch_local(key)
+            }
+            MachineRequest::ReconnectProvider if self.active_local.is_some() => {
+                self.provider.reconnect_control()?;
+                let ui = self.provider.ui_state_for_open_connection();
+                let mut result = MachineActionResult::ui(self.merge_local_ui(ui));
+                result.restart_updates = true;
+                Ok(result)
+            }
+            request => {
+                let switching_provider = matches!(request, MachineRequest::Switch(_));
+                let mut result = self.provider.perform_request(request)?;
+                if switching_provider {
+                    self.active_local = None;
+                } else if self.active_local.is_some() && result.replacement.is_some() {
+                    // A provider lifecycle response must never replace an
+                    // active client-local session implicitly.
+                    self.provider.close_open_connection();
+                    result.replacement = None;
+                    result.session_label = None;
+                }
+                result.ui = self.merge_local_ui(result.ui);
+                Ok(result)
+            }
+        }
+    }
+
+    fn switch_local(&mut self, key: MachineKey) -> anyhow::Result<MachineActionResult> {
+        // Open the candidate first. Failed SSH or socket authentication leaves
+        // the current provider/local session untouched.
+        let session = self.local.connect(key)?;
+        let label = self.local.name(key).unwrap_or("machine").to_string();
+        self.provider.close_open_connection();
+        self.active_local = Some(key);
+        let ui = self.provider.ui_state_for_open_connection();
+        let mut result = MachineActionResult::replace(self.merge_local_ui(ui), session, label);
+        result.restart_updates = true;
+        Ok(result)
+    }
+
+    fn merge_local_ui(&self, ui: MachineUiState) -> MachineUiState {
+        merge_local_machine_ui(
+            ui,
+            &self.local.snapshot_with_active(self.active_local),
+            self.active_local,
+        )
+    }
+
+    fn subscribe_ui_updates(&self) -> anyhow::Result<MachineUpdateStream> {
+        let provider_updates = self.provider.subscribe_ui_updates()?;
+        let (provider_receiver, provider_stop, provider_worker) = provider_updates.into_parts();
+        let local_snapshot = self.local.snapshot_with_active(self.active_local);
+        let active_local = self.active_local;
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let (sender, receiver) = mpsc::sync_channel(8);
+        let worker =
+            std::thread::Builder::new().name("machine-local-overlay".into()).spawn(move || {
+                while !worker_stop.load(Ordering::Acquire) {
+                    match provider_receiver.recv_timeout(Duration::from_millis(250)) {
+                        Ok(ui) => {
+                            if sender
+                                .send(merge_local_machine_ui(ui, &local_snapshot, active_local))
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+                provider_stop.store(true, Ordering::Release);
+                drop(provider_receiver);
+                let _ = provider_worker.join();
+            })?;
+        Ok(MachineUpdateStream::new(receiver, stop, worker))
+    }
+
+    fn close(&mut self) {
+        self.provider.close();
+    }
+}
+
+impl MachineController for ProviderMachineController {
+    fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+        self.perform_request(request)
+    }
+
+    fn subscribe_updates(&self) -> anyhow::Result<Option<MachineUpdateStream>> {
+        self.subscribe_ui_updates().map(Some)
+    }
+
+    fn close(&mut self) {
+        ProviderMachineController::close(self);
+    }
 }
 
 impl ProviderMachineRuntime {
@@ -491,16 +631,7 @@ impl ProviderMachineRuntime {
     }
 
     fn reconnect_session(&mut self) -> anyhow::Result<MachineActionResult> {
-        let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
-            connect_client(Arc::clone(&self.connector))?;
-        self.client = Arc::new(client);
-        self.snapshot = snapshot;
-        self.machine_lifecycle_snapshot = machine_lifecycle_snapshot;
-        self.workspace_snapshot = workspace_snapshot;
-        self.reconcile_keys();
-        if let Some(notice) = &self.snapshot.notice {
-            self.notice = Some(notice.message.clone());
-        }
+        self.reconnect_control()?;
 
         match self.open_selected_candidate() {
             Ok((session, label, open)) => {
@@ -528,6 +659,20 @@ impl ProviderMachineRuntime {
                 })
             }
         }
+    }
+
+    fn reconnect_control(&mut self) -> anyhow::Result<()> {
+        let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
+            connect_client(Arc::clone(&self.connector))?;
+        self.client = Arc::new(client);
+        self.snapshot = snapshot;
+        self.machine_lifecycle_snapshot = machine_lifecycle_snapshot;
+        self.workspace_snapshot = workspace_snapshot;
+        self.reconcile_keys();
+        if let Some(notice) = &self.snapshot.notice {
+            self.notice = Some(notice.message.clone());
+        }
+        Ok(())
     }
 
     fn open_selected_candidate(&self) -> anyhow::Result<(Session, String, Option<OpenConnection>)> {
@@ -675,6 +820,26 @@ impl ProviderMachineRuntime {
             self.notice = Some(notice.message);
         }
     }
+}
+
+fn merge_local_machine_ui(
+    mut ui: MachineUiState,
+    local: &MachineSnapshot,
+    active_local: Option<MachineKey>,
+) -> MachineUiState {
+    ui.snapshot.machines.extend(local.machines.iter().cloned());
+    ui.snapshot.capabilities.connect |= local.capabilities.connect;
+    if let Some(active) = active_local {
+        ui.snapshot.active = Some(active);
+        ui.session_available = true;
+        // Provider selection changes are catalog updates while a local
+        // session is active. Only an explicit user switch may replace it.
+        if matches!(ui.request, Some(MachineRequest::Switch(_))) {
+            ui.request = None;
+        }
+    }
+    ui.selection = ui.snapshot.active_index().unwrap_or_default();
+    ui
 }
 
 fn random_mutation_nonce() -> anyhow::Result<String> {
@@ -997,6 +1162,7 @@ mod tests {
 
     use serde::Serialize;
     use serde::de::DeserializeOwned;
+    use serde_json::{Value, json};
 
     use super::*;
 
@@ -1285,6 +1451,168 @@ mod tests {
 
         let negotiated = machine_ui_state(&snapshot, &lifecycle, None, &keys, true, true);
         assert!(negotiated.snapshot.capabilities.connect);
+    }
+
+    #[test]
+    fn local_overlay_appends_disjoint_machines_and_owns_active_session() {
+        let snapshot = snapshot(1, "Cloud machine", protocol::MachineStatus::Running);
+        let lifecycle = machine_lifecycle_snapshot(&snapshot);
+        let keys = Arc::new(Mutex::new(KeyRegistry {
+            by_id: HashMap::new(),
+            by_key: HashMap::new(),
+            next: 1,
+        }));
+        let mut provider = machine_ui_state(&snapshot, &lifecycle, None, &keys, false, false);
+        let provider_key = provider.snapshot.active.unwrap();
+        provider.request = Some(MachineRequest::Switch(provider_key));
+        let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
+        let local = MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: local_key,
+                id: "mini".into(),
+                name: "Mini".into(),
+                subtitle: "local".into(),
+                status: MachineStatus::Running,
+            }],
+            active: Some(local_key),
+            capabilities: MachineCapabilities { create: false, connect: true },
+        };
+
+        let merged = merge_local_machine_ui(provider, &local, Some(local_key));
+
+        assert_eq!(merged.snapshot.machines.len(), 2);
+        assert_ne!(provider_key, local_key);
+        assert_eq!(merged.snapshot.active, Some(local_key));
+        assert_eq!(merged.selected().map(|machine| machine.key), Some(local_key));
+        assert!(merged.snapshot.capabilities.connect);
+        assert!(merged.session_available);
+        assert!(merged.request.is_none(), "provider selection must not evict a local session");
+        assert!(merged.provider.is_some(), "provider presentation remains available");
+    }
+
+    #[test]
+    fn local_overlay_keeps_provider_reconnect_requests_without_losing_session() {
+        let mut provider = MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        provider.request = Some(MachineRequest::ReconnectProvider);
+        let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
+        let local = MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: local_key,
+                id: "mini".into(),
+                name: "Mini".into(),
+                subtitle: "local".into(),
+                status: MachineStatus::Running,
+            }],
+            active: Some(local_key),
+            capabilities: MachineCapabilities::default(),
+        };
+
+        let merged = merge_local_machine_ui(provider, &local, Some(local_key));
+
+        assert!(matches!(merged.request, Some(MachineRequest::ReconnectProvider)));
+        assert!(merged.session_available);
+    }
+
+    #[test]
+    fn local_overlay_switches_to_a_real_client_local_mux() {
+        let provider_socket = TestProviderSocket::bind();
+        let listener = provider_socket.listener();
+        let (provider_stop, provider_stopped) = mpsc::channel();
+        let provider_server = thread::spawn(move || {
+            let _control = serve_initial_snapshot(
+                &listener,
+                snapshot(1, "Cloud machine", protocol::MachineStatus::Running),
+            );
+            provider_stopped.recv_timeout(Duration::from_secs(2)).unwrap();
+        });
+        let local_socket = std::env::temp_dir().join(format!(
+            "cmux-local-overlay-{}-{}.sock",
+            std::process::id(),
+            NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&local_socket);
+        let local_listener = UnixListener::bind(&local_socket).unwrap();
+        let (local_stop, local_stopped) = mpsc::channel();
+        let local_server = thread::spawn(move || {
+            let (stream, _) = local_listener.accept().unwrap();
+            let mut peer = BufReader::new(stream);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({
+                        "app": "cmux-tui",
+                        "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+                    })
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+            local_stopped.recv_timeout(Duration::from_secs(2)).unwrap();
+        });
+        let local = MachineRuntime::external(
+            vec![
+                MachineConfig {
+                    id: "mini".into(),
+                    name: "Mini".into(),
+                    subtitle: "local".into(),
+                    target: crate::config::MachineTargetConfig::Unix {
+                        socket: local_socket.clone(),
+                    },
+                },
+                MachineConfig {
+                    id: "offline".into(),
+                    name: "Offline".into(),
+                    subtitle: "local".into(),
+                    target: crate::config::MachineTargetConfig::Unix {
+                        socket: local_socket.with_extension("missing"),
+                    },
+                },
+            ],
+            true,
+        );
+        let local_snapshot = local.snapshot_with_active(None);
+        let local_key = local_snapshot.machines[0].key;
+        let offline_key = local_snapshot.machines[1].key;
+        let mut controller = ProviderMachineController {
+            provider: ProviderMachineRuntime::connect(&provider_socket.path, token()).unwrap(),
+            local,
+            active_local: None,
+        };
+
+        let result = controller.perform_request(MachineRequest::Switch(local_key)).unwrap();
+
+        assert!(result.replacement.is_some());
+        assert!(result.restart_updates);
+        assert_eq!(result.ui.snapshot.active, Some(local_key));
+        assert!(result.ui.session_available);
+        assert_eq!(controller.active_local, Some(local_key));
+        let failed = controller.perform_request(MachineRequest::Switch(offline_key));
+        assert!(failed.is_err());
+        assert_eq!(
+            controller.active_local,
+            Some(local_key),
+            "a failed candidate must not evict the active session"
+        );
+        local_stop.send(()).unwrap();
+        drop(result);
+        controller.close();
+        provider_stop.send(()).unwrap();
+        provider_server.join().unwrap();
+        local_server.join().unwrap();
+        let _ = std::fs::remove_file(local_socket);
     }
 
     #[test]

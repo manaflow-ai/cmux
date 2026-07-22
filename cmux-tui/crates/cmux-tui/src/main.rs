@@ -47,7 +47,7 @@ use machine_provider_client::{
     CommandProviderConnector, MachineProviderConnector, SshProviderConnector, UnixProviderConnector,
 };
 #[cfg(unix)]
-use machine_provider_runtime::ProviderMachineRuntime;
+use machine_provider_runtime::ProviderMachineController;
 use machine_runtime::MachineRuntime;
 use session::{RemoteSession, Session};
 
@@ -417,6 +417,15 @@ enum ProviderLaunch {
     Cloud(CloudLaunch),
 }
 
+impl ProviderLaunch {
+    /// Only a locally initiated Cloud client may use the caller's SSH config,
+    /// agent, and known_hosts for ad-hoc machines. A Unix provider can be the
+    /// native `ssh cmux.cloud` edge process and must remain provider-only.
+    fn enables_client_machine_connect(&self) -> bool {
+        matches!(self, Self::Cloud(_))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CloudLaunch {
     host: String,
@@ -453,8 +462,10 @@ fn resolve_provider_launch(
     } else {
         None
     };
-    if launch.is_some() && !config.machines.is_empty() {
-        anyhow::bail!("a dynamic machine provider cannot be combined with static machines config");
+    if !config.machines.is_empty()
+        && matches!(launch, Some(ProviderLaunch::Unix(_) | ProviderLaunch::Command(_)))
+    {
+        anyhow::bail!("static machines can only be combined with the local cloud provider client");
     }
     Ok(launch)
 }
@@ -587,13 +598,17 @@ fn main() {
         std::process::exit(cli::run(&raw_args, USAGE));
     }
     let args = parse_args(raw_args);
-    let provider = resolve_provider_launch(&args, &config::load())
+    let config = config::load();
+    let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
     #[cfg(unix)]
     let provider = provider
-        .map(|launch| {
+        .map(|launch| -> anyhow::Result<_> {
             validate_provider_process_args(&args)?;
-            provider_connector(launch)
+            let connect_external = launch.enables_client_machine_connect();
+            let local_machines =
+                if connect_external { config.machines.clone() } else { Vec::new() };
+            Ok((provider_connector(launch)?, local_machines, connect_external))
         })
         .transpose()
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
@@ -610,7 +625,9 @@ fn main() {
     }
     #[cfg(unix)]
     let result = match provider {
-        Some(provider) => run_provider_machine_client(provider),
+        Some((provider, local_machines, connect_external)) => {
+            run_provider_machine_client(provider, local_machines, connect_external)
+        }
         None if args.attach => run_attach(args),
         None => run_server(args),
     };
@@ -915,8 +932,13 @@ impl StaticMachineController {
 }
 
 #[cfg(unix)]
-fn run_provider_machine_client(connector: Arc<dyn MachineProviderConnector>) -> anyhow::Result<()> {
-    let mut runtime = ProviderMachineRuntime::connect_with(connector)?;
+fn run_provider_machine_client(
+    connector: Arc<dyn MachineProviderConnector>,
+    local_machines: Vec<config::MachineConfig>,
+    connect_external: bool,
+) -> anyhow::Result<()> {
+    let mut runtime =
+        ProviderMachineController::connect_with(connector, local_machines, connect_external)?;
 
     let (session, label, machine_ui) = match runtime.open_selected() {
         Ok(opened) => opened,
@@ -1179,7 +1201,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_resolution_rejects_incompatible_explicit_modes() {
+    fn provider_resolution_rejects_conflicts_and_limits_static_overlay() {
         let mut config = config::Config::default();
         let parsed = args(&["--machine-provider", "/tmp/provider.sock", "--cloud"]);
         let error = resolve_provider_launch(&parsed, &config).unwrap_err().to_string();
@@ -1203,8 +1225,36 @@ mod tests {
                 socket: PathBuf::from("/tmp/local-agents.sock"),
             },
         });
-        let error = resolve_provider_launch(&args(&["--cloud"]), &config).unwrap_err().to_string();
-        assert!(error.contains("cannot be combined with static machines"), "{error}");
+        assert!(matches!(
+            resolve_provider_launch(&args(&["--cloud"]), &config).unwrap(),
+            Some(ProviderLaunch::Cloud(_))
+        ));
+        let error =
+            resolve_provider_launch(&args(&["--machine-provider", "/tmp/provider.sock"]), &config)
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("only be combined with the local cloud"), "{error}");
+    }
+
+    #[test]
+    fn only_local_cloud_launch_enables_ephemeral_machine_connect() {
+        assert!(
+            ProviderLaunch::Cloud(CloudLaunch {
+                host: "cmux.cloud".into(),
+                user: None,
+                port: None,
+                identity_file: None,
+            })
+            .enables_client_machine_connect()
+        );
+        assert!(
+            !ProviderLaunch::Unix(PathBuf::from("/tmp/provider.sock"))
+                .enables_client_machine_connect()
+        );
+        assert!(
+            !ProviderLaunch::Command(vec![OsString::from("provider")])
+                .enables_client_machine_connect()
+        );
     }
 
     #[test]
