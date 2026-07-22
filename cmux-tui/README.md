@@ -10,6 +10,7 @@
 - [Keyboard](docs/keyboard.md)
 - [Mouse](docs/mouse.md)
 - [Configuration](docs/configuration.md)
+- [Machines and remote sessions](docs/machines.md)
 - [Control socket protocol](docs/protocol.md)
 - [Browser panes](docs/browser-panes.md)
 
@@ -33,6 +34,15 @@ cargo run -p cmux-tui -- attach --session agents
 ```
 
 The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
+
+Packaged builds can run as `npx cmux`. The optional machine rail lets that local client switch among the current session, other Unix sockets, and sessions reached through SSH. It is disabled by default and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. The client runs `ssh -T` and the remote `cmux-tui relay --session <name>` transport primitive, so the remote headless session and binary must already exist. See [Machines and remote sessions](docs/machines.md).
+
+```bash
+npx cmux
+ssh -T dev@buildbox cmux-tui relay --session agents
+```
+
+The second command carries raw JSON-lines protocol traffic and is normally started by the machine connector, not used as an interactive TUI.
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_TUI_TERM` can override the process default in the surface layer, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
