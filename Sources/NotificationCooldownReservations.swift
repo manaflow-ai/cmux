@@ -16,6 +16,7 @@ extension TerminalNotificationStore {
 struct NotificationCooldownReservations {
     struct Reservation: Sendable {
         let key: String
+        let interval: TimeInterval
         let owner: UUID
     }
 
@@ -32,15 +33,14 @@ struct NotificationCooldownReservations {
         acceptedAt: Date,
         dates: inout [String: Date]
     ) -> Reservation? {
-        guard let key, interval != nil else { return nil }
-        let reservation = Reservation(key: key, owner: UUID())
+        guard let key, let interval else { return nil }
+        let reservation = Reservation(key: key, interval: interval, owner: UUID())
         var state = stateByKey[key] ?? KeyState(
             committedDate: dates[key],
             activeDatesByOwner: [:]
         )
         state.activeDatesByOwner[reservation.owner] = acceptedAt
         stateByKey[key] = state
-        updateEffectiveDate(for: key, state: state, dates: &dates)
         return reservation
     }
 
@@ -71,7 +71,7 @@ struct NotificationCooldownReservations {
         state: KeyState,
         dates: inout [String: Date]
     ) {
-        updateEffectiveDate(for: reservation.key, state: state, dates: &dates)
+        publishCommittedDate(for: reservation.key, state: state, dates: &dates)
         if state.activeDatesByOwner.isEmpty {
             stateByKey.removeValue(forKey: reservation.key)
         } else {
@@ -79,20 +79,15 @@ struct NotificationCooldownReservations {
         }
     }
 
-    private func updateEffectiveDate(
+    private func publishCommittedDate(
         for key: String,
         state: KeyState,
         dates: inout [String: Date]
     ) {
-        let effectiveDate = state.activeDatesByOwner.values.reduce(state.committedDate, maxOptionalDate)
-        if let effectiveDate {
-            dates[key] = effectiveDate
+        if let committedDate = state.committedDate {
+            dates[key] = committedDate
         } else {
             dates.removeValue(forKey: key)
         }
-    }
-
-    private func maxOptionalDate(_ current: Date?, _ candidate: Date) -> Date? {
-        max(current ?? candidate, candidate)
     }
 }

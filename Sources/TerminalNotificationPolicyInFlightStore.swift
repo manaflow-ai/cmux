@@ -8,7 +8,7 @@ final class TerminalNotificationPolicyInFlightStore {
     private struct Entry {
         var request: TerminalNotificationPolicyRequest
         let generation: UInt64
-        let deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
+        var deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
         var onDiscard: @MainActor @Sendable () -> Void
         var indexedTabId: UUID
         var task: Task<Void, Never>?
@@ -26,6 +26,7 @@ final class TerminalNotificationPolicyInFlightStore {
     func register(
         _ request: TerminalNotificationPolicyRequest,
         generation: UInt64,
+        cooldownKey: String? = nil,
         onDiscard: @escaping @MainActor @Sendable () -> Void
     ) -> UUID {
         compactEvictionOrderIfNeeded()
@@ -39,7 +40,10 @@ final class TerminalNotificationPolicyInFlightStore {
         }
         identitiesToDrain.forEach(drainCompletedRequests)
         let id = UUID()
-        let deliveryIdentity = TerminalNotificationPolicyDeliveryIdentity(request: request)
+        let deliveryIdentity = TerminalNotificationPolicyDeliveryIdentity(
+            request: request,
+            cooldownKey: cooldownKey
+        )
         requests[id] = Entry(
             request: request,
             generation: generation,
@@ -64,9 +68,18 @@ final class TerminalNotificationPolicyInFlightStore {
     /// Transfers cleanup ownership when an early reservation reaches policy evaluation.
     func updateOnDiscard(
         _ onDiscard: @escaping @MainActor @Sendable () -> Void,
+        cooldownKey: String? = nil,
         for id: UUID
     ) -> Bool {
         guard var entry = requests[id] else { return false }
+        let deliveryIdentity = TerminalNotificationPolicyDeliveryIdentity(
+            request: entry.request,
+            cooldownKey: cooldownKey
+        )
+        if deliveryIdentity != entry.deliveryIdentity {
+            entry.deliveryIdentity = deliveryIdentity
+            requestIDsByDeliveryIdentity[deliveryIdentity, default: []].append(id)
+        }
         entry.onDiscard = onDiscard
         requests[id] = entry
         return true
@@ -205,6 +218,10 @@ final class TerminalNotificationPolicyInFlightStore {
     ) {
         while let id = firstRequestID(for: deliveryIdentity) {
             guard let entry = requests[id] else {
+                advanceRequestOffset(for: deliveryIdentity)
+                continue
+            }
+            guard entry.deliveryIdentity == deliveryIdentity else {
                 advanceRequestOffset(for: deliveryIdentity)
                 continue
             }

@@ -1269,16 +1269,18 @@ final class TerminalNotificationStore: ObservableObject {
             resolvedHooks: resolvedHooks
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
-            applyNotification(
-                id: id,
-                request: policyContext.request,
-                effects: TerminalNotificationPolicyEffects(),
-                acceptedAt: acceptedAt,
-                cooldownReservation: cooldownReservation,
-                scrollPosition: policyContext.scrollPosition,
-                clickAction: clickAction
-            )
-            return
+            if cooldownReservation == nil {
+                applyNotification(
+                    id: id,
+                    request: policyContext.request,
+                    effects: TerminalNotificationPolicyEffects(),
+                    acceptedAt: acceptedAt,
+                    cooldownReservation: nil,
+                    scrollPosition: policyContext.scrollPosition,
+                    clickAction: clickAction
+                )
+                return
+            }
         }
         guard let policyRequestId = prepareNotificationPolicyRequestId(
             preRegisteredPolicyRequestId: preRegisteredPolicyRequestId,
@@ -1433,6 +1435,7 @@ final class TerminalNotificationStore: ObservableObject {
         if let preRegisteredPolicyRequestId {
             guard inFlightPolicyRequests.updateOnDiscard(
                 onDiscard,
+                cooldownKey: cooldownReservation?.key,
                 for: preRegisteredPolicyRequestId
             ) else {
                 restoreCooldownReservation(cooldownReservation)
@@ -1444,6 +1447,7 @@ final class TerminalNotificationStore: ObservableObject {
             request,
             generation: notificationGeneration
                 ?? TerminalMutationBus.shared.notificationGenerationSnapshot(),
+            cooldownKey: cooldownReservation?.key,
             onDiscard: onDiscard
         )
     }
@@ -1464,6 +1468,17 @@ final class TerminalNotificationStore: ObservableObject {
             reservation,
             dates: &lastNotificationDateByCooldownKey
         )
+    }
+
+    private func hasCommittedCooldown(
+        _ reservation: NotificationCooldownReservations.Reservation?,
+        at acceptedAt: Date
+    ) -> Bool {
+        guard let reservation,
+              let lastNotificationDate = lastNotificationDateByCooldownKey[reservation.key] else {
+            return false
+        }
+        return acceptedAt.timeIntervalSince(lastNotificationDate) < reservation.interval
     }
 
     private func makeNotificationPolicyContext(
@@ -1585,6 +1600,10 @@ final class TerminalNotificationStore: ObservableObject {
             applying: request
         ) else { return }
         guard let request = notificationPolicyRequestAtLiveOwner(claimedRequest) else {
+            restoreCooldownReservation(cooldownReservation)
+            return
+        }
+        guard !hasCommittedCooldown(cooldownReservation, at: acceptedAt) else {
             restoreCooldownReservation(cooldownReservation)
             return
         }
