@@ -212,6 +212,51 @@ struct ArtifactRepositorySafetyTests {
         #expect(exclude == "nested/project/.cmux/artifacts/\n")
     }
 
+    @Test("Git excludes artifact stores in paths containing pattern metacharacters")
+    func escapesGitIgnorePatternCharacters() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        try runGit(["init", "--quiet", root.path])
+        let project = root.appendingPathComponent("nested[1]/project?", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        _ = try await LocalArtifactRepository().snapshot(projectRoot: project)
+        let artifact = try ArtifactTestSupport.write(
+            "private",
+            named: "plan.md",
+            under: project.appendingPathComponent(".cmux/artifacts")
+        )
+        let relativePath = try #require(
+            ArtifactPathResolver().relativePath(artifact, root: root)
+        )
+
+        #expect(try runGit(["-C", root.path, "check-ignore", "--quiet", "--", relativePath]) == 0)
+    }
+
+    @MainActor
+    @Test("A canceled deduplication scan stops before visiting files")
+    func cancelsDeduplicationScan() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        _ = try ArtifactTestSupport.write("same", named: "one.txt", under: paths.artifactsRoot)
+        let scanTask = Task {
+            var visits = 0
+            try ArtifactDeduplicationScanner(fileManager: .default).scanFiles(
+                paths: paths,
+                matchingSizes: [4]
+            ) { _, _ in
+                visits += 1
+                return false
+            }
+            return visits
+        }
+        scanTask.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await scanTask.value
+        }
+    }
+
     private var recorder: ArtifactProvenanceRecorder {
         ArtifactProvenanceRecorder(
             fileManager: .default,
@@ -228,5 +273,15 @@ struct ArtifactRepositorySafetyTests {
             provenance: .created,
             capturedAt: Date(timeIntervalSince1970: 1)
         )
+    }
+
+    @discardableResult
+    private func runGit(_ arguments: [String]) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 }

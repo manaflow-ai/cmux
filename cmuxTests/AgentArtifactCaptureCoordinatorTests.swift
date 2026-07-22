@@ -10,6 +10,83 @@ import Testing
 #endif
 
 struct AgentArtifactCaptureCoordinatorTests {
+    @Test func oneCaptureRequestDoesNotDrainPolicyBacklog() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let store = OutOfOrderCaptureStore(
+            suspendsFirstImport: false,
+            maximumFilesPerCapture: 1
+        )
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = captureRecord(projectRoot: projectRoot)
+        let snapshot = snapshot(
+            revision: 1,
+            artifacts: (1...3).map { index in
+                (projectRoot.appendingPathComponent("artifact-\(index).md").path, index)
+            }
+        )
+
+        await coordinator.capture(record: record, snapshot: snapshot)
+
+        #expect(await store.importedPaths.count == 1)
+    }
+
+    @Test func newerSnapshotCapturesOnlyNewTranscriptReferences() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = captureRecord(projectRoot: projectRoot)
+        let oldPath = projectRoot.appendingPathComponent("old.md").path
+        let newPath = projectRoot.appendingPathComponent("new.md").path
+
+        await coordinator.capture(
+            record: record,
+            snapshot: snapshot(revision: 1, artifacts: [(oldPath, 1)])
+        )
+        await coordinator.capture(
+            record: record,
+            snapshot: snapshot(revision: 2, artifacts: [(oldPath, 1), (newPath, 2)])
+        )
+
+        #expect(await store.importedPaths == [oldPath, newPath])
+    }
+
+    @MainActor
+    @Test func sameSnapshotReplacementFinishesActiveBatchBeforePendingWork() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let store = OutOfOrderCaptureStore(maximumFilesPerCapture: 1)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            artifactCaptureCoordinator: coordinator
+        )
+        let record = captureRecord(projectRoot: projectRoot)
+        let snapshot = snapshot(
+            revision: 1,
+            artifacts: [
+                (projectRoot.appendingPathComponent("one.md").path, 1),
+                (projectRoot.appendingPathComponent("two.md").path, 2),
+            ]
+        )
+
+        service.scheduleIndexedArtifactCapture(record: record, snapshot: snapshot)
+        let activeTask = try #require(service.artifactCaptureTasks[record.sessionID]?.task)
+        await store.waitUntilFirstImportStarts()
+        service.scheduleIndexedArtifactCapture(record: record, snapshot: snapshot)
+        await store.releaseFirstImport()
+        await activeTask.value
+
+        #expect(await store.importedPaths.count == 2)
+    }
+
     @Test func sequentialStaleSnapshotDoesNotRegressCompletedGeneration() async throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -133,28 +210,66 @@ struct AgentArtifactCaptureCoordinatorTests {
         revision: UInt64,
         path: String
     ) -> AgentChatArtifactIndex.Snapshot {
-        let artifact = ChatArtifactIndexedReference(
-            path: path,
-            provenance: .created,
-            lastReferencedSeq: 1
-        )
+        snapshot(revision: revision, artifacts: [(path, Int(revision))])
+    }
+
+    private func snapshot(
+        revision: UInt64,
+        artifacts: [(path: String, sequence: Int)]
+    ) -> AgentChatArtifactIndex.Snapshot {
         return AgentChatArtifactIndex.Snapshot(
-            referencedPaths: [path],
-            artifacts: [artifact],
+            referencedPaths: Set(artifacts.map(\.path)),
+            artifacts: artifacts.map {
+                ChatArtifactIndexedReference(
+                    path: $0.path,
+                    provenance: .created,
+                    lastReferencedSeq: $0.sequence
+                )
+            },
             generation: String(revision),
             revision: revision
+        )
+    }
+
+    private func temporaryProjectRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func captureRecord(projectRoot: URL) -> AgentChatSessionRecord {
+        AgentChatSessionRecord(
+            sessionID: "session",
+            agentKind: .claude,
+            workspaceID: "workspace",
+            surfaceID: nil,
+            workingDirectory: projectRoot.path,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: .now,
+            title: nil,
+            pid: nil
         )
     }
 }
 
 private actor OutOfOrderCaptureStore: ArtifactStoring {
     private let suspendsFirstImport: Bool
+    private let captureConfiguration: ArtifactCaptureConfiguration
     private var firstImportStarted: CheckedContinuation<Void, Never>?
     private var firstImportRelease: CheckedContinuation<Void, Never>?
     private(set) var importCount = 0
+    private(set) var importedPaths: [String] = []
 
-    init(suspendsFirstImport: Bool = true) {
+    init(
+        suspendsFirstImport: Bool = true,
+        maximumFilesPerCapture: Int = ArtifactCaptureConfiguration.defaultValue.maximumFilesPerCapture
+    ) {
         self.suspendsFirstImport = suspendsFirstImport
+        var configuration = ArtifactCaptureConfiguration.defaultValue
+        configuration.maximumFilesPerCapture = maximumFilesPerCapture
+        captureConfiguration = configuration
     }
 
     func waitUntilFirstImportStarts() async {
@@ -174,7 +289,7 @@ private actor OutOfOrderCaptureStore: ArtifactStoring {
     }
 
     func configuration(projectRoot _: URL) -> ArtifactCaptureConfiguration {
-        .defaultValue
+        captureConfiguration
     }
 
     func snapshot(projectRoot: URL) throws -> ArtifactSnapshot {
@@ -207,6 +322,7 @@ private actor OutOfOrderCaptureStore: ArtifactStoring {
         capturedAt _: Date
     ) async -> [ArtifactImportAttempt] {
         importCount += 1
+        importedPaths.append(contentsOf: candidates.map(\.sourceURL.path))
         if importCount == 1, suspendsFirstImport {
             firstImportStarted?.resume()
             firstImportStarted = nil
