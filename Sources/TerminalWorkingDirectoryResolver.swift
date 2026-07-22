@@ -2,7 +2,6 @@ import Darwin
 import Foundation
 
 /// Resolves terminal working-directory candidates and live local process state.
-@MainActor
 struct TerminalWorkingDirectoryResolver {
     typealias LiveDirectoryProvider = @MainActor (TerminalPanel) -> String?
 
@@ -19,7 +18,7 @@ struct TerminalWorkingDirectoryResolver {
         }
     }
 
-    func liveForegroundProcessWorkingDirectory(for terminal: TerminalPanel) -> String? {
+    @MainActor func liveForegroundProcessWorkingDirectory(for terminal: TerminalPanel) -> String? {
         Self.normalized(liveDirectoryProvider(terminal))
     }
 
