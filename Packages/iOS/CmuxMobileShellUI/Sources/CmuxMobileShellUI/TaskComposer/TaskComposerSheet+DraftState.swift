@@ -36,9 +36,9 @@ extension TaskComposerSheet {
         )
     }
 
-    /// Applies a composer mutation. Ordinary edits stay O(1); while duplicate-
-    /// prevention recovery is active, compare the effective request so harmless
-    /// whitespace edits and edit-revert cycles keep the recovery guard.
+    /// Applies a composer mutation and keeps text-entry work O(1). Completed-
+    /// operation recovery is conservatively blocked while a cancellable,
+    /// debounced effective-request comparison is pending.
     func updateSubmissionRequest(_ update: () -> Void) {
         if submissionPhase.offersRetry {
             submissionPhase = .idle
@@ -47,7 +47,7 @@ extension TaskComposerSheet {
         failureTitleStyle = .launchFailed
         update()
         submissionIdentity.markRequestDirty()
-        reconcileCompletedOperationRecoveryWithCurrentRequest()
+        scheduleCompletedOperationRecoveryReconciliation()
         isStartAgainConfirmationPresented = false
     }
 
@@ -56,15 +56,43 @@ extension TaskComposerSheet {
         return completedOperationRecovery
     }
 
-    private func reconcileCompletedOperationRecoveryWithCurrentRequest() {
+    var blockingCompletedOperationRecovery: TaskComposerCompletedOperationRecovery? {
+        guard completedOperationRecovery?.blocksSubmission == true else { return nil }
+        return completedOperationRecovery
+    }
+
+    private func scheduleCompletedOperationRecoveryReconciliation() {
         guard var recovery = completedOperationRecovery else { return }
-        recovery.reconcileCurrentRequest(
-            makeSubmissionSnapshot(operationID: recovery.submittedSnapshot.operationID)
-        )
+        recovery.markCurrentRequestUnresolved()
         completedOperationRecovery = recovery
-        guard recovery.appliesToCurrentRequest else { return }
+        recoveryRequestReconciliationTask?.cancel()
+        let operationID = recovery.submittedSnapshot.operationID
+        recoveryRequestReconciliationTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled,
+                  completedOperationRecovery?.submittedSnapshot.operationID == operationID else { return }
+            reconcileCompletedOperationRecovery(
+                with: makeSubmissionSnapshot(operationID: operationID)
+            )
+            recoveryRequestReconciliationTask = nil
+        }
+    }
+
+    @discardableResult
+    private func reconcileCompletedOperationRecovery(
+        with currentSnapshot: MobileTaskSubmissionSnapshot?
+    ) -> UUID? {
+        guard var recovery = completedOperationRecovery else { return nil }
+        recovery.reconcileCurrentRequest(currentSnapshot)
+        completedOperationRecovery = recovery
+        guard recovery.appliesToCurrentRequest else {
+            failureText = nil
+            failureTitleStyle = .launchFailed
+            return nil
+        }
         failureTitleStyle = .taskAccepted
         failureText = Self.recoveryFailureMessage(for: recovery.phase)
+        return recovery.submittedSnapshot.operationID
     }
 
     func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
@@ -75,10 +103,13 @@ extension TaskComposerSheet {
     }
 
     func draftSnapshot() -> MobileTaskComposerDraft {
+        recoveryRequestReconciliationTask?.cancel()
+        recoveryRequestReconciliationTask = nil
         let candidateID = submissionIdentity.id
         let resolved = submissionIdentity.resolveCurrentRequest {
             makeSubmissionSnapshot(operationID: candidateID)
         }
+        let completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
         return MobileTaskComposerDraft(
             prompt: prompt,
             templateID: selectedTemplateID,
@@ -87,7 +118,7 @@ extension TaskComposerSheet {
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName,
             operationID: resolved?.operationID ?? submissionIdentity.id,
-            completedOperationID: activeCompletedOperationRecovery?.submittedSnapshot.operationID
+            completedOperationID: completedOperationID
         )
     }
 

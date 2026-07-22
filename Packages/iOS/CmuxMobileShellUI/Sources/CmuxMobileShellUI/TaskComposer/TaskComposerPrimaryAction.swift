@@ -32,6 +32,9 @@ struct TaskComposerPrimaryAction: View {
                         Group {
                             if isSubmitting {
                                 ProgressView()
+                            } else if completedOperationRecovery.isRequestResolutionPending {
+                                ProgressView()
+                                    .controlSize(.small)
                             } else {
                                 Text(
                                     completedOperationRecovery.allowsStartAgain
@@ -49,7 +52,7 @@ struct TaskComposerPrimaryAction: View {
                         .frame(maxWidth: .infinity)
                     }
                     .mobileGlassProminentButton()
-                    .disabled(isSubmitting)
+                    .disabled(isSubmitting || completedOperationRecovery.isRequestResolutionPending)
                     .accessibilityHint(TaskComposerSheet.recoveryRefreshAccessibilityHint)
                     .accessibilityIdentifier("MobileTaskComposerRefreshButton")
 

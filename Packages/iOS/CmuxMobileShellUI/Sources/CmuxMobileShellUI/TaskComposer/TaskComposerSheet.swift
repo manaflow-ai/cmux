@@ -30,6 +30,7 @@ struct TaskComposerSheet: View {
     @State var submissionIdentity: MobileTaskSubmissionIdentity
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
     @State var completedOperationRecovery: TaskComposerCompletedOperationRecovery?
+    @State var recoveryRequestReconciliationTask: Task<Void, Never>? = nil
     @State var isStartAgainConfirmationPresented = false
 
     let sessionGeneration: Int
@@ -234,7 +235,7 @@ struct TaskComposerSheet: View {
                     caption: primaryActionCaption,
                     failureTitle: failureTitleStyle.title(templateName: selectedTemplate?.name),
                     failureText: failureText,
-                    completedOperationRecovery: activeCompletedOperationRecovery,
+                    completedOperationRecovery: blockingCompletedOperationRecovery,
                     action: startSubmission,
                     refreshCompletedOperation: startCompletedOperationReconciliation,
                     requestStartAgain: { isStartAgainConfirmationPresented = true }
@@ -299,6 +300,7 @@ struct TaskComposerSheet: View {
             .onDisappear {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
+                recoveryRequestReconciliationTask?.cancel()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
                 }
@@ -485,10 +487,12 @@ struct TaskComposerSheet: View {
 
     func startSubmission() {
         guard submitTask == nil,
-              activeCompletedOperationRecovery == nil,
+              blockingCompletedOperationRecovery == nil,
               submissionPhase.allowsSubmission else { return }
         // Once the user sends a genuinely different request, the prior
         // recovery anchor can no longer become relevant through further edits.
+        recoveryRequestReconciliationTask?.cancel()
+        recoveryRequestReconciliationTask = nil
         completedOperationRecovery = nil
         if submissionPhase.offersRetry {
             failureText = nil

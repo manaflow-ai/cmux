@@ -36,9 +36,27 @@ struct TaskComposerCompletedOperationRecovery: Equatable {
         case startAgainAvailable
     }
 
+    enum RequestRelation: Equatable {
+        case equivalent
+        case unresolved
+        case different
+    }
+
     let submittedSnapshot: MobileTaskSubmissionSnapshot
     private(set) var phase: Phase = .refreshRequired
-    private(set) var appliesToCurrentRequest = true
+    private(set) var requestRelation: RequestRelation = .equivalent
+
+    var appliesToCurrentRequest: Bool {
+        requestRelation == .equivalent
+    }
+
+    var blocksSubmission: Bool {
+        requestRelation != .different
+    }
+
+    var isRequestResolutionPending: Bool {
+        requestRelation == .unresolved
+    }
 
     var allowsStartAgain: Bool {
         appliesToCurrentRequest && phase == .startAgainAvailable
@@ -48,8 +66,14 @@ struct TaskComposerCompletedOperationRecovery: Equatable {
         phase = .startAgainAvailable
     }
 
+    mutating func markCurrentRequestUnresolved() {
+        requestRelation = .unresolved
+    }
+
     mutating func reconcileCurrentRequest(_ currentSnapshot: MobileTaskSubmissionSnapshot?) {
-        appliesToCurrentRequest = currentSnapshot?.isRequestEquivalent(to: submittedSnapshot) == true
+        requestRelation = currentSnapshot?.isRequestEquivalent(to: submittedSnapshot) == true
+            ? .equivalent
+            : .different
     }
 }
 

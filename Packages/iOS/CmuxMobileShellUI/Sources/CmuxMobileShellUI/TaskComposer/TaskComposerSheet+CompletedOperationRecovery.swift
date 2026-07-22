@@ -54,6 +54,8 @@ extension TaskComposerSheet {
 
     func confirmStartAgain() {
         guard activeCompletedOperationRecovery?.allowsStartAgain == true else { return }
+        recoveryRequestReconciliationTask?.cancel()
+        recoveryRequestReconciliationTask = nil
         completedOperationRecovery = nil
         failureText = nil
         failureTitleStyle = .launchFailed
@@ -68,6 +70,8 @@ extension TaskComposerSheet {
         // Remote success is authoritative. A stale signed-in session may stop
         // local defaults from being saved, but it must not leave a launchable
         // sheet open and invite the user to submit the same task twice.
+        recoveryRequestReconciliationTask?.cancel()
+        recoveryRequestReconciliationTask = nil
         completedOperationRecovery = nil
         shouldPersistDraftOnDisappear = false
         dismiss()

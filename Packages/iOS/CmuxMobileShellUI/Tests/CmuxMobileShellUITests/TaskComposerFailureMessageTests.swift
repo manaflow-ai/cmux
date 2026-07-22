@@ -55,15 +55,22 @@ import Testing
         let submitted = Self.snapshot(operationID: operationID)
         var recovery = TaskComposerCompletedOperationRecovery(submittedSnapshot: submitted)
 
+        recovery.markCurrentRequestUnresolved()
+        #expect(recovery.isRequestResolutionPending)
+        #expect(recovery.blocksSubmission)
+        #expect(!recovery.allowsStartAgain)
+
         recovery.reconcileCurrentRequest(
             Self.snapshot(operationID: operationID, workspaceName: "   ")
         )
         #expect(recovery.appliesToCurrentRequest)
+        #expect(recovery.blocksSubmission)
 
         recovery.reconcileCurrentRequest(
             Self.snapshot(operationID: operationID, workspaceName: "Different workspace")
         )
         #expect(!recovery.appliesToCurrentRequest)
+        #expect(!recovery.blocksSubmission)
 
         recovery.reconcileCurrentRequest(
             Self.snapshot(operationID: operationID, workspaceName: "\n")
