@@ -1590,6 +1590,20 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/SwitchCaseRealClockTests.swift",
+            "func verify(clock: TestRelayClock) async {\n"
+            "    switch mode {\n"
+            "    case .real:\n"
+            "        let clock = ContinuousClock()\n"
+            "        try await clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    case .virtual:\n"
+            "        break\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/URLBlockCommentBeforeRealClockTests.swift",
             "/* See https://example.test for the fixture contract. */\n"
             "let clock = ContinuousClock()\n"
@@ -2268,6 +2282,19 @@ def _self_test() -> int:
             "try await clock.sleep(until: deadline)\n"
             "#expect(await clockEvents.next() == expected)\n",
         ),
+        (
+            "Packages/CmuxClock/Tests/SwitchCaseVirtualClockTests.swift",
+            "func verify(clock: TestRelayClock) async {\n"
+            "    switch mode {\n"
+            "    case .real:\n"
+            "        let clock = ContinuousClock()\n"
+            "        consume(clock)\n"
+            "    case .virtual:\n"
+            "        try await clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
         # Sleep-shaped fixture data and comments remain non-executable even when
         # a real clock with the same receiver name is visible.
         (
@@ -2429,6 +2456,32 @@ def _self_test() -> int:
         failures.append(
             "POSITIVE cross-directory test-target member: missing "
             f"{RULE_SLEEP_THEN_ASSERT!r} (got {sorted(cross_target_rules)})"
+        )
+
+    cross_primary_sources = [
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/Fixture.swift",
+            "struct Fixture {\n"
+            "    func verifyRefresh() async {\n"
+            "        try await self.clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/Fixture+Clock.swift",
+            "extension Fixture {\n"
+            "    var clock: ContinuousClock { ContinuousClock() }\n"
+            "}\n",
+        ),
+    ]
+    cross_primary_rules = {
+        finding.rule for finding in scan_sources(cross_primary_sources)
+    }
+    if RULE_SLEEP_THEN_ASSERT not in cross_primary_rules:
+        failures.append(
+            "POSITIVE primary-type call with extension real member: missing "
+            f"{RULE_SLEEP_THEN_ASSERT!r} (got {sorted(cross_primary_rules)})"
         )
 
     cross_file_negatives = [
