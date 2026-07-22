@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import XCTest
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -66,7 +66,7 @@ struct KimiResumeReviewRegressionTests {
         #expect(process.terminationStatus == 0)
 
         let capture = try String(contentsOf: captureURL, encoding: .utf8)
-        let fields = Dictionary(uniqueKeysWithValues: capture.split(separator: "\n").compactMap { line in
+        let fields: [String: String] = Dictionary(uniqueKeysWithValues: capture.split(separator: "\n").compactMap { line in
             let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             guard parts.count == 2 else { return nil }
             return (String(parts[0]), String(parts[1]))
