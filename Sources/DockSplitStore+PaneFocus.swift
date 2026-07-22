@@ -253,7 +253,7 @@ extension DockSplitStore {
 
         // Split button: the new pane is empty. Seed a terminal in it, matching
         // the main area (which always seeds a terminal on a UI split).
-        let sourcePanelId = controller.selectedTab(inPane: originalPane)?.id
+        let sourcePanelId = (controller.selectedTab(inPane: originalPane)?.id)
             .flatMap { surfaceIdToPanelId[$0] }
         _ = newSurface(
             kind: .terminal,
