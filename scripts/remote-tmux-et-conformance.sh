@@ -67,6 +67,15 @@
 #   TRANSPORT_BROKER=/path/to/broker TRANSPORT_BROKER_ARGS="-et -fallback" \
 #     TRANSPORT_HOST=somehost scripts/remote-tmux-et-conformance.sh
 #
+# The client connects to CMUX_ET_HOST (default `cmux-ethost`), which must be an ssh
+# destination this machine can log into, because et bootstraps over ssh before its own
+# protocol takes over. A loopback alias is enough:
+#
+#   Host cmux-ethost
+#       HostName 127.0.0.1
+#
+# Set CMUX_ET_HOST to point at a different one.
+#
 # Exit code is the number of failed checks (0 = every belief holds).
 # ============================================================================
 set -uo pipefail
@@ -580,9 +589,17 @@ if [ -n "$TRANSPORT_BROKER" ]; then
   # produce by stopping its own etserver.
   skip "not checked in brokered mode: nothing here ends the stream, so survival cannot be observed"
 else
-  kill "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null
+  SERVER_PID="$(cat "$PIDFILE" 2>/dev/null)"
+  kill "$SERVER_PID" 2>/dev/null
   rm -f "$PIDFILE"
-  sleep 1
+  # Wait for the server to be gone rather than guessing at a second: the claim under test is
+  # that the session outlives the transport, so the transport has to be down before it is
+  # checked. etserver daemonizes itself, so it is not this script's child and `wait` cannot
+  # see it.
+  for _ in $(seq 1 40); do
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 0.25
+  done
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     pass "the session survives the transport dying, so EOF must lead to a reattach"
   else
