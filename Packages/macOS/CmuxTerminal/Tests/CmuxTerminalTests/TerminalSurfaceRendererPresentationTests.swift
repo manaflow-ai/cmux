@@ -19,6 +19,9 @@ private func rendererRealizedCallValue(_ index: UInt32) -> Bool
 @_silgen_name("cmux_test_ghostty_renderer_realized_set_result")
 private func setRendererRealizedResult(_ result: Bool)
 
+@_silgen_name("cmux_test_ghostty_renderer_release_was_occluded")
+private func rendererReleaseWasOccluded() -> Bool
+
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererPresentationTests {
     @Test func hiddenRuntimeIsReleasedThenRealizedOnFirstVisibility() {
@@ -48,6 +51,25 @@ private func setRendererRealizedResult(_ result: Bool)
         surface.setRendererPortalVisible(true)
 
         #expect(rendererRealizedCalls() == [false, true])
+    }
+
+    @Test func hiddenRuntimeIsOccludedBeforeRendererRelease() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        beginRendererRealizedTracking(runtimeSurface)
+        surface.setRendererPortalVisible(false)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetRendererRealizedTracking()
+        }
+
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererReleaseWasOccluded())
     }
 
     @Test func visibleRuntimeIsPresentedWithoutRedundantNativeTransition() {

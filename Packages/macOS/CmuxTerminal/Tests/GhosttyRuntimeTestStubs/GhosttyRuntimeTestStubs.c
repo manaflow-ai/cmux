@@ -22,6 +22,8 @@ static void* cmux_test_renderer_realized_target = NULL;
 static bool cmux_test_renderer_realized_calls[16];
 static uint32_t cmux_test_renderer_realized_call_count = 0;
 static bool cmux_test_renderer_realized_result = true;
+static bool cmux_test_renderer_occlusion_visible = true;
+static bool cmux_test_renderer_release_was_occluded = false;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
@@ -33,12 +35,16 @@ void cmux_test_ghostty_renderer_realized_begin(void* surface) {
     cmux_test_renderer_realized_target = surface;
     cmux_test_renderer_realized_call_count = 0;
     cmux_test_renderer_realized_result = true;
+    cmux_test_renderer_occlusion_visible = true;
+    cmux_test_renderer_release_was_occluded = false;
 }
 
 void cmux_test_ghostty_renderer_realized_reset(void) {
     cmux_test_renderer_realized_target = NULL;
     cmux_test_renderer_realized_call_count = 0;
     cmux_test_renderer_realized_result = true;
+    cmux_test_renderer_occlusion_visible = true;
+    cmux_test_renderer_release_was_occluded = false;
 }
 
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name) {
@@ -58,6 +64,10 @@ bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index) {
 
 void cmux_test_ghostty_renderer_realized_set_result(bool result) {
     cmux_test_renderer_realized_result = result;
+}
+
+bool cmux_test_ghostty_renderer_release_was_occluded(void) {
+    return cmux_test_renderer_release_was_occluded;
 }
 
 bool ghostty_surface_clear_selection(void *surface) {
@@ -151,9 +161,15 @@ void ghostty_surface_render_grid_json_with_theme(void) {}
 void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}
 void ghostty_surface_set_focus(void) {}
-void ghostty_surface_set_occlusion(void) {}
+void ghostty_surface_set_occlusion(void *surface, bool visible) {
+    if (surface != cmux_test_renderer_realized_target) return;
+    cmux_test_renderer_occlusion_visible = visible;
+}
 bool ghostty_surface_set_renderer_realized(void *surface, bool realized) {
     if (surface != cmux_test_renderer_realized_target) return true;
+    if (!realized) {
+        cmux_test_renderer_release_was_occluded = !cmux_test_renderer_occlusion_visible;
+    }
     if (cmux_test_renderer_realized_call_count < 16) {
         cmux_test_renderer_realized_calls[cmux_test_renderer_realized_call_count] = realized;
         cmux_test_renderer_realized_call_count++;
