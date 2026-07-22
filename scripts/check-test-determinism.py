@@ -1491,6 +1491,15 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/DifferentNameOptionalRealClockTests.swift",
+            "func verify(candidate: ContinuousClock?) async {\n"
+            "    guard let clock = candidate else { return }\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/ConditionalCompilationRealClockFirstTests.swift",
             "#if os(macOS)\n"
             "let clock = ContinuousClock()\n"
@@ -1555,6 +1564,13 @@ def _self_test() -> int:
         (
             "tests/sh2.sh",
             "sleep 0.3\nassert \"$actual\" \"$expected\"\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/shell_glob_sleep.sh",
+            "files=(\"$fixture_dir\"/*)\n"
+            "sleep 0.3\n"
+            "assert \"$actual\" \"$expected\"\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
     ]
@@ -1906,6 +1922,14 @@ def _self_test() -> int:
             "}\n",
         ),
         (
+            "Packages/CmuxClock/Tests/DifferentNameOptionalVirtualClockTests.swift",
+            "func verify(candidate: TestRelayClock?) async {\n"
+            "    guard let clock = candidate else { return }\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
+        (
             "Packages/CmuxClock/Tests/ConditionalCompilationVirtualClockTests.swift",
             "#if os(macOS)\n"
             "let clock = TestRelayClock()\n"
@@ -2024,6 +2048,34 @@ def _self_test() -> int:
         rules = {f.rule for f in scan_text(name, src)}
         if rules:
             failures.append(f"NEGATIVE {name}: unexpected {sorted(rules)}")
+
+    cross_file_sources = [
+        (
+            "Tests/SplitFixture.swift",
+            "struct SplitFixture {\n"
+            "    let clock: ContinuousClock\n"
+            "}\n",
+        ),
+        (
+            "Tests/SplitFixture+Refresh.swift",
+            "extension SplitFixture {\n"
+            "    func verifyRefresh() async {\n"
+            "        try await self.clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+        ),
+    ]
+    cross_file_rules = {
+        finding.rule
+        for name, src in cross_file_sources
+        for finding in scan_text(name, src)
+    }
+    if RULE_SLEEP_THEN_ASSERT not in cross_file_rules:
+        failures.append(
+            "POSITIVE cross-file real clock member: missing "
+            f"{RULE_SLEEP_THEN_ASSERT!r} (got {sorted(cross_file_rules)})"
+        )
 
     if failures:
         print("self-test FAILED:")
