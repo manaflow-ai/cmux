@@ -111,10 +111,18 @@ public struct FileDiffPageView: View {
             binaryView
         } else {
             ScrollView {
+                let gutterWidth = gutterWidth(for: document)
                 LazyVStack(spacing: 0) {
-                    ForEach(hunkSnapshots(document)) { snapshot in
-                        hunkView(snapshot.hunk, gutterWidth: gutterWidth(for: document))
-                            .padding(.top, snapshot.index == 0 ? 0 : theme.hunkSpacing)
+                    ForEach(DiffRowSnapshot.rows(for: document)) { row in
+                        DiffLineRow(
+                            line: row.line,
+                            hunkCopyText: row.hunkCopyText,
+                            gutterWidth: gutterWidth,
+                            fontSize: fontSize,
+                            theme: theme,
+                            onCopy: onCopy
+                        )
+                        .padding(.top, row.leadingHunkGap ? theme.hunkSpacing : 0)
                     }
                     if document.truncated {
                         truncatedFooter(lineCount: document.lines.count)
@@ -123,29 +131,6 @@ public struct FileDiffPageView: View {
             }
             .refreshable { await load(forceRefresh: true) }
             .simultaneousGesture(magnifyGesture)
-        }
-    }
-
-    private func hunkView(_ hunk: DiffHunk, gutterWidth: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            DiffLineRow(
-                line: hunk.header,
-                hunkCopyText: hunk.copyText,
-                gutterWidth: gutterWidth,
-                fontSize: fontSize,
-                theme: theme,
-                onCopy: onCopy
-            )
-            ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
-                DiffLineRow(
-                    line: line,
-                    hunkCopyText: hunk.copyText,
-                    gutterWidth: gutterWidth,
-                    fontSize: fontSize,
-                    theme: theme,
-                    onCopy: onCopy
-                )
-            }
         }
     }
 
@@ -231,10 +216,6 @@ public struct FileDiffPageView: View {
 
     private var theme: ChangesTheme {
         ChangesTheme(colorScheme: colorScheme)
-    }
-
-    private func hunkSnapshots(_ document: FileDiffDocument) -> [DiffHunkSnapshot] {
-        document.hunks.enumerated().map { DiffHunkSnapshot(index: $0.offset, hunk: $0.element) }
     }
 
     private func gutterWidth(for document: FileDiffDocument) -> CGFloat {
