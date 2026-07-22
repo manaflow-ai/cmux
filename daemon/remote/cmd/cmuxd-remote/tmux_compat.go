@@ -1663,7 +1663,10 @@ func tmuxRespawnPane(rc *rpcContext, args []string) error {
 	}
 	commandText := strings.TrimSpace(strings.Join(p.positional, " "))
 	if commandText == "" {
-		commandText = tmuxStoredStartCommand(rc, wsId, surfId)
+		commandText, err = tmuxStoredStartCommand(rc, wsId, surfId)
+		if err != nil {
+			return err
+		}
 	}
 	if commandText == "" {
 		commandText = "exec ${SHELL:-/bin/sh} -l"
@@ -1687,11 +1690,14 @@ func tmuxRespawnPane(rc *rpcContext, args []string) error {
 
 // tmuxStoredStartCommand returns the surface's recorded start command, used
 // when respawn-pane is called without an explicit command (tmux semantics:
-// reuse the command the pane was started with).
-func tmuxStoredStartCommand(rc *rpcContext, workspaceId, surfaceId string) string {
+// reuse the command the pane was started with). A lookup failure is
+// propagated rather than treated as "no stored command", so a transient
+// RPC error cannot silently replace the pane's intended command with the
+// login-shell fallback (matching the Swift path, where the lookup throws).
+func tmuxStoredStartCommand(rc *rpcContext, workspaceId, surfaceId string) (string, error) {
 	payload, err := rc.call("surface.list", map[string]any{"workspace_id": workspaceId})
 	if err != nil {
-		return ""
+		return "", err
 	}
 	surfaces, _ := payload["surfaces"].([]any)
 	for _, s := range surfaces {
@@ -1701,12 +1707,12 @@ func tmuxStoredStartCommand(rc *rpcContext, workspaceId, surfaceId string) strin
 		}
 		for _, key := range []string{"tmux_start_command", "pane_start_command", "initial_command"} {
 			if v := stringFromAnyGo(surface[key]); v != "" {
-				return v
+				return v, nil
 			}
 		}
-		return ""
+		return "", nil
 	}
-	return ""
+	return "", nil
 }
 
 // tmuxShellInvokedStartCommand wraps a tmux shell-command in `/bin/sh -c`

@@ -23,6 +23,7 @@ type tmuxCorpusRPCRecorder struct {
 	workspaces            []map[string]any
 	readText              string
 	surfaceListExtras     map[string]any
+	failMethods           map[string]bool
 	includePaneMetrics    bool
 	includePointMetrics   bool
 	includeContainerFrame bool
@@ -103,6 +104,15 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 	resp := map[string]any{
 		"id": req["id"],
 		"ok": true,
+	}
+
+	if r.failMethods[method] {
+		resp["ok"] = false
+		resp["error"] = map[string]any{"code": "unavailable", "message": method + " unavailable"}
+		r.mu.Unlock()
+		payload, _ := json.Marshal(resp)
+		_, _ = conn.Write(append(payload, '\n'))
+		return
 	}
 
 	switch method {
@@ -237,6 +247,15 @@ func (r *tmuxCorpusRPCRecorder) setSurfaceListExtras(extras map[string]any) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.surfaceListExtras = cloneMap(extras)
+}
+
+func (r *tmuxCorpusRPCRecorder) setMethodFails(method string, fails bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.failMethods == nil {
+		r.failMethods = make(map[string]bool)
+	}
+	r.failMethods[method] = fails
 }
 
 func cloneMap(input map[string]any) map[string]any {
@@ -425,6 +444,20 @@ func TestTmuxCorpusRespawnPaneDispatchesSurfaceRespawn(t *testing.T) {
 		}
 		if got := requests[0].Params["working_directory"]; got != "/tmp/teammate-cwd" {
 			t.Errorf("working_directory = %v, want /tmp/teammate-cwd", got)
+		}
+	})
+
+	t.Run("stored command lookup failure propagates instead of respawning a login shell", func(t *testing.T) {
+		recorder := startTmuxCorpusRPCRecorder(t)
+		recorder.setMethodFails("surface.list", true)
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{"-k", "-t", paneTarget})
+		if err == nil {
+			t.Fatal("respawn-pane should fail when the stored-command lookup fails")
+		}
+		if len(recorder.requestsFor("surface.respawn")) != 0 {
+			t.Error("surface.respawn must not be called when the stored-command lookup fails")
 		}
 	})
 
