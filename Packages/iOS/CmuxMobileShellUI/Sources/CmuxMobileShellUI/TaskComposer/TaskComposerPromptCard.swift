@@ -13,7 +13,7 @@ struct TaskComposerPromptCard: View {
     let isDisabled: Bool
     let templates: [MobileTaskTemplate]
     let selectedTemplateID: MobileTaskTemplate.ID?
-    let selectTemplate: (MobileTaskTemplate) -> Void
+    let selectTemplate: (MobileTaskTemplate.ID) -> Void
     let editTemplates: () -> Void
 
     @FocusState private var isFocused: Bool
@@ -22,12 +22,17 @@ struct TaskComposerPromptCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 TaskComposerAgentMenu(
-                    templates: templates,
-                    selectedTemplateID: selectedTemplateID,
-                    isDisabled: isDisabled,
-                    selectTemplate: selectTemplate,
-                    editTemplates: editTemplates
+                    value: TaskComposerAgentMenuValue(
+                        templates: templates,
+                        selectedTemplateID: selectedTemplateID,
+                        isDisabled: isDisabled
+                    ),
+                    actions: TaskComposerAgentMenuActions(
+                        selectTemplate: selectTemplate,
+                        editTemplates: editTemplates
+                    )
                 )
+                .equatable()
                 Spacer(minLength: 0)
             }
 

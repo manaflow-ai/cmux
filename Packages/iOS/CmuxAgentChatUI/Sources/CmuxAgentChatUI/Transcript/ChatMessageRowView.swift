@@ -32,6 +32,7 @@ public struct ChatMessageRowView: View {
                     onShowCodeDetail: actions.showCodeBlockDetail,
                     onCopied: actions.notifyCopied
                 )
+                .equatable()
             case .thought:
                 ChatThoughtRowView(
                     rowID: rowID,

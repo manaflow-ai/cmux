@@ -3,9 +3,13 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-struct NotificationFeedRow: View {
+struct NotificationFeedRow: View, Equatable {
     let item: MobileNotificationFeedItem
     let actions: NotificationFeedActions
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.item == rhs.item
+    }
 
     var body: some View {
         let presentation = NotificationFeedRowPresentation(item: item)
