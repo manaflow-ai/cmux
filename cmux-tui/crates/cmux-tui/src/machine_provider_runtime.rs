@@ -406,7 +406,7 @@ impl ProviderMachineRuntime {
                 ui.notice = self.notice.take();
                 let mut result = MachineActionResult::replace(ui, session, label);
                 result.restart_updates = true;
-                return Ok(result);
+                Ok(result)
             }
             MachineRequest::Create => {
                 let created = self.client.create_machine(
@@ -419,13 +419,10 @@ impl ProviderMachineRuntime {
                     scope_id: Some(self.snapshot.selected_scope_id.clone()),
                     machine_id: Some(created_machine_id),
                 });
-                return Ok(self.finish_accepted_action(
-                    AcceptedProviderEffects::default(),
-                    |runtime| {
-                        runtime.refresh()?;
-                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                    },
-                ));
+                Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
+                    runtime.refresh()?;
+                    Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                }))
             }
             MachineRequest::SelectProviderScope(scope_id) => {
                 let selected =
@@ -434,13 +431,13 @@ impl ProviderMachineRuntime {
                     scope_id: Some(selected.selected_scope_id.clone()),
                     machine_id: None,
                 });
-                return Ok(self.finish_accepted_action(
+                Ok(self.finish_accepted_action(
                     AcceptedProviderEffects::default(),
                     move |runtime| {
                         runtime.install_snapshot(selected)?;
                         Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                     },
-                ));
+                ))
             }
             MachineRequest::InvokeProviderAction { action_id, values } => {
                 let values = values
@@ -475,13 +472,10 @@ impl ProviderMachineRuntime {
                         machine_id: selected_machine_id,
                     });
                 }
-                return Ok(self.finish_accepted_action(
-                    AcceptedProviderEffects::default(),
-                    |runtime| {
-                        runtime.refresh()?;
-                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                    },
-                ));
+                Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
+                    runtime.refresh()?;
+                    Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                }))
             }
             MachineRequest::RenameManagedMachine { machine, expected_version, name } => {
                 let machine_id = self.machine_id(machine)?;
@@ -496,13 +490,13 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                return Ok(self.finish_accepted_action(
+                Ok(self.finish_accepted_action(
                     AcceptedProviderEffects { session_label, ..AcceptedProviderEffects::default() },
                     |runtime| {
                         runtime.refresh()?;
                         Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                     },
-                ));
+                ))
             }
             MachineRequest::DeleteManagedMachine { machine, expected_version } => {
                 let machine_id = self.machine_id(machine)?;
@@ -515,7 +509,7 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                return Ok(self.finish_accepted_action(
+                Ok(self.finish_accepted_action(
                     AcceptedProviderEffects {
                         retire_open_on_failure: deletes_open_session,
                         ..AcceptedProviderEffects::default()
@@ -532,7 +526,7 @@ impl ProviderMachineRuntime {
                         }
                         Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                     },
-                ));
+                ))
             }
             MachineRequest::RestoreManagedMachine { machine, expected_version } => {
                 let result = self.client.restore_machine(protocol::MachineMutationParams {
@@ -542,13 +536,10 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                return Ok(self.finish_accepted_action(
-                    AcceptedProviderEffects::default(),
-                    |runtime| {
-                        runtime.refresh()?;
-                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                    },
-                ));
+                Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
+                    runtime.refresh()?;
+                    Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                }))
             }
             MachineRequest::PurgeManagedMachine { machine, expected_version } => {
                 let result = self.client.purge_machine(protocol::MachineMutationParams {
@@ -558,19 +549,16 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                return Ok(self.finish_accepted_action(
-                    AcceptedProviderEffects::default(),
-                    |runtime| {
-                        runtime.refresh()?;
-                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                    },
-                ));
+                Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
+                    runtime.refresh()?;
+                    Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                }))
             }
             MachineRequest::CreateManagedIsolatedWorkspace(key) => {
-                return self.create_workspace(key, protocol::WorkspaceCreateMode::Isolated);
+                self.create_workspace(key, protocol::WorkspaceCreateMode::Isolated)
             }
             MachineRequest::CreateManagedHostWorkspace(key) => {
-                return self.create_workspace(key, protocol::WorkspaceCreateMode::Host);
+                self.create_workspace(key, protocol::WorkspaceCreateMode::Host)
             }
             MachineRequest::RenameManagedWorkspace {
                 machine,
@@ -586,9 +574,9 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                return Ok(self.finish_accepted_workspace_mutation(
+                Ok(self.finish_accepted_workspace_mutation(
                     ManagedWorkspaceSessionMutation::Rename { workspace_key: workspace_id, name },
-                ));
+                ))
             }
             MachineRequest::DeleteManagedWorkspace { machine, workspace_id, expected_version } => {
                 let result = self.client.delete_workspace(protocol::WorkspaceMutationParams {
@@ -598,9 +586,9 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                return Ok(self.finish_accepted_workspace_mutation(
+                Ok(self.finish_accepted_workspace_mutation(
                     ManagedWorkspaceSessionMutation::Close { workspace_key: workspace_id },
-                ));
+                ))
             }
             MachineRequest::RestoreManagedWorkspace { machine, workspace_id, expected_version } => {
                 let result = self.client.restore_workspace(protocol::WorkspaceMutationParams {
@@ -610,13 +598,10 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                return Ok(self.finish_accepted_action(
-                    AcceptedProviderEffects::default(),
-                    |runtime| {
-                        runtime.refresh()?;
-                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                    },
-                ));
+                Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
+                    runtime.refresh()?;
+                    Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                }))
             }
             MachineRequest::PurgeManagedWorkspace { machine, workspace_id, expected_version } => {
                 let result = self.client.purge_workspace(protocol::WorkspaceMutationParams {
@@ -626,13 +611,10 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                return Ok(self.finish_accepted_action(
-                    AcceptedProviderEffects::default(),
-                    |runtime| {
-                        runtime.refresh()?;
-                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                    },
-                ));
+                Ok(self.finish_accepted_action(AcceptedProviderEffects::default(), |runtime| {
+                    runtime.refresh()?;
+                    Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+                }))
             }
             MachineRequest::Connect(_) => {
                 anyhow::bail!(
