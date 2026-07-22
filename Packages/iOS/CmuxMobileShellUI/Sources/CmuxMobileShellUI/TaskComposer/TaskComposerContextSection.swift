@@ -11,7 +11,7 @@ struct TaskComposerContextSection: View {
     let selectedMacDeviceID: String
     let directory: String
     let isDisabled: Bool
-    let selectMachine: (MobilePairedMac) -> Void
+    let selectMachine: (String) -> Void
     let selectDirectory: () -> Void
 
     var body: some View {
