@@ -29,6 +29,56 @@ struct ArtifactRepositorySafetyTests {
         #expect(try Data(contentsOf: metadataURL) == corruptData)
     }
 
+    @Test("Repository rejects corrupt provenance before moving another file")
+    func rejectsCorruptProvenanceBeforePersistence() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let source = try ArtifactTestSupport.write(
+            "same bytes",
+            named: "plan.md",
+            under: root.appendingPathComponent("outside")
+        )
+        let repository = LocalArtifactRepository()
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            workspaceID: "workspace",
+            sessionID: "session"
+        )
+        let first = try await repository.importFile(
+            sourceURL: source,
+            context: context,
+            provenance: .created,
+            configuration: .defaultValue,
+            capturedAt: Date(timeIntervalSince1970: 1)
+        )
+        let record = try #require(first.record)
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let metadataURL = paths.provenanceRoot.appendingPathComponent("\(record.digest).json")
+        let corruptData = Data("{truncated".utf8)
+        try corruptData.write(to: metadataURL)
+        let filesBefore = try await repository.snapshot(projectRoot: root)
+            .nodes
+            .flattenedArtifactNodes()
+            .filter { !$0.isDirectory }
+
+        await #expect(throws: ArtifactStoreError.self) {
+            try await repository.importFile(
+                sourceURL: source,
+                context: context,
+                provenance: .created,
+                configuration: .defaultValue,
+                capturedAt: Date(timeIntervalSince1970: 2)
+            )
+        }
+
+        let filesAfter = try await repository.snapshot(projectRoot: root)
+            .nodes
+            .flattenedArtifactNodes()
+            .filter { !$0.isDirectory }
+        #expect(filesAfter.map(\.relativePath) == filesBefore.map(\.relativePath))
+        #expect(try Data(contentsOf: metadataURL) == corruptData)
+    }
+
     @Test("Provenance rejects a symlinked cmux parent before writing")
     func rejectsSymlinkedCmuxParent() throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
