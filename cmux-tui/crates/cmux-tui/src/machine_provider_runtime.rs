@@ -292,6 +292,15 @@ impl ProviderMachineRuntime {
         Ok(())
     }
 
+    fn select_scope(&mut self, scope_id: protocol::OpaqueId) -> anyhow::Result<()> {
+        self.snapshot = self.client.select_scope(scope_id)?.snapshot;
+        self.machine_lifecycle_snapshot =
+            load_machine_lifecycle_snapshot(&self.client, &self.snapshot)?;
+        self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
+        self.reconcile_keys();
+        Ok(())
+    }
+
     pub(crate) fn open_selected(&mut self) -> anyhow::Result<(Session, String, MachineUiState)> {
         let (session, label, open) = self.open_selected_candidate()?;
         self.close_open_connection();
@@ -374,12 +383,7 @@ impl ProviderMachineRuntime {
                 }
             }
             MachineRequest::SelectProviderScope(scope_id) => {
-                let scope_id = protocol::OpaqueId::new(scope_id)?;
-                self.snapshot = self.client.select_scope(scope_id)?.snapshot;
-                self.machine_lifecycle_snapshot =
-                    load_machine_lifecycle_snapshot(&self.client, &self.snapshot)?;
-                self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
-                self.reconcile_keys();
+                self.select_scope(protocol::OpaqueId::new(scope_id)?)?;
             }
             MachineRequest::InvokeProviderAction { action_id, values } => {
                 let values = values
@@ -405,9 +409,10 @@ impl ProviderMachineRuntime {
                 if let Some(url) = result.url {
                     self.notice = Some(format!("Open {url}"));
                 }
-                self.refresh()?;
                 if let Some(scope_id) = selected_scope_id {
-                    self.snapshot.selected_scope_id = scope_id;
+                    self.select_scope(scope_id)?;
+                } else {
+                    self.refresh()?;
                 }
                 if let Some(machine_id) = selected_machine_id
                     && key_for_id(&self.keys, &machine_id).is_some()
@@ -566,7 +571,8 @@ impl ProviderMachineRuntime {
         let provider_connect_supported = client
             .supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)
             .unwrap_or(false);
-        let mut connected_machine_id = self.open.as_ref().map(|open| open.machine_id.clone());
+        let mut connected_session =
+            self.open.as_ref().map(|open| (open.connection_id.clone(), open.machine_id.clone()));
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let thread_stop = stop.clone();
         let (sender, receiver) = mpsc::sync_channel(8);
@@ -600,11 +606,14 @@ impl ProviderMachineRuntime {
                         }
                     };
                     let mut notice = None;
-                    let had_connected_session = connected_machine_id.is_some();
+                    let had_connected_session = connected_session.is_some();
                     if let protocol::ProviderEvent::ConnectionClosed(closed) = &event
-                        && connected_machine_id.as_ref() == Some(&closed.machine_id)
+                        && connected_session.as_ref().is_some_and(|(connection_id, machine_id)| {
+                            connection_id == &closed.connection_id
+                                && machine_id == &closed.machine_id
+                        })
                     {
-                        connected_machine_id = None;
+                        connected_session = None;
                         notice = Some(closed.reason.clone());
                     }
                     if let protocol::ProviderEvent::Notice(provider_notice) = &event {
@@ -667,7 +676,9 @@ impl ProviderMachineRuntime {
                         }
                     };
                     let session_available = snapshot.selected_machine_id.is_some()
-                        && snapshot.selected_machine_id.as_ref() == connected_machine_id.as_ref();
+                        && connected_session.as_ref().is_some_and(|(_, machine_id)| {
+                            snapshot.selected_machine_id.as_ref() == Some(machine_id)
+                        });
                     let mut ui = machine_ui_state(
                         &snapshot,
                         &last_machine_lifecycle_snapshot,
