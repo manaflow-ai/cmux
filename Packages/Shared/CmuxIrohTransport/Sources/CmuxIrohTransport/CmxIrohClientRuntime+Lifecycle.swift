@@ -107,6 +107,6 @@ extension CmxIrohClientRuntime {
     }
 
     static func isConnectivity(_ error: any Error) -> Bool {
-        CmxIrohTrustBrokerClientError.preservesVerifiedPolicyDuringRefresh(error)
+        (error as? CmxIrohTrustBrokerClientError) == .connectivity
     }
 }

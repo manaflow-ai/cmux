@@ -826,12 +826,11 @@ extension MobileShellComposite {
         surfaceID: String,
         marker: String
     ) async throws {
-        let markerData = Data(marker.utf8)
-        var received = Data()
+        var probe = MobileIrohReleaseGateTerminalProbe(marker: marker)
         var iterator = terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
 
         await submitTerminalRawInput(
-            Data("printf '\\n%s\\n' '\(marker)'\n".utf8),
+            probe.command,
             surfaceID: surfaceID
         )
 
@@ -840,12 +839,8 @@ extension MobileShellComposite {
                 surfaceID: surfaceID,
                 streamToken: chunk.streamToken
             )
-            received.append(chunk.data)
-            if received.range(of: markerData) != nil {
+            if probe.consume(chunk) {
                 return
-            }
-            if received.count > 65_536 {
-                received.removeFirst(received.count - 65_536)
             }
         }
         throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
