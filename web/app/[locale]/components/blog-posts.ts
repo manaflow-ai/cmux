@@ -3,7 +3,7 @@ import {
   fallbackContentLocales,
 } from "@/i18n/locale-availability";
 
-type BlogPost = {
+export type BlogPost = {
   slug: string;
   key: string;
   title: string;

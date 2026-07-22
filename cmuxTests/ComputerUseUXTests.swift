@@ -205,33 +205,47 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func firstUseOnboardingStartsAtOverview() {
-        #expect(ComputerUseOnboardingView.initialStep == 0)
+        #expect(ComputerUseOnboardingView.initialStep == .overview)
+    }
+
+    @Test func completingAccessibilityAdvancesAndOpensScreenRecordingSettings() {
+        let transition = ComputerUseOnboardingStep.accessibility.continuation
+
+        #expect(transition.nextStep == .screenRecording)
+        #expect(transition.settingsStepToOpen == .screenRecording)
+    }
+
+    @Test func permissionCompanionSitsBesideSystemSettingsOnItsActualDisplay() throws {
+        let placement = ComputerUseOnboardingWindowPlacement(gap: 12, screenInset: 16)
+        let primaryDisplay = CGRect(x: 0, y: 0, width: 1_512, height: 949)
+        let externalDisplay = CGRect(x: -575, y: 982, width: 1_920, height: 1_080)
+        let systemSettings = placement.appKitFrame(
+            fromQuartz: CGRect(x: 225, y: -1_003, width: 723, height: 762),
+            primaryScreenMaxY: 982
+        )
+        let permissionDisplay = try #require(placement.visibleFrame(
+            containing: systemSettings,
+            candidates: [primaryDisplay, externalDisplay]
+        ))
+
+        let onboarding = placement.frame(
+            onboardingSize: CGSize(width: 680, height: 250),
+            beside: systemSettings,
+            in: permissionDisplay
+        )
+
+        #expect(systemSettings == CGRect(x: 225, y: 1_223, width: 723, height: 762))
+        #expect(permissionDisplay == externalDisplay)
+        #expect(externalDisplay.contains(onboarding))
+        #expect(!onboarding.intersects(systemSettings))
+        #expect(onboarding.maxX == systemSettings.minX - 12)
+        #expect(onboarding.maxY == systemSettings.maxY)
     }
 
     @Test @MainActor func permissionOnboardingStartsAtTheRequestedStep() {
-        #expect(ComputerUseOnboardingWindowController.StartingPoint.overview.step == 0)
-        #expect(ComputerUseOnboardingWindowController.StartingPoint.accessibility.step == 1)
-        #expect(ComputerUseOnboardingWindowController.StartingPoint.screenRecording.step == 2)
-    }
-
-    @Test @MainActor func permissionCompanionOverlaysTheBottomOfSystemSettings() {
-        let origin = ComputerUseOnboardingWindowController.permissionCompanionOrigin(
-            systemSettingsFrame: NSRect(x: 100, y: 80, width: 900, height: 720),
-            companionSize: NSSize(width: 640, height: 210),
-            visibleFrame: NSRect(x: 0, y: 0, width: 1_200, height: 900)
-        )
-
-        #expect(origin == NSPoint(x: 230, y: 98))
-    }
-
-    @Test @MainActor func permissionCompanionStaysInsideTheVisibleScreen() {
-        let origin = ComputerUseOnboardingWindowController.permissionCompanionOrigin(
-            systemSettingsFrame: NSRect(x: -100, y: -20, width: 520, height: 620),
-            companionSize: NSSize(width: 640, height: 210),
-            visibleFrame: NSRect(x: 0, y: 0, width: 1_000, height: 700)
-        )
-
-        #expect(origin == NSPoint(x: 12, y: 12))
+        #expect(ComputerUseOnboardingWindowController.StartingPoint.overview.step == .overview)
+        #expect(ComputerUseOnboardingWindowController.StartingPoint.accessibility.step == .accessibility)
+        #expect(ComputerUseOnboardingWindowController.StartingPoint.screenRecording.step == .screenRecording)
     }
 
     @Test @MainActor func onboardingWindowUsesOnlyExplicitHeaderDragRegion() {
@@ -244,17 +258,12 @@ struct ComputerUseUXTests {
         #expect(!window.isMovableByWindowBackground)
     }
 
-    @Test @MainActor func helperCardExportsFinderCompatibleAppPayload() throws {
+    @Test @MainActor func helperCardExportsFinderCompatibleAppPayload() {
         let helperURL = URL(fileURLWithPath: "/System/Applications/Calculator.app")
         let item = ComputerUseAppDragSourceView.pasteboardItem(for: helperURL)
-        let filenames = try #require(
-            item.propertyList(
-                forType: ComputerUseAppDragSourceView.legacyFilenamesPasteboardType
-            ) as? [String]
-        )
 
         #expect(item.string(forType: .fileURL) == helperURL.absoluteString)
-        #expect(filenames == [helperURL.path])
+        #expect(item.types == [.fileURL])
     }
 
     @Test func taggedRuntimeKeepsHelperSocketAndStateIsolated() {

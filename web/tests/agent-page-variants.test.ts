@@ -355,6 +355,8 @@ describe("agent page variants", () => {
     expect(llms).toContain("[Remote tmux](https://cmux.com/docs/remote-tmux.md)");
     expect(llms).toContain("Remote tmux: attach to existing tmux sessions over SSH");
     expect(llms).toContain("Text: https://cmux.com/docs/getting-started.txt");
+    expect(llms).not.toContain("https://cmux.com/docs/base.md");
+    expect(llms).not.toContain("https://cmux.com/docs/base.txt");
     expect(variantPathForPage("/", "md")).toBe("/index.md");
   });
 

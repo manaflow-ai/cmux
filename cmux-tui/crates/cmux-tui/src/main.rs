@@ -91,7 +91,7 @@ MOUSE
   screen entries to switch screens (+ for a new screen).
 
 CLI VERBS
-  identify, ping, set-client-info, list-clients, detach-client,
+  identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,
   reload-config, set-window-title, clear-window-title,
   list-workspaces, export-layout, apply-layout, send,
   read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
@@ -99,7 +99,7 @@ CLI VERBS
   swap-pane, zoom-pane, process-info, set-default-colors,
   close-surface, close-pane, close-screen, close-workspace,
   rename-pane, rename-surface, rename-screen, rename-workspace,
-  resize-surface, focus-pane, select-tab, select-screen,
+  resize-surface, release-surface-size, focus-pane, select-tab, select-screen,
   select-workspace, move-tab, move-workspace, scroll-surface,
   subscribe, attach-surface, wait-for, run, send-key, copy, ids,
   notify, list-agents, report-agent

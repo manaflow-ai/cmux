@@ -29,6 +29,7 @@ extension WorkspaceDetailView {
         // scrollback survives a theme change.
         configThemeGeneration: store.terminalConfigThemeGeneration,
         artifactFilesEnabled: store.supportsTerminalArtifacts,
+        terminalFilesChipEnabled: terminalFilesChipEnabled,
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in
@@ -42,12 +43,18 @@ extension WorkspaceDetailView {
             selectedTerminalArtifact = TerminalArtifactSelection(
                 workspaceID: workspace.id.rawValue,
                 surfaceID: terminalID,
-                path: path
+                path: path,
+                session: chosenChatSession
             )
         },
         onVisibleArtifactCountChanged: { count in
             if visibleArtifactCount != count {
                 visibleArtifactCount = count
+            }
+        },
+        onArtifactGalleryRefreshSignal: { signal in
+            if artifactGalleryRefreshSignal != signal {
+                artifactGalleryRefreshSignal = signal
             }
         }
     )
@@ -60,6 +67,7 @@ extension WorkspaceDetailView {
             workspaceID: context.workspaceID,
             surfaceID: context.surfaceID,
             source: store.makeChatEventSource(),
+            refreshSignal: artifactGalleryRefreshSignal,
             loader: terminalArtifactLoader(
                 workspaceID: context.workspaceID,
                 surfaceID: context.surfaceID

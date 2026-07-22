@@ -148,6 +148,12 @@ extension Workspace {
             customTitleSource = source
             self.title = trimmed
         }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.customTitle.write workspace=\(id.uuidString.prefix(8)) " +
+            "source=\(source) title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 40))\""
+        )
+#endif
         return true
     }
 

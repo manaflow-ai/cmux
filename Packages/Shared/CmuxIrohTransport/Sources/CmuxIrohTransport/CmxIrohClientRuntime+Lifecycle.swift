@@ -63,6 +63,7 @@ extension CmxIrohClientRuntime {
     func tearDownNetwork(preserveBinding: Bool = false) async {
         registrationRefreshTask?.cancel()
         registrationRefreshTask = nil
+        registrationRefreshTaskID = nil
         registrationRefreshPending = false
         registrationRefreshEnabled = false
         supervisorEventTask?.cancel()

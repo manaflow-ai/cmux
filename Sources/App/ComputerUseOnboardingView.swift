@@ -8,15 +8,15 @@ import SwiftUI
 /// drag source, and refreshes status from the helper's own TCC identity.
 @MainActor
 struct ComputerUseOnboardingView: View {
-    static let initialStep = 0
+    static let initialStep = ComputerUseOnboardingStep.overview
 
     let runtimeService: ComputerUseRuntimeService
-    let initialStep: Int
+    let initialStep: ComputerUseOnboardingStep
     let onSystemSettingsOpened: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
     let onClose: () -> Void
 
-    @State private var step: Int
+    @State private var step: ComputerUseOnboardingStep
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var refreshInFlight = false
@@ -29,7 +29,7 @@ struct ComputerUseOnboardingView: View {
 
     init(
         runtimeService: ComputerUseRuntimeService,
-        initialStep: Int = 0,
+        initialStep: ComputerUseOnboardingStep = .overview,
         onSystemSettingsOpened: @escaping @MainActor () -> Void = {},
         onExpandedRequested: @escaping @MainActor () -> Void = {},
         onClose: @escaping () -> Void
@@ -224,8 +224,8 @@ struct ComputerUseOnboardingView: View {
         }
     }
 
-    private func pendingPermissionCard(permissionStep: Int) -> some View {
-        let title = permissionStep == 1
+    private func pendingPermissionCard(permissionStep: ComputerUseOnboardingStep) -> some View {
+        let title = permissionStep == .accessibility
             ? String(
                 localized: "computerUse.onboarding.accessibility.short",
                 defaultValue: "Accessibility"
@@ -276,15 +276,15 @@ struct ComputerUseOnboardingView: View {
         ))
     }
 
-    private var pendingPermissionStep: Int? {
-        if !accessibilityGranted { return 1 }
-        if !screenRecordingGranted { return 2 }
+    private var pendingPermissionStep: ComputerUseOnboardingStep? {
+        if !accessibilityGranted { return .accessibility }
+        if !screenRecordingGranted { return .screenRecording }
         return nil
     }
 
     private var permissionCompanion: some View {
         Group {
-            if step >= 3 {
+            if step == .done {
                 permissionCompanionReady
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -434,7 +434,7 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var permissionCompanionInstruction: String {
-        if step == 1 {
+        if step == .accessibility {
             return String(
                 localized: "computerUse.onboarding.companion.accessibility",
                 defaultValue: "Drag \(runtimeService.applicationName) to the list above to allow Accessibility"
@@ -447,7 +447,7 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var currentPermissionGranted: Bool {
-        step == 1 ? accessibilityGranted : screenRecordingGranted
+        step == .accessibility ? accessibilityGranted : screenRecordingGranted
     }
 
     private func permissionStatus(granted: Bool, label: String? = nil) -> some View {
@@ -500,26 +500,26 @@ struct ComputerUseOnboardingView: View {
             accessibilityGranted = status.accessibility
             screenRecordingGranted = status.screenRecording
 
-            guard initialStep > Self.initialStep, !initialPermissionFlowStarted else { return }
+            guard initialStep != Self.initialStep, !initialPermissionFlowStarted else { return }
             initialPermissionFlowStarted = true
 
-            if initialStep == 1, status.accessibility {
+            if initialStep == .accessibility, status.accessibility {
                 if status.screenRecording {
-                    step = 3
+                    step = .done
                 } else {
-                    beginPermissionSetup(for: 2)
+                    beginPermissionSetup(for: .screenRecording)
                 }
-            } else if initialStep == 2, status.screenRecording {
-                step = 3
+            } else if initialStep == .screenRecording, status.screenRecording {
+                step = .done
             } else {
                 beginPermissionSetup(for: initialStep)
             }
         }
     }
 
-    private func beginPermissionSetup(for permissionStep: Int) {
+    private func beginPermissionSetup(for permissionStep: ComputerUseOnboardingStep) {
         guard
-            permissionStep == 1 || permissionStep == 2,
+            permissionStep == .accessibility || permissionStep == .screenRecording,
             !permissionSetupInFlight
         else {
             return
@@ -527,8 +527,10 @@ struct ComputerUseOnboardingView: View {
         step = permissionStep
         permissionSetupInFlight = true
         permissionCheckArmed = true
+        isPermissionCompanionVisible = true
+        onSystemSettingsOpened()
         Task { @MainActor in
-            let didOpenSettings = if permissionStep == 1 {
+            let didOpenSettings = if permissionStep == .accessibility {
                 await runtimeService.requestAccessibility()
             } else {
                 await runtimeService.requestScreenRecording()
@@ -536,10 +538,10 @@ struct ComputerUseOnboardingView: View {
             permissionSetupInFlight = false
             guard didOpenSettings else {
                 permissionCheckArmed = false
+                isPermissionCompanionVisible = false
+                onExpandedRequested()
                 return
             }
-            isPermissionCompanionVisible = true
-            onSystemSettingsOpened()
         }
     }
 
@@ -556,14 +558,14 @@ struct ComputerUseOnboardingView: View {
         accessibilityGranted = newAccessibilityGranted
         screenRecordingGranted = newScreenRecordingGranted
 
-        if step == 1, newAccessibilityGranted {
+        if step == .accessibility, newAccessibilityGranted {
             if newScreenRecordingGranted {
-                step = 3
+                step = .done
             } else {
-                beginPermissionSetup(for: 2)
+                beginPermissionSetup(for: .screenRecording)
             }
-        } else if step == 2, newScreenRecordingGranted {
-            step = 3
+        } else if step == .screenRecording, newScreenRecordingGranted {
+            step = .done
         }
     }
 }

@@ -3,8 +3,6 @@ import AppKit
 /// Starts a Finder-compatible drag containing the installed helper app URL.
 @MainActor
 final class ComputerUseAppDragSourceView: NSView, NSDraggingSource {
-    static let legacyFilenamesPasteboardType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
-
     private var helperAppURL: URL?
     private var helperIcon: NSImage?
     private var onDragEnded: ((NSDragOperation) -> Void)?
@@ -75,10 +73,6 @@ final class ComputerUseAppDragSourceView: NSView, NSDraggingSource {
     static func pasteboardItem(for helperAppURL: URL) -> NSPasteboardItem {
         let item = NSPasteboardItem()
         item.setString(helperAppURL.absoluteString, forType: .fileURL)
-        item.setPropertyList(
-            [helperAppURL.path],
-            forType: legacyFilenamesPasteboardType
-        )
         return item
     }
 
