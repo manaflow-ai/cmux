@@ -1040,6 +1040,49 @@ struct BrowserWebExtensionsManagerTests {
         await requestGate.release()
     }
 
+    @Test func extensionManagerSocketShowRejectsStaleTabAndPaneAliasesWithoutSideEffects() throws {
+        func assertRejected(selector: [String: Any]) throws {
+            let root = try Self.makeExtensionsRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let services = BrowserServices(extensionDirectory: root)
+            let tabManager = TabManager(
+                autoWelcomeIfNeeded: false,
+                browserServices: services
+            )
+            let workspace = try #require(tabManager.selectedWorkspace)
+            defer { workspace.teardownAllPanels() }
+            let rootPane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let browser = try #require(workspace.newBrowserSurface(
+                inPane: rootPane,
+                focus: true,
+                creationPolicy: .restoration
+            ))
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            TerminalController.shared.setActiveTabManager(tabManager)
+            defer { TerminalController.shared.setActiveTabManager(previousManager) }
+            let panelCount = workspace.panels.count
+            let request: [String: Any] = [
+                "id": "extensions-show-stale-alias",
+                "method": "browser.extensions.show",
+                "params": selector,
+            ]
+            let requestData = try JSONSerialization.data(withJSONObject: request)
+            let requestLine = try #require(String(data: requestData, encoding: .utf8))
+
+            let response = TerminalController.shared.handleSocketLine(requestLine)
+            let responseData = try #require(response.data(using: .utf8))
+            let envelope = try #require(
+                JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+            )
+            #expect(envelope["ok"] as? Bool == false)
+            #expect(workspace.panels.count == panelCount)
+            #expect(browser.internalPage == nil)
+        }
+
+        try assertRejected(selector: ["tab_id": UUID().uuidString])
+        try assertRejected(selector: ["pane_id": UUID().uuidString])
+    }
+
     @available(macOS 15.4, *)
     @Test func installedRecommendationsUseManagementIdentityInsteadOfContextShape() {
         let managementID = "com.example.safari-extension"

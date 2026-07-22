@@ -76,6 +76,43 @@ final class CLIBrowserEvalOutputTests {
         #expect(result.output != "OK\n", Comment(rawValue: result.output))
     }
 
+    @Test("browser extensions add confirms the prepared install")
+    func browserExtensionAddCompletesTwoPhaseInstall() throws {
+        let socketPath = "/tmp/cmux-extension-add-\(UUID().uuidString.prefix(8)).sock"
+        let previewID = UUID()
+        let response = #"{"id":null,"ok":true,"result":{"prepared":true,"preview_id":"\#(previewID.uuidString)","name":"Fixture","version":"1.0"}}"#
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let source = "/tmp/cmux-extension-add-fixture"
+        let result = try runProcess(
+            executablePath: BundledCLITestSupport.bundledCLIPath(for: Self.self),
+            arguments: ["browser", "extensions", "add", source],
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        let requests = responder.receivedRequests.compactMap { line -> [String: Any]? in
+            guard let data = line.data(using: .utf8) else { return nil }
+            return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        }
+        #expect(requests.count == 2, Comment(rawValue: "requests=\(requests)"))
+        let prepareParams = requests.first?["params"] as? [String: Any]
+        #expect(prepareParams?["path"] as? String == source)
+        let confirmParams = requests.last?["params"] as? [String: Any]
+        #expect(confirmParams?["preview_id"] as? String == previewID.uuidString)
+        #expect(confirmParams?["confirm"] as? Bool == true)
+        #expect(confirmParams?["path"] == nil)
+    }
+
     private func assertBrowserEvalOutput(_ testCase: Case) throws {
         let socketPath = "/tmp/cmux-eval-\(UUID().uuidString.prefix(8)).sock"
         let response = #"{"id":null,"ok":true,"result":{"value":\#(testCase.wireValue)}}"#
