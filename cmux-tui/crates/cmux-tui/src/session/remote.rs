@@ -561,10 +561,18 @@ impl RemoteSession {
             }
         })?;
 
+        if let Err(error) = session.initialize() {
+            session.disconnect_transport();
+            return Err(error);
+        }
+        Ok(session)
+    }
+
+    fn initialize(&self) -> anyhow::Result<()> {
         // Identify (validates the endpoint) and subscribe to events.
-        let ident = session.request(json!({"cmd": "identify"}))?;
+        let ident = self.request(json!({"cmd": "identify"}))?;
         validate_remote_identity(&ident)?;
-        *session.capabilities.lock().unwrap() = ident
+        *self.capabilities.lock().unwrap() = ident
             .get("capabilities")
             .and_then(Value::as_array)
             .into_iter()
@@ -576,9 +584,9 @@ impl RemoteSession {
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
         }
-        session.request(client_info)?;
-        session.request(json!({"cmd": "subscribe"}))?;
-        Ok(session)
+        self.request(client_info)?;
+        self.request(json!({"cmd": "subscribe"}))?;
+        Ok(())
     }
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {

@@ -281,10 +281,12 @@ impl ProviderMachineRuntime {
     }
 
     pub(crate) fn refresh(&mut self) -> anyhow::Result<()> {
-        self.snapshot = self.client.snapshot(Some(self.snapshot.revision))?;
-        self.machine_lifecycle_snapshot =
-            load_machine_lifecycle_snapshot(&self.client, &self.snapshot)?;
-        self.workspace_snapshot = load_workspace_snapshot(&self.client, &self.snapshot)?;
+        let snapshot = self.client.snapshot(Some(self.snapshot.revision))?;
+        let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&self.client, &snapshot)?;
+        let workspace_snapshot = load_workspace_snapshot(&self.client, &snapshot)?;
+        self.snapshot = snapshot;
+        self.machine_lifecycle_snapshot = machine_lifecycle_snapshot;
+        self.workspace_snapshot = workspace_snapshot;
         self.reconcile_keys();
         if let Some(notice) = &self.snapshot.notice {
             self.notice = Some(notice.message.clone());
@@ -513,12 +515,9 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                self.refresh()?;
-                return Ok(MachineActionResult::ui(self.ui_state_for_open_connection())
-                    .with_session_mutation(ManagedWorkspaceSessionMutation::Rename {
-                        workspace_key: workspace_id,
-                        name,
-                    }));
+                return Ok(self.finish_accepted_workspace_mutation(
+                    ManagedWorkspaceSessionMutation::Rename { workspace_key: workspace_id, name },
+                ));
             }
             MachineRequest::DeleteManagedWorkspace { machine, workspace_id, expected_version } => {
                 let result = self.client.delete_workspace(protocol::WorkspaceMutationParams {
@@ -528,11 +527,9 @@ impl ProviderMachineRuntime {
                     mutation_id: self.next_mutation_id()?,
                 })?;
                 self.set_notice(result.notice);
-                self.refresh()?;
-                return Ok(MachineActionResult::ui(self.ui_state_for_open_connection())
-                    .with_session_mutation(ManagedWorkspaceSessionMutation::Close {
-                        workspace_key: workspace_id,
-                    }));
+                return Ok(self.finish_accepted_workspace_mutation(
+                    ManagedWorkspaceSessionMutation::Close { workspace_key: workspace_id },
+                ));
             }
             MachineRequest::RestoreManagedWorkspace { machine, workspace_id, expected_version } => {
                 let result = self.client.restore_workspace(protocol::WorkspaceMutationParams {
@@ -555,7 +552,9 @@ impl ProviderMachineRuntime {
                 self.refresh()?;
             }
             MachineRequest::Connect(_) => {
-                anyhow::bail!("this machine provider cannot connect external machines")
+                anyhow::bail!(
+                    localization::catalog().sidebar.machine_provider_external_connect_unsupported
+                )
             }
             MachineRequest::ReconnectProvider => unreachable!("handled before refresh"),
         }
@@ -584,33 +583,39 @@ impl ProviderMachineRuntime {
         let mut last_workspace_snapshot = self.workspace_snapshot.clone();
         let worker = std::thread::Builder::new().name("machine-provider-snapshots".into()).spawn(
             move || {
+                let mut authoritative_refresh_pending = true;
                 while !thread_stop.load(Ordering::Acquire) {
-                    let event = match events.recv_timeout(Duration::from_millis(250)) {
-                        Ok(event) => event,
-                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                        Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            let mut ui = machine_ui_state(
-                                &last_snapshot,
-                                &last_machine_lifecycle_snapshot,
-                                last_workspace_snapshot.as_ref(),
-                                &keys,
-                                false,
-                                provider_connect_supported,
-                            );
-                            ui.notice = Some(
-                                localization::catalog()
-                                    .sidebar
-                                    .machine_provider_disconnected
-                                    .into(),
-                            );
-                            ui.request = Some(MachineRequest::ReconnectProvider);
-                            let _ = sender.send(ui);
-                            break;
+                    let event = if authoritative_refresh_pending {
+                        authoritative_refresh_pending = false;
+                        None
+                    } else {
+                        match events.recv_timeout(Duration::from_millis(250)) {
+                            Ok(event) => Some(event),
+                            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                                let mut ui = machine_ui_state(
+                                    &last_snapshot,
+                                    &last_machine_lifecycle_snapshot,
+                                    last_workspace_snapshot.as_ref(),
+                                    &keys,
+                                    false,
+                                    provider_connect_supported,
+                                );
+                                ui.notice = Some(
+                                    localization::catalog()
+                                        .sidebar
+                                        .machine_provider_disconnected
+                                        .into(),
+                                );
+                                ui.request = Some(MachineRequest::ReconnectProvider);
+                                let _ = sender.send(ui);
+                                break;
+                            }
                         }
                     };
                     let mut notice = None;
                     let had_connected_session = connected_session.is_some();
-                    if let protocol::ProviderEvent::ConnectionClosed(closed) = &event
+                    if let Some(protocol::ProviderEvent::ConnectionClosed(closed)) = event.as_ref()
                         && connected_session.as_ref().is_some_and(|(connection_id, machine_id)| {
                             connection_id == &closed.connection_id
                                 && machine_id == &closed.machine_id
@@ -619,7 +624,7 @@ impl ProviderMachineRuntime {
                         connected_session = None;
                         notice = Some(closed.reason.clone());
                     }
-                    if let protocol::ProviderEvent::Notice(provider_notice) = &event {
+                    if let Some(protocol::ProviderEvent::Notice(provider_notice)) = event.as_ref() {
                         notice = Some(provider_notice.message.clone());
                     }
                     let snapshot = match client.snapshot(Some(last_snapshot.revision)) {
@@ -781,17 +786,14 @@ impl ProviderMachineRuntime {
             return Ok((placeholder_session(), "machines".to_string(), None));
         };
         if !machine.connectable {
-            anyhow::bail!("{} is not ready to connect", machine.display_name);
+            anyhow::bail!(localization::catalog().sidebar.machine_not_ready_to_connect);
         }
         let provider_managed =
             matches!(machine.workspace_create, protocol::WorkspaceCreatePolicy::Provider { .. });
         if provider_managed
             && !self.client.supports_capability(protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY)?
         {
-            anyhow::bail!(
-                "{} cannot authorize managed workspace mirrors; upgrade the machine provider",
-                machine.display_name
-            );
+            anyhow::bail!(localization::catalog().sidebar.machine_managed_authority_unsupported);
         }
 
         let opened = self.client.open_machine(machine.id.clone(), provider_managed)?;
@@ -804,10 +806,7 @@ impl ProviderMachineRuntime {
             || (provider_managed && !authority_is_valid)
         {
             let _ = self.client.close_machine(connection_id);
-            anyhow::bail!(
-                "{} returned an invalid managed workspace authority binding",
-                machine.display_name
-            );
+            anyhow::bail!(localization::catalog().sidebar.machine_managed_authority_invalid);
         }
         let transport = match self.client.consume_transport(opened.transport) {
             Ok(transport) => transport,
@@ -847,6 +846,22 @@ impl ProviderMachineRuntime {
             self.client.create_workspace(self.machine_id(key)?, mode, self.next_mutation_id()?)?;
         self.set_notice(result.notice);
         self.refresh()
+    }
+
+    fn finish_accepted_workspace_mutation(
+        &mut self,
+        mutation: ManagedWorkspaceSessionMutation,
+    ) -> MachineActionResult {
+        let refresh_error = self.refresh().err();
+        let mut ui = self.ui_state_for_open_connection();
+        if let Some(error) = refresh_error {
+            ui.notice = Some(format!(
+                "{}: {error}",
+                localization::catalog().sidebar.machine_provider_update_failed
+            ));
+            ui.request = Some(MachineRequest::ReconnectProvider);
+        }
+        MachineActionResult::ui(ui).with_session_mutation(mutation)
     }
 
     fn stage_connection(

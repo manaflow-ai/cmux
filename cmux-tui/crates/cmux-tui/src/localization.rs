@@ -75,6 +75,10 @@ pub(crate) struct SidebarMessages {
     pub machine_provider_workspace_update_failed: &'static str,
     pub machine_reconnect_failed: &'static str,
     pub machine_terminal_colors_failed: &'static str,
+    pub machine_provider_external_connect_unsupported: &'static str,
+    pub machine_not_ready_to_connect: &'static str,
+    pub machine_managed_authority_unsupported: &'static str,
+    pub machine_managed_authority_invalid: &'static str,
     pub machine_catalog_create_unsupported: &'static str,
     pub machine_catalog_provider_actions_unsupported: &'static str,
     pub machine_catalog_updates_failed: &'static str,
@@ -195,6 +199,10 @@ static ENGLISH: Catalog = Catalog {
         machine_provider_workspace_update_failed: "Machine provider workspace update failed",
         machine_reconnect_failed: "Could not reconnect machine",
         machine_terminal_colors_failed: "Could not apply terminal colors",
+        machine_provider_external_connect_unsupported: "This machine provider cannot connect external machines",
+        machine_not_ready_to_connect: "Selected machine is not ready to connect",
+        machine_managed_authority_unsupported: "This provider cannot authorize managed workspace mirrors; upgrade the machine provider",
+        machine_managed_authority_invalid: "The machine provider returned an invalid managed workspace authority binding",
         machine_catalog_create_unsupported: "This machine catalog cannot create VMs",
         machine_catalog_provider_actions_unsupported: "This machine catalog has no provider actions",
         machine_catalog_updates_failed: "Machine catalog updates could not start",
@@ -271,6 +279,10 @@ static JAPANESE: Catalog = Catalog {
         machine_provider_workspace_update_failed: "マシンプロバイダーのワークスペース更新に失敗しました",
         machine_reconnect_failed: "マシンに再接続できませんでした",
         machine_terminal_colors_failed: "ターミナルの色を適用できませんでした",
+        machine_provider_external_connect_unsupported: "このマシンプロバイダーは外部マシンに接続できません",
+        machine_not_ready_to_connect: "選択したマシンは接続準備ができていません",
+        machine_managed_authority_unsupported: "このプロバイダーは管理ワークスペースのミラーを認可できません。マシンプロバイダーをアップグレードしてください",
+        machine_managed_authority_invalid: "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました",
         machine_catalog_create_unsupported: "このマシンカタログでは仮想マシンを作成できません",
         machine_catalog_provider_actions_unsupported: "このマシンカタログにはプロバイダーアクションがありません",
         machine_catalog_updates_failed: "マシンカタログの更新を開始できませんでした",
@@ -331,6 +343,18 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_replacement_worker_stopped,
             "確定前にマシン切り替え処理が停止しました"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_not_ready_to_connect,
+            "選択したマシンは接続準備ができていません"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_managed_authority_unsupported,
+            "このプロバイダーは管理ワークスペースのミラーを認可できません。マシンプロバイダーをアップグレードしてください"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_managed_authority_invalid,
+            "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました"
         );
     }
 
