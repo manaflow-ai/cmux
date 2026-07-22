@@ -877,7 +877,7 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
+    @State private var sidebarResizerCursorReleaseScheduler = SidebarResizerCursorReleaseScheduler()
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
@@ -907,8 +907,7 @@ struct ContentView: View {
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
     @State private var cachedDefaultTerminalIsDefault = DefaultTerminalRegistration.currentStatus().isDefault
-    @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
-    @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
+    @State private var commandPaletteFocusRestoreCoordinator = CommandPaletteFocusRestoreCoordinator()
     @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
@@ -945,12 +944,6 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
     private let sidebarResizerOcclusionResolver = SidebarResizerOcclusionResolver()
-    private struct CommandPaletteRestoreFocusTarget {
-        let workspaceId: UUID
-        let panelId: UUID
-        let intent: PanelFocusIntent
-    }
-
     static func tmuxWorkspacePaneExactRect(
         for panel: any Panel,
         in contentView: NSView
@@ -1359,8 +1352,7 @@ struct ContentView: View {
     }
 
     private func activateSidebarResizerCursor() {
-        sidebarResizerCursorReleaseWorkItem?.cancel()
-        sidebarResizerCursorReleaseWorkItem = nil
+        sidebarResizerCursorReleaseScheduler.cancelPendingRelease()
         isSidebarResizerCursorActive = true
         Self.fixedSidebarResizeCursor.set()
     }
@@ -1375,17 +1367,9 @@ struct ContentView: View {
         NSCursor.arrow.set()
     }
 
-    private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: TimeInterval = 0) {
-        sidebarResizerCursorReleaseWorkItem?.cancel()
-        let workItem = DispatchWorkItem {
-            sidebarResizerCursorReleaseWorkItem = nil
-            releaseSidebarResizerCursorIfNeeded(force: force)
-        }
-        sidebarResizerCursorReleaseWorkItem = workItem
-        if delay > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        } else {
-            DispatchQueue.main.async(execute: workItem)
+    private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: Duration = .zero) {
+        sidebarResizerCursorReleaseScheduler.schedule(force: force, delay: delay) { releaseForce in
+            releaseSidebarResizerCursorIfNeeded(force: releaseForce)
         }
     }
 
@@ -1613,7 +1597,7 @@ struct ContentView: View {
                     } else {
                         // Give mouse-down + drag-start callbacks time to establish state
                         // before any cursor pop is attempted.
-                        scheduleSidebarResizerCursorRelease(delay: 0.05)
+                        scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))
                     }
                 }
                 updateSidebarResizerBandState()
@@ -9287,6 +9271,7 @@ struct ContentView: View {
 
     private func presentCommandPalette(initialQuery: String) {
         refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
+        commandPaletteFocusRestoreCoordinator.clear()
         if let panelContext = focusedPanelContext {
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
@@ -9459,26 +9444,24 @@ struct ContentView: View {
     }
 
     private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
-        commandPalettePendingDismissFocusTarget = target
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        let timeoutWork = DispatchWorkItem {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem = nil
-        }
-        commandPaletteRestoreTimeoutWorkItem = timeoutWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: timeoutWork)
+        commandPaletteFocusRestoreCoordinator.request(target: target)
         attemptCommandPaletteFocusRestoreIfNeeded()
     }
 
     private func attemptCommandPaletteFocusRestoreIfNeeded() {
         guard !isCommandPalettePresented else { return }
-        guard let target = commandPalettePendingDismissFocusTarget else { return }
-        guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem?.cancel()
-            commandPaletteRestoreTimeoutWorkItem = nil
+        guard let target = commandPaletteFocusRestoreCoordinator.pendingTarget else { return }
+        guard let targetWorkspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }) else {
+            commandPaletteFocusRestoreCoordinator.clear()
             return
         }
+        guard !commandPaletteFocusRestoreCoordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+            selectedWorkspaceId: tabManager.selectedTabId,
+            focusedPanelId: targetWorkspace.focusedPanelId,
+            targetPanelExists: targetWorkspace.panels[target.panelId] != nil
+        ) else { return }
+        guard commandPaletteFocusRestoreCoordinator.claimRestoreAttempt() else { return }
+        defer { commandPaletteFocusRestoreCoordinator.finishRestoreAttempt() }
 
         if let window = observedWindow, !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
@@ -9496,9 +9479,7 @@ struct ContentView: View {
             return
         }
         guard context.panel.restoreFocusIntent(target.intent) else { return }
-        commandPalettePendingDismissFocusTarget = nil
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        commandPaletteRestoreTimeoutWorkItem = nil
+        commandPaletteFocusRestoreCoordinator.clear()
     }
 
 #if DEBUG
@@ -10467,6 +10448,10 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var expandedMetadataWorkspaceIds: Set<UUID> = []
     @State private var expandedMarkdownWorkspaceIds: Set<UUID> = []
     @State private var checklistAddFieldActivationTokens: [UUID: Int] = [:]
+    /// AppKit-table tap-to-edit sessions (workspace id → checklist item id).
+    /// Container-owned so the row model (and the height cache's prototype
+    /// measurement) sees the edit-field swap.
+    @State private var editingChecklistItemIds: [UUID: UUID] = [:]
     // Which workspace row's checklist popover is open (at most one across
     // the sidebar). Held at the container so rows stay behind the snapshot
     // boundary.
@@ -11590,6 +11575,9 @@ struct VerticalTabsSidebar: View, Equatable {
             globalFontMagnificationPercent: environment.globalFontMagnificationPercent,
             isChecklistExpanded: input.isChecklistExpanded,
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
+            isChecklistPopoverPresented: input.isChecklistPopoverPresented,
+            editingChecklistItemId: editingChecklistItemIds[tab.id],
+            todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
             isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id)
         )
@@ -11674,6 +11662,50 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             checklistEditItem: { [tab] itemId, text in
                 WorkspaceTodoActions.editChecklistItem(id: itemId, text: text, in: tab)
+            },
+            checklistMoveItem: { [tab] itemId, toIndex in
+                WorkspaceTodoActions.moveChecklistItem(id: itemId, toIndex: toIndex, in: tab)
+            },
+            checklistOpenPane: { [tab] in
+                WorkspaceTodoActions.openTodoPane(for: tab)
+            },
+            checklistAddAttachments: { [tab] itemId in
+                WorkspaceTodoActions.addImageAttachments(to: itemId, in: tab)
+            },
+            checklistRemoveAttachment: { [tab] itemId, attachmentId in
+                WorkspaceTodoActions.removeImageAttachment(itemId: itemId, attachmentId: attachmentId, from: tab)
+            },
+            checklistOpenAttachments: { [tab] itemId, selectedAttachmentId in
+                guard let item = tab.todoState.checklist.first(where: { $0.id == itemId }) else { return }
+                WorkspaceTodoActions.openImageAttachments(
+                    item.attachments,
+                    selectedAttachmentId: selectedAttachmentId
+                )
+            },
+            onChecklistPopoverPresentedChange: { [tabId = tab.id] presented in
+                if presented {
+                    checklistPopoverWorkspaceId = tabId
+                } else if checklistPopoverWorkspaceId == tabId {
+                    checklistPopoverWorkspaceId = nil
+                }
+            },
+            onBeginChecklistItemEdit: { [tabId = tab.id] itemId in
+                if let itemId {
+                    editingChecklistItemIds[tabId] = itemId
+                } else {
+                    editingChecklistItemIds[tabId] = nil
+                }
+            },
+            onEndChecklistItemEdit: { [tabId = tab.id] itemId in
+                if editingChecklistItemIds[tabId] == itemId {
+                    editingChecklistItemIds[tabId] = nil
+                }
+            },
+            applyTodoStatus: { [tab] status in
+                WorkspaceTodoActions.applyStatusOverride(status, to: [tab])
+            },
+            hideTodoStatus: { [tab] in
+                WorkspaceTodoActions.hideStatus(for: [tab])
             },
             commitRename: { [weak tabManager, workspaceId = tab.id] text in
                 tabManager?.setCustomTitle(tabId: workspaceId, title: text)

@@ -253,8 +253,8 @@ import Testing
         let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
         await waitForSwitchStart()
 
-        #expect(view.macTitlePickerSelection.wrappedValue == .machine("mac-b"))
-        view.macTitlePickerSelection.wrappedValue = .all
+        #expect(view.currentMacTitlePickerSelection == .machine("mac-b"))
+        _ = view.handleMacTitlePickerSelection(.all)
         await waitForCancelStart()
 
         #expect(requestedSwitches == ["mac-b"])

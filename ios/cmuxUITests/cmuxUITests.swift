@@ -1333,6 +1333,22 @@ final class cmuxUITests: XCTestCase {
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
     }
 
+    @MainActor
+    private func assertTerminalMenuItemExists(
+        _ terminalID: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let item = app.buttons["MobileTerminalMenuItem-\(terminalID)"]
+        XCTAssertTrue(
+            item.waitForExistence(timeout: 4),
+            "Expected terminal menu to contain \(terminalID).",
+            file: file,
+            line: line
+        )
+    }
+
     /// Regression: preparation must durably save the exact retry identity
     /// before routing starts, while Cancel remains available until the create
     /// boundary is committed.

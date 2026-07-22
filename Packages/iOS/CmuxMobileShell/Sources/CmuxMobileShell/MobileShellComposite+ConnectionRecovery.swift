@@ -35,6 +35,11 @@ extension MobileShellComposite {
             // connection so a moving network repaints instead of going stale.
             for await _ in reachability.pathChanges() {
                 guard let self, !Task.isCancelled else { return }
+                let isOnline = await reachability.isOnline
+                self.diagnosticLog?.record(DiagnosticEvent(
+                    .reachabilityChanged,
+                    a: isOnline ? 1 : 0
+                ))
                 self.recoverMobileConnection(trigger: .networkChange)
             }
         }
@@ -171,7 +176,8 @@ extension MobileShellComposite {
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryStarted,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue
+                ?? DiagnosticTransportKind.unknown.rawValue,
+            b: trigger.diagnosticCode
         ))
         applyConnectionRecoveryOwnerState()
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID

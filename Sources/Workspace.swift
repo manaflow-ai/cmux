@@ -7,6 +7,7 @@ import CmuxRemoteSession
 import CmuxRemoteWorkspace
 import CmuxWorkspaces
 import CmuxTerminal
+import CmuxTerminalCore
 import SwiftUI
 import AppKit
 import CmuxFoundation
@@ -65,7 +66,10 @@ extension Workspace {
         let tree = bonsplitController.treeSnapshot()
         let rawLayout = sessionLayoutSnapshot(from: tree)
         if let surfaceResumeBindingIndex {
-            reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
+            reconcileSurfaceResumeBindings(
+                using: surfaceResumeBindingIndex,
+                restorableAgentIndex: restorableAgentIndex
+            )
         }
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -622,6 +626,7 @@ extension Workspace {
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
+                fontSize: terminalPanel.surface.sessionFontSizeOverrideBasePoints(),
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
@@ -1261,7 +1266,10 @@ extension Workspace {
         }
     }
 
-    func reconcileSurfaceResumeBindings(using surfaceResumeBindingIndex: SurfaceResumeBindingIndex) {
+    func reconcileSurfaceResumeBindings(
+        using surfaceResumeBindingIndex: SurfaceResumeBindingIndex,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+    ) {
         for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
@@ -1274,6 +1282,16 @@ extension Workspace {
             }
             guard let detectedBinding else {
                 if storedBinding.isProcessDetected {
+                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                } else if isStaleAgentHookBinding(
+                    storedBinding,
+                    panelId: panelId,
+                    restorableAgentIndex: restorableAgentIndex
+                ) {
+                    // Generalizes the tmux-only reconciliation above: a plain
+                    // (non-tmux) agent-hook binding whose session no longer
+                    // shows up as live gets dropped here too, instead of being
+                    // replayed as a resume on the next relaunch (#8446).
                     surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                 }
                 continue
@@ -1427,8 +1445,38 @@ extension Workspace {
                 )
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
+            // A crash-restart can leave this exact agent session alive from the
+            // previous launch (or a duplicate panel can reference the same
+            // session in this same restore pass); firing another `codex
+            // resume`/`claude --resume` on top of it just piles up redundant
+            // processes contending for the same on-disk session data (#8446).
+            // Consult the same live-process index already used for "reopen
+            // closed tab" / Fork Conversation availability, and fall back to a
+            // per-launch dedup claim so two panels can't both win the race
+            // before the freshly spawned process becomes visible to the index.
+            let agentSessionAlreadyActive: Bool = {
+                guard shouldAutoResumeAgent, restoredHibernation == nil, restoredBindingLaunch == nil,
+                      let restorableAgent else {
+                    return false
+                }
+                let liveIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                    ?? RestorableAgentSessionIndex.load()
+                let liveEntry = liveIndex.entry(workspaceId: id, panelId: snapshot.id)
+                if AgentResumeLiveness.hasLiveProcess(
+                    for: liveEntry,
+                    kind: restorableAgent.kind.rawValue,
+                    sessionId: restorableAgent.sessionId
+                ) {
+                    return true
+                }
+                return !AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                    kind: restorableAgent.kind.rawValue,
+                    sessionId: restorableAgent.sessionId
+                )
+            }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
+                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
+                    && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
@@ -1454,8 +1502,14 @@ extension Workspace {
             // collision forces a fresh id on restore-into-live / duplicate-workspace). The
             // (session id, agent source) comes from the restorable-agent snapshot when present,
             // else from the agent-hook resume binding (most restores carry only the binding, whose `checkpointId` IS the agent session id).
+            // Skipped when `agentSessionAlreadyActive`: cmux decided NOT to fire a resume onto
+            // this panel (a live process for the same session already exists elsewhere, or this
+            // panel lost the per-launch dedup race), so this panel must not steal the session
+            // registry's authoritative (surface, workspace) pointer away from the panel that
+            // actually owns the live process — that would send mobile/chat routing to a dead
+            // duplicate instead of the real one (#8446).
             let resumeReboundSession: (sessionID: String, source: String)? = {
-                if let restorableAgent {
+                if let restorableAgent, !agentSessionAlreadyActive {
                     return (restorableAgent.sessionId, restorableAgent.kind.rawValue)
                 }
                 if let binding = resumeBinding,
@@ -1556,9 +1610,21 @@ extension Workspace {
                 runtimeSpawnPolicy: .pacedSessionRestore,
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-                restoredSurfaceId: reusableSurfaceId
+                restoredSurfaceId: reusableSurfaceId,
+                terminalFontSizeCreationPolicy: .sessionRestore(
+                    overrideBasePoints: snapshot.terminal?.fontSize
+                )
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
+                // The claim taken above (if any) was for a launch that never
+                // actually happened; release it immediately instead of
+                // leaving it to block a legitimate resume for up to the TTL.
+                if restoredAgentResumeLaunch != nil, let restorableAgent {
+                    AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                        kind: restorableAgent.kind.rawValue,
+                        sessionId: restorableAgent.sessionId
+                    )
+                }
                 return nil
             }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
@@ -2115,6 +2181,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    private let settings: any SettingsReading
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2144,7 +2211,8 @@ final class Workspace: Identifiable, ObservableObject {
                     remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
                     remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
                 )
-            }
+            },
+            settings: settings
         )
         _dockSplit = store
         return store
@@ -2245,12 +2313,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
     var lastTerminalConfigInheritancePanelId: UUID?
-    /// Last known terminal font points from inheritance sources. Used as fallback when
-    /// no live terminal surface is currently available.
-    private var lastTerminalConfigInheritanceFontPoints: Float?
-    /// Per-panel inherited zoom lineage. Descendants reuse this root value unless
-    /// a panel is explicitly re-zoomed by the user.
-    var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
+    /// Last known terminal font lineage from an inheritance source. The
+    /// surface owns live lineage; this fallback only survives removal of the
+    /// last source panel.
+    private var lastTerminalConfigInheritanceFontSizeLineage: TerminalFontSizeLineage?
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
@@ -2997,6 +3063,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
         allowTextBoxFocusDefault: Bool = true,
+        settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -3008,6 +3075,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.settings = settings
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
@@ -3144,7 +3212,6 @@ final class Workspace: Identifiable, ObservableObject {
             )
             panels[terminalPanel.id] = terminalPanel
             panelTitles[terminalPanel.id] = terminalPanel.displayTitle
-            seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
 
             // Create initial tab in bonsplit and store the mapping
             if let tabId = bonsplitController.createTab(
@@ -3156,6 +3223,7 @@ final class Workspace: Identifiable, ObservableObject {
             ) {
                 bindSurface(tabId, toPanelId: terminalPanel.id)
                 initialTabId = tabId
+                rememberTerminalConfigInheritanceSource(terminalPanel)
             }
         }
 
@@ -3692,6 +3760,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
+        terminalPanel.surface.onFontSizeLineageChanged = { [weak self, weak terminalPanel] lineage in
+            guard let self, let terminalPanel,
+                  self.lastTerminalConfigInheritancePanelId == terminalPanel.id,
+                  let mountedPanel = self.panels[terminalPanel.id] as? TerminalPanel,
+                  mountedPanel === terminalPanel else {
+                return
+            }
+            self.lastTerminalConfigInheritanceFontSizeLineage = lineage
+        }
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
@@ -6468,46 +6545,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Panel Operations
 
-    private func seedTerminalInheritanceFontPoints(
-        panelId: UUID,
-        configTemplate: CmuxSurfaceConfigTemplate?
-    ) {
-        guard let fontPoints = configTemplate?.fontSize, fontPoints > 0 else { return }
-        terminalInheritanceFontPointsByPanelId[panelId] = fontPoints
-        lastTerminalConfigInheritanceFontPoints = fontPoints
-    }
-
-    private func resolvedTerminalInheritanceFontPoints(
-        for terminalPanel: TerminalPanel,
-        sourceSurface: ghostty_surface_t,
-        inheritedConfig: CmuxSurfaceConfigTemplate
-    ) -> Float? {
-        let runtimeBasePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface).map { CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: $0, percent: GlobalFontMagnification.storedPercent) }
-        if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
-            if let runtimeBasePoints, abs(runtimeBasePoints - rooted) > 0.05 {
-                // Runtime zoom changed after lineage was seeded (manual zoom on descendant);
-                // treat runtime as the new root for future descendants.
-                return runtimeBasePoints
-            }
-            return rooted
-        }
-        if inheritedConfig.fontSize > 0 {
-            return inheritedConfig.fontSize
-        }
-        return runtimeBasePoints
-    }
-
-    private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
+    func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
+        guard let mountedPanel = panels[terminalPanel.id] as? TerminalPanel,
+              mountedPanel === terminalPanel else { return }
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        if let sourceSurface = terminalPanel.surface.surface,
-           let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
-            let runtimeBasePoints = CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: runtimePoints, percent: GlobalFontMagnification.storedPercent)
-            let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
-            if existing == nil || abs((existing ?? runtimeBasePoints) - runtimeBasePoints) > 0.05 {
-                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = runtimeBasePoints
-            }
-            lastTerminalConfigInheritanceFontPoints = terminalInheritanceFontPointsByPanelId[terminalPanel.id] ?? runtimeBasePoints
-        }
+        lastTerminalConfigInheritanceFontSizeLineage = terminalPanel.surface.fontSizeLineageSnapshot()
     }
 
     func lastRememberedTerminalPanelForConfigInheritance() -> TerminalPanel? {
@@ -6515,8 +6557,18 @@ final class Workspace: Identifiable, ObservableObject {
         return terminalPanel(for: panelId)
     }
 
-    func lastRememberedTerminalFontPointsForConfigInheritance() -> Float? {
-        lastTerminalConfigInheritanceFontPoints
+    func lastRememberedTerminalFontSizeLineageForConfigInheritance() -> TerminalFontSizeLineage? {
+        lastTerminalConfigInheritanceFontSizeLineage
+    }
+
+    func removeTerminalConfigInheritanceSource(panelId: UUID) {
+        guard lastTerminalConfigInheritancePanelId == panelId else { return }
+        lastTerminalConfigInheritancePanelId = nil
+        lastTerminalConfigInheritanceFontSizeLineage = nil
+
+        if let replacement = terminalPanelForConfigInheritance() {
+            rememberTerminalConfigInheritanceSource(replacement)
+        }
     }
 
     nonisolated private static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
@@ -6750,34 +6802,39 @@ final class Workspace: Identifiable, ObservableObject {
             // ghostty_surface_inherited_config or cmuxCurrentSurfaceFontSizePoints
             // is still reading through the pointer.
             let surface = terminalPanel.surface
-            guard let sourceSurface = surface.surface else { continue }
+            let sourceFontSizeLineage = surface.fontSizeLineageSnapshot()
+            guard let sourceSurface = surface.surface else {
+                if let sourceFontSizeLineage {
+                    var config = CmuxSurfaceConfigTemplate()
+                    config.fontSizeLineage = sourceFontSizeLineage
+                    lastTerminalConfigInheritancePanelId = terminalPanel.id
+                    lastTerminalConfigInheritanceFontSizeLineage = sourceFontSizeLineage
+                    return config
+                }
+                continue
+            }
             var config = cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
             )
-            if let rootedFontPoints = resolvedTerminalInheritanceFontPoints(
-                for: terminalPanel,
-                sourceSurface: sourceSurface,
-                inheritedConfig: config
-            ), rootedFontPoints > 0 {
-                config.fontSize = rootedFontPoints
-                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = rootedFontPoints
+            if let sourceFontSizeLineage {
+                config.fontSizeLineage = sourceFontSizeLineage
             }
             // Prevent ARC from releasing panel/surface before the C calls above complete.
             withExtendedLifetime((terminalPanel, surface)) {}
             rememberTerminalConfigInheritanceSource(terminalPanel)
-            if config.fontSize > 0 {
-                lastTerminalConfigInheritanceFontPoints = config.fontSize
+            if let fontSizeLineage = config.fontSizeLineage {
+                lastTerminalConfigInheritanceFontSizeLineage = fontSizeLineage
             }
             return config
         }
 
-        if let fallbackFontPoints = lastTerminalConfigInheritanceFontPoints {
+        if let fallbackFontSizeLineage = lastTerminalConfigInheritanceFontSizeLineage {
             var config = CmuxSurfaceConfigTemplate()
-            config.fontSize = fallbackFontPoints
+            config.fontSizeLineage = fallbackFontSizeLineage
 #if DEBUG
             cmuxDebugLog(
-                "zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fallbackFontPoints))"
+                "zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fallbackFontSizeLineage.basePoints))"
             )
 #endif
             return config
@@ -6981,7 +7038,6 @@ final class Workspace: Identifiable, ObservableObject {
         if tracksRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
-        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 #if DEBUG
         dlog(
             "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
@@ -7018,7 +7074,6 @@ final class Workspace: Identifiable, ObservableObject {
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
-            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
@@ -7049,6 +7104,7 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView
             )
         }
+        rememberTerminalConfigInheritanceSource(newPanel)
 #if DEBUG
         dlog(
             "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
@@ -7085,6 +7141,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
@@ -7103,6 +7160,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
@@ -7126,6 +7184,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
@@ -7174,6 +7233,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
@@ -7195,6 +7255,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
+        terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
         allowTextBoxFocusDefault: Bool
@@ -7203,7 +7264,9 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        var inheritedConfig = terminalFontSizeCreationPolicy.applying(
+            to: inheritedTerminalConfig(inPane: paneId)
+        )
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
@@ -7271,7 +7334,6 @@ final class Workspace: Identifiable, ObservableObject {
         if tracksRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
-        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
         // Create tab in bonsplit
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
@@ -7288,7 +7350,6 @@ final class Workspace: Identifiable, ObservableObject {
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
-            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
 
@@ -7312,6 +7373,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             clearNonFocusSplitFocusReassert()
         }
+        rememberTerminalConfigInheritanceSource(newPanel)
 
         if autoRefreshMetadata {
             owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
@@ -7393,6 +7455,7 @@ final class Workspace: Identifiable, ObservableObject {
                 return nil
             }
             bindSurface(newTabId, toPanelId: newPanel.id)
+            rememberTerminalConfigInheritanceSource(newPanel)
             return newPanel
         }
         if focus, let newPanel {
@@ -7505,7 +7568,6 @@ final class Workspace: Identifiable, ObservableObject {
         configureNewTerminalPanel(replacementPanel)
         panels[pair.key] = replacementPanel
         panelTitles[pair.key] = replacementPanel.displayTitle
-        seedTerminalInheritanceFontPoints(panelId: pair.key, configTemplate: inheritedConfig)
         bonsplitController.updateTab(
             tabId,
             title: replacementPanel.displayTitle,
@@ -7528,6 +7590,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             replacementPanel.unfocus()
         }
+        rememberTerminalConfigInheritanceSource(replacementPanel)
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
             panelId: pair.key,
@@ -7648,7 +7711,6 @@ final class Workspace: Identifiable, ObservableObject {
             pinnedPanelIds.insert(panelId)
         }
         bindSurface(tabId, toPanelId: panelId)
-        seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
         let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
         bonsplitController.updateTab(
             tabId,
@@ -7674,6 +7736,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             replacementPanel.unfocus()
         }
+        rememberTerminalConfigInheritanceSource(replacementPanel)
 
         owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: id,
@@ -8540,9 +8603,8 @@ final class Workspace: Identifiable, ObservableObject {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
         pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
-        terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
-        lastTerminalConfigInheritanceFontPoints = nil
+        lastTerminalConfigInheritanceFontSizeLineage = nil
         // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
         // but only if the Dock was ever opened for this workspace.
         _dockSplit?.closeAllPanels()
@@ -8559,9 +8621,8 @@ final class Workspace: Identifiable, ObservableObject {
         // Mapping can transiently drift during split-tree mutations. If the target panel is
         // currently focused (or is the active terminal first responder), close whichever tab
         // bonsplit marks selected in that focused pane.
-        let firstResponderPanelId = cmuxOwningGhosttyView(
-            for: NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder
-        )?.terminalSurface?.id
+        let firstResponderPanelId = (NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder)
+            .cmuxStrictOwningGhosttyView()?.terminalSurface?.id
         let targetIsActive = focusedPanelId == panelId || firstResponderPanelId == panelId
         guard targetIsActive,
               let focusedPane = bonsplitController.focusedPaneId,
@@ -8636,46 +8697,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
     func preferredRightSideTargetPane(fromPanelId panelId: UUID) -> PaneID? {
         guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
-        let sourcePaneId = sourcePane.id.uuidString
-        let tree = bonsplitController.treeSnapshot()
-        guard let path = browserPathToPane(targetPaneId: sourcePaneId, node: tree) else { return nil }
-
-        let layout = bonsplitController.layoutSnapshot()
-        let paneFrameById = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneId, $0.frame) })
-        let sourceFrame = paneFrameById[sourcePaneId]
-        let sourceCenterY = sourceFrame.map { $0.y + ($0.height * 0.5) } ?? 0
-        let sourceRightX = sourceFrame.map { $0.x + $0.width } ?? 0
-
-        for crumb in path {
-            guard crumb.split.orientation == "horizontal", crumb.branch == .first else { continue }
-            var candidateNodes: [ExternalPaneNode] = []
-            browserCollectPaneNodes(node: crumb.split.second, into: &candidateNodes)
-            if candidateNodes.isEmpty { continue }
-
-            let sorted = candidateNodes.sorted { lhs, rhs in
-                let lhsDy = abs((lhs.frame.y + (lhs.frame.height * 0.5)) - sourceCenterY)
-                let rhsDy = abs((rhs.frame.y + (rhs.frame.height * 0.5)) - sourceCenterY)
-                if lhsDy != rhsDy { return lhsDy < rhsDy }
-
-                let lhsDx = abs(lhs.frame.x - sourceRightX)
-                let rhsDx = abs(rhs.frame.x - sourceRightX)
-                if lhsDx != rhsDx { return lhsDx < rhsDx }
-
-                if lhs.frame.x != rhs.frame.x { return lhs.frame.x < rhs.frame.x }
-                return lhs.id < rhs.id
-            }
-
-            for candidate in sorted {
-                guard let candidateUUID = UUID(uuidString: candidate.id),
-                      candidateUUID != sourcePane.id,
-                      let pane = bonsplitController.allPaneIds.first(where: { $0.id == candidateUUID }) else {
-                    continue
-                }
-                return pane
-            }
-        }
-
-        return nil
+        return BrowserRightSidePaneResolver().preferredPane(
+            from: sourcePane,
+            in: bonsplitController
+        )
     }
 
     /// Returns the top-right pane in the current split tree.
@@ -8719,33 +8744,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
-    }
-
-    private enum BrowserPaneBranch {
-        case first
-        case second
-    }
-
-    private struct BrowserPaneBreadcrumb {
-        let split: ExternalSplitNode
-        let branch: BrowserPaneBranch
-    }
-
-    private func browserPathToPane(targetPaneId: String, node: ExternalTreeNode) -> [BrowserPaneBreadcrumb]? {
-        switch node {
-        case .pane(let paneNode):
-            return paneNode.id == targetPaneId ? [] : nil
-        case .split(let splitNode):
-            if var path = browserPathToPane(targetPaneId: targetPaneId, node: splitNode.first) {
-                path.append(BrowserPaneBreadcrumb(split: splitNode, branch: .first))
-                return path
-            }
-            if var path = browserPathToPane(targetPaneId: targetPaneId, node: splitNode.second) {
-                path.append(BrowserPaneBreadcrumb(split: splitNode, branch: .second))
-                return path
-            }
-            return nil
-        }
     }
 
     private func browserCollectPaneNodes(node: ExternalTreeNode, into output: inout [ExternalPaneNode]) {
@@ -9731,7 +9729,6 @@ final class Workspace: Identifiable, ObservableObject {
         if pendingRemoteDisconnect != nil {
             remoteDisconnectPlaceholderPanelIds.insert(newPanel.id)
         }
-        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: replacementConfig)
 
         // Create tab in bonsplit
         if let newTabId = bonsplitController.createTab(
@@ -9742,6 +9739,7 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         ) {
             bindSurface(newTabId, toPanelId: newPanel.id)
+            rememberTerminalConfigInheritanceSource(newPanel)
         }
 
         return newPanel
@@ -10849,7 +10847,6 @@ final class Workspace: Identifiable, ObservableObject {
         if startupCommand != nil {
             trackRemoteTerminalSurface(newPanel.id)
         }
-        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,
@@ -10869,13 +10866,13 @@ final class Workspace: Identifiable, ObservableObject {
             if startupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
-            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
 
         bonsplitController.selectTab(newTab.id)
         newPanel.focus()
+        rememberTerminalConfigInheritanceSource(newPanel)
         return newPanel
     }
 
@@ -12311,7 +12308,6 @@ extension Workspace: BonsplitDelegate {
                     configureNewTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
-                    seedTerminalInheritanceFontPoints(panelId: replacementPanel.id, configTemplate: inheritedConfig)
                     bindSurface(replacementTab.id, toPanelId: replacementPanel.id)
 
                     bonsplitController.updateTab(
@@ -12326,6 +12322,7 @@ extension Workspace: BonsplitDelegate {
                         isLoading: false,
                         isPinned: false
                     )
+                    rememberTerminalConfigInheritanceSource(replacementPanel)
                     publishCmuxSurfaceCreated(replacementPanel.id, paneId: originalPane, kind: "terminal", origin: "placeholder_repair", focused: false)
 
                     for extraPlaceholder in placeholderTabs.dropFirst() {
@@ -12380,7 +12377,6 @@ extension Workspace: BonsplitDelegate {
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
@@ -12392,11 +12388,11 @@ extension Workspace: BonsplitDelegate {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
-            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return
         }
 
         bindSurface(newTabId, toPanelId: newPanel.id)
+        rememberTerminalConfigInheritanceSource(newPanel)
         normalizePinnedTabs(in: newPane)
         publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
 #if DEBUG
