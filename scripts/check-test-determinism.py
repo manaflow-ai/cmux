@@ -1712,6 +1712,43 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/OptionalSelfRealClockPropertyTests.swift",
+            "final class Fixture {\n"
+            "    let clock: ContinuousClock\n"
+            "    func verify() {\n"
+            "        let work = { [weak self] in\n"
+            "            try await self?.clock.sleep(for: .milliseconds(300))\n"
+            "            #expect(widget.isRendered)\n"
+            "        }\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/ForcedSelfRealClockPropertyTests.swift",
+            "final class Fixture {\n"
+            "    let clock: ContinuousClock\n"
+            "    func verify() {\n"
+            "        let work = { [weak self] in\n"
+            "            try await self!.clock.sleep(for: .milliseconds(300))\n"
+            "            #expect(widget.isRendered)\n"
+            "        }\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/StaticSelfRealClockPropertyTests.swift",
+            "struct Fixture {\n"
+            "    static let clock = ContinuousClock()\n"
+            "    static func verify() async {\n"
+            "        try await Self.clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/LaterSelfRealClockPropertyTests.swift",
             "struct Fixture {\n"
             "    func verify() async {\n"
@@ -2372,6 +2409,18 @@ def _self_test() -> int:
             "        let clock = ContinuousClock()\n"
             "        try await self.clock.sleep(until: deadline)\n"
             "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/OptionalSelfVirtualClockPropertyTests.swift",
+            "final class Fixture {\n"
+            "    let clock: TestRelayClock\n"
+            "    func verify() {\n"
+            "        let work = { [weak self] in\n"
+            "            try await self?.clock.sleep(until: deadline)\n"
+            "            #expect(await events.next() == expected)\n"
+            "        }\n"
             "    }\n"
             "}\n",
         ),
