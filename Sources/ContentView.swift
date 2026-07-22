@@ -968,6 +968,13 @@ struct ContentView: View {
         return tmuxWorkspacePaneExactRect(for: targetView, in: contentView)
     }
 
+    static func tmuxWorkspacePaneWindowOverlayReferenceView(
+        for window: NSWindow,
+        resolver: WindowContentOverlayTargetResolver
+    ) -> NSView? {
+        window.contentView
+    }
+
     static func tmuxWorkspacePaneExactRect(
         for targetView: NSView,
         in contentView: NSView
@@ -1016,7 +1023,10 @@ struct ContentView: View {
             cachedSnapshot: workspace.tmuxLayoutSnapshot,
             liveSnapshot: workspace.bonsplitController.layoutSnapshot()
         )
-        let contentView = window.contentView
+        let contentView = Self.tmuxWorkspacePaneWindowOverlayReferenceView(
+            for: window,
+            resolver: windowChrome.contentOverlayTargetResolver
+        )
 
         let unreadRects: [CGRect]
         if usesWorkspacePaneOverlay {
@@ -3104,7 +3114,6 @@ struct ContentView: View {
             clampSidebarWidthIfNeeded(availableWidth: availableWidth)
             clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
             updateSidebarResizerBandState()
-            scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in: window)
         })
 
         view = AnyView(view.onChange(of: rightSidebarMaxWidthSetting) { _, _ in
