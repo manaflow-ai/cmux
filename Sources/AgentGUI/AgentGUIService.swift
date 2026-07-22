@@ -204,6 +204,29 @@ final class AgentGUIService {
         )
     }
 
+    func sessionSnapshot(surfaceID: String) -> AgentSessionSnapshot? {
+        let matches = reducer.snapshots.values.filter { $0.surfaceID == surfaceID }
+        return matches.first(where: { $0.phase != .ended }) ?? matches.first
+    }
+    func submitCmuxOwnedPrompt(surfaceID: String, text: String) -> AgentLaunchExecutionResult {
+        guard let snapshot = sessionSnapshot(surfaceID: surfaceID), snapshot.phase != .ended else {
+            return launchExecutionResult(terminalInjector.submitPrompt(surfaceID: surfaceID, text: text))
+        }
+        do {
+            let result = try ledger(sessionID: snapshot.id).submit(
+                ticketID: UUID(),
+                text: text,
+                attachmentCount: 0,
+                snapshot: snapshot
+            )
+            updateGates()
+            return result.queuedOnMac ? .queued : .accepted
+        } catch let error as AgentGUIRPCError {
+            return .failed(error.code)
+        } catch {
+            return .failed("prompt_injection_failed")
+        }
+    }
     /// Wire attachment descriptors are rejected with `send_rejected` and `attachment_unsupported` until binary transfer is implemented.
     func sendResult(params: GuiSendParams) throws -> GuiSendResult {
         guard let ticketID = UUID(uuidString: params.ticketID) else {
@@ -234,6 +257,20 @@ final class AgentGUIService {
         return result
     }
 
+    private func launchExecutionResult(
+        _ result: AgentGUITerminalInjectionResult
+    ) -> AgentLaunchExecutionResult {
+        switch result {
+        case .accepted:
+            .accepted
+        case .bindingLost:
+            .failed("binding_lost")
+        case .inputQueueFull:
+            .failed("input_queue_full")
+        case .processExited:
+            .failed("process_exited")
+        }
+    }
     func interruptResult(params: GuiInterruptParams) throws -> GuiInterruptResult {
         guard let snapshot = reducer.snapshot(for: params.sessionID) else {
             throw AgentGUIRPCError.notFound

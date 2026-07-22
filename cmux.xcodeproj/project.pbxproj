@@ -129,6 +129,9 @@
 		A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */; };
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
+		5A4C04010000000000000001 /* AgentSurfaceLaunchExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4C04010000000000000011 /* AgentSurfaceLaunchExecutor.swift */; };
+		5A4C04010000000000000002 /* AgentSurfaceLaunchStateObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4C04010000000000000012 /* AgentSurfaceLaunchStateObserver.swift */; };
+		5A4C04010000000000000003 /* AgentTerminalPanelInputWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4C04010000000000000013 /* AgentTerminalPanelInputWriter.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
 		REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000E1 /* AIAccountsClient.swift */; };
 		A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = A115C0DE0000000000000001 /* AllShortcutsPopover.swift */; };
@@ -1844,6 +1847,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE7B210000000000000001 /* TextBoxMentionQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B210000000000000002 /* TextBoxMentionQuery.swift */; };
 		C0DE7B220000000000000001 /* TextBoxMentionSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B220000000000000002 /* TextBoxMentionSuggestion.swift */; };
 		C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */; };
+		C0DE7B420000000000000001 /* TextBoxSubmissionRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B420000000000000002 /* TextBoxSubmissionRouting.swift */; };
 		C0DE7B370000000000000001 /* TextBoxSubmitAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B370000000000000002 /* TextBoxSubmitAction.swift */; };
 		C0DE7B400000000000000001 /* TextBoxSubmitActionCycling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B400000000000000002 /* TextBoxSubmitActionCycling.swift */; };
 		C0DE7B390000000000000001 /* TextBoxSubmitActionImageSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B390000000000000002 /* TextBoxSubmitActionImageSupport.swift */; };
@@ -2230,6 +2234,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWebRendererTests.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
+		5A4C04010000000000000011 /* AgentSurfaceLaunchExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSurfaceLaunchExecutor.swift; sourceTree = "<group>"; };
+		5A4C04010000000000000012 /* AgentSurfaceLaunchStateObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSurfaceLaunchStateObserver.swift; sourceTree = "<group>"; };
+		5A4C04010000000000000013 /* AgentTerminalPanelInputWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalPanelInputWriter.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountCredentialSources.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000E1 /* AIAccountsClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountsClient.swift; sourceTree = "<group>"; };
 		A115C0DE0000000000000001 /* AllShortcutsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllShortcutsPopover.swift; sourceTree = "<group>"; };
@@ -3864,6 +3871,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE7B210000000000000002 /* TextBoxMentionQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionQuery.swift; sourceTree = "<group>"; };
 		C0DE7B220000000000000002 /* TextBoxMentionSuggestion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionSuggestion.swift; sourceTree = "<group>"; };
 		C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxProcessTerminationStatus.swift; sourceTree = "<group>"; };
+		C0DE7B420000000000000002 /* TextBoxSubmissionRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmissionRouting.swift; sourceTree = "<group>"; };
 		C0DE7B370000000000000002 /* TextBoxSubmitAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TextBoxSubmitAction.swift; sourceTree = "<group>"; };
 		C0DE7B400000000000000002 /* TextBoxSubmitActionCycling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionCycling.swift; sourceTree = "<group>"; };
 		C0DE7B390000000000000002 /* TextBoxSubmitActionImageSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionImageSupport.swift; sourceTree = "<group>"; };
@@ -4650,6 +4658,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B400000000000000002 /* TextBoxSubmitActionCycling.swift */,
 				C0DE7B3A0000000000000002 /* TextBoxSubmitActionKind.swift */,
 				C0DE7B340000000000000002 /* TextBoxSubmitActions.swift */,
+				C0DE7B420000000000000002 /* TextBoxSubmissionRouting.swift */,
 				C0DE7B390000000000000002 /* TextBoxSubmitActionImageSupport.swift */,
 				7725A0067725A0067725A006 /* TextBoxSubmitActionResolvedIcon.swift */,
 				C0DE7B380000000000000002 /* TextBoxSubmitActionPresentation.swift */,
@@ -6212,6 +6221,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A6E170000000000000000021 /* AgentGUITerminalInjecting.swift */,
 				A6E170000000000000000022 /* AgentGUITerminalInjectionResult.swift */,
 				A6E170000000000000000023 /* AgentGUITerminalInjector.swift */,
+				5A4C04010000000000000011 /* AgentSurfaceLaunchExecutor.swift */,
+				5A4C04010000000000000012 /* AgentSurfaceLaunchStateObserver.swift */,
+				5A4C04010000000000000013 /* AgentTerminalPanelInputWriter.swift */,
 				A6E170000000000000000019 /* AgentGUIToolPairingIndex.swift */,
 				A6E17000000000000000001A /* AgentGUITranscriptDecoderBox.swift */,
 				A6E17000000000000000001B /* AgentGUITranscriptResolver.swift */,
@@ -6785,6 +6797,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E02000000000000000000C /* AgentSessionWebRendererSession.swift in Sources */,
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
+				5A4C04010000000000000001 /* AgentSurfaceLaunchExecutor.swift in Sources */,
+				5A4C04010000000000000002 /* AgentSurfaceLaunchStateObserver.swift in Sources */,
+				5A4C04010000000000000003 /* AgentTerminalPanelInputWriter.swift in Sources */,
 				REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */,
 				REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */,
 				A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */,
@@ -7830,6 +7845,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B210000000000000001 /* TextBoxMentionQuery.swift in Sources */,
 				C0DE7B220000000000000001 /* TextBoxMentionSuggestion.swift in Sources */,
 				C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */,
+				C0DE7B420000000000000001 /* TextBoxSubmissionRouting.swift in Sources */,
 				C0DE7B370000000000000001 /* TextBoxSubmitAction.swift in Sources */,
 				C0DE7B400000000000000001 /* TextBoxSubmitActionCycling.swift in Sources */,
 				C0DE7B390000000000000001 /* TextBoxSubmitActionImageSupport.swift in Sources */,

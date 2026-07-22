@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxWorkspaces
 import AppKit
@@ -68,7 +69,7 @@ enum TextBoxFailedSubmitRollbackPolicy {
 }
 
 @MainActor
-private final class TextBoxInputViewReference {
+final class TextBoxInputViewReference {
     weak var textView: TextBoxInputTextView?
     var filePanelFocusRestorer: TextBoxFilePanelFocusRestorer?
 }
@@ -2414,21 +2415,23 @@ struct TextBoxInputContainer: View {
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
     let onSelectSubmitAction: (String) -> Void
+    let onGuardedAgentLaunch: (String, AgentLaunchIntent) -> AgentLaunchGuardResult
+    let onSubmitAgentPrompt: (String) -> AgentLaunchExecutionResult
     let onRecordLaunchCommand: (String) -> Void
     let onClearLaunchCommand: () -> Void
     let onEscape: () -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
-    @State private var textViewHeight: CGFloat = 0
-    @State private var hasPendingAttachmentUpload = false
-    @State private var hasMarkedText = false
-    @State private var textViewReference = TextBoxInputViewReference()
+    @State var textViewHeight: CGFloat = 0
+    @State var hasPendingAttachmentUpload = false
+    @State var hasMarkedText = false
+    @State var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
     @State var pendingProviderLaunchTimeoutTimer: Timer?
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
 
-    private var pendingCommentCount: Int {
+    var pendingCommentCount: Int {
         commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
     }
 
@@ -2703,134 +2706,7 @@ struct TextBoxInputContainer: View {
             )
     }
 
-    func submit() {
-        let textView = textViewReference.textView
-        guard TextBoxSubmitAvailability.shouldSubmit(
-            hasPendingAttachmentUpload: textView?.hasPendingAttachmentUploadPlaceholder() ?? hasPendingAttachmentUpload,
-            hasMarkedText: textView?.hasMarkedText() ?? hasMarkedText
-        ) else {
-            NSSound.beep()
-            return
-        }
-        let submittedParts = textView?.submissionParts()
-            ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
-        let poolWorkspaceId = surface.owningWorkspace()?.id
-        let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
-        guard hasTypedContent || pendingCommentCount > 0 else {
-            NSSound.beep()
-            return
-        }
-        if isPendingProviderLaunchAwaitingAgent {
-            NSSound.beep()
-            return
-        }
-        let launchAction = effectiveSubmitAction
-        if Self.shouldFailClosedForCommandTemplate(
-            action: launchAction,
-            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
-            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
-        ) {
-            NSSound.beep()
-            return
-        }
-        if let launchCommand = providerLaunchCommand(for: launchAction) {
-            startPendingProviderLaunch(launchAction)
-            onRecordLaunchCommand(launchAction.launchContextCommand() ?? launchCommand)
-            TextBoxSubmit.sendEvents(
-                TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
-                via: surface
-            ) { completionContext in
-                if !completionContext.didSubmit {
-                    clearPendingProviderLaunch()
-                    onClearLaunchCommand()
-                    NSSound.beep()
-                }
-            }
-            return
-        }
-        // Claim the workspace's pending diff comments: this submission carries
-        // them, and the chip clears from every other TextBox in the workspace.
-        let pendingComments = poolWorkspaceId.map {
-            DiffCommentSubmissionPool.shared.consumeAll(workspaceId: $0)
-        } ?? []
-        var partsToSend = submittedParts
-        if !pendingComments.isEmpty {
-            let bundle = pendingComments.map(\.submissionText).joined(separator: "\n")
-            partsToSend.append(.text(hasTypedContent ? "\n\n" + bundle : bundle))
-        }
-        let submittedTextView = textView
-        let preservedContent = submittedTextView?.attributedContentForPreservation()
-        submittedTextView?.prepareForSubmit()
-        submittedTextView?.clearContent(cleanupAttachmentFiles: false)
-        text = ""
-        attachments = []
-        hasPendingAttachmentUpload = false
-        textViewHeight = 0
-        let rollbackSnapshot = TextBoxFailedSubmitRollbackSnapshot(
-            revision: advanceContentRevision(),
-            text: "",
-            attachmentCount: 0
-        )
-        let submitPlan = dispatchPlan(partsToSend, applying: effectiveSubmitAction)
-        if let launchContextCommand = submitPlan.launchContextCommand {
-            startPendingProviderLaunch(launchAction)
-            onRecordLaunchCommand(launchContextCommand)
-        }
-        TextBoxSubmit.sendEvents(
-            submitPlan.events,
-            via: surface
-        ) { completionContext in
-            guard completionContext.didSubmit else {
-                if submitPlan.launchContextCommand != nil {
-                    clearPendingProviderLaunch()
-                    onClearLaunchCommand()
-                }
-                if let poolWorkspaceId, !pendingComments.isEmpty {
-                    DiffCommentSubmissionPool.shared.restorePending(
-                        pendingComments,
-                        workspaceId: poolWorkspaceId
-                    )
-                }
-                guard TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-                    rollbackSnapshot: rollbackSnapshot,
-                    currentSnapshot: currentRollbackSnapshot()
-                ) else {
-                    NSSound.beep()
-                    return
-                }
-                if let preservedContent {
-                    submittedTextView?.installPreservedContent(preservedContent)
-                } else {
-                    text = TextBoxSubmissionFormatter.formattedText(from: submittedParts)
-                    attachments = submittedParts.compactMap { part in
-                        if case .attachment(let attachment) = part { return attachment }
-                        return nil
-                    }
-                }
-                NSSound.beep()
-                return
-            }
-            if !pendingComments.isEmpty {
-                for (repoRoot, entries) in Dictionary(grouping: pendingComments, by: \.repoRoot) {
-                    DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
-                }
-            }
-            resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: launchAction)
-            let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
-                if case .attachment(let attachment) = part { return attachment }
-                return nil
-            }
-            submittedTextView?.cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(submittedAttachments)
-            let cleanupAttachments = TextBoxSubmit.cleanupAttachmentsAfterSubmit(
-                from: submittedParts,
-                terminalAgentContext: submitPlan.cleanupTerminalAgentContext,
-                completionContext: completionContext
-            )
-            submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
-        }
-    }
-
-    private func resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: TextBoxSubmitAction) {
+    func resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: TextBoxSubmitAction) {
         let nextID = Self.panelSubmitActionIDAfterSuccessfulSubmit(
             currentSubmitActionID: effectiveSubmitActionID,
             submittedAction: submittedAction
@@ -2849,12 +2725,12 @@ struct TextBoxInputContainer: View {
     }
 
     @discardableResult
-    private func advanceContentRevision() -> UInt64 {
+    func advanceContentRevision() -> UInt64 {
         contentRevision &+= 1
         return contentRevision
     }
 
-    private func currentRollbackSnapshot() -> TextBoxFailedSubmitRollbackSnapshot {
+    func currentRollbackSnapshot() -> TextBoxFailedSubmitRollbackSnapshot {
         let currentTextView = textViewReference.textView
         return TextBoxFailedSubmitRollbackSnapshot(
             revision: contentRevision,

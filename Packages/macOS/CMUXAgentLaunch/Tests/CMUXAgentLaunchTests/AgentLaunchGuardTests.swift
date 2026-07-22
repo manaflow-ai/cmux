@@ -39,6 +39,23 @@ struct AgentLaunchGuardTests {
     }
 
     @Test
+    func launchThenPromptIntoIdleShellTypesBothExactlyOnce() {
+        let observer = FakeAgentLaunchObserver(state: .idleShell)
+        let executor = FakeAgentLaunchExecutor()
+        let guardLayer = AgentLaunchGuard(observer: observer, executor: executor)
+
+        let result = guardLayer.perform(
+            surfaceID: "surface-1",
+            command: "cd /repo && claude",
+            intent: .launchThenSubmitPrompt("Explain the bug")
+        )
+
+        #expect(result == .launched)
+        #expect(executor.launchCommands == ["cd /repo && claude"])
+        #expect(executor.prompts == ["Explain the bug"])
+    }
+
+    @Test
     func launchThenPromptIntoRunningAgentReroutesPromptOnce() {
         let observer = FakeAgentLaunchObserver(state: .runningAgent)
         let executor = FakeAgentLaunchExecutor()

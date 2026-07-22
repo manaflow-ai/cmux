@@ -515,6 +515,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let systemAppearanceObserver = SystemAppearanceObserver()
     /// Owns the Mac-side gui.v1 truth/read path for paired phones.
     private let agentGUIService = AgentGUIService()
+    lazy var agentSurfaceLaunchStateObserver = AgentSurfaceLaunchStateObserver(service: agentGUIService)
+    lazy var agentSurfaceLaunchExecutor = AgentSurfaceLaunchExecutor(service: agentGUIService)
+    lazy var agentLaunchGuard = AgentLaunchGuard(
+        observer: agentSurfaceLaunchStateObserver,
+        executor: agentSurfaceLaunchExecutor
+    )
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
     private var isRunningUnderXCTestCached: Bool {
@@ -9350,24 +9356,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !text.isEmpty
         else { return }
 
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
+        if case .failed(let code) = agentSurfaceLaunchExecutor.submitPrompt(
+            surfaceID: surfaceId,
+            text: text
+        ) {
+            NSLog("[AgentPrompt] Feed reply failed for surface %@: %@", surfaceId, code)
         }
-        // Terminal-mode Return is CR. sendNamedKey "Return" also works
-        // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
-            "surface_id": surfaceId,
-            "text": text + "\r",
-        ])
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {

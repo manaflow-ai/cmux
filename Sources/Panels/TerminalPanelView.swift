@@ -133,6 +133,25 @@ struct TerminalPanelView: View {
                     onSelectSubmitAction: { actionID in
                         panel.textBoxState.selectSubmitAction(actionID)
                     },
+                    onGuardedAgentLaunch: { command, intent in
+                        guard let guardLayer = AppDelegate.shared?.agentLaunchGuard else {
+                            return .failed("launch_guard_unavailable")
+                        }
+                        return guardLayer.perform(
+                            surfaceID: panel.id.uuidString,
+                            command: command,
+                            intent: intent
+                        )
+                    },
+                    onSubmitAgentPrompt: { prompt in
+                        guard let executor = AppDelegate.shared?.agentSurfaceLaunchExecutor else {
+                            return .failed("prompt_executor_unavailable")
+                        }
+                        return executor.submitPrompt(
+                            surfaceID: panel.id.uuidString,
+                            text: prompt
+                        )
+                    },
                     onRecordLaunchCommand: { command in
                         panel.recordTextBoxLaunchCommand(command)
                     },
