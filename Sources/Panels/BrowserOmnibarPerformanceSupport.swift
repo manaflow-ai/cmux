@@ -218,7 +218,7 @@ struct ContinuousOmnibarSuggestionRefreshClock: OmnibarSuggestionRefreshClock {
 private var browserOpenTabSuggestionIndexesByManagerId: [ObjectIdentifier: BrowserOpenTabSuggestionIndex] = [:]
 
 extension TabManager {
-    private var browserOpenTabSuggestionIndex: BrowserOpenTabSuggestionIndex {
+    var browserOpenTabSuggestionIndex: BrowserOpenTabSuggestionIndex {
         let managerId = ObjectIdentifier(self)
         if let index = browserOpenTabSuggestionIndexesByManagerId[managerId] {
             return index
