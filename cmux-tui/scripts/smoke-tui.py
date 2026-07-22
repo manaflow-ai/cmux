@@ -277,6 +277,34 @@ def wait_render_excludes(needle, seconds=15, stable_seconds=0.5):
             return last
     raise AssertionError(last[-1200:])
 
+
+def control_string_end(data, start, allow_bel):
+    """Return the byte after an OSC/DCS-style control string, if complete."""
+    ends = []
+    if allow_bel:
+        bel = data.find(b"\x07", start)
+        if bel >= 0:
+            ends.append((bel, bel + 1))
+    st = data.find(b"\x1b\\", start)
+    if st >= 0:
+        ends.append((st, st + 2))
+    if not ends:
+        return None
+    return min(ends, key=lambda entry: entry[0])[1]
+
+
+def non_csi_escape_end(data, start):
+    """Skip one complete non-CSI escape sequence used by terminal output."""
+    if start + 1 >= len(data):
+        return None
+    kind = data[start + 1]
+    if kind == ord("]"):
+        return control_string_end(data, start + 2, allow_bel=True)
+    if kind in (ord("P"), ord("X"), ord("^"), ord("_")):
+        return control_string_end(data, start + 2, allow_bel=False)
+    return start + 2
+
+
 def render_style_snapshot(data, rows=30, cols=100):
     grid = [[{"bg": None, "bold": False, "dim": False, "reverse": False} for _ in range(cols)] for _ in range(rows)]
     x = y = 0
@@ -329,6 +357,12 @@ def render_style_snapshot(data, rows=30, cols=100):
                         k += 2
                     k += 1
             i = j + 1
+            continue
+        if b == 0x1b:
+            end = non_csi_escape_end(data, i)
+            if end is None:
+                break
+            i = end
             continue
         if b == 0x0d:
             x = 0
@@ -386,6 +420,12 @@ def render_text_snapshot(data, rows=30, cols=100):
                         chars[yy][xx] = " "
             i = j + 1
             continue
+        if b == 0x1b:
+            end = non_csi_escape_end(data, i)
+            if end is None:
+                break
+            i = end
+            continue
         if b == 0x0d:
             x = 0
             i += 1
@@ -409,6 +449,22 @@ def render_text_snapshot(data, rows=30, cols=100):
         x = min(cols - 1, x + 1)
         i += step
     return "\n".join("".join(row) for row in chars)
+
+
+def assert_snapshot_parser_controls():
+    data = (
+        b"\x1b[30;1H screens  0  1  + "
+        b"\x1b]112\x07"
+        b"\x1bPignored payload\x1b\\"
+        b"\x1b[30;20Hok"
+    )
+    line = render_text_snapshot(data).splitlines()[-1]
+    assert line.startswith(" screens  0  1  +  ok"), line
+    styles = render_style_snapshot(b"\x1b[48;5;12mA\x1b]112\x07B")
+    assert styles[0][0]["bg"] == 12 and styles[0][1]["bg"] == 12, styles[0][:2]
+
+
+assert_snapshot_parser_controls()
 
 deadline = time.time() + 15
 while not os.path.exists(SOCK) and time.time() < deadline:
