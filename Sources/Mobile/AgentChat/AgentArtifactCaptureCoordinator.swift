@@ -68,7 +68,10 @@ actor AgentArtifactCaptureCoordinator {
             pending = backlog
             await Task.yield()
         }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled,
+              inFlightGenerationBySession[record.sessionID] == snapshot.generation else {
+            return
+        }
         completedGenerationBySession[record.sessionID] = snapshot.generation
     }
 
