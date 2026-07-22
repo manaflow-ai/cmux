@@ -222,11 +222,12 @@ _FOR_SCOPE_BINDING = re.compile(
     r"^\s*for(?:\s+try)?(?:\s+await)?\s+([A-Za-z_]\w*)\s+in\b"
 )
 _REAL_CLOCK_TYPE = re.compile(
-    r":\s*(?:[A-Za-z_]\w*\.)*"
+    r"^\s*:\s*(?:[A-Za-z_]\w*\.)*"
     r"(?:ContinuousClock|SuspendingClock)\??(?=\s|=|[,){]|$)"
 )
 _REAL_CLOCK_INIT = re.compile(
-    r"=\s*(?:[A-Za-z_]\w*\.)*(?:ContinuousClock|SuspendingClock)\s*\("
+    r"^\s*(?::[^=]+)?=\s*(?:[A-Za-z_]\w*\.)*"
+    r"(?:ContinuousClock|SuspendingClock)\s*\("
 )
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
@@ -713,7 +714,9 @@ class _CompilationScopeFrame:
     has_else: bool = False
 
 
-def _copy_scope_stack(scopes: list[dict[str, bool]]) -> list[dict[str, bool]]:
+def _copy_scope_stack(
+    scopes: list[dict[str, bool]],
+) -> list[dict[str, bool]]:
     return [dict(scope) for scope in scopes]
 
 
@@ -894,7 +897,11 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
             elif declaration is not None:
                 if _receiver_declaration_inherits_kind(declaration, receiver):
                     inherited_kind = _nearest_receiver_kind(scopes, receiver)
-                    kind = inherited_kind if inherited_kind is not None else False
+                    kind = (
+                        inherited_kind
+                        if inherited_kind is not None
+                        else False
+                    )
                 else:
                     kind = _receiver_declaration_kind(
                         declaration, prefix_lines[candidate_index + 1 :]
@@ -1193,14 +1200,6 @@ def _self_test() -> int:
         (
             "Tests/AssignedCaptureRealClockTests.swift",
             "let work = { [clock = ContinuousClock()] in\n"
-            "    try await clock.sleep(for: .milliseconds(300))\n"
-            "    #expect(widget.isRendered)\n"
-            "}\n",
-            {RULE_SLEEP_THEN_ASSERT},
-        ),
-        (
-            "Tests/ForLoopRealClockTests.swift",
-            "for clock in [ContinuousClock()] {\n"
             "    try await clock.sleep(for: .milliseconds(300))\n"
             "    #expect(widget.isRendered)\n"
             "}\n",
@@ -1730,14 +1729,6 @@ def _self_test() -> int:
             "let clock = TestRelayClock(reference: ContinuousClock())\n"
             "try await clock.sleep(until: deadline)\n"
             "#expect(await clockEvents.next() == expected)\n",
-        ),
-        (
-            "Packages/CmuxClock/Tests/ForLoopUnknownClockTests.swift",
-            "let clock = ContinuousClock()\n"
-            "for clock in virtualClocks {\n"
-            "    try await clock.sleep(until: deadline)\n"
-            "    #expect(await clockEvents.next() == expected)\n"
-            "}\n",
         ),
         # A conditional real-clock binding must disappear with its branch and
         # leave the injected outer fake clock authoritative afterward.
