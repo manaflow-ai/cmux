@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -1714,6 +1715,40 @@ func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
 	}
 	if !strings.HasSuffix(string(session.scrollback), "tail") {
 		t.Fatalf("scrollback should retain newest output, got suffix %q", string(session.scrollback[len(session.scrollback)-16:]))
+	}
+}
+
+func TestDefaultWebSocketPTYEnvAddsStandardExecutableDirectories(t *testing.T) {
+	tests := []struct {
+		name          string
+		inheritedPath string
+	}{
+		{name: "restricted daemon PATH", inheritedPath: "/opt/cmux/bin"},
+		{name: "empty daemon PATH", inheritedPath: ""},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("PATH", test.inheritedPath)
+
+			env, _ := envMapWithOrder(defaultWebSocketPTYEnv("/bin/sh"))
+			pathEntries := strings.Split(env["PATH"], string(os.PathListSeparator))
+			if test.inheritedPath != "" && pathEntries[0] != test.inheritedPath {
+				t.Fatalf("PATH should preserve inherited entries first, got %q", env["PATH"])
+			}
+			for _, standardDirectory := range []string{
+				"/usr/local/bin",
+				"/usr/bin",
+				"/bin",
+				"/usr/local/sbin",
+				"/usr/sbin",
+				"/sbin",
+			} {
+				if !slices.Contains(pathEntries, standardDirectory) {
+					t.Errorf("PATH %q is missing standard directory %q", env["PATH"], standardDirectory)
+				}
+			}
+		})
 	}
 }
 
