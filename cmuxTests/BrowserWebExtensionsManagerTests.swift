@@ -4553,6 +4553,96 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func sameSessionSafariAppReinstallUsesFreshStorageIdentity() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let bundleIdentifier = "com.example.same-session-reinstall.safari"
+        let fixture = try Self.writeSafariExtensionFixture(
+            in: sourceRoot,
+            bundleIdentifier: bundleIdentifier
+        )
+        try "<title>Same-session reinstall fixture</title>".write(
+            to: fixture.resources.appendingPathComponent("probe.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let identity = BrowserWebExtensionSafariAppIdentity(
+            id: "same-session-reinstall-fixture",
+            appBundleIdentifier: "com.example.same-session-reinstall",
+            extensionBundleIdentifier: bundleIdentifier,
+            teamIdentifier: "TESTTEAM"
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerIdentifier: UUID(),
+            directoryRepository: repository,
+            verifySafariAppExtension: { _ in identity },
+            appExtensionLoader: { _ in
+                try await WKWebExtension(resourceBaseURL: fixture.resources)
+            }
+        )
+        defer { manager.shutdown() }
+
+        _ = try await manager.installExtension(from: fixture.app)
+        let originalRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records.values.first
+        )
+        var originalContext: WKWebExtensionContext? = try #require(manager.loadedContexts.first)
+        let originalContextIdentifier = try #require(originalContext).uniqueIdentifier
+        var originalWebView: WKWebView? = try await Self.loadExtensionPage(
+            "probe.html",
+            context: try #require(originalContext),
+            manager: manager
+        )
+        _ = try await originalWebView?.callAsyncJavaScript(
+            """
+            const api = globalThis.browser ?? globalThis.chrome;
+            await api.storage.local.set({ sameSessionRemovalMarker: 'stale' });
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        originalWebView?.stopLoading()
+        originalWebView = nil
+        originalContext = nil
+        await Self.waitForMainQueueTurn()
+        await Self.waitForMainQueueTurn()
+
+        try await manager.removeExtension(managementID: originalRecord.id)
+        _ = try await manager.installExtension(from: fixture.app)
+
+        let reinstalledRecord = try #require(
+            try await repository.managementLedger(in: managedRoot).records.values.first
+        )
+        let reinstalledContext = try #require(manager.loadedContexts.first)
+        #expect(reinstalledRecord.id == originalRecord.id)
+        #expect(reinstalledContext.uniqueIdentifier != originalContextIdentifier)
+        let reinstalledWebView = try await Self.loadExtensionPage(
+            "probe.html",
+            context: reinstalledContext,
+            manager: manager
+        )
+        let staleMarker = try await reinstalledWebView.callAsyncJavaScript(
+            """
+            const api = globalThis.browser ?? globalThis.chrome;
+            const storage = await api.storage.local.get('sameSessionRemovalMarker');
+            return Object.hasOwn(storage, 'sameSessionRemovalMarker');
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        #expect((staleMarker as? NSNumber)?.boolValue == false)
+    }
+
+    @available(macOS 15.4, *)
     @Test func lastPanelReleasesNonDefaultRuntimeButKeepsDefaultRuntime() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
