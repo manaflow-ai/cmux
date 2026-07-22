@@ -211,7 +211,17 @@ _NAMED_SLEEP_CALL = re.compile(
     r"(?<![.\w])(?:(self|Self)\s*[?!]?\s*\.\s*)?"
     r"([A-Za-z_]\w*)[?!]?\.sleep\s*\("
 )
+_MEMBER_CHAIN_SLEEP_CALL = re.compile(
+    r"(?<![.\w])([A-Za-z_]\w*)[?!]?\s*\.\s*"
+    r"([A-Za-z_]\w*)[?!]?\s*\.sleep\s*\("
+)
 _CONTINUED_SLEEP_CALL = re.compile(r"^\s*[?!]?\s*\.sleep\s*\(")
+_PYTHON_SLEEP_MODULES = frozenset(
+    ("time", "asyncio", "trio", "anyio", "gevent")
+)
+_PYTHON_ALIASED_SLEEP_CALL = re.compile(
+    r"(?<![.\w])([A-Za-z_]\w*)\.sleep\s*\("
+)
 _LOCAL_SCOPE_HEADER = re.compile(
     r"^\s*"
     r"(?:(?:@\w+(?:\([^)]*\))?|[A-Za-z_]\w*(?:\([^)]*\))?)\s+)*"
@@ -584,6 +594,16 @@ def _annotated_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     return type_name in ("ContinuousClock", "SuspendingClock")
 
 
+def _annotated_receiver_type(text: str, receiver: str) -> Optional[str]:
+    """Return an explicitly annotated Swift-like receiver type."""
+    annotation = re.search(
+        rf"\b{re.escape(receiver)}\s*:\s*"
+        r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\??",
+        text,
+    )
+    return annotation.group(1) if annotation else None
+
+
 def _captured_receiver_expression(text: str, receiver: str) -> Optional[str]:
     assignment = re.search(
         rf"(?:^|,)\s*(?:(?:weak|unowned(?:\([^)]*\))?)\s+)?"
@@ -860,6 +880,32 @@ def _receiver_declaration_kind(
         )
         probe = f"{probe} {continuation}"
     return bool(_REAL_CLOCK_TYPE.search(probe) or _REAL_CLOCK_INIT.search(probe))
+
+
+def _receiver_declaration_type(
+    declaration: str, following_lines: Iterable[str]
+) -> Optional[str]:
+    """Return an explicit or directly initialized Swift-like value type."""
+    probe = declaration
+    if probe.rstrip().endswith(("=", ":")):
+        continuation = next(
+            (line.strip() for line in following_lines if line.strip()),
+            "",
+        )
+        probe = f"{probe} {continuation}"
+    annotation = re.match(
+        r"^\s*:\s*((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\??"
+        r"(?=\s|=|[,){]|$)",
+        probe,
+    )
+    if annotation:
+        return annotation.group(1)
+    initializer = re.match(
+        r"^\s*(?::[^=]+)?=\s*"
+        r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\s*(?:[?!]\s*)?\(",
+        probe,
+    )
+    return initializer.group(1) if initializer else None
 
 
 def _receiver_declaration_inherits_kind(declaration: str, receiver: str) -> bool:
@@ -1189,6 +1235,251 @@ def _propagate_inherited_real_members(
             real_members.setdefault(type_name, set()).update(inherited)
 
 
+def _explicit_clock_member_kind(
+    masked_lines: list[str], type_name: str, member: str
+) -> Optional[bool]:
+    """Return a same-file type member's explicit clock kind, if declared."""
+    depth = 0
+    pending_type: Optional[str] = None
+    active_types: list[tuple[str, int]] = []
+    kinds: list[bool] = []
+
+    for line_index, candidate in enumerate(masked_lines):
+        type_header = _TYPE_SCOPE_HEADER.search(candidate)
+        if type_header:
+            type_kind = type_header.group(1)
+            declared_type = type_header.group(2)
+            if (
+                type_kind != "extension"
+                and "." not in declared_type
+                and active_types
+            ):
+                declared_type = f"{active_types[-1][0]}.{declared_type}"
+            pending_type = declared_type
+
+        events: list[
+            tuple[int, str, Optional[tuple[str, str]]]
+        ] = []
+        events.extend(
+            (position, "binding", (name, declaration))
+            for position, name, declaration in _local_declarations(candidate)
+        )
+        events.extend(
+            (position, token, None)
+            for position, token in enumerate(candidate)
+            if token in "{}"
+        )
+        events.sort(key=lambda event: event[0])
+
+        for _, event, binding in events:
+            if event == "{":
+                depth += 1
+                if pending_type is not None:
+                    active_types.append((pending_type, depth))
+                    pending_type = None
+            elif event == "}":
+                if active_types and active_types[-1][1] == depth:
+                    active_types.pop()
+                depth = max(0, depth - 1)
+            elif (
+                binding is not None
+                and active_types
+                and active_types[-1][0] == type_name
+                and depth == active_types[-1][1]
+                and binding[0] == member
+            ):
+                kinds.append(
+                    _receiver_declaration_kind(
+                        binding[1], masked_lines[line_index + 1 :]
+                    )
+                )
+
+    if not kinds:
+        return None
+    return all(kinds)
+
+
+def _resolve_named_receiver_type(
+    masked_lines: list[str],
+    call_index: int,
+    call_column: int,
+    receiver: str,
+) -> Optional[str]:
+    """Resolve a local value's explicit Swift-like type by lexical scope."""
+    current = masked_lines[call_index]
+    prefix_lines = masked_lines[:call_index] + [current[:call_column]]
+    scopes: list[dict[str, Optional[str]]] = [{}]
+    pending_function = False
+    pending_parameter_seen = False
+    pending_parameter_type: Optional[str] = None
+    pending_function_paren_depth = 0
+    pending_function_saw_parameters = False
+    pending_conditional: Optional[dict[str, Optional[str]]] = None
+
+    for candidate_index, candidate in enumerate(prefix_lines):
+        if _LOCAL_SCOPE_HEADER.search(candidate):
+            pending_function = True
+            pending_parameter_seen = bool(
+                re.search(rf"\b{re.escape(receiver)}\s*:", candidate)
+            )
+            pending_parameter_type = _annotated_receiver_type(
+                candidate, receiver
+            )
+            pending_function_paren_depth = 0
+            pending_function_saw_parameters = False
+        elif pending_function and not pending_parameter_seen:
+            pending_parameter_seen = bool(
+                re.search(rf"\b{re.escape(receiver)}\s*:", candidate)
+            )
+            pending_parameter_type = _annotated_receiver_type(
+                candidate, receiver
+            )
+        if _CONDITIONAL_SCOPE_HEADER.search(candidate):
+            pending_conditional = {}
+
+        events: list[tuple[int, str, Optional[str]]] = []
+        events.extend(
+            (position, "binding", declaration)
+            for position, declaration in _local_receiver_declarations(
+                candidate, receiver
+            )
+        )
+        events.extend(
+            (position, "assignment", declaration)
+            for position, declaration in _local_receiver_assignments(
+                candidate, receiver
+            )
+        )
+        events.extend(
+            (position, token, None)
+            for position, token in enumerate(candidate)
+            if token in "{}()"
+        )
+        events.sort(key=lambda event: event[0])
+
+        for position, event, declaration in events:
+            if event == "(":
+                if pending_function:
+                    pending_function_paren_depth += 1
+                    pending_function_saw_parameters = True
+            elif event == ")":
+                if pending_function and pending_function_paren_depth:
+                    pending_function_paren_depth -= 1
+            elif event == "{":
+                scope = dict(pending_conditional or {})
+                pending_conditional = None
+                is_function_body = bool(
+                    pending_function
+                    and pending_function_saw_parameters
+                    and pending_function_paren_depth == 0
+                )
+                if is_function_body:
+                    if pending_parameter_seen:
+                        scope[receiver] = pending_parameter_type
+                    pending_function = False
+                    pending_parameter_seen = False
+                    pending_parameter_type = None
+                    pending_function_paren_depth = 0
+                    pending_function_saw_parameters = False
+                else:
+                    closure_header = _closure_header_text(
+                        candidate[position + 1 :],
+                        prefix_lines[candidate_index + 1 :],
+                    )
+                    closure_type = _annotated_receiver_type(
+                        closure_header, receiver
+                    )
+                    if closure_type is not None:
+                        scope[receiver] = closure_type
+                    elif re.search(
+                        rf"\b{re.escape(receiver)}\b", closure_header
+                    ):
+                        scope[receiver] = None
+                scopes.append(scope)
+            elif event == "}":
+                if len(scopes) > 1:
+                    scopes.pop()
+            elif declaration is not None:
+                declared_type = _receiver_declaration_type(
+                    declaration, prefix_lines[candidate_index + 1 :]
+                )
+                if event == "assignment":
+                    binding_scope = next(
+                        (
+                            scope_index
+                            for scope_index in range(
+                                len(scopes) - 1, -1, -1
+                            )
+                            if receiver in scopes[scope_index]
+                        ),
+                        None,
+                    )
+                    if binding_scope is not None:
+                        if binding_scope == len(scopes) - 1:
+                            scopes[binding_scope][receiver] = declared_type
+                        else:
+                            # The assignment may be conditional or deferred;
+                            # expose it only while this nested scope is active.
+                            scopes[-1][receiver] = declared_type
+                elif pending_conditional is not None:
+                    pending_conditional[receiver] = declared_type
+                else:
+                    scopes[-1][receiver] = declared_type
+
+    for scope in reversed(scopes):
+        if receiver in scope:
+            return scope[receiver]
+    return None
+
+
+def _is_explicit_real_clock_member_chain(
+    masked_lines: list[str], idx: int
+) -> bool:
+    """Recognize `value.clock.sleep` when both value type and member are explicit."""
+    current = masked_lines[idx]
+    chain = _MEMBER_CHAIN_SLEEP_CALL.search(current)
+    call_column: int
+    if chain:
+        receiver = chain.group(1)
+        member = chain.group(2)
+        call_column = chain.start()
+    else:
+        continuation = _CONTINUED_SLEEP_CALL.search(current)
+        if not continuation:
+            return False
+        previous_index = next(
+            (
+                line_index
+                for line_index in range(idx - 1, -1, -1)
+                if masked_lines[line_index].strip()
+            ),
+            None,
+        )
+        if previous_index is None:
+            return False
+        previous = masked_lines[previous_index]
+        chain = re.search(
+            r"(?<![.\w])([A-Za-z_]\w*)[?!]?\s*\.\s*"
+            r"([A-Za-z_]\w*)[?!]?\s*$",
+            previous,
+        )
+        if not chain:
+            return False
+        receiver = chain.group(1)
+        member = chain.group(2)
+        call_column = chain.start()
+        idx = previous_index
+
+    receiver_type = _resolve_named_receiver_type(
+        masked_lines, idx, call_column, receiver
+    )
+    if receiver_type is None:
+        return False
+    return _explicit_clock_member_kind(
+        masked_lines, receiver_type, member
+    ) is True
+
+
 def _resolve_named_receiver_kind(
     masked_lines: list[str],
     call_index: int,
@@ -1227,9 +1518,14 @@ def _resolve_named_receiver_kind(
         if mutation is None:
             return
         target, assigned_kind = mutation
-        propagated_kind = assigned_kind if scope_kind == "do" else False
         if target >= len(scopes):
             return
+        prior_kind = scopes[target].get(receiver)
+        propagated_kind = (
+            assigned_kind
+            if scope_kind == "do" or prior_kind == assigned_kind
+            else False
+        )
         if target == len(scopes) - 1:
             scopes[target][receiver] = propagated_kind
             return
@@ -1470,6 +1766,8 @@ def _is_named_real_clock_sleep(
     external_real_members: Optional[dict[str, set[str]]] = None,
 ) -> bool:
     """Resolve a named receiver through Swift-like lexical brace scopes."""
+    if _is_explicit_real_clock_member_chain(masked_lines, idx):
+        return True
     current = masked_lines[idx]
     sleep_match = _NAMED_SLEEP_CALL.search(current)
     sleep_start: int
@@ -1525,6 +1823,55 @@ def _is_named_real_clock_sleep(
     )
 
 
+def _python_alias_is_rebound(line: str, receiver: str) -> bool:
+    """Conservatively reject a module alias after a visible shadow/rebind."""
+    escaped = re.escape(receiver)
+    return any(
+        pattern.search(line)
+        for pattern in (
+            re.compile(
+                rf"^\s*(?:async\s+)?(?:def|class)\s+{escaped}\b"
+            ),
+            re.compile(rf"^\s*(?:async\s+)?for\s+{escaped}\b"),
+            re.compile(rf"\bas\s+{escaped}\b"),
+            re.compile(
+                rf"(?<![.\w]){escaped}\s*(?::[^=,\n]+)?=(?!=)"
+            ),
+            re.compile(rf"^\s*del\s+{escaped}\b"),
+            re.compile(
+                rf"^\s*(?:async\s+)?def\b[^\n]*\([^)]*\b{escaped}\b"
+            ),
+        )
+    )
+
+
+def _is_python_aliased_sleep(
+    masked_lines: list[str], idx: int
+) -> bool:
+    """Recognize direct aliases of standard Python sleep modules."""
+    call = _PYTHON_ALIASED_SLEEP_CALL.search(masked_lines[idx])
+    if not call:
+        return False
+    receiver = call.group(1)
+    active = False
+
+    for line in masked_lines[: idx + 1]:
+        import_line = re.match(r"^\s*import\s+(.+)$", line)
+        if import_line:
+            for import_spec in import_line.group(1).split(","):
+                alias = re.fullmatch(
+                    r"\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
+                    r"\s+as\s+([A-Za-z_]\w*)\s*",
+                    import_spec,
+                )
+                if alias and alias.group(2) == receiver:
+                    active = alias.group(1) in _PYTHON_SLEEP_MODULES
+            continue
+        if active and _python_alias_is_rebound(line, receiver):
+            active = False
+    return active
+
+
 def detect_sleep_then_assert(
     lines: list[str],
     masked_lines: list[str],
@@ -1537,6 +1884,8 @@ def detect_sleep_then_assert(
     is_sleep = bool(_SLEEP_CALL.search(line)) or _is_named_real_clock_sleep(
         masked_lines, idx, external_real_members
     )
+    if not is_sleep and path_suffix == ".py":
+        is_sleep = _is_python_aliased_sleep(masked_lines, idx)
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
