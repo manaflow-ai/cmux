@@ -41,8 +41,8 @@ extension WorkspaceDetailView {
                         SurfaceFallbackCardView(
                             surface: macSurface,
                             canOpenOnMac: store.supportsSurfaceFocus(in: workspace.id),
-                            openOnMac: {
-                                Task { await store.focusSurfaceOnMac(workspaceID: workspace.id, surfaceID: macSurface.id) }
+                            openOnMac: { [store, workspaceID = workspace.id, surfaceID = macSurface.id] in
+                                await store.focusSurfaceOnMac(workspaceID: workspaceID, surfaceID: surfaceID)
                             }
                         )
                     }
