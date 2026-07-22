@@ -435,6 +435,11 @@ final class SidebarRowChecklistSection: NSView {
     }
 
     private func closeChecklistPopoverFromContent() {
+        // Same latch as the external-dismiss path: the container's
+        // `presented = false` write lands asynchronously, and a stale
+        // configure tick in between must not re-present the popover the
+        // user just closed.
+        awaitingPopoverDismissAck = true
         popoverPresenter.close()
         activePopoverDismissContext?()
         activePopoverDismissContext = nil
