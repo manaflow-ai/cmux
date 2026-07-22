@@ -252,9 +252,25 @@ struct ComputerUseUXTests {
 
         #expect(first !== second)
         #expect(first.contentViewController !== second.contentViewController)
+        #expect(first.frame.size == CGSize(width: 596, height: 435))
         #expect(first.contentView?.frame.size == CGSize(width: 596, height: 435))
         #expect(!first.styleMask.contains(.miniaturizable))
         #expect(!first.styleMask.contains(.resizable))
+    }
+
+    @Test func permissionRowsOfferManualSettingsRecoveryAfterNativeAttempt() {
+        #expect(ComputerUsePermissionRowAction.resolve(
+            granted: false,
+            nativeRequestAttempted: false
+        ) == .allow)
+        #expect(ComputerUsePermissionRowAction.resolve(
+            granted: false,
+            nativeRequestAttempted: true
+        ) == .completeInSystemSettings)
+        #expect(ComputerUsePermissionRowAction.resolve(
+            granted: true,
+            nativeRequestAttempted: true
+        ) == .done)
     }
 
     @Test @MainActor func firstUseOnboardingStartsAtOverview() {
