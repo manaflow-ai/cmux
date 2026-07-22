@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Runs one process-wide foreground-agent reconciliation sweep at a time.
@@ -5,7 +6,7 @@ import Foundation
 final class AgentStatusReconciliationCoordinator {
     typealias Detector = @Sendable (
         [UUID: AgentPIDProcessIdentity],
-        [UUID: [AgentPIDProcessIdentity: String]]
+        [UUID: [AgentPIDProcessIdentity: Set<String>]]
     ) async -> [UUID: String]
 
     private static let minimumSweepInterval: Duration = .seconds(30)
@@ -13,9 +14,28 @@ final class AgentStatusReconciliationCoordinator {
     private let detector: Detector
     private var sweepTask: Task<Void, Never>?
     private var lastSweepStartedAt: ContinuousClock.Instant?
+    private var outputActivityGates: [UUID: AtomicBooleanGate] = [:]
 
     init(detector: @escaping Detector = AgentStatusReconciliationCoordinator.detectForegroundAgentStatusKeys) {
         self.detector = detector
+    }
+
+    func outputActivityGate(panelId: UUID, isTracked: Bool) -> AtomicBooleanGate {
+        if let gate = outputActivityGates[panelId] {
+            gate.storeRelease(isTracked)
+            return gate
+        }
+        let gate = AtomicBooleanGate(isTracked)
+        outputActivityGates[panelId] = gate
+        return gate
+    }
+
+    func setOutputActivityTracking(panelId: UUID, isTracked: Bool) {
+        outputActivityGates[panelId]?.storeRelease(isTracked)
+    }
+
+    func removeOutputActivityGate(panelId: UUID) {
+        outputActivityGates.removeValue(forKey: panelId)?.storeRelease(false)
     }
 
     /// Starts a sweep unless one is already running or this cycle was already sampled.
@@ -38,7 +58,7 @@ final class AgentStatusReconciliationCoordinator {
         }
 
         var foregroundProcessIdentities: [UUID: AgentPIDProcessIdentity] = [:]
-        var rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: String]] = [:]
+        var rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: Set<String>]] = [:]
         var panelIds = Set<UUID>()
         for manager in tabManagers {
             for workspace in manager.tabs {
@@ -91,7 +111,7 @@ final class AgentStatusReconciliationCoordinator {
 
     private nonisolated static func detectForegroundAgentStatusKeys(
         foregroundProcessIdentities: [UUID: AgentPIDProcessIdentity],
-        rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: String]]
+        rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: Set<String>]]
     ) async -> [UUID: String] {
         // libproc inspection is synchronous; detaching prevents the process-wide
         // snapshot from inheriting the coordinator's MainActor isolation.
@@ -114,19 +134,21 @@ final class AgentStatusReconciliationCoordinator {
                     continue
                 }
                 let rootStatusKeys = rootStatusKeysByPanelId[panelId] ?? [:]
-                let matches = rootStatusKeys.compactMap { rootIdentity, statusKey -> String? in
+                let matches = rootStatusKeys.reduce(into: Set<String>()) { matches, root in
+                    let (rootIdentity, statusKeys) = root
                     guard AgentPIDProcessIdentity(pid: rootIdentity.pid) == rootIdentity,
                           snapshot.descendantPIDs(rootPID: Int(rootIdentity.pid), includeRoot: true)
                               .contains(foregroundPID) else {
-                        return nil
+                        return
                     }
-                    return statusKey
+                    matches.formUnion(statusKeys)
                 }
-                guard Set(matches).count == 1,
+                guard matches.count == 1,
+                      let statusKey = matches.first,
                       AgentPIDProcessIdentity(pid: foregroundIdentity.pid) == foregroundIdentity else {
                     continue
                 }
-                result[panelId] = matches[0]
+                result[panelId] = statusKey
             }
             return result
         }.value

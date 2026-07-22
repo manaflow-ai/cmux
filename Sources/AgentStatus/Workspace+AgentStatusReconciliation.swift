@@ -39,6 +39,8 @@ extension Workspace {
               agentStatusRuntimeIsCurrent(
                   pidKey: signal.runtimePIDKey,
                   pid: signal.runtimePID,
+                  sessionID: signal.runtimeSessionID,
+                  statusKey: signal.statusKey,
                   panelId: targetPanelId
               ) else {
             return
@@ -59,8 +61,21 @@ extension Workspace {
         return agentStatusRuntimeIsCurrent(
             pidKey: runtime.pidKey,
             pid: runtime.pid,
+            sessionID: runtime.sessionID,
+            statusKey: runtime.statusKey,
             panelId: panelId
         )
+    }
+
+    func agentStatusBlockingDecisionMayMutateLifecycle(
+        event: WorkstreamEvent,
+        panelId: UUID
+    ) -> Bool {
+        guard FeedCoordinator.isBlockingDecisionEvent(event.hookEventName) else { return false }
+        // A PID-less internal producer still proves that this unresolved Feed
+        // decision is blocking. Explicit runtime evidence must match exactly.
+        guard event.ppid != nil else { return true }
+        return agentStatusRuntimeIsCurrent(event: event, panelId: panelId)
     }
 
     func resumeAgentLifecycleIfNeedsInput(key: String, panelId: UUID?) {
@@ -156,11 +171,11 @@ extension Workspace {
 
     func agentStatusForegroundProbe() -> (
         foregroundProcessIdentities: [UUID: AgentPIDProcessIdentity],
-        rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: String]],
+        rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: Set<String>]],
         panelIds: Set<UUID>
     ) {
         var foregroundProcessIdentities: [UUID: AgentPIDProcessIdentity] = [:]
-        var rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: String]] = [:]
+        var rootStatusKeysByPanelId: [UUID: [AgentPIDProcessIdentity: Set<String>]] = [:]
         var panelIds = Set<UUID>()
         for panelId in panels.keys {
             let statusKeys = trackedAgentStatusKeys(panelId: panelId)
@@ -180,7 +195,7 @@ extension Workspace {
     func agentStatusForegroundProbeIsCurrent(
         panelId: UUID,
         foregroundProcessIdentity: AgentPIDProcessIdentity?,
-        rootStatusKeys: [AgentPIDProcessIdentity: String]
+        rootStatusKeys: [AgentPIDProcessIdentity: Set<String>]
     ) -> Bool {
         guard panels[panelId] != nil,
               agentStatusForegroundProcessIdentity(panelId: panelId) == foregroundProcessIdentity else {
@@ -207,13 +222,25 @@ extension Workspace {
     private func agentStatusRuntimeIsCurrent(
         pidKey: String,
         pid: Int,
+        sessionID: String,
+        statusKey: String,
         panelId: UUID
     ) -> Bool {
         guard let runtimePID = pid_t(exactly: pid) else { return false }
-        return panels[panelId] != nil &&
+        guard panels[panelId] != nil,
             agentPIDKeysByPanelId[panelId]?.contains(pidKey) == true &&
             agentPIDs[pidKey] == runtimePID &&
-            isRecordedAgentPIDLive(key: pidKey, pid: runtimePID)
+            isRecordedAgentPIDLive(key: pidKey, pid: runtimePID) else {
+            return false
+        }
+        guard statusKey == "claude_code",
+              let binding = surfaceResumeBindingsByPanelId[panelId],
+              binding.isAgentHookBinding,
+              let checkpointID = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !checkpointID.isEmpty else {
+            return true
+        }
+        return checkpointID == sessionID
     }
 
     private func agentStatusForegroundProcessIdentity(
@@ -227,8 +254,8 @@ extension Workspace {
 
     private func liveAgentStatusRootStatusKeys(
         panelId: UUID
-    ) -> [AgentPIDProcessIdentity: String] {
-        var rootStatusKeys: [AgentPIDProcessIdentity: String] = [:]
+    ) -> [AgentPIDProcessIdentity: Set<String>] {
+        var rootStatusKeys: [AgentPIDProcessIdentity: Set<String>] = [:]
         for pidKey in agentPIDKeysByPanelId[panelId] ?? [] {
             let statusKey = agentStatusKey(forAgentPIDKey: pidKey)
             guard AgentHibernationLifecycleStatusKeys.isAllowed(statusKey),
@@ -239,7 +266,7 @@ extension Workspace {
                   AgentPIDProcessIdentity(pid: pid) == identity else {
                 continue
             }
-            rootStatusKeys[identity] = statusKey
+            rootStatusKeys[identity, default: []].insert(statusKey)
         }
         return rootStatusKeys
     }

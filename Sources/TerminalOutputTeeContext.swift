@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import CmuxFoundation
 import Foundation
 import os
 
@@ -52,7 +53,8 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
+        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
+        agentStatusActivityGate: AtomicBooleanGate
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
@@ -62,7 +64,8 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         )
         self.activityForwarder = TerminalOutputActivityForwarder(
             workspaceID: workspaceID,
-            surfaceID: surfaceID
+            surfaceID: surfaceID,
+            isEnabled: agentStatusActivityGate
         )
         self.detectors = agentDefinitions.compactMap { definition in
             definition.promptTurnDetection.map {

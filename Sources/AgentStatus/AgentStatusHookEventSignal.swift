@@ -11,6 +11,7 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
     let observedAt: Date
     let runtimePIDKey: String
     let runtimePID: Int
+    let runtimeSessionID: String
 
     init?(event: WorkstreamEvent) {
         guard let lifecycle = Self.explicitLifecycle(from: event.extraFieldsJSON),
@@ -22,11 +23,12 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
         self.observedAt = event.receivedAt
         self.runtimePIDKey = runtime.pidKey
         self.runtimePID = runtime.pid
+        self.runtimeSessionID = runtime.sessionID
     }
 
     static func runtimeBinding(
         event: WorkstreamEvent
-    ) -> (statusKey: String, pidKey: String, pid: Int)? {
+    ) -> (statusKey: String, pidKey: String, pid: Int, sessionID: String)? {
         let source = event.source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let statusKey = FeedCoordinator.lifecycleStatusKey(forSource: source)
         guard AgentHibernationLifecycleStatusKeys.isAllowed(statusKey),
@@ -37,7 +39,7 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
             return nil
         }
         let pidKey = statusKey == "claude_code" ? statusKey : "\(statusKey).\(sessionID)"
-        return (statusKey, pidKey, pid)
+        return (statusKey, pidKey, pid, sessionID)
     }
 
     private static func sessionID(from workstreamID: String, source: String) -> String? {

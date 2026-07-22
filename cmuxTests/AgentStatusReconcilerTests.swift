@@ -155,7 +155,7 @@ struct AgentStatusReconcilerTests {
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .unknown)
     }
 
-    @Test @MainActor func foregroundProbeExcludesUnrelatedProcessRoots() throws {
+    @Test @MainActor func foregroundProbePreservesAmbiguousAgentRootsAndExcludesUnrelatedOnes() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
@@ -171,11 +171,14 @@ struct AgentStatusReconcilerTests {
             panelId: panelId,
             refreshPorts: false
         )
+        workspace.agentPIDs["claude_code"] = getpid()
+        workspace.agentPIDProcessIdentitiesByKey["claude_code"] = AgentPIDProcessIdentity(pid: getpid())
+        workspace.agentPIDKeysByPanelId[panelId, default: []].insert("claude_code")
 
         let probe = workspace.agentStatusForegroundProbe()
-        let rootStatusKeys = Set((probe.rootStatusKeysByPanelId[panelId] ?? [:]).values)
+        let rootStatusKeys = Set((probe.rootStatusKeysByPanelId[panelId] ?? [:]).values.flatMap { $0 })
 
-        #expect(rootStatusKeys == ["codex"])
+        #expect(rootStatusKeys == ["claude_code", "codex"])
     }
 
     @Test @MainActor func foregroundProbeRejectsReplacedRuntimeGeneration() throws {

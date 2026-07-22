@@ -23981,7 +23981,8 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         cwd: parsedInput.cwd,
                         launchCommand: launchCommand,
-                        observedPermissionMode: observedHookPermissionMode
+                        observedPermissionMode: observedHookPermissionMode,
+                        replacesActiveSession: true
                     )
                 }
             }
@@ -24194,14 +24195,14 @@ struct CMUXCLI {
                 env: ProcessInfo.processInfo.environment
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let shouldApplyPromptSubmit =
-                shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                    telemetry: telemetry
-                ) ||
+            let isCurrentSession = shouldApplyClaudeHookVisibleMutation(
+                sessionStore: sessionStore,
+                parsedInput: parsedInput,
+                workspaceId: workspaceId,
+                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                telemetry: telemetry
+            )
+            let replacesStoppedSession = !isCurrentSession &&
                 shouldReplaceStoppedClaudeSession(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
@@ -24209,6 +24210,7 @@ struct CMUXCLI {
                     surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                     telemetry: telemetry
                 )
+            let shouldApplyPromptSubmit = isCurrentSession || replacesStoppedSession
             guard shouldApplyPromptSubmit else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.stale")
                 printClaudeHookAck()
@@ -24257,7 +24259,8 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
                     observedPermissionMode: observedHookPermissionMode
-                        ?? mappedSession?.lastPermissionMode
+                        ?? mappedSession?.lastPermissionMode,
+                    replacesActiveSession: replacesStoppedSession
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
@@ -27653,10 +27656,16 @@ struct CMUXCLI {
         sessionId: String,
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?,
-        observedPermissionMode: String? = nil
+        observedPermissionMode: String? = nil,
+        replacesActiveSession: Bool = false
     ) {
         if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
-            clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: replacesActiveSession ? nil : sessionId
+            )
             return
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
@@ -27678,7 +27687,7 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                sessionId: sessionId
+                sessionId: replacesActiveSession ? nil : sessionId
             )
             return
         }

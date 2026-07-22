@@ -324,6 +324,7 @@ extension FeedCoordinator {
         let workspaceId: UUID
         let panelId: UUID?
         let statusKey: String
+        let mutatesLifecycle: Bool
     }
 
     /// The localized "Needs input" sidebar status the overlay sets. Exposed so
@@ -334,15 +335,12 @@ extension FeedCoordinator {
         String(localized: "feed.status.needsInput", defaultValue: "Needs input")
     }
 
-    /// Surfaces in-app attention for a blocking feed decision: flips the
-    /// owning workspace's agent lifecycle to `.needsInput`, sets the
-    /// "Needs input" sidebar status, elevates the workspace when
-    /// *Reorder on Notification* is enabled, and rings the bell.
+    /// Surfaces in-app attention for a blocking feed decision, mutating the
+    /// agent lifecycle only when the event is not proven stale.
     ///
     /// This is the convergence point the PreToolUse→PermissionRequest
-    /// migration left behind: the `feed.push` bridge ingested the card and
-    /// (when inactive) posted a banner, but never drove the same in-app
-    /// attention path the `cmux hooks <agent> notification` hook uses. Doing
+    /// migration left behind: `feed.push` posted a banner but never drove the
+    /// same in-app attention path as `cmux hooks <agent> notification`. Doing
     /// it here — once, for every blocking decision — keeps a new event type
     /// from silently swallowing.
     ///
@@ -403,31 +401,32 @@ extension FeedCoordinator {
             panelId = tab.focusedPanelId
         }
         let statusKey = Self.lifecycleStatusKey(forSource: event.source)
-        if AgentHibernationLifecycleStatusKeys.isAllowed(statusKey) {
-            guard let panelId,
-                  tab.agentStatusRuntimeIsCurrent(event: event, panelId: panelId) else {
-                return nil
-            }
-        }
+        let mayMutateLifecycle = !AgentHibernationLifecycleStatusKeys.isAllowed(statusKey) ||
+            panelId.map {
+                tab.agentStatusBlockingDecisionMayMutateLifecycle(event: event, panelId: $0)
+            } == true
         let target = AttentionTarget(
             workspaceId: liveTarget.tabId,
             panelId: panelId,
-            statusKey: statusKey
+            statusKey: statusKey,
+            mutatesLifecycle: mayMutateLifecycle
         )
         let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(workspace: tab)
         attentionState.workspace = tab
         attentionState.count += 1
         pendingAttentionStates[target] = attentionState
 
-        // Needs-input lifecycle drives the sidebar badge + hibernation state.
-        tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
-        tab.statusEntries[statusKey] = SidebarStatusEntry(
-            key: statusKey,
-            value: Self.needsInputStatusValue,
-            icon: "bell.fill",
-            color: "#4C8DFF",
-            timestamp: Date()
-        )
+        if mayMutateLifecycle {
+            // Needs-input lifecycle drives the sidebar badge + hibernation state.
+            tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
+            tab.statusEntries[statusKey] = SidebarStatusEntry(
+                key: statusKey,
+                value: Self.needsInputStatusValue,
+                icon: "bell.fill",
+                color: "#4C8DFF",
+                timestamp: Date()
+            )
+        }
 
         // Elevate the workspace so it floats to the top of the sidebar,
         // honoring the user's Reorder on Notification preference.
@@ -460,7 +459,8 @@ extension FeedCoordinator {
 
         // Lifecycle is per-panel, so clearing this panel's needs-input is
         // safe even if another panel still needs input.
-        if let panelId = target.panelId,
+        if target.mutatesLifecycle,
+           let panelId = target.panelId,
            tab.agentLifecycleStatesByPanelId[panelId]?[target.statusKey] == .needsInput {
             tab.setAgentLifecycle(key: target.statusKey, panelId: panelId, lifecycle: .running)
         }
@@ -471,9 +471,9 @@ extension FeedCoordinator {
         // the same key — otherwise concluding one panel would wipe another
         // panel's active "Needs input" badge.
         let anotherPanelStillPending = pendingAttentionStates.keys.contains {
-            $0.workspaceId == target.workspaceId && $0.statusKey == target.statusKey
+            $0.mutatesLifecycle && $0.workspaceId == target.workspaceId && $0.statusKey == target.statusKey
         }
-        if !anotherPanelStillPending,
+        if target.mutatesLifecycle, !anotherPanelStillPending,
            tab.statusEntries[target.statusKey]?.value == Self.needsInputStatusValue {
             tab.statusEntries.removeValue(forKey: target.statusKey)
         }

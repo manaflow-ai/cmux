@@ -12,7 +12,8 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             args: "codex idle --tab=workspace-1 --if-needs-input"
         )
 
-        #expect(response?.contains("--if-needs-input requires lifecycle running") == true)
+        #expect(response?.contains("Invalid agent lifecycle 'idle'") == true)
+        #expect(response?.contains("[--if-needs-input]") == true)
     }
 
     @Test func workspaceLoadingFailureReasonReturnsErrorLine() {

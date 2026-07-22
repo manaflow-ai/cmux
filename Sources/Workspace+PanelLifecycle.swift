@@ -27,7 +27,16 @@ extension Workspace {
 
     var agentPIDKeysByPanelId: [UUID: Set<String>] {
         get { sidebarAgentRuntimeObservation.agentPIDKeysByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentPIDKeysByPanelId(newValue) }
+        set {
+            let previousPanelIds = Set(sidebarAgentRuntimeObservation.agentPIDKeysByPanelId.keys)
+            sidebarAgentRuntimeObservation.setAgentPIDKeysByPanelId(newValue)
+            for panelId in previousPanelIds.union(newValue.keys) {
+                TerminalController.shared.agentStatusReconciliationCoordinator.setOutputActivityTracking(
+                    panelId: panelId,
+                    isTracked: !trackedAgentStatusKeys(panelId: panelId).isEmpty
+                )
+            }
+        }
     }
 
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {

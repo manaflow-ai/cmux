@@ -337,20 +337,18 @@ extension ControlCommandCoordinator {
         return "OK"
     }
 
-    /// `set_agent_lifecycle` — record a restorable agent session's lifecycle.
-    /// The vault-registry allowlist check
-    /// (`controlSidebarIsAllowedAgentLifecycleKey`) owns this command's single
-    /// main hop app-side: it snapshots the tab/panel directory candidates on
-    /// main and runs the registry disk IO on the calling thread.
+    /// `set_agent_lifecycle` — record a restorable agent lifecycle after the
+    /// app-side allowlist check performs this command's single main hop.
     nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--if-needs-input]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }
         let key = parsed.positional[0]
         let rawLifecycle = parsed.positional[1]
-        guard let lifecycleRawValue = context?.controlSidebarParseAgentLifecycle(rawLifecycle) else {
+        guard let lifecycleRawValue = context?.controlSidebarParseAgentLifecycle(rawLifecycle),
+              parsed.options["if-needs-input"] == nil || lifecycleRawValue == "running" else {
             return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
         }
         let targetResolution = sidebarParseMutationTabTarget(options: parsed.options)
