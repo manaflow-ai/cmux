@@ -234,6 +234,7 @@ pub fn serve(
 #[derive(Debug)]
 pub enum ClientError {
     UpgradeRequired,
+    Unavailable,
     Rejected { code: String, message: String },
     InvalidResponse,
 }
@@ -244,6 +245,9 @@ impl fmt::Display for ClientError {
             Self::UpgradeRequired => formatter.write_str(
                 "running cmux-tui does not support live provider authority management; upgrade required",
             ),
+            Self::Unavailable => {
+                formatter.write_str("live provider authority management is unavailable")
+            }
             Self::Rejected { code, message } => write!(formatter, "{code}: {message}"),
             Self::InvalidResponse => formatter.write_str("invalid provider management response"),
         }
@@ -256,15 +260,15 @@ impl std::error::Error for ClientError {}
 fn exchange(socket: &Path, request: &impl Serialize) -> Result<Response, ClientError> {
     use std::os::unix::net::UnixStream;
 
-    let mut stream = UnixStream::connect(socket).map_err(|_| ClientError::UpgradeRequired)?;
-    stream.set_read_timeout(Some(IO_TIMEOUT)).map_err(|_| ClientError::UpgradeRequired)?;
-    stream.set_write_timeout(Some(IO_TIMEOUT)).map_err(|_| ClientError::UpgradeRequired)?;
+    let mut stream = UnixStream::connect(socket).map_err(|_| ClientError::Unavailable)?;
+    stream.set_read_timeout(Some(IO_TIMEOUT)).map_err(|_| ClientError::Unavailable)?;
+    stream.set_write_timeout(Some(IO_TIMEOUT)).map_err(|_| ClientError::Unavailable)?;
     let mut encoded =
         SensitiveBytes(serde_json::to_vec(request).map_err(|_| ClientError::InvalidResponse)?);
     encoded.0.push(b'\n');
-    stream.write_all(&encoded.0).map_err(|_| ClientError::UpgradeRequired)?;
-    stream.flush().map_err(|_| ClientError::UpgradeRequired)?;
-    let response = read_message(&stream).map_err(|_| ClientError::UpgradeRequired)?;
+    stream.write_all(&encoded.0).map_err(|_| ClientError::Unavailable)?;
+    stream.flush().map_err(|_| ClientError::Unavailable)?;
+    let response = read_message(&stream).map_err(|_| ClientError::Unavailable)?;
     serde_json::from_slice(&response.0).map_err(|_| ClientError::InvalidResponse)
 }
 
@@ -324,6 +328,9 @@ fn response_status(response: Response) -> Result<ProviderWorkspaceAuthorityStatu
         return response.status.ok_or(ClientError::InvalidResponse);
     }
     let error = response.error.ok_or(ClientError::InvalidResponse)?;
+    if error.code == "unsupported_version" {
+        return Err(ClientError::UpgradeRequired);
+    }
     Err(ClientError::Rejected { code: error.code, message: error.message })
 }
 
@@ -354,6 +361,15 @@ mod tests {
         let response = handle_request(&mux(), 501, b"this is deliberately not JSON");
         assert!(!response.ok);
         assert_eq!(response.error.unwrap().code, "access_denied");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn explicit_unsupported_response_is_the_only_upgrade_signal() {
+        let unsupported = Response::error("unsupported_version", "future protocol");
+        assert!(matches!(response_status(unsupported), Err(ClientError::UpgradeRequired)));
+        let rejected = Response::error("unmanaged", "not configured");
+        assert!(matches!(response_status(rejected), Err(ClientError::Rejected { .. })));
     }
 
     #[test]
