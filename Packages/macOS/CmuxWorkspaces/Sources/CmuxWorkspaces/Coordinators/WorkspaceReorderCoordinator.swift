@@ -404,19 +404,21 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         promotesGroupedWorkspace: Bool = false,
         targetPinnedState: Bool? = nil
     ) -> Bool {
-        let pinStateChanged = setTopLevelPinnedStateIfNeeded(
+        let projection = projectedPinnedState(
             workspaceId: tabId,
             targetPinnedState: targetPinnedState
         )
         let topLevelIds = model.sidebarTopLevelWorkspaceIds(
-            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
+            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil,
+            pinnedStateProjection: projection
         )
         guard let fromIndex = topLevelIds.firstIndex(of: tabId) else { return false }
         let clampedTarget = model.clampedTopLevelReorderIndex(
             forWorkspaceId: tabId,
             targetIndex: targetIndex,
             topLevelIds: topLevelIds,
-            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
+            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil,
+            pinnedStateProjection: projection
         )
         let shouldPromoteGroupedWorkspace: Bool = {
             guard promotesGroupedWorkspace,
@@ -427,7 +429,23 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             }
             return true
         }()
+        let pinStateChanged: Bool
+        if let targetPinnedState,
+           let currentPinnedState = topLevelPinnedState(workspaceId: tabId) {
+            pinStateChanged = currentPinnedState != targetPinnedState
+        } else {
+            pinStateChanged = false
+        }
         guard fromIndex != clampedTarget || shouldPromoteGroupedWorkspace || pinStateChanged else { return false }
+
+        if pinStateChanged {
+            guard setTopLevelPinnedStateIfNeeded(
+                workspaceId: tabId,
+                targetPinnedState: targetPinnedState
+            ) else {
+                return false
+            }
+        }
 
         var desiredTopLevelIds = topLevelIds
         if fromIndex != clampedTarget {
@@ -448,6 +466,13 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
         host?.workspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
         return true
+    }
+
+    private func topLevelPinnedState(workspaceId: UUID) -> Bool? {
+        if let group = model.workspaceGroups.first(where: { $0.anchorWorkspaceId == workspaceId }) {
+            return group.isPinned
+        }
+        return model.tabs.first(where: { $0.id == workspaceId })?.isPinned
     }
 
     private func setTopLevelPinnedStateIfNeeded(

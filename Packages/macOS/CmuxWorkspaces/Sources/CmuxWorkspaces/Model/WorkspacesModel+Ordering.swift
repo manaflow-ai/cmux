@@ -172,10 +172,14 @@ extension WorkspacesModel {
         forWorkspaceId workspaceId: UUID,
         targetIndex: Int,
         topLevelIds: [UUID],
-        promotingWorkspaceId: UUID? = nil
+        promotingWorkspaceId: UUID? = nil,
+        pinnedStateProjection: WorkspacePinnedStateProjection? = nil
     ) -> Int {
         let clamped = max(0, min(targetIndex, max(0, topLevelIds.count - 1)))
-        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: promotingWorkspaceId)
+        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds(
+            promotingWorkspaceId: promotingWorkspaceId,
+            pinnedStateProjection: pinnedStateProjection
+        )
         let pinnedCount = topLevelIds.reduce(into: 0) { count, id in
             if pinnedIds.contains(id) {
                 count += 1

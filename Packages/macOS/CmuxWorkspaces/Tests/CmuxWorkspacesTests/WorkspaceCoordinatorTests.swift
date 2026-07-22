@@ -215,6 +215,33 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func rejectedTopLevelReorderDoesNotMutateGroupPinState() {
+        let (model, host, _, reorder) = makeWorld()
+        let anchorId = UUID()
+        model.workspaceGroups = [WorkspaceGroup(
+            id: UUID(),
+            name: "Detached",
+            isCollapsed: false,
+            isPinned: false,
+            anchorWorkspaceId: anchorId,
+            customColor: nil,
+            iconSymbol: nil
+        )]
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: anchorId,
+            toIndex: 0,
+            isDragOperation: true,
+            usesTopLevelRows: true,
+            targetPinnedState: true
+        )
+
+        #expect(!moved)
+        #expect(model.workspaceGroups.first?.isPinned == false)
+        #expect(host.orderChanges.isEmpty)
+    }
+
+    @Test
     func sidebarRawDropPinsWorkspaceAtLastRequestedPinnedSlot() {
         let (model, host, _, reorder) = makeWorld()
         let pinnedA = CoordinatorStubTab(isPinned: true)
