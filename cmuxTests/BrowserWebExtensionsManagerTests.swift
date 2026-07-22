@@ -6239,6 +6239,7 @@ struct BrowserWebExtensionsManagerTests {
         #expect(replacement.configuration.webExtensionController === services.webExtensionsManager?.controller)
     }
 
+    @available(macOS 15.4, *)
     @Test func openingExtensionsManagerHidesPortalHostedPage() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
