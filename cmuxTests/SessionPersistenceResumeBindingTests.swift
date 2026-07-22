@@ -670,3 +670,261 @@ import Testing
         return directory.appendingPathComponent(executableName, isDirectory: false).path
     }
 }
+
+@Suite("Session persistence TTY metadata", .serialized)
+struct SessionPersistenceTTYMetadataTests {
+    @MainActor
+    @Test("local TTY names are neither persisted nor restored")
+    func localTTYNamesAreNeitherPersistedNorRestored() throws {
+        let source = Workspace()
+        let firstSourcePanelId = try #require(source.focusedPanelId)
+        let secondSourcePanel = try #require(
+            source.newTerminalSplit(from: firstSourcePanelId, orientation: .horizontal, focus: true)
+        )
+        let sourcePanelIds = [firstSourcePanelId, secondSourcePanel.id]
+        for panelId in sourcePanelIds {
+            source.surfaceTTYNames[panelId] = "ttys025"
+        }
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        var legacyObject = try #require(
+            JSONSerialization.jsonObject(with: encodedSnapshot) as? [String: Any]
+        )
+        var panels = try #require(legacyObject["panels"] as? [[String: Any]])
+        #expect(panels.count == 2)
+        #expect(panels.allSatisfy { $0["ttyName"] == nil })
+
+        // Simulate the installed schema, in which two restored surfaces can
+        // carry the same stale local PTY allocation.
+        for index in panels.indices {
+            panels[index]["ttyName"] = "ttys025"
+        }
+        legacyObject["panels"] = panels
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let legacySnapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: legacyData)
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(legacySnapshot)
+        let firstRestoredPanelId = try #require(restoredPanelIds[firstSourcePanelId])
+        let secondRestoredPanelId = try #require(restoredPanelIds[secondSourcePanel.id])
+        #expect(restored.surfaceTTYNames[firstRestoredPanelId] == nil)
+        #expect(restored.surfaceTTYNames[secondRestoredPanelId] == nil)
+        #expect(restored.surfaceTTYDevices[firstRestoredPanelId] == nil)
+        #expect(restored.surfaceTTYDevices[secondRestoredPanelId] == nil)
+
+        // A subsequent live runtime report still establishes exactly one
+        // current owner and refreshes the device-id index used for live lookup.
+        restored.surfaceTTYNames[firstRestoredPanelId] = "/dev/null"
+        #expect(restored.surfaceTTYNames[firstRestoredPanelId] == "/dev/null")
+        #expect(restored.surfaceTTYNames[secondRestoredPanelId] == nil)
+        #expect(restored.surfaceTTYDevices[firstRestoredPanelId] != nil)
+        #expect(restored.surfaceTTYDevices[secondRestoredPanelId] == nil)
+    }
+
+    @MainActor
+    @Test("legacy remote TTY metadata without a reattach identity is ignored")
+    func legacyRemoteTTYWithoutReattachIdentityIsIgnored() throws {
+        let source = Workspace()
+        source.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64009,
+                relayID: "relay-session-tty-legacy-test",
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-session-tty-legacy-test.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "session-tty-legacy-test"
+            ),
+            autoConnect: false
+        )
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.surfaceTTYNames[sourcePanelId] = "pts/legacy-stale"
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        let originalSessionID = try #require(snapshot.panels[panelIndex].terminal?.remotePTYSessionID)
+        #expect(snapshot.panels[panelIndex].ttyName == "pts/legacy-stale")
+
+        // Simulate a legacy remote snapshot that carries a TTY allocation but
+        // no durable identity that cmux can prove it is reattaching.
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        terminalSnapshot.isRemoteTerminal = nil
+        terminalSnapshot.remotePTYSessionID = nil
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        let reservedSocketPath = Self.reserveRemoteRestoreSocket()
+        defer { Self.cleanupRemoteRestoreSocket(reservedSocketPath) }
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+
+        // The fresh remote surface receives a new runtime identity, but that
+        // post-spawn identity must not authorize the legacy TTY value.
+        let freshSessionID = try #require(restored.remotePTYSessionIDsByPanelId[restoredPanelId])
+        #expect(freshSessionID != originalSessionID)
+        #expect(restored.surfaceTTYNames[restoredPanelId] == nil)
+    }
+
+    @MainActor
+    @Test("non-persistent remote TTY names are neither persisted nor restored")
+    func nonPersistentRemoteTTYNamesAreNeitherPersistedNorRestored() throws {
+        let source = Workspace()
+        source.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                terminalStartupCommand: "ssh -p 2222 dev@example.com",
+                preserveAfterTerminalExit: false
+            ),
+            autoConnect: false
+        )
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.surfaceTTYNames[sourcePanelId] = "pts/ephemeral"
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        #expect(snapshot.panels[panelIndex].ttyName == nil)
+        #expect(snapshot.panels[panelIndex].terminal?.remotePTYSessionID == nil)
+
+        // Existing releases may have persisted a remote shell's host-local PTY
+        // even though there is no durable session to reattach after relaunch.
+        snapshot.panels[panelIndex].ttyName = "pts/legacy-ephemeral"
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+        #expect(restored.remoteConfiguration?.preserveAfterTerminalExit == false)
+        #expect(restored.remotePTYSessionIDsByPanelId[restoredPanelId] == nil)
+        #expect(restored.surfaceTTYNames[restoredPanelId] == nil)
+        #expect(restored.surfaceTTYDevices[restoredPanelId] == nil)
+    }
+
+    @MainActor
+    @Test("managed Cloud VM TTY names are neither persisted nor restored")
+    func managedCloudVMTTYNamesAreNeitherPersistedNorRestored() throws {
+        let source = Workspace()
+        source.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                transport: .websocket,
+                destination: "cloud-vm",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: "/tmp/cmux-cloud-tty-test.sock",
+                managedCloudVMID: "vm-tty-test",
+                terminalStartupCommand: "stale websocket connect command",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+                skipDaemonBootstrap: true
+            ),
+            autoConnect: false
+        )
+        #expect(source.isDefaultFreestyleSSHDRemoteWorkspace)
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.surfaceTTYNames[sourcePanelId] = "ttys025"
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        #expect(snapshot.panels[panelIndex].ttyName == nil)
+
+        // Existing releases may already have serialized this host-local value.
+        snapshot.panels[panelIndex].ttyName = "ttys025"
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+        #expect(restored.isDefaultFreestyleSSHDRemoteWorkspace)
+        #expect(restored.remotePTYSessionIDsByPanelId[restoredPanelId] != nil)
+        #expect(restored.surfaceTTYNames[restoredPanelId] == nil)
+    }
+
+    @MainActor
+    @Test("persistent remote TTY names retain their per-surface identity")
+    func persistentRemoteTTYNamesRetainTheirPerSurfaceIdentity() throws {
+        let source = Workspace()
+        source.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64008,
+                relayID: "relay-session-tty-test",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-session-tty-test.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "session-tty-test"
+            ),
+            autoConnect: false
+        )
+        let firstSourcePanelId = try #require(source.focusedPanelId)
+        let secondSourcePanel = try #require(
+            source.newTerminalSplit(from: firstSourcePanelId, orientation: .horizontal, focus: true)
+        )
+        let expectedTTYByPanelId = [
+            firstSourcePanelId: "pts/10",
+            secondSourcePanel.id: "pts/11",
+        ]
+        for (panelId, ttyName) in expectedTTYByPanelId {
+            source.surfaceTTYNames[panelId] = ttyName
+        }
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        for (panelId, expectedTTY) in expectedTTYByPanelId {
+            let panelSnapshot = try #require(snapshot.panels.first { $0.id == panelId })
+            #expect(panelSnapshot.ttyName == expectedTTY)
+            #expect(panelSnapshot.terminal?.remotePTYSessionID != nil)
+        }
+
+        let reservedSocketPath = Self.reserveRemoteRestoreSocket()
+        defer { Self.cleanupRemoteRestoreSocket(reservedSocketPath) }
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        #expect(restored.remoteConfiguration?.preserveAfterTerminalExit == true)
+        #expect(restored.remoteConfiguration?.localSocketPath == reservedSocketPath)
+        #expect(restored.remoteConfiguration?.persistentDaemonSlot == "session-tty-test")
+        for (sourcePanelId, expectedTTY) in expectedTTYByPanelId {
+            let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+            let expectedSessionID = try #require(
+                snapshot.panels.first { $0.id == sourcePanelId }?.terminal?.remotePTYSessionID
+            )
+            #expect(restored.remotePTYSessionIDsByPanelId[restoredPanelId] == expectedSessionID)
+            #expect(restored.surfaceTTYNames[restoredPanelId] == expectedTTY)
+        }
+    }
+
+    @MainActor
+    private static func reserveRemoteRestoreSocket() -> String {
+        TerminalController.shared.stop()
+        let requestedPath = "/tmp/cmux-tty-restore-\(UUID().uuidString).sock"
+        return TerminalController.shared.reserveStartupSocketPath(requestedPath)
+    }
+
+    @MainActor
+    private static func cleanupRemoteRestoreSocket(_ path: String) {
+        TerminalController.shared.stop()
+        try? FileManager.default.removeItem(atPath: path)
+        try? FileManager.default.removeItem(atPath: path + ".lock")
+    }
+}
