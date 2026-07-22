@@ -83,9 +83,9 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
     }
 
     func waitUntilSleeping(for duration: Duration? = nil) async {
-        let deadline = duration.map { now.advanced(by: $0) }
         await withCheckedContinuation { continuation in
             lock.lock()
+            let deadline = duration.map { _now.advanced(by: $0) }
             let alreadySleeping = sleepers.values.contains { sleeper in
                 deadline == nil || sleeper.deadline == deadline
             }
@@ -102,11 +102,10 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
     func advance(by duration: Duration) {
         lock.lock()
         _now = _now.advanced(by: duration)
-        var due: [Sleeper] = []
-        for (id, sleeper) in sleepers where sleeper.deadline <= _now {
-            sleepers[id] = nil
-            due.append(sleeper)
+        let dueIDs = sleepers.compactMap { id, sleeper in
+            sleeper.deadline <= _now ? id : nil
         }
+        let due = dueIDs.compactMap { sleepers.removeValue(forKey: $0) }
         let waiters = sleepers.isEmpty ? idleWaiters : []
         if sleepers.isEmpty { idleWaiters.removeAll() }
         lock.unlock()
