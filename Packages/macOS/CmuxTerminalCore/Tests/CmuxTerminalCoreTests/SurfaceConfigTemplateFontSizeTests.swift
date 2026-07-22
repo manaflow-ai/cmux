@@ -41,6 +41,44 @@ import GhosttyKit
         #expect(abs(runtimePoints - 24) < 0.001)
     }
 
+    @Test(arguments: [50, 100, 200])
+    func runtimeDefaultFontSizePreservesZeroSentinel(percent: Int) {
+        let defaultBasePoints = CmuxSurfaceConfigTemplate().fontSize
+
+        #expect(defaultBasePoints == 0)
+        #expect(
+            CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: defaultBasePoints,
+                percent: percent
+            ) == 0
+        )
+        #expect(
+            CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: 0,
+                percent: percent
+            ) == 0
+        )
+    }
+
+    @Test(arguments: [50, 100, 200])
+    func invalidBaseFontSizeUsesRuntimeDefaultSentinel(percent: Int) {
+        let invalidBasePoints: [Float32] = [
+            -1,
+            .nan,
+            .infinity,
+            -.infinity,
+        ]
+
+        for basePoints in invalidBasePoints {
+            #expect(
+                CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: basePoints,
+                    percent: percent
+                ) == 0
+            )
+        }
+    }
+
     @Test func inheritedRuntimeFontSizeRoundTripsWithoutCompounding() {
         let basePoints = CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: 24, percent: 200)
         let runtimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: basePoints, percent: 200)
