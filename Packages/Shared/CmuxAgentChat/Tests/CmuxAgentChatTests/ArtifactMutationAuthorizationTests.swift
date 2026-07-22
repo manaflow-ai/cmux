@@ -144,6 +144,28 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifacts.first { $0.path.hasSuffix("/tmp/existing.md") }?.provenance == .referenced)
     }
 
+    @Test("Unexecuted compound-shell redirections remain references")
+    func compoundShellRedirectionFailsClosed() throws {
+        let call = codexLine(type: "response_item", payload: [
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": #"{"cmd":"if false; then echo x > /tmp/report.md; fi"}"#,
+            "call_id": "conditional",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "function_call_output",
+            "call_id": "conditional",
+            "output": "Process exited with code 0\nOutput:\n",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifact = try #require(
+            indexedArtifacts(result).first { $0.path.hasSuffix("/tmp/report.md") }
+        )
+
+        #expect(artifact.provenance == .referenced)
+    }
+
     @Test("Generic output flags do not authorize copying an external file")
     func genericOutputFlagFailsClosed() throws {
         let call = codexLine(type: "response_item", payload: [
