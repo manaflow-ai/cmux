@@ -137,10 +137,11 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        // Keep AppKit out of the full-size titlebar's drag decision. Bonsplit
-        // owns tab drags; the explicit grid handle temporarily enables native
-        // movement only while it calls performDrag.
-        panel.isMovable = false
+        // NSWindow.performDrag must see a movable window before mouse-down so it
+        // can hand the gesture to Window Server. Background content remains
+        // non-draggable, and the shared Bonsplit tab registry temporarily makes
+        // the panel immovable for the complete tab-drag sequence.
+        panel.isMovable = true
         panel.isMovableByWindowBackground = false
         panel.contentView = WorkspaceFloatingDockHostingView(
             rootView: WorkspaceFloatingDockContentView(
