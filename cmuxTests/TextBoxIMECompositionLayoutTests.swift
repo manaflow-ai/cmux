@@ -50,10 +50,13 @@ struct TextBoxIMECompositionLayoutTests {
         )
         let coordinator = TextBoxInputView.Coordinator(parent: inputView)
         let textView = makeTextView()
-        let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
-        window.contentView = textView
+        let scrollView = NSScrollView(frame: textView.bounds)
+        scrollView.documentView = textView
+        let window = NSWindow(contentRect: scrollView.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = scrollView
         defer {
             window.contentView = nil
+            scrollView.documentView = nil
             window.close()
         }
         var completedLayoutCount = 0
@@ -83,32 +86,22 @@ struct TextBoxIMECompositionLayoutTests {
         #expect(textViewHeight > committedOnlyHeight)
         #expect(textView.frame.height == textViewHeight)
         #expect(textView.needsDisplay)
-    }
 
-    @Test("marked text skips redundant height measurement after the TextBox is capped")
-    @MainActor
-    func markedTextInOverflowingTextBoxSkipsHeightMeasurement() {
-        let textView = makeTextView()
-        let scrollView = NSScrollView(
-            frame: NSRect(x: 0, y: 0, width: textView.frame.width, height: TextBoxLayout.minimumTextHeight)
-        )
-        scrollView.documentView = textView
-        textView.frame.size.height = TextBoxLayout.minimumTextHeight * 2
-
-        var completedLayoutCount = 0
-        textView.onLayoutCompleted = { _ in
-            completedLayoutCount += 1
-        }
+        let firstCompositionHeight = textViewHeight
+        completedLayoutCount = 0
         textView.needsDisplay = false
-
+        let expandedPreedit = String(repeating: "ㄅ", count: 40)
         textView.setMarkedText(
-            "ㄅ",
-            selectedRange: NSRange(location: 1, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
+            expandedPreedit,
+            selectedRange: NSRange(location: (expandedPreedit as NSString).length, length: 0),
+            replacementRange: textView.markedRange()
         )
 
         #expect(textView.hasMarkedText())
-        #expect(completedLayoutCount == 0)
+        #expect(markedTextStates == [true])
+        #expect(completedLayoutCount == 1)
+        #expect(textViewHeight > firstCompositionHeight)
+        #expect(textView.frame.height == textViewHeight)
         #expect(textView.needsDisplay)
     }
 

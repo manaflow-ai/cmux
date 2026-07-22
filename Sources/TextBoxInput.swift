@@ -3377,11 +3377,6 @@ struct TextBoxInputView: NSViewRepresentable {
         func recalculateHeight(_ textView: NSTextView) {
             guard let layoutManager = textView.layoutManager,
                   let textContainer = textView.textContainer else { return }
-            if let textBoxView = textView as? TextBoxInputTextView {
-                textBoxView.recenterSingleLineTextContainer()
-                applyPendingAttachmentUploadStateSyncIfNeeded()
-                applyPendingMarkedTextStateSyncIfNeeded()
-            }
             layoutManager.ensureLayout(for: textContainer)
             let lineFragmentCount = (textView as? TextBoxInputTextView)?.visualLineFragmentCount()
                 ?? TextBoxInputTextView.visualLineFragmentCount(
@@ -3389,6 +3384,11 @@ struct TextBoxInputView: NSViewRepresentable {
                     layoutManager: layoutManager,
                     textContainer: textContainer
                 )
+            if let textBoxView = textView as? TextBoxInputTextView {
+                textBoxView.recenterSingleLineTextContainer(lineFragmentCount: lineFragmentCount)
+                applyPendingAttachmentUploadStateSyncIfNeeded()
+                applyPendingMarkedTextStateSyncIfNeeded()
+            }
             let preferredHeight: CGFloat
 
             if lineFragmentCount <= TextBoxLayout.minLines {
@@ -3607,14 +3607,9 @@ final class TextBoxInputTextView: NSTextView {
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         onMarkedTextStateChanged(hasMarkedText())
-        // Marked text bypasses textDidChange. Measure until the TextBox reaches its capped
-        // viewport height; after that, another whole-document height pass cannot change the UI.
-        let visibleHeight = enclosingScrollView?.contentView.bounds.height ?? 0
-        let isDocumentTallerThanViewport = visibleHeight > 0 && frame.height > visibleHeight + 0.5
-        if !isDocumentTallerThanViewport {
-            needsLayout = true
-            layoutSubtreeIfNeeded()
-        }
+        // Marked text bypasses textDidChange. Enter its measurement boundary directly instead
+        // of nesting a complete NSView layout pass, then redraw the updated TextKit storage.
+        onLayoutCompleted(self)
         needsDisplay = true
     }
 
@@ -3959,6 +3954,11 @@ final class TextBoxInputTextView: NSTextView {
 
         layoutManager.ensureLayout(for: textContainer)
         let lineFragmentCount = visualLineFragmentCount()
+        recenterSingleLineTextContainer(lineFragmentCount: lineFragmentCount)
+    }
+
+    fileprivate func recenterSingleLineTextContainer(lineFragmentCount: Int) {
+        guard textContainer != nil else { return }
 
         let targetHeight = bounds.height > 0 ? bounds.height : TextBoxLayout.minimumTextHeight
         var targetVerticalInset: CGFloat
