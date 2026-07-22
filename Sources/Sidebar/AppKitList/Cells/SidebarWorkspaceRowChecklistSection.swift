@@ -50,6 +50,30 @@ final class SidebarRowChecklistSection: NSView {
     /// PRESENTED workspace's state even after `self.actions` was replaced
     /// (legacy host dismantle parity: unmount writes `isPresented = false`).
     private var activePopoverDismissContext: (() -> Void)?
+    /// Every input the expensive item-line reconciliation depends on: the
+    /// cell re-applies its model on hover repaints, optimistic selection
+    /// paints, and 40ms pump ticks, and rebuilding up to 50 attributed item
+    /// lines per unrelated event is hot-path fanout.
+    private struct ConfigureKey: Equatable {
+        let workspaceId: UUID
+        let items: [WorkspaceChecklistItem]
+        let title: String
+        let completedCount: Int
+        let totalCount: Int
+        let firstUncheckedText: String?
+        let isActive: Bool
+        let isMultiSelected: Bool
+        let colorSchemeIsDark: Bool
+        let settings: SidebarTabItemSettingsSnapshot
+        let magnificationPercent: Int
+        let isExpanded: Bool
+        let token: Int
+        let popoverPresented: Bool
+        let editingItemId: UUID?
+        let todoControlsEnabled: Bool
+    }
+
+    private var lastConfigureKey: ConfigureKey?
 
     override var isFlipped: Bool { true }
 
@@ -84,6 +108,32 @@ final class SidebarRowChecklistSection: NSView {
         let previousWorkspaceId = self.model?.workspaceId
         self.model = model
         self.actions = actions
+        let key = ConfigureKey(
+            workspaceId: model.workspaceId,
+            items: model.snapshot.checklistItems,
+            title: model.snapshot.title,
+            completedCount: model.snapshot.checklistCompletedCount,
+            totalCount: model.snapshot.checklistTotalCount,
+            firstUncheckedText: model.snapshot.checklistFirstUncheckedText,
+            isActive: model.isActive,
+            isMultiSelected: model.isMultiSelected,
+            colorSchemeIsDark: model.colorSchemeIsDark,
+            settings: model.settings,
+            magnificationPercent: model.globalFontMagnificationPercent,
+            isExpanded: model.isChecklistExpanded,
+            token: model.checklistAddFieldActivationToken,
+            popoverPresented: model.isChecklistPopoverPresented,
+            editingItemId: model.editingChecklistItemId,
+            todoControlsEnabled: model.todoControlsEnabled
+        )
+        if key == lastConfigureKey {
+            // Unrelated churn (hover, optimistic paint, pump tick): nothing
+            // this section renders changed. Keep the popover reconcile — it
+            // guards on its own model — and skip the line rebuild.
+            reconcileChecklistPopover(model: model, actions: actions)
+            return
+        }
+        lastConfigureKey = key
         if previousWorkspaceId != model.workspaceId {
             awaitingPopoverDismissAck = false
             lastAddFieldToken = 0
@@ -132,6 +182,7 @@ final class SidebarRowChecklistSection: NSView {
             lastAddFieldToken = 0
             lastPopoverModel = nil
             pendingPopoverPresentation = false
+            lastConfigureKey = nil
             // Recycled cells must not retain the previous workspace through
             // configured children: field closures and action bundles capture
             // the Workspace strongly.
@@ -349,6 +400,7 @@ final class SidebarRowChecklistSection: NSView {
             lastAddFieldToken = 0
             lastPopoverModel = nil
             pendingPopoverPresentation = false
+            lastConfigureKey = nil
             return
         }
         if pendingPopoverPresentation {

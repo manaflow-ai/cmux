@@ -1230,7 +1230,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 // stays mounted so the open checklist popover keeps its
                 // anchor, but it must not reserve any row height — opening
                 // the first-item popover previously nudged the row taller.
-                checklistSection.frame = NSRect(x: leading, y: y, width: contentWidth, height: 0)
+                // 1pt tall (overlapping the row's bottom padding, drawing
+                // nothing): a zero-height view has an empty visibleRect,
+                // which NSPopover can refuse to anchor to.
+                checklistSection.frame = NSRect(x: leading, y: y, width: contentWidth, height: 1)
             }
         }
 
