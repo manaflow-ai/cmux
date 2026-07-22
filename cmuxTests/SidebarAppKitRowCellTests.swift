@@ -271,7 +271,7 @@ struct SidebarAppKitRowCellTests {
 
     @Test
     func shortcutHintPillKeepsVisibleDuringFadeOut() async throws {
-        let pill = SidebarShortcutHintPillView()
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
         pill.configure(text: "⌘1", fontSize: 10, emphasis: 1)
 
         pill.configure(text: nil, fontSize: 10, emphasis: 1)
@@ -287,7 +287,7 @@ struct SidebarAppKitRowCellTests {
 
     @Test
     func shortcutHintPillUsesExplicitOpacityAnimationInsideDisabledTransaction() {
-        let pill = SidebarShortcutHintPillView()
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -295,6 +295,21 @@ struct SidebarAppKitRowCellTests {
         CATransaction.commit()
 
         #expect(!(pill.layer?.animationKeys() ?? []).isEmpty)
+    }
+
+    @Test
+    func shortcutHintPillAppliesReducedMotionVisibilityImmediately() {
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { true })
+
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        #expect(!pill.isHidden)
+        #expect(pill.layer?.opacity == 1)
+        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+
+        pill.configure(text: nil, fontSize: 9, emphasis: 1)
+        #expect(pill.isHidden)
+        #expect(pill.layer?.opacity == 0)
+        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
     }
 
     @Test
