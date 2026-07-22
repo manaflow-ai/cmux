@@ -6,7 +6,7 @@ extension AgentResumeCommandBuilder {
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?
     ) -> [String]? {
-        guard customRegistration == CmuxVaultAgentRegistration.builtInKimi else { return nil }
+        guard customRegistration.isBuiltInKimi else { return nil }
         return AgentResumeArgv().builtInKind(
             kind: "kimi",
             sessionId: sessionId,

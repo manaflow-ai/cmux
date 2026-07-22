@@ -1597,7 +1597,7 @@ struct RestorableAgentSessionIndex: Sendable {
         // launch dir. `.ignore` agents resume from the current directory, so the snapshot must carry
         // no saved cwd at all (downstream restore consumers read `workingDirectory` directly, not just
         // the command builder). The by-directory namespace below is only for built-in agents.
-        if let registration {
+        if let registration, !registration.isBuiltInKimi {
             return registration.cwd == .ignore ? nil : (recordedCwd ?? launchCwd)
         }
 
