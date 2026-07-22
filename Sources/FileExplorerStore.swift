@@ -716,7 +716,7 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
     private(set) var outlineRevision: UInt64 = 0
-    private var outlineChangeObservers: [UUID: (UInt64) -> Void] = [:]
+    private var disclosureChangeObservers: [UUID: (FileExplorerNode) -> Void] = [:]
 
     var provider: FileExplorerProvider?
 
@@ -774,14 +774,14 @@ final class FileExplorerStore: ObservableObject {
     // MARK: - Public API
 
     @discardableResult
-    func observeOutlineChanges(_ observer: @escaping (UInt64) -> Void) -> UUID {
+    func observeDisclosureChanges(_ observer: @escaping (FileExplorerNode) -> Void) -> UUID {
         let id = UUID()
-        outlineChangeObservers[id] = observer
+        disclosureChangeObservers[id] = observer
         return id
     }
 
-    func removeOutlineChangeObserver(_ id: UUID) {
-        outlineChangeObservers.removeValue(forKey: id)
+    func removeDisclosureChangeObserver(_ id: UUID) {
+        disclosureChangeObservers.removeValue(forKey: id)
     }
 
     func applyWorkspaceRoot(
@@ -871,7 +871,6 @@ final class FileExplorerStore: ObservableObject {
         guard gitStatusByPath != status else { return }
         outlineRevision &+= 1
         gitStatusByPath = status
-        notifyOutlineChangeObservers()
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
@@ -966,13 +965,13 @@ final class FileExplorerStore: ObservableObject {
             }
             loadTasks[node.path] = task
         } else if inserted {
-            signalOutlineChange()
+            notifyDisclosureChangeObservers(node)
         }
     }
 
     func collapse(node: FileExplorerNode) {
         let removed = expandedPaths.remove(node.path) != nil
-        if removed { signalOutlineChange() }
+        if removed { notifyDisclosureChangeObservers(node) }
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
@@ -1125,17 +1124,15 @@ final class FileExplorerStore: ObservableObject {
     private func replaceRootNodes(with nodes: [FileExplorerNode]) {
         outlineRevision &+= 1
         rootNodes = nodes
-        notifyOutlineChangeObservers()
     }
 
     private func signalOutlineChange() {
         outlineRevision &+= 1
-        notifyOutlineChangeObservers()
     }
 
-    private func notifyOutlineChangeObservers() {
-        for observer in outlineChangeObservers.values {
-            observer(outlineRevision)
+    private func notifyDisclosureChangeObservers(_ node: FileExplorerNode) {
+        for observer in disclosureChangeObservers.values {
+            observer(node)
         }
     }
 

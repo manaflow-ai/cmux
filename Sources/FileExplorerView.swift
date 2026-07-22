@@ -62,7 +62,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     }
 
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
-        context.coordinator.store = store
+        context.coordinator.updateStore(store)
         context.coordinator.state = state
         context.coordinator.onOpenFilePreview = onOpenFilePreview
         context.coordinator.placement = placement
@@ -84,7 +84,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-        var store: FileExplorerStore
+        private(set) var store: FileExplorerStore
         var state: FileExplorerState
         var onOpenFilePreview: (String) -> Void
         var placement: FileExplorerPanelPlacement
@@ -95,7 +95,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var lastRootNodeCount: Int = -1
         private var lastRenderedOutlineRevision: UInt64 = .max
         private var observationCancellable: AnyCancellable?
-        private var outlineChangeObserverID: UUID?
+        private var disclosureChangeObserverID: UUID?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
 
@@ -154,9 +154,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         deinit {
-            if let outlineChangeObserverID {
-                store.removeOutlineChangeObserver(outlineChangeObserverID)
-            }
+            stopObservingStore()
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -170,9 +168,38 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         self?.reloadIfNeeded()
                     }
                 }
-            outlineChangeObserverID = store.observeOutlineChanges { [weak self] _ in
+            disclosureChangeObserverID = store.observeDisclosureChanges { [weak self] node in
                 Task { @MainActor [weak self] in
-                    self?.reloadIfNeeded()
+                    self?.reconcileDisclosure(for: node)
+                }
+            }
+        }
+
+        private func stopObservingStore() {
+            observationCancellable = nil
+            if let disclosureChangeObserverID {
+                store.removeDisclosureChangeObserver(disclosureChangeObserverID)
+                self.disclosureChangeObserverID = nil
+            }
+        }
+
+        func updateStore(_ newStore: FileExplorerStore) {
+            guard store !== newStore else { return }
+            stopObservingStore()
+            store = newStore
+            lastRootNodeCount = -1
+            lastRenderedOutlineRevision = .max
+            observeStore()
+        }
+
+        @MainActor
+        private func reconcileDisclosure(for node: FileExplorerNode) {
+            guard let outlineView, outlineView.row(forItem: node) >= 0 else { return }
+            withProgrammaticOutlineUpdate {
+                if store.expandedPaths.contains(node.path), node.children != nil {
+                    outlineView.expandItem(node)
+                } else if outlineView.isItemExpanded(node) {
+                    outlineView.collapseItem(node)
                 }
             }
         }

@@ -664,23 +664,55 @@ struct FileExplorerStoreTests {
     }
 
     @Test
-    func testOutlineChangesBroadcastToEveryObserver() {
+    func testDisclosureChangesBroadcastToEveryObserver() {
         let store = FileExplorerStore()
         let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
         directory.children = []
-        var firstObserverRevisions: [UInt64] = []
-        var secondObserverRevisions: [UInt64] = []
-        let firstObserverID = store.observeOutlineChanges { firstObserverRevisions.append($0) }
-        let secondObserverID = store.observeOutlineChanges { secondObserverRevisions.append($0) }
+        var firstObserverPaths: [String] = []
+        var secondObserverPaths: [String] = []
+        let firstObserverID = store.observeDisclosureChanges { firstObserverPaths.append($0.path) }
+        let secondObserverID = store.observeDisclosureChanges { secondObserverPaths.append($0.path) }
         defer {
-            store.removeOutlineChangeObserver(firstObserverID)
-            store.removeOutlineChangeObserver(secondObserverID)
+            store.removeDisclosureChangeObserver(firstObserverID)
+            store.removeDisclosureChangeObserver(secondObserverID)
         }
 
         store.expand(node: directory)
 
-        #expect(firstObserverRevisions == [1])
-        #expect(secondObserverRevisions == [1])
+        #expect(firstObserverPaths == [directory.path])
+        #expect(secondObserverPaths == [directory.path])
+    }
+
+    @Test
+    func testCoordinatorRebindsDisclosureObserverWhenStoreChanges() async throws {
+        let originalStore = FileExplorerStore()
+        let replacementStore = FileExplorerStore()
+        let replacementDirectory = FileExplorerNode(
+            name: "Sources",
+            path: "/replacement/Sources",
+            isDirectory: true
+        )
+        replacementDirectory.children = []
+        replacementStore.rootNodes = [replacementDirectory]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: originalStore,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+
+        coordinator.updateStore(replacementStore)
+        coordinator.reloadIfNeeded()
+        replacementStore.expand(node: replacementDirectory)
+
+        try await waitFor("replacement store disclosure reaches the coordinator") {
+            outlineView.isItemExpanded(replacementDirectory)
+        }
     }
 
     @Test
@@ -706,8 +738,8 @@ struct FileExplorerStoreTests {
         coordinator.reloadIfNeeded()
         #expect(!store.isExpanded(directory))
 
-        store.expand(node: directory)
-        store.collapse(node: directory)
+        let revisionNode = FileExplorerNode(name: "Elsewhere", path: "/project/Elsewhere", isDirectory: true)
+        store.expand(node: revisionNode)
         coordinator.reloadIfNeeded()
 
         #expect(
