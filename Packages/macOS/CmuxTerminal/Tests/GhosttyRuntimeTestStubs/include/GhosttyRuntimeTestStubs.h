@@ -57,8 +57,8 @@ void ghostty_surface_render_grid_json_with_theme(void);
 void ghostty_surface_set_content_scale(void);
 void ghostty_surface_set_display_id(void);
 void ghostty_surface_set_focus(void);
-void ghostty_surface_set_occlusion(void);
-void ghostty_surface_set_renderer_realized(void);
+void ghostty_surface_set_occlusion(void *surface, bool visible);
+bool ghostty_surface_set_renderer_realized(void *surface, bool realized);
 void ghostty_surface_set_size(void);
 void ghostty_surface_size(void);
 void ghostty_surface_text(void);
@@ -67,5 +67,11 @@ ghostty_string_s ghostty_surface_tty_name(void *surface);
 
 void cmux_test_ghostty_runtime_stubs_reset(void);
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
+void cmux_test_ghostty_renderer_realized_begin(void *surface);
+void cmux_test_ghostty_renderer_realized_reset(void);
+uint32_t cmux_test_ghostty_renderer_realized_call_count(void);
+bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
+void cmux_test_ghostty_renderer_realized_set_result(bool result);
+bool cmux_test_ghostty_renderer_release_was_occluded(void);
 
 #endif

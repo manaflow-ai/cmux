@@ -53,7 +53,15 @@ extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        agentProcessPresence: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let rawLayout = sessionLayoutSnapshot(from: tree)
@@ -79,7 +87,9 @@ extension Workspace {
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
-                    )
+                    ),
+                    currentAgentProcessIdentity: currentAgentProcessIdentity,
+                    agentProcessPresence: agentProcessPresence
                 )
             }
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
@@ -401,7 +411,15 @@ extension Workspace {
         panelId: UUID,
         includeScrollback: Bool,
         restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
-        resumeBinding: SurfaceResumeBindingSnapshot?
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        agentProcessPresence: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
@@ -520,15 +538,52 @@ extension Workspace {
                 ? sessionRestorePolicy.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
             let agentWasRunning: Bool? = {
-                guard effectiveRestorableAgent != nil else { return nil }
-                switch panelShellActivityStates[panelId] {
-                case .some(.commandRunning):
-                    return true
-                case .some(.promptIdle):
-                    return false
-                case .some(.unknown), .none:
-                    return nil
+                if resumeBinding?.isAgentHookBinding == true {
+                    guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding?.kind),
+                          let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
+                          let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding?.checkpointId) else {
+                        return false
+                    }
+                    let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                        kind: bindingKind,
+                        sessionId: bindingSessionId,
+                        panelId: panelId,
+                        currentProcessIdentity: currentAgentProcessIdentity
+                    )
+                    if !confirmedRuntimeProcessIdentities.isEmpty {
+                        return true
+                    }
+                    guard let effectiveRestorableAgent,
+                          effectiveRestorableAgent.kind == bindingKind,
+                          effectiveRestorableAgent.sessionId == bindingSessionId,
+                          let restorableAgentObservation,
+                          restorableAgentObservation.snapshot.kind == bindingKind,
+                          restorableAgentObservation.snapshot.sessionId == bindingSessionId else {
+                        return false
+                    }
+                    return restorableAgentObservation.processLiveness
+                        .wasRunning(
+                            fallingBackTo: panelShellActivityStates[panelId],
+                            recordedProcessIdentities: restorableAgentObservation.agentProcessIdentities,
+                            confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                            currentProcessIdentity: currentAgentProcessIdentity,
+                            processPresence: agentProcessPresence
+                        ) ?? false
                 }
+                guard let effectiveRestorableAgent else { return nil }
+                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                    for: effectiveRestorableAgent,
+                    panelId: panelId,
+                    currentProcessIdentity: currentAgentProcessIdentity
+                )
+                return (restorableAgentObservation?.processLiveness ?? .unknown)
+                    .wasRunning(
+                        fallingBackTo: panelShellActivityStates[panelId],
+                        recordedProcessIdentities: restorableAgentObservation?.agentProcessIdentities ?? [:],
+                        confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                        currentProcessIdentity: currentAgentProcessIdentity,
+                        processPresence: agentProcessPresence
+                    )
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 resumeBinding,
@@ -750,9 +805,9 @@ extension Workspace {
         // (sysctl-per-record + disk, ~350ms-1.8s on machines with large agent history) so closing a
         // tab does not freeze the main thread. Fall back to a fresh load only when the cache has not
         // loaded yet (the brief window after launch before the first refresh completes; the cache is
-        // prewarmed at launch so this is rare). A cached entry at most one refresh stale is acceptable
-        // here because restore prefers the always-fresh in-memory resumeBinding and only consults this
-        // agent snapshot when no binding exists, so cmux-launched agents reopen correctly regardless of cache freshness.
+        // prewarmed at launch so this is rare). The snapshot path revalidates cached `.running`
+        // evidence against the recorded process generation before it lets the always-fresh in-memory
+        // resume binding auto-launch, so an exited generation cannot be revived from this warm cache.
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
         let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)

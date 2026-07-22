@@ -3401,6 +3401,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
+    /// Pane-local frame demand lets a terminal-specific consumer observe a
+    /// late render without enabling notifications on every terminal surface.
+    let localRenderedFrameNotificationDemand = RenderDemandCounter()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
@@ -3507,7 +3510,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func enqueueRenderedFrameUpdate() {
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
+        guard renderedFrameNotificationDemandIsActive else { return }
         _renderedFrameLock.lock()
         let needsSchedule = !_renderedFrameFlushScheduled
         if needsSchedule {
@@ -3526,7 +3529,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _renderedFrameFlushScheduled = false
         _renderedFrameLock.unlock()
 
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
+        guard renderedFrameNotificationDemandIsActive else { return }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
             object: self
@@ -3654,6 +3657,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let metalLayer = GhosttyMetalLayer()
         metalLayer.setFrameReceiver(self)
         metalLayer.setRenderDemand(GhosttyApp.renderedFrameNotificationDemand)
+        metalLayer.setLocalRenderDemand(localRenderedFrameNotificationDemand)
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.isOpaque = false
         Task { @MainActor [weak self] in self?.reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() }
@@ -9911,13 +9915,12 @@ final class GhosttySurfaceScrollView: NSView {
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
-        // Re-realize before marking visible so we never draw into a released swap chain.
-        surfaceView.terminalSurface?.setRendererPortalVisible(visible)
-        if visible {
-            surfaceView.terminalSurface?.realizeRenderer()
-        }
+        // Make the AppKit portal presentable before asking Ghostty to realize its
+        // drawable. Ghostty remains occluded until after the enqueue below, so it
+        // cannot draw into a released swap chain during this short transition.
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)

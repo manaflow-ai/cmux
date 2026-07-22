@@ -5642,6 +5642,12 @@ extension TabManager {
                     ),
                     into: &hasher
                 )
+                hasher.combine(
+                    restorableAgentIndex.entry(
+                        workspaceId: workspace.id,
+                        panelId: panelId
+                    )?.processLiveness
+                )
                 Self.hashAgentHibernationPanelState(
                     (workspace.panels[panelId] as? TerminalPanel)?.agentHibernationState,
                     into: &hasher
