@@ -93,6 +93,60 @@ struct ComputerUseUXTests {
         }
     }
 
+    @Test func menuProjectionChoosesOnlyTheMostRecentlyActiveComputerUseSession() throws {
+        try withStateDirectory { directory in
+            let now = Date(timeIntervalSince1970: 2_000_000_000)
+            let olderSurfaceID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+            let newerSurfaceID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+            try writeState(
+                to: directory.appendingPathComponent("older.json"),
+                pid: 10,
+                session: ComputerUseSessionScope.driverSessionID(surfaceID: olderSurfaceID),
+                targetPID: 100,
+                lastActionAt: now.addingTimeInterval(-10)
+            )
+            try writeState(
+                to: directory.appendingPathComponent("newer.json"),
+                pid: 20,
+                session: ComputerUseSessionScope.driverSessionID(surfaceID: newerSurfaceID),
+                targetPID: 200,
+                lastActionAt: now.addingTimeInterval(-1)
+            )
+
+            let rows = [
+                ComputerUseMenuBarRow(
+                    id: "older",
+                    title: "Older",
+                    sessionID: "session-older",
+                    workspaceID: UUID(),
+                    surfaceID: olderSurfaceID,
+                    targetIdentity: nil
+                ),
+                ComputerUseMenuBarRow(
+                    id: "newer",
+                    title: "Newer",
+                    sessionID: "session-newer",
+                    workspaceID: UUID(),
+                    surfaceID: newerSurfaceID,
+                    targetIdentity: nil
+                ),
+            ]
+            let scan = ComputerUseStateRepository().scan(
+                directoryURL: directory,
+                sessions: rows.map {
+                    ComputerUseSessionScope(
+                        id: $0.id,
+                        driverSessionID: ComputerUseSessionScope.driverSessionID(surfaceID: $0.surfaceID)
+                    )
+                },
+                now: now
+            )
+            let result = ComputerUseMenuBarScanResult(rows: rows, scan: scan)
+
+            #expect(result.mostRecentlyActiveRow?.id == "newer")
+        }
+    }
+
     @MainActor
     @Test func onboardingAutomaticallySurfacesOnlyOnceWhenPermissionsAreMissing() {
         #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
