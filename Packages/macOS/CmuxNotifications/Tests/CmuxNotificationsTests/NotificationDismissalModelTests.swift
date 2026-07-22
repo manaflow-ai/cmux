@@ -43,7 +43,7 @@ private final class FakeHost: NotificationDismissalHosting {
 
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
         detailedLookupCount += 1
-        panelIdsBySurface[surfaceId] ?? surfaceId
+        return panelIdsBySurface[surfaceId] ?? surfaceId
     }
 
     func storeHasDismissibleState(workspaceId: UUID) -> Bool {
