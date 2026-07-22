@@ -10433,7 +10433,7 @@ struct VerticalTabsSidebar: View, Equatable {
 
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
-    let featureFlags: CmuxFeatureFlags
+    var featureFlags: CmuxFeatureFlags = .shared
     let windowId: UUID
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void

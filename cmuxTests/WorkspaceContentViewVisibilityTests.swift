@@ -269,6 +269,11 @@ final class WorkspaceContentViewVisibilityTests {
     func testSidebarVisibilityToggleKeepsAppKitTableContainerMounted() async throws {
         _ = NSApplication.shared
 
+        let previousUsesCoalescedAnchorFailsafe = WindowTerminalPortal.usesCoalescedAnchorFailsafe
+        defer {
+            WindowTerminalPortal.usesCoalescedAnchorFailsafe = previousUsesCoalescedAnchorFailsafe
+        }
+
         let suiteName = "WorkspaceContentViewVisibilityTests.AppKitSidebar.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -317,48 +322,52 @@ final class WorkspaceContentViewVisibilityTests {
         }
 
         await Self.drainMainRunLoop(for: window)
-        let initialContainer = try #require(
-            Self.firstDescendant(
-                of: SidebarWorkspaceTableContainerView.self,
-                in: window.contentView
-            )
+        let initialContainers = Self.descendants(
+            of: SidebarWorkspaceTableContainerView.self,
+            in: window.contentView
         )
+        #expect(initialContainers.count == 1)
+        let initialContainer = try #require(initialContainers.first)
 
         sidebarState.toggle()
         await Self.drainMainRunLoop(for: window)
+        let hiddenContainers = Self.descendants(
+            of: SidebarWorkspaceTableContainerView.self,
+            in: window.contentView
+        )
+        #expect(hiddenContainers.count == 1)
         #expect(
-            Self.firstDescendant(
-                of: SidebarWorkspaceTableContainerView.self,
-                in: window.contentView
-            ) === initialContainer,
+            hiddenContainers.first === initialContainer,
             "Hiding the sidebar must preserve the existing AppKit table container."
         )
 
         sidebarState.toggle()
         await Self.drainMainRunLoop(for: window)
-
+        let reopenedContainers = Self.descendants(
+            of: SidebarWorkspaceTableContainerView.self,
+            in: window.contentView
+        )
+        #expect(reopenedContainers.count == 1)
         #expect(
-            Self.firstDescendant(
-                of: SidebarWorkspaceTableContainerView.self,
-                in: window.contentView
-            ) === initialContainer,
+            reopenedContainers.first === initialContainer,
             "Reopening the sidebar must reuse the existing AppKit table container."
         )
     }
 
     @MainActor
-    private static func firstDescendant<View: NSView>(
+    private static func descendants<View: NSView>(
         of type: View.Type,
         in root: NSView?
-    ) -> View? {
-        guard let root else { return nil }
-        if let match = root as? View { return match }
-        for subview in root.subviews {
-            if let match = firstDescendant(of: type, in: subview) {
-                return match
-            }
+    ) -> [View] {
+        guard let root else { return [] }
+        var matches: [View] = []
+        if let match = root as? View {
+            matches.append(match)
         }
-        return nil
+        for subview in root.subviews {
+            matches.append(contentsOf: descendants(of: type, in: subview))
+        }
+        return matches
     }
 
     @MainActor
