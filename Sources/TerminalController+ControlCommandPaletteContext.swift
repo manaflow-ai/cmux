@@ -76,6 +76,8 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             switch result {
             case .completed:
                 return .completed(windowID: windowID, command: item)
+            case .queued:
+                return .queued(windowID: windowID, command: item)
             case .dispatched:
                 return .dispatched(windowID: windowID, command: item)
             case .presented:
@@ -142,14 +144,17 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         routing: ControlRoutingSelectors,
         directoryPath: String
     ) -> ControlInlineVSCodeOpenResolution {
-        guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
-            return .vscodeUnavailable
-        }
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        guard controlPaletteSelectorsBelongToTarget(routing, tabManager: tabManager) else {
+            return .workspaceNotFound
+        }
         guard let workspace = controlInlineVSCodeWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
+        }
+        guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
+            return .vscodeUnavailable
         }
         guard AppDelegate.shared?.openDirectoryInInlineVSCode(
             URL(fileURLWithPath: directoryPath, isDirectory: true),
@@ -168,12 +173,47 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         routing: ControlRoutingSelectors
     ) -> (windowID: UUID, handler: (CommandPaletteControlRequest) -> Void)? {
         guard let tabManager = resolveTabManager(routing: routing),
+              controlPaletteSelectorsBelongToTarget(routing, tabManager: tabManager),
               let app = AppDelegate.shared,
               let context = app.mainWindowContext(for: tabManager),
               let handler = context.commandPaletteControlHandler else {
             return nil
         }
         return (context.windowId, handler)
+    }
+
+    /// Palette actions are window-scoped, but lower-precedence selectors still
+    /// have to describe that same window. Without this check, a stale selector
+    /// falls through `resolveTabManager` to the caller window, while an explicit
+    /// `window_id` can mask a selector owned by another window.
+    private func controlPaletteSelectorsBelongToTarget(
+        _ routing: ControlRoutingSelectors,
+        tabManager: TabManager
+    ) -> Bool {
+        if routing.hasGroupIDParam {
+            guard let groupID = routing.groupID,
+                  tabManager.workspaceGroups.contains(where: { $0.id == groupID }) else {
+                return false
+            }
+        }
+        if routing.hasWorkspaceIDParam {
+            guard let workspaceID = routing.workspaceID else { return false }
+            // The alias means this already-resolved target window's Dock.
+            if workspaceID != AppDelegate.windowDockAliasWorkspaceId {
+                let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID)
+                    ?? AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID)
+                guard owner === tabManager else { return false }
+            }
+        }
+        if routing.hasSurfaceIDParam {
+            guard let surfaceID = routing.surfaceID else { return false }
+            guard controlTabManager(surfaceID: surfaceID) === tabManager else { return false }
+        }
+        if routing.hasPaneIDParam {
+            guard let paneID = routing.paneID else { return false }
+            guard controlTabManager(paneID: paneID) === tabManager else { return false }
+        }
+        return true
     }
 
     private func controlCommandPaletteItem(
@@ -205,13 +245,16 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         routing: ControlRoutingSelectors,
         tabManager: TabManager
     ) -> Workspace? {
-        if let workspaceID = routing.workspaceID {
+        if routing.hasWorkspaceIDParam {
+            guard let workspaceID = routing.workspaceID else { return nil }
             return tabManager.tabs.first(where: { $0.id == workspaceID })
         }
-        if let surfaceID = routing.surfaceID {
+        if routing.hasSurfaceIDParam {
+            guard let surfaceID = routing.surfaceID else { return nil }
             return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })
         }
-        if let paneID = routing.paneID {
+        if routing.hasPaneIDParam {
+            guard let paneID = routing.paneID else { return nil }
             guard let located = v2LocatePane(paneID),
                   located.tabManager === tabManager else {
                 return nil

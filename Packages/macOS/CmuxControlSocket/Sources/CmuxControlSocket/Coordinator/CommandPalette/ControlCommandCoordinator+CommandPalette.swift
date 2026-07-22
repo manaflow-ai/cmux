@@ -101,6 +101,12 @@ extension ControlCommandCoordinator {
                 "command": commandPalettePayload(command),
                 "status": .string("completed"),
             ]))
+        case .queued(let windowID, let command):
+            return .ok(.object([
+                "window_id": .string(windowID.uuidString),
+                "command": commandPalettePayload(command),
+                "status": .string("queued"),
+            ]))
         case .dispatched(let windowID, let command):
             return .ok(.object([
                 "window_id": .string(windowID.uuidString),

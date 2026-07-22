@@ -145,7 +145,7 @@ public struct CommandPaletteCommand: Identifiable {
 
     /// Legacy command-palette closure used by existing view code.
     @MainActor
-    public var action: () -> Void {
+    public var action: @MainActor () -> Void {
         {
             _ = execute(CmuxActionInvocation(source: .commandPalette))
         }

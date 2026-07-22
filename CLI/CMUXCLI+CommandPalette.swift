@@ -147,10 +147,29 @@ extension CMUXCLI {
             print(jsonString(formatIDs(payload, mode: idFormat)))
             return
         }
-        let prefix = String(
-            localized: "cli.palette.runSuccess",
-            defaultValue: "Ran command palette action:"
-        )
+        let prefix: String
+        switch payload["status"] as? String {
+        case "queued":
+            prefix = String(
+                localized: "cli.palette.runQueued",
+                defaultValue: "Queued command palette action:"
+            )
+        case "presented":
+            prefix = String(
+                localized: "cli.palette.runPresented",
+                defaultValue: "Presented command palette action:"
+            )
+        case "dispatched":
+            prefix = String(
+                localized: "cli.palette.runDispatched",
+                defaultValue: "Dispatched command palette action:"
+            )
+        default:
+            prefix = String(
+                localized: "cli.palette.runSuccess",
+                defaultValue: "Ran command palette action:"
+            )
+        }
         print("\(prefix) \(commandID)")
     }
 

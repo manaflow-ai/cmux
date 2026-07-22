@@ -8228,19 +8228,11 @@ struct ContentView: View {
                 guard let directoryURL = commandPaletteDirectoryURL(path) else {
                     return commandPaletteDirectoryUnavailableResult()
                 }
-                guard AppDelegate.shared?.openDirectoryInInlineVSCode(
+                let didQueue = AppDelegate.shared?.openDirectoryInInlineVSCode(
                     directoryURL,
                     tabManager: tabManager
-                ) == true else {
-                    return .failed(
-                        code: "open_failed",
-                        message: String(
-                            localized: "action.error.inlineVSCodeOpenFailed",
-                            defaultValue: "VS Code (Inline) could not open the directory."
-                        )
-                    )
-                }
-                return .completed
+                ) == true
+                return Self.commandPaletteInlineVSCodeOpenResult(didQueue: didQueue)
             }
             Task { @MainActor in
                 AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
@@ -9942,6 +9934,21 @@ struct ContentView: View {
             return nil
         }
         return directoryURL
+    }
+
+    static func commandPaletteInlineVSCodeOpenResult(
+        didQueue: Bool
+    ) -> CmuxActionExecutionResult {
+        guard didQueue else {
+            return .failed(
+                code: "open_failed",
+                message: String(
+                    localized: "action.error.inlineVSCodeOpenFailed",
+                    defaultValue: "VS Code (Inline) could not open the directory."
+                )
+            )
+        }
+        return .queued
     }
 
     private func commandPaletteDirectoryUnavailableResult() -> CmuxActionExecutionResult {

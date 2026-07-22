@@ -246,7 +246,13 @@ public final class ControlCommandCoordinator {
             surfaceID: uuid(params, "surface_id")
                 ?? uuid(params, "terminal_id")
                 ?? uuid(params, "tab_id"),
-            paneID: uuid(params, "pane_id")
+            paneID: uuid(params, "pane_id"),
+            hasGroupIDParam: hasNonNull(params, "group_id"),
+            hasWorkspaceIDParam: hasNonNull(params, "workspace_id"),
+            hasSurfaceIDParam: hasNonNull(params, "surface_id")
+                || hasNonNull(params, "terminal_id")
+                || hasNonNull(params, "tab_id"),
+            hasPaneIDParam: hasNonNull(params, "pane_id")
         )
     }
 }

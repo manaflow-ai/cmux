@@ -9,6 +9,8 @@ public enum ControlCommandPaletteRunResolution: Sendable, Equatable {
     case commandNotFound
     /// The same action registered for Cmd+Shift+P completed synchronously.
     case completed(windowID: UUID, command: ControlCommandPaletteItem)
+    /// The action accepted asynchronous work that has not completed yet.
+    case queued(windowID: UUID, command: ControlCommandPaletteItem)
     /// A compatibility handler was invoked, but it does not expose a verified
     /// completion, presentation, or failure outcome.
     case dispatched(windowID: UUID, command: ControlCommandPaletteItem)

@@ -45,21 +45,15 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: strings.tabManagerUnavailable, data: nil)
         }
 
-        let hasPaneIDParam: Bool
-        if let value = params["pane_id"], case .null = value {
-            hasPaneIDParam = false
-        } else {
-            hasPaneIDParam = params["pane_id"] != nil
-        }
         let resolution: ControlInlineVSCodeOpenResolution = context.controlResolveOnMain { seam in
             let routing = self.routingSelectors(params)
-            // Workspace and surface selectors precede pane_id. When pane_id is
-            // the active workspace selector, a present-but-unresolvable handle
-            // must fail closed instead of falling through to the selected tab.
-            if routing.workspaceID == nil,
-               routing.surfaceID == nil,
-               hasPaneIDParam,
-               routing.paneID == nil {
+            // Every explicit selector must resolve. Otherwise the app cannot
+            // distinguish a bad target from an intentionally omitted one and
+            // could fall through to the selected workspace.
+            if (routing.hasGroupIDParam && routing.groupID == nil)
+                || (routing.hasWorkspaceIDParam && routing.workspaceID == nil)
+                || (routing.hasSurfaceIDParam && routing.surfaceID == nil)
+                || (routing.hasPaneIDParam && routing.paneID == nil) {
                 return .workspaceNotFound
             }
             return seam.controlInlineVSCodeOpen(routing: routing, directoryPath: resolved)

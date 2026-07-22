@@ -236,7 +236,15 @@ enum WorkspaceTodoPaletteCommands {
                 return .targetUnavailable
             }
             if let text = invocation.string("text") {
-                WorkspaceTodoActions.addChecklistItem(text: text, to: workspace)
+                guard WorkspaceTodoActions.addChecklistItem(text: text, to: workspace) else {
+                    return .failed(
+                        code: "action_failed",
+                        message: String(
+                            localized: "action.error.checklistItemAddFailed",
+                            defaultValue: "The checklist item could not be added."
+                        )
+                    )
+                }
                 return .completed
             }
             WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)

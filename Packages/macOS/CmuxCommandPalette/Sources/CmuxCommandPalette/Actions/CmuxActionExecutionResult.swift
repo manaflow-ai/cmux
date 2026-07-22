@@ -2,6 +2,8 @@
 public enum CmuxActionExecutionResult: Sendable, Equatable {
     /// The action completed synchronously.
     case completed
+    /// The action accepted asynchronous work that has not completed yet.
+    case queued
     /// A compatibility handler was invoked, but it does not report whether the
     /// requested work completed, presented UI, or failed.
     case dispatched
