@@ -159,6 +159,8 @@ final class AgentSessionWebHostView: NSView {
         onGeometryChanged?()
     }
 
+    // This can run from NSViewRepresentable.updateNSView. Do not force a
+    // synchronous layout here; it reenters the surrounding NSHostingView.
     func attachWebView(_ webView: WKWebView) {
         if hostedWebView !== webView {
             resetPendingScroll()
@@ -172,7 +174,6 @@ final class AgentSessionWebHostView: NSView {
         webView.autoresizingMask = []
         webView.frame = sessionContentWidthPresentation.contentFrame(in: bounds)
         needsLayout = true
-        layoutSubtreeIfNeeded()
     }
 
     func setSessionContentWidthPresentation(_ presentation: SessionContentWidthPresentation) {
