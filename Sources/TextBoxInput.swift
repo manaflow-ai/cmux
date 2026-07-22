@@ -3607,9 +3607,14 @@ final class TextBoxInputTextView: NSTextView {
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         onMarkedTextStateChanged(hasMarkedText())
-        // Marked text bypasses textDidChange; run TextBox measurement and redraw before commit.
-        needsLayout = true
-        layoutSubtreeIfNeeded()
+        // Marked text bypasses textDidChange. Measure until the TextBox reaches its capped
+        // viewport height; after that, another whole-document height pass cannot change the UI.
+        let visibleHeight = enclosingScrollView?.contentView.bounds.height ?? 0
+        let isDocumentTallerThanViewport = visibleHeight > 0 && frame.height > visibleHeight + 0.5
+        if !isDocumentTallerThanViewport {
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+        }
         needsDisplay = true
     }
 

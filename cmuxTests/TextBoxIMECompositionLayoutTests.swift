@@ -61,8 +61,8 @@ struct TextBoxIMECompositionLayoutTests {
             completedLayoutCount += 1
             coordinator.recalculateHeight(textView)
         }
-        textView.onMarkedTextStateChanged = { hasMarkedText in
-            coordinator.noteMarkedTextStateChanged(hasMarkedText, from: textView)
+        textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
+            coordinator?.noteMarkedTextStateChanged(hasMarkedText, from: textView)
         }
 
         coordinator.recalculateHeight(textView)
@@ -82,6 +82,33 @@ struct TextBoxIMECompositionLayoutTests {
         #expect(completedLayoutCount == 1)
         #expect(textViewHeight > committedOnlyHeight)
         #expect(textView.frame.height == textViewHeight)
+        #expect(textView.needsDisplay)
+    }
+
+    @Test("marked text skips redundant height measurement after the TextBox is capped")
+    @MainActor
+    func markedTextInOverflowingTextBoxSkipsHeightMeasurement() {
+        let textView = makeTextView()
+        let scrollView = NSScrollView(
+            frame: NSRect(x: 0, y: 0, width: textView.frame.width, height: TextBoxLayout.minimumTextHeight)
+        )
+        scrollView.documentView = textView
+        textView.frame.size.height = TextBoxLayout.minimumTextHeight * 2
+
+        var completedLayoutCount = 0
+        textView.onLayoutCompleted = { _ in
+            completedLayoutCount += 1
+        }
+        textView.needsDisplay = false
+
+        textView.setMarkedText(
+            "ㄅ",
+            selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        #expect(textView.hasMarkedText())
+        #expect(completedLayoutCount == 0)
         #expect(textView.needsDisplay)
     }
 
