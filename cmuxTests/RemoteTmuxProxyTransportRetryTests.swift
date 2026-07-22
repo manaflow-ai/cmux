@@ -433,24 +433,82 @@ import Testing
         #expect(connection.snapshot().recentEvents.contains("liveness-stalled"))
     }
 
-    /// A probe that is written but never answered is the stall this monitor exists for: ET can
-    /// accept stdin while producing no control output. Before the deadline, probes accumulated and
-    /// the connection stayed `.connected` forever — the monitor could not detect the very case it
-    /// was added for.
-    @MainActor @Test func anUnansweredProbeIsTreatedAsAStall() {
-        let connection = RemoteTmuxControlConnection(
-            host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
-            sessionName: "work"
-        )
+    /// A probe that is written but never answered, on a host that still answers out of band, is
+    /// the stall this monitor exists for: ET can accept stdin while producing no control output.
+    /// Before the deadline, probes accumulated and the connection stayed `.connected` forever —
+    /// the monitor could not detect the very case it was added for.
+    ///
+    /// The reachable answer is what makes this a stall rather than an outage: the host is fine, so
+    /// the stream is the broken part.
+    @MainActor @Test func anUnansweredProbeOnAReachableHostIsTreatedAsAStall() async {
+        let connection = Self.etConnection(reachable: true)
         connection.handle(.enter)
         // Stand in for a probe that was written and never came back.
         connection.livenessProbeOutstanding = true
 
-        var reported: Bool?
-        connection.checkLivenessAndRecoverIfStalled { reported = $0 }
+        let reported = await Self.tick(connection)
         #expect(reported == false)
         #expect(connection.snapshot().recentEvents.contains("liveness-unanswered"))
         #expect(connection.snapshot().recentEvents.contains("liveness-stalled"))
+        #expect(connection.connectionState == .reconnecting)
+    }
+
+    /// An unanswered probe during a real outage must not cost the session.
+    ///
+    /// The transport reconnects underneath, and while it does it cannot answer a probe either — so
+    /// silence alone cannot mean "wedged". Recovering here terminates the transport process and
+    /// discards the session it was in the middle of resuming. The host is asked out of band, over
+    /// a channel the wedge cannot reach, and an unreachable host means wait.
+    @MainActor @Test func anOutageDefersTheVerdictInsteadOfDiscardingTheSession() async {
+        let connection = Self.etConnection(reachable: false)
+        connection.handle(.enter)
+        connection.livenessProbeOutstanding = true
+
+        let reported = await Self.tick(connection)
+        #expect(reported == true, "nothing was recovered, so there is no recovery edge to report")
+        #expect(connection.connectionState == .connected, "an outage must not end the session")
+        #expect(!connection.snapshot().recentEvents.contains("liveness-stalled"))
+        #expect(connection.snapshot().recentEvents.contains("liveness-deferred-unreachable"))
+    }
+
+    /// Deferral is bounded. A host that stays unreachable while the stream stays silent is
+    /// eventually recovered anyway: if the outage is not what silenced the stream, waiting on it
+    /// forever leaves a frozen mirror with no retry — the failure this monitor was added for.
+    @MainActor @Test func aDeferralRunEndsInRecoveryOnceTheCapIsPassed() async {
+        let connection = Self.etConnection(reachable: false)
+        connection.handle(.enter)
+        connection.livenessProbeOutstanding = true
+
+        let cap = RemoteTmuxControlConnection.maxConsecutiveLivenessDeferrals
+        for _ in 0..<cap {
+            let reported = await Self.tick(connection)
+            #expect(reported == true)
+        }
+        #expect(connection.connectionState == .connected, "within the cap the session is kept")
+
+        let final = await Self.tick(connection)
+        #expect(final == false)
+        #expect(connection.snapshot().recentEvents.contains("liveness-deferral-exhausted"))
+        #expect(connection.snapshot().recentEvents.contains("liveness-stalled"))
+        #expect(connection.connectionState == .reconnecting)
+    }
+
+    /// An et connection whose reachability answer is decided by the test, so the branch under test
+    /// is reached without a host, an ssh master, or a spawned process.
+    @MainActor private static func etConnection(reachable: Bool) -> RemoteTmuxControlConnection {
+        RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
+            sessionName: "work",
+            sessionReachability: { _, _ in reachable }
+        )
+    }
+
+    /// Runs one monitor tick and waits for its verdict. The verdict can now cross an `await` (the
+    /// out-of-band question), so it is read from the completion rather than after the call.
+    @MainActor private static func tick(_ connection: RemoteTmuxControlConnection) async -> Bool {
+        await withCheckedContinuation { continuation in
+            connection.checkLivenessAndRecoverIfStalled { continuation.resume(returning: $0) }
+        }
     }
 
     /// A stream that never reached control mode is a failed start, not a lost session.
