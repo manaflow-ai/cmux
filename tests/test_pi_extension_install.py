@@ -98,7 +98,15 @@ def main() -> int:
         bin_dir.mkdir()
         fake_pi = bin_dir / "pi"
         make_executable(fake_pi, "#!/usr/bin/env bash\nexit 0\n")
-        legacy_package = root / "node_modules" / "@earendil-works" / "pi-coding-agent"
+        modern_package = root / "modern-node-modules" / "@earendil-works" / "pi-coding-agent"
+        modern_cli = modern_package / "dist" / "cli.js"
+        modern_cli.parent.mkdir(parents=True)
+        make_executable(modern_cli, "#!/usr/bin/env node\n")
+        (modern_package / "package.json").write_text(
+            json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "0.80.5"}),
+            encoding="utf-8",
+        )
+        legacy_package = root / "legacy-node-modules" / "@earendil-works" / "pi-coding-agent"
         legacy_cli = legacy_package / "dist" / "cli.js"
         legacy_cli.parent.mkdir(parents=True)
         make_executable(legacy_cli, "#!/usr/bin/env node\n")
@@ -192,7 +200,9 @@ esac
         check_env["CMUX_TEST_PI_STDIN_LOG"] = str(fake_stdin_log)
         check_env["CMUX_TEST_PI_ENV_LOG"] = str(fake_env_log)
         check_env["CMUX_TEST_PI_BINDING_FILE"] = str(fake_binding)
+        check_env["CMUX_TEST_PI_MODERN_SCRIPT_PATH"] = str(modern_cli)
         check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
+        check_env["CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH"] = str(root / "unknown-bin" / "pi")
         check_env["OPENAI_API_KEY"] = "openai-secret-should-not-leak"
         check_env["ANTHROPIC_AUTH_TOKEN"] = "anthropic-secret-should-not-leak"
         check_env["CUSTOM_PASSWORD"] = "password-should-not-leak"
@@ -231,7 +241,7 @@ process.argv.splice(
   0,
   process.argv.length,
   "/opt/homebrew/bin/node",
-  "/tmp/node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+  process.env.CMUX_TEST_PI_MODERN_SCRIPT_PATH,
   "--model",
   "anthropic/claude-sonnet-4-5"
 );
@@ -368,6 +378,28 @@ await handlers.get("agent_end")({
 }, legacyCtx);
 completionCount += 2;
 if (await completionHookCount() !== completionCount) throw new Error("legacy Pi agent_end did not emit completion fallback");
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/opt/homebrew/bin/node",
+  process.env.CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH
+);
+const unknownCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-unknown"; }
+  }
+};
+await handlers.get("session_start")({}, unknownCtx);
+await handlers.get("before_agent_start")({ prompt: "unknown pi" }, unknownCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "unknown done" }],
+  stopReason: "completed"
+}, unknownCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("unknown Pi agent_end did not emit completion fallback");
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -412,7 +444,13 @@ if (await completionHookCount() !== completionCount) throw new Error("legacy Pi 
                 resume_ops.append("set")
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
-        expected_resume_ops = ["set", "get", "clear", "set", "get", "clear", "set", "get", "set", "get"]
+        expected_resume_ops = [
+            "set", "get", "clear",
+            "set", "get", "clear",
+            "set", "get",
+            "set", "get",
+            "set", "get",
+        ]
         if resume_ops != expected_resume_ops:
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
             return 1
@@ -483,6 +521,18 @@ if (await completionHookCount() !== completionCount) throw new Error("legacy Pi 
         )
         if legacy_stop_payload is None or legacy_stop_payload.get("last_assistant_message") != "legacy done":
             print(f"FAIL: legacy Pi agent_end did not emit its completion payload, got {payloads!r}")
+            return 1
+        unknown_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-unknown"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if unknown_stop_payload is None or unknown_stop_payload.get("last_assistant_message") != "unknown done":
+            print(f"FAIL: unknown Pi agent_end did not emit its completion payload, got {payloads!r}")
             return 1
         interrupted_stop_payload = next(
             (payload for payload in payloads if payload.get("terminationReason") == "terminated"),
