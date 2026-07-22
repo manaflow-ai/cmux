@@ -14,8 +14,12 @@ struct DockSessionPersistenceTests {
         let terminalID = UUID()
         let browserID = UUID()
         let secondaryBrowserID = UUID()
+        let windowPrimaryBrowserID = UUID()
+        let windowSecondaryBrowserID = UUID()
+        let windowTertiaryBrowserID = UUID()
         let profileID = UUID()
         let sourceWorkspaceID = UUID()
+        let windowSourceWorkspaceID = UUID()
         let agent = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "dock-agent-session",
@@ -113,7 +117,7 @@ struct DockSessionPersistenceTests {
             filePreview: nil,
             rightSidebarTool: nil
         )
-        let dock = SessionSplitContainerSnapshot(
+        let workspaceDock = SessionSplitContainerSnapshot(
             focusedPanelId: browserID,
             layout: .split(SessionSplitLayoutSnapshot(
                 orientation: .horizontal,
@@ -130,7 +134,39 @@ struct DockSessionPersistenceTests {
             panels: [terminal, browser, secondaryBrowser],
             sourceWorkspaceIdsByPanelId: [terminalID: sourceWorkspaceID]
         )
-        let snapshot = makeAppSnapshot(workspaceDock: dock, windowDock: dock)
+        let windowPrimaryBrowser = browserSnapshot(
+            id: windowPrimaryBrowserID,
+            title: "Window primary",
+            urlString: "https://window.example.com/primary"
+        )
+        let windowSecondaryBrowser = browserSnapshot(
+            id: windowSecondaryBrowserID,
+            title: "Window secondary",
+            urlString: "https://window.example.com/secondary"
+        )
+        let windowTertiaryBrowser = browserSnapshot(
+            id: windowTertiaryBrowserID,
+            title: "Window tertiary",
+            urlString: "https://window.example.com/tertiary"
+        )
+        let windowDock = SessionSplitContainerSnapshot(
+            focusedPanelId: windowTertiaryBrowserID,
+            layout: .split(SessionSplitLayoutSnapshot(
+                orientation: .vertical,
+                dividerPosition: 0.62,
+                first: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [windowPrimaryBrowserID, windowSecondaryBrowserID],
+                    selectedPanelId: windowPrimaryBrowserID
+                )),
+                second: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [windowTertiaryBrowserID],
+                    selectedPanelId: windowTertiaryBrowserID
+                ))
+            )),
+            panels: [windowPrimaryBrowser, windowSecondaryBrowser, windowTertiaryBrowser],
+            sourceWorkspaceIdsByPanelId: [windowTertiaryBrowserID: windowSourceWorkspaceID]
+        )
+        let snapshot = makeAppSnapshot(workspaceDock: workspaceDock, windowDock: windowDock)
 
         let encoded = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: encoded)
@@ -138,20 +174,49 @@ struct DockSessionPersistenceTests {
         let decodedWindowDock = try #require(decoded.windows.first?.dock)
 
         #expect(decodedWorkspaceDock.focusedPanelId == browserID)
-        #expect(decodedWindowDock.focusedPanelId == browserID)
         #expect(decodedWorkspaceDock.sourceWorkspaceIdsByPanelId?[terminalID] == sourceWorkspaceID)
-        guard case .split(let decodedLayout) = decodedWorkspaceDock.layout else {
-            Issue.record("Expected restored Dock split layout")
+        guard case .split(let decodedWorkspaceLayout) = decodedWorkspaceDock.layout else {
+            Issue.record("Expected restored workspace Dock split layout")
             return
         }
-        #expect(decodedLayout.orientation.rawValue == SessionSplitOrientation.horizontal.rawValue)
-        #expect(decodedLayout.dividerPosition == 0.37)
-        guard case .pane(let firstPane) = decodedLayout.first else {
-            Issue.record("Expected first restored Dock pane")
+        #expect(decodedWorkspaceLayout.orientation.rawValue == SessionSplitOrientation.horizontal.rawValue)
+        #expect(decodedWorkspaceLayout.dividerPosition == 0.37)
+        guard case .pane(let workspaceFirstPane) = decodedWorkspaceLayout.first else {
+            Issue.record("Expected first restored workspace Dock pane")
             return
         }
-        #expect(firstPane.panelIds == [terminalID, browserID])
-        #expect(firstPane.selectedPanelId == browserID)
+        #expect(workspaceFirstPane.panelIds == [terminalID, browserID])
+        #expect(workspaceFirstPane.selectedPanelId == browserID)
+        guard case .pane(let workspaceSecondPane) = decodedWorkspaceLayout.second else {
+            Issue.record("Expected second restored workspace Dock pane")
+            return
+        }
+        #expect(workspaceSecondPane.panelIds == [secondaryBrowserID])
+        #expect(workspaceSecondPane.selectedPanelId == secondaryBrowserID)
+
+        #expect(decodedWindowDock.focusedPanelId == windowTertiaryBrowserID)
+        #expect(
+            decodedWindowDock.sourceWorkspaceIdsByPanelId?[windowTertiaryBrowserID]
+                == windowSourceWorkspaceID
+        )
+        guard case .split(let decodedWindowLayout) = decodedWindowDock.layout else {
+            Issue.record("Expected restored window Dock split layout")
+            return
+        }
+        #expect(decodedWindowLayout.orientation.rawValue == SessionSplitOrientation.vertical.rawValue)
+        #expect(decodedWindowLayout.dividerPosition == 0.62)
+        guard case .pane(let windowFirstPane) = decodedWindowLayout.first else {
+            Issue.record("Expected first restored window Dock pane")
+            return
+        }
+        #expect(windowFirstPane.panelIds == [windowPrimaryBrowserID, windowSecondaryBrowserID])
+        #expect(windowFirstPane.selectedPanelId == windowPrimaryBrowserID)
+        guard case .pane(let windowSecondPane) = decodedWindowLayout.second else {
+            Issue.record("Expected second restored window Dock pane")
+            return
+        }
+        #expect(windowSecondPane.panelIds == [windowTertiaryBrowserID])
+        #expect(windowSecondPane.selectedPanelId == windowTertiaryBrowserID)
 
         let decodedTerminal = try #require(decodedWorkspaceDock.panels.first { $0.id == terminalID }?.terminal)
         #expect(decodedTerminal.agent?.sessionId == "dock-agent-session")
@@ -171,6 +236,11 @@ struct DockSessionPersistenceTests {
         #expect(decodedBrowser.developerToolsVisible)
         #expect(decodedBrowser.isMuted)
         #expect(decodedBrowser.omnibarVisible == false)
+
+        let decodedWindowBrowser = try #require(
+            decodedWindowDock.panels.first { $0.id == windowSecondaryBrowserID }?.browser
+        )
+        #expect(decodedWindowBrowser.urlString == "https://window.example.com/secondary")
     }
 
     @Test("Legacy session JSON without Dock fields decodes cleanly")
@@ -274,6 +344,33 @@ struct DockSessionPersistenceTests {
             version: SessionSnapshotSchema.currentVersion,
             createdAt: 123,
             windows: [window]
+        )
+    }
+
+    private func browserSnapshot(id: UUID, title: String, urlString: String) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .browser,
+            title: title,
+            customTitle: nil,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: nil,
+            browser: SessionBrowserPanelSnapshot(
+                urlString: urlString,
+                profileID: nil,
+                shouldRenderWebView: true,
+                pageZoom: 1,
+                developerToolsVisible: false,
+                backHistoryURLStrings: [],
+                forwardHistoryURLStrings: []
+            ),
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
         )
     }
 }
