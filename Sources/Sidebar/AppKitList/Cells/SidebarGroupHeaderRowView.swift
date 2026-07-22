@@ -597,11 +597,17 @@ final class SidebarShortcutHintPillView: NSView {
 
     private let materialView = NSVisualEffectView()
     private let label = NSTextField(labelWithString: "")
+    private let reduceMotionProvider: () -> Bool
     private var emphasis: Double = 1.0
     private var isRevealed = false
     private var visibilityGeneration: UInt64 = 0
 
-    init() {
+    init(
+        reduceMotionProvider: @escaping () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+    ) {
+        self.reduceMotionProvider = reduceMotionProvider
         super.init(frame: .zero)
         wantsLayer = true
         layer?.shadowOpacity = 1
@@ -674,7 +680,7 @@ final class SidebarShortcutHintPillView: NSView {
         visibilityGeneration &+= 1
         let generation = visibilityGeneration
 
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if reduceMotionProvider() {
             applyImmediateVisibility(revealed)
             return
         }
