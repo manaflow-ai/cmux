@@ -79,19 +79,6 @@ public struct UITestConfig {
         #endif
     }
 
-    /// Whether the standalone panes-and-tabs preview is enabled.
-    ///
-    /// When `CMUX_UITEST_PANES_PREVIEW=1`, the root view renders fixture-driven
-    /// production surface-deck and pane-map views without sign-in or Mac pairing.
-    /// DEBUG-only.
-    public static var panesPreviewEnabled: Bool {
-        #if DEBUG
-        return ProcessInfo.processInfo.environment["CMUX_UITEST_PANES_PREVIEW"] == "1"
-        #else
-        return false
-        #endif
-    }
-
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
