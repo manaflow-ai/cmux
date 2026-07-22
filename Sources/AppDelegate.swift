@@ -16189,6 +16189,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commitMainWindowClose(window)
     }
 
+    func hasCommittedMainWindowClose(_ window: NSWindow) -> Bool {
+        mainWindowVisibilityController.hasCommittedClose(for: window)
+    }
+
     @discardableResult
     func commitMainWindowClose(_ window: NSWindow) -> Bool {
         // Tombstone before touching snapshots or surfaces. SwiftUI can invoke
