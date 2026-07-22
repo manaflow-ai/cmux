@@ -173,19 +173,6 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
     }
 
-    func setAgentLifecycle(
-        key: String,
-        panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
-    ) {
-        let targetPanelId = panelId ?? focusedPanelId
-        guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
-            recordAgentLifecycleChange(panelId: targetPanelId)
-        }
-    }
-
     @discardableResult
     func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
         var didClear = false
@@ -258,7 +245,7 @@ extension Workspace {
         return fallback ?? .unknown
     }
 
-    private func recordAgentLifecycleChange(panelId: UUID) {
+    func recordAgentLifecycleChange(panelId: UUID) {
         AgentHibernationController.shared.recordAgentLifecycleChange(
             workspaceId: id,
             panelId: panelId

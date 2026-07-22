@@ -464,37 +464,48 @@ extension FeedCoordinator {
     /// The workspace prefers the event's live `workspace_id` (the running
     /// terminal's CMUX_WORKSPACE_ID, a raw UUID) so a stale hook-session map
     /// can't redirect attention to the wrong workspace; it falls back to the
-    /// session store when the event omits a parseable id. The surface comes
-    /// from the session store only when its workspace matches the resolved
-    /// workspace, so a stale entry can't point the panel elsewhere.
-    private static func resolveAttentionTarget(
+    /// session store when the event omits a parseable id. An explicit live
+    /// surface wins; otherwise the stored surface is used only when its
+    /// workspace matches, so a stale entry can't point the panel elsewhere.
+    static func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (workspaceId: UUID, surfaceId: UUID?)? {
-        let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
-            guard let parsed = FeedJumpResolver.parse(event.sessionId),
-                  let resolved = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
-                  let workspaceId = UUID(uuidString: resolved.workspaceId)
-            else { return nil }
-            return (workspaceId, UUID(uuidString: resolved.surfaceId))
-        }()
-
         let eventWorkspaceId = event.workspaceId.flatMap {
             UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        let eventSurfaceId = event.surfaceId.flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        if let eventWorkspaceId, let eventSurfaceId {
+            return (eventWorkspaceId, eventSurfaceId)
+        }
+        let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
+            guard let parsed = FeedJumpResolver.parse(event.sessionId),
+                  let resolved = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
+                  let workspaceId = UUID(uuidString: resolved.workspaceId) else { return nil }
+            return (workspaceId, UUID(uuidString: resolved.surfaceId))
+        }()
 
         guard let workspaceId = eventWorkspaceId ?? sessionMatch?.workspaceId else {
             return nil
         }
-        // Only trust the session store's surface if it belongs to the
-        // workspace we're actually targeting.
-        let surfaceId = (sessionMatch?.workspaceId == workspaceId) ? sessionMatch?.surfaceId : nil
+        // A live event's explicit workspace/surface pair outranks persisted
+        // session routing. Otherwise trust a stored surface only when its
+        // workspace agrees with the selected workspace.
+        let surfaceId = if eventWorkspaceId == workspaceId, let eventSurfaceId {
+            eventSurfaceId
+        } else if sessionMatch?.workspaceId == workspaceId {
+            sessionMatch?.surfaceId
+        } else {
+            nil
+        }
         return (workspaceId, surfaceId)
     }
 
     /// Maps a surface id from the hook-session store to its owning panel id,
     /// tolerating stores that already record the panel id directly.
     @MainActor
-    private static func resolvePanelId(surfaceId: UUID?, tab: Workspace) -> UUID? {
+    static func resolvePanelId(surfaceId: UUID?, tab: Workspace) -> UUID? {
         guard let surfaceId else { return nil }
         if tab.panels[surfaceId] != nil { return surfaceId }
         return tab.panelIdFromSurfaceId(TabID(uuid: surfaceId))

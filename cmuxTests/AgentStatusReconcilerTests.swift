@@ -1,3 +1,5 @@
+import CmuxSidebar
+import Darwin
 import Foundation
 import Testing
 
@@ -106,6 +108,36 @@ struct AgentStatusReconcilerTests {
         #expect(resolution == nil)
     }
 
+    @Test @MainActor func workspacePeriodicReconciliationReplacesStaleRunningPill() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "codex.session",
+            pid: getpid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            timestamp: now.addingTimeInterval(-121)
+        )
+        workspace.sidebarAgentRuntimeObservation.agentStatusLedger.recordLifecycle(
+            .running,
+            panelId: panelId,
+            statusKey: "codex",
+            observedAt: now.addingTimeInterval(-121)
+        )
+
+        workspace.reconcileAgentStatuses(panelId: panelId, now: now)
+
+        #expect(workspace.statusEntries["codex"]?.icon == "questionmark.circle")
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .unknown)
+    }
+
     @Test func freshNeedsInputRemainsConfidentDuringPromptRendering() {
         let signalTime = now.addingTimeInterval(-2)
         let evidence = AgentStatusEvidence(
@@ -163,5 +195,36 @@ struct AgentStatusReconcilerTests {
         #expect(signal.lifecycle == .needsInput)
         #expect(signal.observedAt == now)
         #expect(FeedCoordinator.isBlockingDecisionEvent(event.hookEventName) == false)
+    }
+
+    @Test func ordinaryFeedTelemetryDoesNotBypassLifecycleRouting() {
+        let event = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .stop,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            receivedAt: now
+        )
+
+        #expect(AgentStatusHookEventSignal(event: event) == nil)
+    }
+
+    @Test func liveEventRouteOutranksPersistedSessionFallback() throws {
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let event = WorkstreamEvent(
+            sessionId: "codex-unmapped-session",
+            hookEventName: .postToolUse,
+            source: "codex",
+            workspaceId: workspaceId.uuidString,
+            surfaceId: surfaceId.uuidString,
+            receivedAt: now
+        )
+
+        let target = try #require(FeedCoordinator.resolveAttentionTarget(event: event))
+
+        #expect(target.workspaceId == workspaceId)
+        #expect(target.surfaceId == surfaceId)
     }
 }

@@ -45,6 +45,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     let surfaceID: UUID
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
+    private let activityForwarder: TerminalOutputActivityForwarder
     private var detectors: [DetectorBinding]
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
@@ -56,6 +57,10 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.notificationHandler = PromptTurnNotificationHandler(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        self.activityForwarder = TerminalOutputActivityForwarder(
             workspaceID: workspaceID,
             surfaceID: surfaceID
         )
@@ -71,6 +76,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
         let now = clock.now
+        activityForwarder.noteOutput(at: now)
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,
                let deadline = detectors[index].confirmationDeadline,

@@ -31767,6 +31767,15 @@ export default CMUXSessionRestore;
             hookEventName: hookEventName,
             promptText: promptText
         )
+        let rawHookEvent = firstString(
+            in: fallbackObject,
+            keys: ["hook_event_name", "hookEventName", "event", "event_name"]
+        ) ?? hookEventName
+        FeedEventClassifier.attachAgentStatusSignal(
+            to: &event,
+            source: source,
+            rawEvent: rawHookEvent
+        )
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
         let frame: [String: Any] = [
@@ -33774,6 +33783,9 @@ export default CMUXSessionRestore;
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
+        if let surfaceId = normalizedHookValue(env["CMUX_SURFACE_ID"]) {
+            eventDict["surface_id"] = surfaceId
+        }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]
             ?? stdinObj["toolResponse"]
@@ -33811,6 +33823,11 @@ export default CMUXSessionRestore;
             &eventDict,
             hookEventName: hookEventName,
             promptText: promptText
+        )
+        FeedEventClassifier.attachAgentStatusSignal(
+            to: &eventDict,
+            source: source,
+            rawEvent: rawEvent
         )
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])

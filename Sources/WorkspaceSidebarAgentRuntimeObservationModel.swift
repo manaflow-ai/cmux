@@ -7,6 +7,8 @@ import Observation
 @Observable
 final class WorkspaceSidebarAgentRuntimeObservationModel {
     @ObservationIgnored
+    let agentStatusLedger = AgentStatusRuntimeLedger()
+    @ObservationIgnored
     private(set) var agentPIDs: [String: pid_t] = [:]
     @ObservationIgnored
     private(set) var agentPIDProcessIdentitiesByKey: [String: AgentPIDProcessIdentity] = [:]

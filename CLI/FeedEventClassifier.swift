@@ -18,6 +18,8 @@ import Foundation
 /// telemetry that never notifies. Conflating a tool-start with an approval
 /// is the bug behind https://github.com/manaflow-ai/cmux/issues/4985.
 struct FeedEventClassifier {
+    static let agentStatusSignalField = "_cmux_agent_status_signal"
+
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge
     /// blocks waiting for a user decision (and whether `FeedCoordinator`
@@ -38,6 +40,27 @@ struct FeedEventClassifier {
     ) -> (String, Bool) {
         let semantic = feedEventSemantic(source: source, event: event)
         return wireMapping(for: semantic, source: source, toolName: toolName)
+    }
+
+    /// Status-only evidence that must not alter Feed actionability.
+    static func agentStatusSignal(source: String, event: String) -> String? {
+        guard source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex" else {
+            return nil
+        }
+        switch event {
+        case "PermissionRequest", "permission_request":
+            return "needsInput"
+        default:
+            return nil
+        }
+    }
+
+    static func attachAgentStatusSignal(
+        to event: inout [String: Any],
+        source: String,
+        rawEvent: String
+    ) {
+        event[agentStatusSignalField] = agentStatusSignal(source: source, event: rawEvent)
     }
 
     /// User-attention semantic of a hook/feed event, independent of the

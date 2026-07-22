@@ -1,0 +1,143 @@
+import CmuxWorkspaces
+import Foundation
+
+/// Workspace-owned history of raw observations and their latest reconciled projections.
+@MainActor
+final class AgentStatusRuntimeLedger {
+    private(set) var evidenceByPanelId: [UUID: [String: AgentStatusEvidence]] = [:]
+    private(set) var resolutionsByPanelId: [UUID: [String: AgentStatusResolution]] = [:]
+
+    func evidence(
+        panelId: UUID,
+        statusKey: String,
+        shellActivity: PanelShellActivityState
+    ) -> AgentStatusEvidence {
+        var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
+        evidence.shellActivity = shellActivity
+        return evidence
+    }
+
+    @discardableResult
+    func recordLifecycle(
+        _ lifecycle: AgentHibernationLifecycleState,
+        panelId: UUID,
+        statusKey: String,
+        observedAt: Date
+    ) -> Bool {
+        var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
+        if let current = evidence.lifecycleObservedAt, current > observedAt { return false }
+        evidence.lifecycle = lifecycle
+        evidence.lifecycleObservedAt = observedAt
+        evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
+        return true
+    }
+
+    func recordOutput(panelId: UUID, statusKeys: Set<String>, observedAt: Date) {
+        updateEvidence(panelId: panelId, statusKeys: statusKeys) { evidence in
+            if evidence.outputObservedAt.map({ $0 < observedAt }) ?? true {
+                evidence.outputObservedAt = observedAt
+            }
+        }
+    }
+
+    func recordTitle(panelId: UUID, statusKeys: Set<String>, observedAt: Date) {
+        updateEvidence(panelId: panelId, statusKeys: statusKeys) { evidence in
+            if evidence.titleObservedAt.map({ $0 < observedAt }) ?? true {
+                evidence.titleObservedAt = observedAt
+            }
+        }
+    }
+
+    func recordForegroundAgent(
+        statusKey: String?,
+        panelId: UUID,
+        trackedStatusKeys: Set<String>,
+        observedAt: Date
+    ) {
+        updateEvidence(panelId: panelId, statusKeys: trackedStatusKeys) { evidence in
+            if evidence.foregroundObservedAt.map({ $0 <= observedAt }) ?? true {
+                evidence.foregroundAgentStatusKey = statusKey
+                evidence.foregroundObservedAt = observedAt
+            }
+        }
+    }
+
+    func seedLifecycleIfMissing(
+        _ lifecycle: AgentHibernationLifecycleState?,
+        panelId: UUID,
+        statusKey: String,
+        observedAt: Date?
+    ) {
+        guard let lifecycle,
+              evidenceByPanelId[panelId]?[statusKey]?.lifecycle == nil else { return }
+        var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
+        evidence.lifecycle = lifecycle
+        evidence.lifecycleObservedAt = observedAt
+        evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
+    }
+
+    func setResolution(
+        _ resolution: AgentStatusResolution?,
+        panelId: UUID,
+        statusKey: String
+    ) {
+        if let resolution {
+            resolutionsByPanelId[panelId, default: [:]][statusKey] = resolution
+        } else {
+            resolutionsByPanelId[panelId]?.removeValue(forKey: statusKey)
+            if resolutionsByPanelId[panelId]?.isEmpty == true {
+                resolutionsByPanelId.removeValue(forKey: panelId)
+            }
+        }
+    }
+
+    func evidenceForPanel(_ panelId: UUID) -> [String: AgentStatusEvidence] {
+        evidenceByPanelId[panelId] ?? [:]
+    }
+
+    func resolutionsForPanel(_ panelId: UUID) -> [String: AgentStatusResolution] {
+        resolutionsByPanelId[panelId] ?? [:]
+    }
+
+    func adopt(
+        evidence: [String: AgentStatusEvidence],
+        resolutions: [String: AgentStatusResolution],
+        panelId: UUID
+    ) {
+        if !evidence.isEmpty { evidenceByPanelId[panelId] = evidence }
+        if !resolutions.isEmpty { resolutionsByPanelId[panelId] = resolutions }
+    }
+
+    func remove(statusKey: String, panelId: UUID) {
+        evidenceByPanelId[panelId]?.removeValue(forKey: statusKey)
+        resolutionsByPanelId[panelId]?.removeValue(forKey: statusKey)
+        pruneEmptyPanel(panelId)
+    }
+
+    func removePanel(_ panelId: UUID) {
+        evidenceByPanelId.removeValue(forKey: panelId)
+        resolutionsByPanelId.removeValue(forKey: panelId)
+    }
+
+    func removeAll() {
+        evidenceByPanelId.removeAll()
+        resolutionsByPanelId.removeAll()
+    }
+
+    private func updateEvidence(
+        panelId: UUID,
+        statusKeys: Set<String>,
+        update: (inout AgentStatusEvidence) -> Void
+    ) {
+        for statusKey in statusKeys {
+            var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
+            update(&evidence)
+            evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
+        }
+    }
+
+    private func pruneEmptyPanel(_ panelId: UUID) {
+        if evidenceByPanelId[panelId]?.isEmpty == true { evidenceByPanelId.removeValue(forKey: panelId) }
+        if resolutionsByPanelId[panelId]?.isEmpty == true { resolutionsByPanelId.removeValue(forKey: panelId) }
+    }
+}

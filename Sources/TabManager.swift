@@ -695,9 +695,7 @@ class TabManager: ObservableObject {
 
 
     private func sweepStaleAgentPIDs() {
-        for tab in tabs {
-            tab.clearStaleAgentPIDs()
-        }
+        reconcileAgentStatusesPeriodically()
     }
 
     func gitProbeDirectory(for workspace: Workspace, panelId: UUID) -> String? {
@@ -3323,7 +3321,9 @@ class TabManager: ObservableObject {
               let terminalPanel = tab.terminalPanel(for: panelId),
               terminalPanel.surface === sourceSurface else { return }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = tab.updatePanelTitle(panelId: panelId, title: title)
+        if tab.updatePanelTitle(panelId: panelId, title: title) {
+            tab.noteAgentStatusTitleActivity(panelId: panelId, observedAt: .now)
+        }
         guard !tab.isRemoteTmuxMirror else { return }
         if tab.focusedPanelId == panelId {
             tab.applyProcessTitle(title)

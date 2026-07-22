@@ -71,32 +71,6 @@ extension Workspace {
         return [recordedIdentity]
     }
 
-    func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
-        let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
-
-        var agentPIDsForPanel: [String: pid_t] = [:]
-        var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
-        var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]
-        for key in pidKeys {
-            if let pid = agentPIDs[key] {
-                agentPIDsForPanel[key] = pid
-                agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
-            }
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            if let statusEntry = statusEntries[statusKey] {
-                statusEntriesForPanel[statusKey] = statusEntry
-            }
-        }
-        guard !statusEntriesForPanel.isEmpty || !agentPIDsForPanel.isEmpty || !pidKeys.isEmpty else { return nil }
-        return DetachedAgentRuntimeState(
-            panelId: panelId,
-            statusEntries: statusEntriesForPanel,
-            agentPIDs: agentPIDsForPanel,
-            agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
-            agentPIDKeys: pidKeys
-        )
-    }
-
     func agentStatusKey(forAgentPIDKey key: String) -> String {
         if statusEntries[key] != nil {
             return key
@@ -127,7 +101,7 @@ extension Workspace {
         }
     }
 
-    private func recordAgentPIDOwnership(key: String, panelId: UUID) {
+    func recordAgentPIDOwnership(key: String, panelId: UUID) {
         if let previousPanelId = agentPIDPanelIdsByKey[key], previousPanelId != panelId {
             removeAgentPIDOwnership(key: key)
         }
@@ -177,6 +151,7 @@ extension Workspace {
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
+        if let panelId { reconcileAgentStatuses(panelId: panelId) }
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -192,6 +167,7 @@ extension Workspace {
             if refreshPorts { refreshTrackedAgentPorts() }
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
+        reconcileAgentStatuses()
         return didChange
     }
 
@@ -215,6 +191,7 @@ extension Workspace {
             if refreshPorts { refreshTrackedAgentPorts() }
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
+        reconcileAgentStatuses(panelId: panelId)
         return didChange
     }
 
@@ -223,6 +200,7 @@ extension Workspace {
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
+        sidebarAgentRuntimeObservation.agentStatusLedger.removeAll()
         if refreshPorts {
             refreshTrackedAgentPorts()
         } else {
@@ -232,7 +210,7 @@ extension Workspace {
         }
     }
 
-    private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
+    func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
         guard pid > 0,
               let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
               let currentIdentity = Self.agentPIDProcessIdentity(pid: pid) else {
@@ -313,6 +291,15 @@ extension Workspace {
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
                 didChange = true
             }
+            let panelStillHasRuntime = (agentPIDKeysByPanelId[lifecyclePanelId] ?? []).contains {
+                agentStatusKey(forAgentPIDKey: $0) == lifecycleStatusKey
+            }
+            if !panelStillHasRuntime {
+                sidebarAgentRuntimeObservation.agentStatusLedger.remove(
+                    statusKey: lifecycleStatusKey,
+                    panelId: lifecyclePanelId
+                )
+            }
         }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
@@ -353,42 +340,6 @@ extension Workspace {
         let next = unique.sorted()
         if listeningPorts != next {
             listeningPorts = next
-        }
-    }
-
-    @discardableResult
-    private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
-        guard let runtimeState else { return false }
-        var didChange = false
-        for key in runtimeState.agentPIDKeys {
-            if clearAgentPID(key: key, panelId: runtimeState.panelId, clearStatus: true, refreshPorts: false) {
-                didChange = true
-            }
-        }
-        if didChange {
-            refreshTrackedAgentPorts()
-        }
-        return didChange
-    }
-
-    func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
-        guard let runtimeState else { return }
-        for (statusKey, statusEntry) in runtimeState.statusEntries {
-            statusEntries[statusKey] = statusEntry
-        }
-        var didAdoptAgentPID = false
-        for (key, pid) in runtimeState.agentPIDs {
-            recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
-            if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
-                agentPIDProcessIdentitiesByKey[key] = recordedIdentity
-            }
-            didAdoptAgentPID = true
-        }
-        for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
-            recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
-        }
-        if didAdoptAgentPID {
-            refreshTrackedAgentPorts()
         }
     }
 
@@ -464,6 +415,7 @@ extension Workspace {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
+        sidebarAgentRuntimeObservation.agentStatusLedger.removePanel(panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
