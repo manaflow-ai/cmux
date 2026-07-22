@@ -40,6 +40,7 @@ extension TranscriptListViewController {
             chromeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             chromeView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+        (view as? TranscriptChromePassthroughView)?.interactiveOverlayView = chromeView
         let host = UIHostingController(rootView: ScrollToBottomPill(theme: currentTheme, unreadCount: 0) { [weak self] in
             self?.scrollToBottom()
         })

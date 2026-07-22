@@ -3,8 +3,15 @@ import UIKit
 
 final class TranscriptChromePassthroughView: UIView {
     var bottomPassthroughHeight: CGFloat = 0
+    weak var interactiveOverlayView: UIView?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let result = super.hitTest(point, with: event)
+        if let interactiveOverlayView,
+           let result,
+           result === interactiveOverlayView || result.isDescendant(of: interactiveOverlayView) {
+            return result
+        }
         let passthroughFrame = Self.bottomPassthroughFrame(
             bounds: bounds,
             keyboardTop: keyboardLayoutGuide.layoutFrame.minY,
@@ -13,7 +20,6 @@ final class TranscriptChromePassthroughView: UIView {
         if passthroughFrame.contains(point) {
             return nil
         }
-        let result = super.hitTest(point, with: event)
         return result === self ? nil : result
     }
 
