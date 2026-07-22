@@ -32,10 +32,10 @@ final class WorkspaceListScrollEdgeCoordinator {
     func registerIfNeeded(for scrollView: UIScrollView) {
         guard #available(iOS 26.0, *) else { return }
         guard scrollView.window != nil else { return }
-        let navigationContent = Self.contentController(
+        let navigationContent = contentController(
             hosting: scrollView, inParentOfKind: UINavigationController.self
         )
-        let tabContent = Self.contentController(
+        let tabContent = contentController(
             hosting: scrollView, inParentOfKind: UITabBarController.self
         )
         guard navigationContent != nil || tabContent != nil else { return }
@@ -52,13 +52,13 @@ final class WorkspaceListScrollEdgeCoordinator {
         tabContentController = tabContent
 
         if let navigationContent,
-           Self.canClaim(current: navigationContent.contentScrollView(for: .top),
-                         claimant: scrollView) {
+           canClaim(current: navigationContent.contentScrollView(for: .top),
+                    claimant: scrollView) {
             navigationContent.setContentScrollView(scrollView, for: .top)
         }
         if let tabContent,
-           Self.canClaim(current: tabContent.contentScrollView(for: .bottom),
-                         claimant: scrollView) {
+           canClaim(current: tabContent.contentScrollView(for: .bottom),
+                    claimant: scrollView) {
             tabContent.setContentScrollView(scrollView, for: .bottom)
         }
     }
@@ -83,14 +83,14 @@ final class WorkspaceListScrollEdgeCoordinator {
         // owned the edge, and UIKit does not guarantee it another layout pass
         // after this teardown. Nudge it so its next pass claims the vacancy;
         // the woken table still runs its own claim arbitration.
-        if let waiting = Self.firstWorkspaceTable(
+        if let waiting = firstWorkspaceTable(
             under: controller.viewIfLoaded, excluding: scrollView
         ) {
             waiting.setNeedsLayout()
         }
     }
 
-    private static func firstWorkspaceTable(
+    private func firstWorkspaceTable(
         under view: UIView?, excluding departing: UIScrollView
     ) -> WorkspaceListUITableView? {
         guard let view else { return nil }
@@ -109,7 +109,7 @@ final class WorkspaceListScrollEdgeCoordinator {
     /// e.g. deallocated mid-transition) registrations are claimable. An edge
     /// already held by the claimant needs no re-set, and a different live
     /// scroll view keeps ownership.
-    private static func canClaim(current: UIScrollView?, claimant: UIScrollView) -> Bool {
+    private func canClaim(current: UIScrollView?, claimant: UIScrollView) -> Bool {
         guard let current else { return true }
         if current === claimant { return false }
         return current.window == nil
@@ -118,7 +118,7 @@ final class WorkspaceListScrollEdgeCoordinator {
     /// The last view controller on `view`'s parent chain before the first
     /// container of `Kind`: the content controller whose bars that container
     /// derives from `setContentScrollView(_:for:)` registrations.
-    private static func contentController<Kind: UIViewController>(
+    private func contentController<Kind: UIViewController>(
         hosting view: UIView, inParentOfKind kind: Kind.Type
     ) -> UIViewController? {
         var responder: UIResponder? = view.next
