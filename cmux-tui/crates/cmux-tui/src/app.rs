@@ -15639,6 +15639,58 @@ mod tests {
     }
 
     #[test]
+    fn machine_color_failure_status_uses_the_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_MACHINE_COLOR_FAILURE_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("app::tests::machine_color_failure_status_uses_the_selected_locale")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese machine color failure child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let first = Mux::new("machine-color-locale-first", SurfaceOptions::default());
+        let second = Mux::new("machine-color-locale-second", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(first));
+        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(second),
+            pty_input.sender(),
+            app.app_events.clone(),
+            2,
+        )
+        .unwrap();
+        let tree = session.tree();
+
+        app.install_prepared_machine_session(super::PreparedMachineSession {
+            session,
+            event_worker,
+            generation: 2,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label: "second".into(),
+            session_available: false,
+            color_error: Some("offline".into()),
+        });
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("ターミナルの色を適用できませんでした: offline")
+        );
+    }
+
+    #[test]
     fn non_switch_machine_action_keeps_the_current_session_and_rails() {
         let mux = Mux::new("machine-non-switch", SurfaceOptions::default());
         mux.new_workspace(None, None).unwrap();
