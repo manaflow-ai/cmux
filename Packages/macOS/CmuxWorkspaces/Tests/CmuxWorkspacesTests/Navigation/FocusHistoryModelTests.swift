@@ -2,6 +2,14 @@ import Foundation
 import Testing
 @testable import CmuxWorkspaces
 
+private final class NavigationScopeBox: @unchecked Sendable {
+    var value: FocusHistoryNavigationScope
+
+    init(_ value: FocusHistoryNavigationScope) {
+        self.value = value
+    }
+}
+
 /// In-memory window host: a dictionary of workspaces/panels plus counters
 /// for the mutations a navigation performs.
 @MainActor
@@ -150,6 +158,42 @@ struct FocusHistoryModelTests {
         #expect(model.navigateBack())
         #expect(model.navigateBack())
         #expect(host.selectedWorkspaceId == wsA)
+    }
+
+    @Test func switchingToWorkspacesOnlyCollapsesMenuAndUsesRememberedPanel() throws {
+        let host = FakeFocusHistoryHost()
+        let scope = NavigationScopeBox(.panesAndTabs)
+        let model = FocusHistoryModel(navigationScope: { scope.value })
+        model.attach(host: host)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let panelA3 = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(
+            title: "A",
+            panels: [panelA1: "a1", panelA2: "a2", panelA3: "a3"]
+        )
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+
+        host.selectedWorkspaceId = wsA
+        for panelId in [panelA1, panelA2] {
+            host.workspaces[wsA]?.rememberedFocusedPanelId = panelId
+            model.recordFocusInHistory(workspaceId: wsA, panelId: panelId)
+        }
+        host.selectedWorkspaceId = wsB
+        host.workspaces[wsB]?.rememberedFocusedPanelId = panelB
+        model.recordFocusInHistory(workspaceId: wsB, panelId: panelB)
+
+        host.workspaces[wsA]?.rememberedFocusedPanelId = panelA3
+        scope.value = .workspacesOnly
+        let item = try #require(model.focusHistoryMenuSnapshot(direction: .back).items.first)
+
+        #expect(model.focusHistoryMenuSnapshot(direction: .back).items.count == 1)
+        #expect(item.entry.panelId == nil)
+        #expect(item.panelTitle == nil)
+        #expect(model.navigateToFocusHistoryMenuItem(item))
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA3)
     }
 
     @Test func recordAndNavigateBackForwardAcrossWorkspaces() {

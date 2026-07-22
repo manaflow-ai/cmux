@@ -37,6 +37,17 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         try? FileManager.default.removeItem(atPath: path + ".lock")
     }
 
+    private func makePaneHistoryManager() throws -> TabManager {
+        let suiteName = "TabManagerSessionSnapshotTests.paneHistory.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.focusHistoryIncludesPanesAndTabs)
+        return TabManager(settings: settings)
+    }
+
     func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {
         let manager = TabManager()
         guard let firstWorkspace = manager.selectedWorkspace else {
@@ -64,7 +75,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
-        let manager = TabManager()
+        let manager = try makePaneHistoryManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -126,7 +137,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testFocusHistoryBackSkipsStaleEntriesThatResolveToCurrentPanel() throws {
-        let manager = TabManager()
+        let manager = try makePaneHistoryManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let closedPanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -158,7 +169,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testFocusHistoryRevisionInvalidatesWhenClosedPanelChangesAvailability() throws {
-        let manager = TabManager()
+        let manager = try makePaneHistoryManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let closedPanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -189,7 +200,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testFocusHistoryRevisionInvalidatesWhenClosedPaneChangesAvailability() throws {
-        let manager = TabManager()
+        let manager = try makePaneHistoryManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let leftPaneId = try XCTUnwrap(workspace.paneId(forPanelId: leftPanelId))
@@ -271,7 +282,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testGhosttyFocusSurfaceIdRecordsMappedPanelInFocusHistory() throws {
-        let manager = TabManager()
+        let manager = try makePaneHistoryManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
@@ -441,7 +452,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testFocusHistoryMenuSnapshotReflectsRenamedWorkspaceAndPanel() throws {
-        let manager = TabManager()
+        let manager = try makePaneHistoryManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
         firstWorkspace.setCustomTitle("Renamed Workspace")

@@ -274,6 +274,11 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         return true
     }
 
+    private func navigationEntry(for entry: FocusHistoryEntry) -> FocusHistoryEntry {
+        guard navigationScope() == .workspacesOnly else { return entry }
+        return FocusHistoryEntry(workspaceId: entry.workspaceId, panelId: nil)
+    }
+
     // MARK: - Menu snapshots
 
     public func focusHistoryMenuSnapshot(
@@ -294,24 +299,33 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
                 : []
         }
 
+        let scope = navigationScope()
+        var previousWorkspaceId: UUID?
         let items = historyIndices.compactMap { index -> FocusHistoryMenuItem? in
             let record = focusHistory[index]
             let entry = record.entry
-            guard let resolvedEntry = resolvedFocusHistoryEntry(for: entry),
+            let scopedEntry = navigationEntry(for: entry)
+            guard let resolvedEntry = resolvedFocusHistoryEntry(for: scopedEntry),
                   let rawWorkspaceTitle = host?.workspaceTitle(resolvedEntry.workspaceId),
-                  focusHistoryEntryIsNavigable(entry, currentEntry: currentEntry) else {
+                  focusHistoryEntryIsNavigable(scopedEntry, currentEntry: currentEntry) else {
                 return nil
             }
+            if scope == .workspacesOnly, previousWorkspaceId == entry.workspaceId {
+                return nil
+            }
+            previousWorkspaceId = entry.workspaceId
 
             let workspaceTitle = rawWorkspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            let panelTitle = resolvedEntry.panelId
-                .flatMap { host?.panelTitle(workspaceId: resolvedEntry.workspaceId, panelId: $0) }?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let panelTitle = scope == .workspacesOnly
+                ? nil
+                : resolvedEntry.panelId
+                    .flatMap { host?.panelTitle(workspaceId: resolvedEntry.workspaceId, panelId: $0) }?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
             let position: FocusHistoryMenuPosition = direction == .back ? .older : .newer
 
             return FocusHistoryMenuItem(
                 historyIndex: index,
-                entry: entry,
+                entry: scopedEntry,
                 workspaceTitle: workspaceTitle,
                 panelTitle: panelTitle?.isEmpty == true ? nil : panelTitle,
                 position: position,
@@ -378,6 +392,17 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
     public func navigateToFocusHistoryMenuItem(_ item: FocusHistoryMenuItem) -> Bool {
         guard focusHistoryEntryIsNavigable(item.entry, currentEntry: currentFocusHistoryEntry) else { return false }
         var targetIndex = item.historyIndex
+        if navigationScope() == .workspacesOnly {
+            guard focusHistory.indices.contains(targetIndex),
+                  focusHistory[targetIndex].entry.workspaceId == item.entry.workspaceId else {
+                guard let fallbackIndex = focusHistory.lastIndex(where: {
+                    $0.entry.workspaceId == item.entry.workspaceId
+                }) else { return false }
+                targetIndex = fallbackIndex
+                return navigateToFocusHistoryEntry(item.entry, targetIndex: targetIndex)
+            }
+            return navigateToFocusHistoryEntry(item.entry, targetIndex: targetIndex)
+        }
         guard focusHistory.indices.contains(targetIndex), focusHistory[targetIndex].entry == item.entry else {
             guard let fallbackIndex = focusHistory.lastIndex(where: { $0.entry == item.entry }) else { return false }
             targetIndex = fallbackIndex
@@ -405,7 +430,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
                 targetIndex -= 1
                 continue
             }
-            if navigateToFocusHistoryEntry(entry, targetIndex: targetIndex) {
+            if navigateToFocusHistoryEntry(navigationEntry(for: entry), targetIndex: targetIndex) {
                 return true
             }
             focusHistory.remove(at: targetIndex)
@@ -433,7 +458,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
                 targetIndex += 1
                 continue
             }
-            if navigateToFocusHistoryEntry(entry, targetIndex: targetIndex) {
+            if navigateToFocusHistoryEntry(navigationEntry(for: entry), targetIndex: targetIndex) {
                 return true
             }
             focusHistory.remove(at: targetIndex)

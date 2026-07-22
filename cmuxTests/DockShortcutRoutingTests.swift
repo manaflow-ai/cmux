@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -329,7 +330,11 @@ private extension DockShortcutRoutingTests {
         KeyboardShortcutSettings.resetAll()
 
         let appDelegate = AppDelegate()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let suiteName = "DockShortcutRoutingTests.paneHistory.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.focusHistoryIncludesPanesAndTabs)
+        let manager = TabManager(autoWelcomeIfNeeded: false, settings: settings)
         let fileExplorerState = FileExplorerState()
         let windowId = UUID()
         let window = NSWindow(
@@ -363,6 +368,7 @@ private extension DockShortcutRoutingTests {
         appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
 
         defer {
+            defaults.removePersistentDomain(forName: suiteName)
             KeyboardShortcutSettings.resetAll()
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
             TerminalController.shared.setActiveTabManager(previousManager)

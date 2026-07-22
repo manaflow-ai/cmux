@@ -999,6 +999,16 @@ class TabManager: ObservableObject {
         )
     }
 
+    func makeWindowDockStore(windowId: UUID) -> DockSplitStore {
+        DockSplitStore(
+            workspaceId: windowId,
+            scope: .global,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local },
+            settings: settings
+        )
+    }
+
     func applyCreationChromeInheritance(
         to newWorkspace: Workspace,
         from sourceWorkspace: Workspace?
