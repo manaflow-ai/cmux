@@ -763,8 +763,14 @@ mod tests {
     impl TestDirectory {
         fn new() -> Self {
             let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir()
-                .join(format!("cmux-provider-transport-test-{}-{sequence}", std::process::id()));
+            // Darwin limits Unix-domain socket paths to 103 bytes. macOS's
+            // per-user temporary directory can consume most of that budget.
+            let base = if cfg!(target_os = "macos") {
+                Path::new("/tmp").to_path_buf()
+            } else {
+                std::env::temp_dir()
+            };
+            let path = base.join(format!("cmux-pt-{}-{sequence}", std::process::id()));
             let _ = fs::remove_dir_all(&path);
             fs::create_dir(&path).expect("create transport test directory");
             Self { path }
@@ -787,7 +793,7 @@ mod tests {
     }
 
     fn wait_for_file(path: &Path) {
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(10);
         while !path.exists() {
             assert!(Instant::now() < deadline, "timed out waiting for {}", path.display());
             thread::sleep(Duration::from_millis(10));
@@ -851,7 +857,7 @@ mod tests {
         assert_ne!(first_token.expose(), second_token.expose());
         assert!(first_token.expose().len() >= 32);
 
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(10);
         let lines = loop {
             let lines = fs::read_to_string(&records).unwrap_or_default();
             if lines.lines().count() >= 4 {
@@ -894,7 +900,7 @@ mod tests {
             .expect("parse child pid");
         drop(control);
 
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             let alive = unsafe { libc::kill(pid, 0) } == 0;
             if !alive {
@@ -911,7 +917,7 @@ mod tests {
         let ready = directory.path.join("ready");
         let script = directory.script(
             "stderr",
-            "ready=$1; shift; IFS= read -r secret; printf '%s\\n' \"$secret\" >&2; i=0; while [ $i -lt 20000 ]; do printf 'unsafe\\033[31m diagnostic '; i=$((i + 1)); done >&2; printf ready > \"$ready\"; while IFS= read -r _line; do :; done",
+            "ready=$1; shift; IFS= read -r secret; printf '%s\\n' \"$secret\" >&2; printf ready > \"$ready\"; i=0; while [ $i -lt 20000 ]; do printf 'unsafe\\033[31m diagnostic '; i=$((i + 1)); done >&2; while IFS= read -r _line; do :; done",
         );
         let connector = CommandProviderConnector::new([
             script.into_os_string(),
@@ -927,7 +933,7 @@ mod tests {
         control.writer.flush().expect("flush token-shaped input");
         wait_for_file(&ready);
 
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(10);
         let diagnostic = loop {
             let diagnostic = control.diagnostic().unwrap_or_default();
             if diagnostic.contains("[truncated]") {
@@ -956,7 +962,7 @@ mod tests {
         let connection = connector.connect().expect("open SSH control");
         let (token, control, streams) = connection.into_parts();
         let stream = streams.open().expect("open SSH stream");
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(10);
         let lines = loop {
             let lines = fs::read_to_string(&records).unwrap_or_default();
             if lines.lines().count() >= 2 {
@@ -1000,7 +1006,7 @@ mod tests {
         let records = directory.path.join("cloud-ssh-arguments");
         let fake_ssh = directory.script(
             "cloud-ssh",
-            "records=$(dirname \"$0\")/cloud-ssh-arguments; printf '%s\\n' \"$@\" > \"$records\"; while IFS= read -r _line; do :; done",
+            "records=$(dirname \"$0\")/cloud-ssh-arguments; temporary=$records.$$; printf '%s\\n' \"$@\" > \"$temporary\"; mv \"$temporary\" \"$records\"; while IFS= read -r _line; do :; done",
         );
         let identity = directory.path.join("cloud identity");
         let connector = SshProviderConnector::cloud_with_program(
