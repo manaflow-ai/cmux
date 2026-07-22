@@ -55,6 +55,13 @@ struct BrowserPortalRemoteNavigationRevealTests {
             abs(size.height - expected.height) <= epsilon
     }
 
+    private func markNavigationStartedWithoutPresentation(to url: URL, in webView: WKWebView) {
+        webView.browserPortalConfigureFirstSizedRevealGeometryNudge(forNavigationURL: url)
+        webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(
+            reason: "navigationStart:\(url.scheme?.lowercased() ?? "none")"
+        )
+    }
+
     @Test func hiddenHTTPSNavigationRevealsWithoutTransientGeometryNudge() async throws {
         let fixture = makeWindowFixture()
         defer {
@@ -68,7 +75,7 @@ struct BrowserPortalRemoteNavigationRevealTests {
         }
 
         let navigationURL = try #require(URL(string: "https://docs.google.com/spreadsheets/d/example/edit"))
-        _ = browserLoadRequest(URLRequest(url: navigationURL), in: webView)
+        markNavigationStartedWithoutPresentation(to: navigationURL, in: webView)
         webView.frameSizeCalls.removeAll()
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: fixture.anchor, visibleInUI: true)
@@ -100,7 +107,7 @@ struct BrowserPortalRemoteNavigationRevealTests {
         let navigationURL = try #require(URL(
             string: "http://127.0.0.1:5050/\(token)/diff.html#cmux-diff-viewer"
         ))
-        _ = browserLoadRequest(URLRequest(url: navigationURL), in: webView)
+        markNavigationStartedWithoutPresentation(to: navigationURL, in: webView)
         #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
         webView.frameSizeCalls.removeAll()
 
