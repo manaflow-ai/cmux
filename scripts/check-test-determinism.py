@@ -220,6 +220,7 @@ _LOCAL_SCOPE_HEADER = re.compile(
 _CONDITIONAL_SCOPE_HEADER = re.compile(
     r"^\s*(?:}\s*else\s+)?(?:if|while|for)\b"
 )
+_DO_SCOPE_HEADER = re.compile(r"\bdo\s*$")
 _SWITCH_SCOPE_HEADER = re.compile(r"^\s*switch\b")
 _SWITCH_CASE_HEADER = re.compile(
     r"^\s*(?:@unknown\s+)?(?:case\b|default\s*:)"
@@ -890,7 +891,11 @@ def _receiver_declaration_alias(
 class _CompilationScopeFrame:
     base_scopes: list[dict[str, bool]]
     base_scope_kinds: list[str]
+    base_scope_mutations: list[Optional[tuple[int, bool]]]
     branch_scopes: list[list[dict[str, bool]]]
+    branch_scope_mutations: list[
+        list[Optional[tuple[int, bool]]]
+    ]
     has_else: bool = False
 
 
@@ -920,6 +925,39 @@ def _merge_compilation_branches(
             scope[receiver] = False
         else:
             scope.pop(receiver, None)
+    return merged
+
+
+def _merge_compilation_mutations(
+    frame: _CompilationScopeFrame,
+) -> list[Optional[tuple[int, bool]]]:
+    branches = list(frame.branch_scope_mutations)
+    if not frame.has_else:
+        branches.append(list(frame.base_scope_mutations))
+
+    merged = list(frame.base_scope_mutations)
+    for scope_index in range(len(merged)):
+        mutations = [
+            branch[scope_index]
+            for branch in branches
+            if scope_index < len(branch)
+            and branch[scope_index] is not None
+        ]
+        if not mutations:
+            continue
+        targets = {mutation[0] for mutation in mutations}
+        if len(targets) == 1:
+            merged[scope_index] = (
+                targets.pop(),
+                any(mutation[1] for mutation in mutations),
+            )
+        else:
+            # Divergent lexical owners are ambiguous; retain the outermost
+            # owner and degrade its kind to unknown/non-real.
+            merged[scope_index] = (
+                min(targets),
+                False,
+            )
     return merged
 
 
@@ -1171,6 +1209,7 @@ def _resolve_named_receiver_kind(
     prefix_lines = masked_lines[:call_index] + [current[:call_column]]
     scopes: list[dict[str, bool]] = [{}]
     scope_kinds = ["root"]
+    scope_mutations: list[Optional[tuple[int, bool]]] = [None]
     pending_function = False
     pending_parameter: Optional[bool] = None
     pending_function_paren_depth = 0
@@ -1178,6 +1217,24 @@ def _resolve_named_receiver_kind(
     pending_conditional: Optional[dict[str, bool]] = None
     pending_switch = False
     compilation_frames: list[_CompilationScopeFrame] = []
+
+    def pop_scope() -> None:
+        if len(scopes) <= 1:
+            return
+        scopes.pop()
+        scope_kind = scope_kinds.pop()
+        mutation = scope_mutations.pop()
+        if mutation is None:
+            return
+        target, assigned_kind = mutation
+        propagated_kind = assigned_kind if scope_kind == "do" else False
+        if target >= len(scopes):
+            return
+        if target == len(scopes) - 1:
+            scopes[target][receiver] = propagated_kind
+            return
+        scopes[-1][receiver] = propagated_kind
+        scope_mutations[-1] = (target, propagated_kind)
 
     for candidate_index, candidate in enumerate(prefix_lines):
         compilation_directive = _COMPILATION_DIRECTIVE.match(candidate)
@@ -1188,29 +1245,39 @@ def _resolve_named_receiver_kind(
                     _CompilationScopeFrame(
                         base_scopes=_copy_scope_stack(scopes),
                         base_scope_kinds=list(scope_kinds),
+                        base_scope_mutations=list(scope_mutations),
                         branch_scopes=[],
+                        branch_scope_mutations=[],
                     )
                 )
             elif directive in ("elseif", "else") and compilation_frames:
                 frame = compilation_frames[-1]
                 frame.branch_scopes.append(_copy_scope_stack(scopes))
+                frame.branch_scope_mutations.append(
+                    list(scope_mutations)
+                )
                 frame.has_else = frame.has_else or directive == "else"
                 scopes = _copy_scope_stack(frame.base_scopes)
                 scope_kinds = list(frame.base_scope_kinds)
+                scope_mutations = list(frame.base_scope_mutations)
             elif directive == "endif" and compilation_frames:
                 frame = compilation_frames.pop()
                 frame.branch_scopes.append(_copy_scope_stack(scopes))
+                frame.branch_scope_mutations.append(
+                    list(scope_mutations)
+                )
                 scopes = _merge_compilation_branches(frame, receiver)
                 scope_kinds = list(frame.base_scope_kinds)
+                scope_mutations = _merge_compilation_mutations(frame)
             continue
 
         if _SWITCH_CASE_HEADER.match(candidate):
             if len(scopes) > 1 and scope_kinds[-1] == "case":
-                scopes.pop()
-                scope_kinds.pop()
+                pop_scope()
             if scope_kinds[-1] == "switch":
                 scopes.append({})
                 scope_kinds.append("case")
+                scope_mutations.append(None)
 
         if _LOCAL_SCOPE_HEADER.search(candidate):
             pending_function = True
@@ -1269,6 +1336,10 @@ def _resolve_named_receiver_kind(
                     scope_kind = "function"
                 elif is_switch_body:
                     scope_kind = "switch"
+                elif is_conditional_body:
+                    scope_kind = "conditional"
+                elif _DO_SCOPE_HEADER.search(candidate[:pos]):
+                    scope_kind = "do"
                 else:
                     scope_kind = "block"
                 if is_function_body:
@@ -1312,13 +1383,12 @@ def _resolve_named_receiver_kind(
                     scope[receiver] = closure_kind
                 scopes.append(scope)
                 scope_kinds.append(scope_kind)
+                scope_mutations.append(None)
             elif event == "}":
                 if len(scopes) > 1 and scope_kinds[-1] == "case":
-                    scopes.pop()
-                    scope_kinds.pop()
+                    pop_scope()
                 if len(scopes) > 1:
-                    scopes.pop()
-                    scope_kinds.pop()
+                    pop_scope()
             elif declaration is not None:
                 if _receiver_declaration_inherits_kind(declaration, receiver):
                     inherited_kind = _nearest_receiver_kind(scopes, receiver)
@@ -1345,23 +1415,28 @@ def _resolve_named_receiver_kind(
                             declaration, prefix_lines[candidate_index + 1 :]
                         )
                 if event == "assignment":
-                    binding_scope = next(
-                        (
-                            scope_index
-                            for scope_index in range(len(scopes) - 1, -1, -1)
-                            if receiver in scopes[scope_index]
-                        ),
-                        None,
+                    current_mutation = scope_mutations[-1]
+                    binding_scope = (
+                        current_mutation[0]
+                        if current_mutation is not None
+                        else next(
+                            (
+                                scope_index
+                                for scope_index in range(
+                                    len(scopes) - 1, -1, -1
+                                )
+                                if receiver in scopes[scope_index]
+                            ),
+                            None,
+                        )
                     )
                     if binding_scope is None:
                         continue
-                    # An assignment in the binding's own scope is ordered and
-                    # authoritative. A nested block or closure may not execute,
-                    # so degrade the outer binding to unknown/non-real instead
-                    # of creating a strict-gate false positive.
-                    scopes[binding_scope][receiver] = (
-                        kind if binding_scope == len(scopes) - 1 else False
-                    )
+                    if binding_scope == len(scopes) - 1:
+                        scopes[binding_scope][receiver] = kind
+                    else:
+                        scopes[-1][receiver] = kind
+                        scope_mutations[-1] = (binding_scope, kind)
                 elif pending_conditional is not None:
                     pending_conditional[receiver] = kind
                 else:
