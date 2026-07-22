@@ -777,10 +777,22 @@ final class BrowserServices {
         manager.tabVisibilityDidChange(panelID: panel.id)
     }
 
-    func activateWebExtensionTab(panelID: UUID, previousPanelID: UUID?) {
-        guard #available(macOS 15.4, *) else { return }
-        let profileID = panelRegistrations[panelID]?.profileID
+    @discardableResult
+    func activateWebExtensionTab(panelID: UUID, previousPanelID: UUID?) -> Bool {
+        guard #available(macOS 15.4, *) else { return false }
+        let registration = panelRegistrations[panelID]
+        let profileID = registration?.profileID
         let previousProfileID = previousPanelID.flatMap { panelRegistrations[$0]?.profileID }
+
+        guard let panel = registration?.panel, panel.internalPage == nil else {
+            if let previousPanelID,
+               previousPanelID != panelID,
+               let previousProfileID,
+               let previousManager = webExtensionsManagerStorage[previousProfileID] as? BrowserWebExtensionsManager {
+                previousManager.deactivateTab(panelID: previousPanelID)
+            }
+            return false
+        }
         if let previousPanelID,
            let previousProfileID,
            previousPanelID != panelID,
@@ -790,12 +802,13 @@ final class BrowserServices {
         }
         guard let profileID,
               let manager = webExtensionsManagerStorage[profileID] as? BrowserWebExtensionsManager else {
-            return
+            return false
         }
         manager.activateTab(
             panelID: panelID,
             previousPanelID: previousProfileID == profileID ? previousPanelID : nil
         )
+        return true
     }
 
     func browserWindowFocusDidChange() {

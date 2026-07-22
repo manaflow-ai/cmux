@@ -136,11 +136,11 @@ extension DockSplitStore {
                 panel.unfocus()
             }
         }
-        browserServices?.activateWebExtensionTab(
+        let didActivateWebExtensionTab = browserServices?.activateWebExtensionTab(
             panelID: selectedPanel.id,
             previousPanelID: lastActivatedWebExtensionPanelID
-        )
-        lastActivatedWebExtensionPanelID = selectedPanel.id
+        ) ?? false
+        lastActivatedWebExtensionPanelID = didActivateWebExtensionTab ? selectedPanel.id : nil
         selectedPanel.focus()
     }
 
