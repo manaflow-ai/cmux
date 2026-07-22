@@ -124,11 +124,15 @@ extension WKWebView {
     func browserPortalConfigureFirstSizedRevealGeometryNudge(forNavigationURL url: URL) {
         let scheme = url.scheme?.lowercased()
         let allowsNudge: Bool
-        switch scheme {
-        case "about", "applewebdata", "cmux-diff-viewer", "data", "file":
+        if CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: url) != nil {
             allowsNudge = true
-        default:
-            allowsNudge = false
+        } else {
+            switch scheme {
+            case "about", "applewebdata", "data", "file":
+                allowsNudge = true
+            default:
+                allowsNudge = false
+            }
         }
         browserPortalAllowsFirstSizedRevealGeometryNudge = allowsNudge
         if !allowsNudge {

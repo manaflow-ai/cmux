@@ -83,4 +83,37 @@ struct BrowserPortalRemoteNavigationRevealTests {
         #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
         #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
     }
+
+    @Test func hiddenLoopbackDiffViewerNavigationStillAppliesTransientGeometryNudge() async throws {
+        let fixture = makeWindowFixture()
+        defer {
+            fixture.window.orderOut(nil)
+            fixture.window.close()
+        }
+        let webView = RecordingWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        defer {
+            webView.stopLoading()
+            BrowserWindowPortalRegistry.detach(webView: webView)
+        }
+
+        let token = UUID().uuidString.lowercased()
+        let navigationURL = try #require(URL(
+            string: "http://127.0.0.1:5050/\(token)/diff.html#cmux-diff-viewer"
+        ))
+        _ = browserLoadRequest(URLRequest(url: navigationURL), in: webView)
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
+        webView.frameSizeCalls.removeAll()
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: fixture.anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(fixture.anchor)
+        await waitForNextMainTurn()
+
+        let slot = try #require(webView.superview as? WindowBrowserSlotView)
+        let revealedSize = slot.bounds.size
+        let nudgedSize = NSSize(width: revealedSize.width, height: max(1, revealedSize.height - 1))
+
+        #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
+        #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
+    }
 }

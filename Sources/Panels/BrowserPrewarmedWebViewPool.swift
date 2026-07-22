@@ -96,6 +96,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
             hostWindow: hostWindow,
             loadState: .loading
         )
+        webView.browserPortalConfigureFirstSizedRevealGeometryNudge(forNavigationURL: url)
         startLoad(webView, URLRequest(url: url))
         scheduleExpiry()
 #if DEBUG
