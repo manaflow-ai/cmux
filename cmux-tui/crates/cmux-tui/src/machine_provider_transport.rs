@@ -10,13 +10,14 @@ use std::fs::{self, DirBuilder};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -26,6 +27,7 @@ use zeroize::Zeroize;
 use crate::process_diagnostics::BoundedDiagnosticBuffer;
 
 const PROVIDER_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const COMMAND_TERMINATION_GRACE: Duration = Duration::from_millis(250);
 const COMMAND_DIAGNOSTIC_BYTES: usize = 16 * 1024;
 const PRIVATE_PATH_ATTEMPTS: usize = 16;
 
@@ -486,6 +488,7 @@ fn spawn_command(
     command
         .args(arguments)
         .env_remove("CMUX_MACHINE_PROVIDER_TOKEN")
+        .process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -504,10 +507,19 @@ fn spawn_command(
         .stderr
         .take()
         .ok_or_else(|| io::Error::other("provider command did not expose stderr"))?;
+    let process_group = match libc::pid_t::try_from(child.id()) {
+        Ok(process_group) => process_group,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::other("provider process ID is invalid"));
+        }
+    };
 
     let diagnostics =
         Arc::new(BoundedDiagnosticBuffer::with_redactions(COMMAND_DIAGNOSTIC_BYTES, &redactions));
     let cleanup = Arc::new(ProcessCleanup {
+        process_group,
         child: Mutex::new(Some(child)),
         diagnostics: Arc::clone(&diagnostics),
         stderr_worker: Mutex::new(None),
@@ -534,6 +546,7 @@ fn spawn_command(
 }
 
 struct ProcessCleanup {
+    process_group: libc::pid_t,
     child: Mutex<Option<Child>>,
     diagnostics: Arc<BoundedDiagnosticBuffer>,
     stderr_worker: Mutex<Option<JoinHandle<()>>>,
@@ -541,17 +554,32 @@ struct ProcessCleanup {
 }
 
 impl ProcessCleanup {
+    fn signal_group(&self, signal: libc::c_int) {
+        // `spawn_command` creates a dedicated group whose ID is the direct child PID.
+        let _ = unsafe { libc::kill(-self.process_group, signal) };
+    }
+
+    fn group_is_alive(&self) -> bool {
+        let result = unsafe { libc::kill(-self.process_group, 0) };
+        result == 0 || io::Error::last_os_error().kind() == io::ErrorKind::PermissionDenied
+    }
+
     fn terminate_and_reap(&self) {
-        if !self.closed.swap(true, Ordering::AcqRel)
-            && let Ok(mut child) = self.child.lock()
-            && let Some(mut child) = child.take()
-        {
-            match child.try_wait() {
-                Ok(Some(_)) => {}
-                Ok(None) | Err(_) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
+        if !self.closed.swap(true, Ordering::AcqRel) {
+            let mut child = self.child.lock().ok().and_then(|mut child| child.take());
+            self.signal_group(libc::SIGTERM);
+            let deadline = Instant::now() + COMMAND_TERMINATION_GRACE;
+            while self.group_is_alive() && Instant::now() < deadline {
+                if let Some(child) = &mut child {
+                    let _ = child.try_wait();
                 }
+                thread::sleep(Duration::from_millis(10));
+            }
+            if self.group_is_alive() {
+                self.signal_group(libc::SIGKILL);
+            }
+            if let Some(mut child) = child {
+                let _ = child.wait();
             }
         }
         if let Ok(mut worker) = self.stderr_worker.lock()

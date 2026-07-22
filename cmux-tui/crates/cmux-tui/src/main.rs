@@ -1064,10 +1064,10 @@ fn run_provider_machine_client(
 }
 
 fn initial_provider_connection_notice(
-    _messages: &localization::SidebarMessages,
+    messages: &localization::SidebarMessages,
     error: &dyn std::fmt::Display,
 ) -> String {
-    format!("Could not connect: {error}")
+    format!("{}: {error}", messages.initial_machine_connection_failed)
 }
 
 fn run_tui_once(
