@@ -121,6 +121,18 @@ struct FeedEventClassificationTests {
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
+        #expect(
+            FeedEventClassifier.agentStatusSignal(
+                source: "codex",
+                event: "PermissionRequest"
+            ) == "needsInput"
+        )
+        #expect(
+            FeedEventClassifier.agentStatusSignal(
+                source: "codex",
+                event: "PreToolUse"
+            ) == nil
+        )
     }
 
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
