@@ -1587,6 +1587,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         var reschedulesSecondaryAggregation: Bool { self != .presencePush }
 
+        /// Stable integer carried in ``DiagnosticEventCode/recoveryStarted``'s
+        /// `b` slot so an export names WHY each recovery cycle began. Values
+        /// are append-only; never renumber.
+        var diagnosticCode: Int {
+            switch self {
+            case .networkChange: 1
+            case .manual: 2
+            case .presencePush: 3
+            case .foreground: 4
+            case .liveness: 5
+            case .eventStreamEnded: 6
+            case .subscriptionStartFailed: 7
+            case .transportWriteTimedOut: 8
+            case .automaticBackoffExpired: 9
+            }
+        }
+
         var description: String {
             switch self {
             case .networkChange: return "networkChange"

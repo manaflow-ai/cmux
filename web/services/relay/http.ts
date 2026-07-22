@@ -22,6 +22,12 @@ export async function runRelayEffect<A, E>(
 export function enforceRelayRateLimit(input: {
   readonly request: Request;
   readonly accountId: string;
+  /**
+   * Optional per-device partition (endpoint id). When present the budget is
+   * per account+device, so one storming device cannot starve the account's
+   * other phones, simulators, and tagged builds.
+   */
+  readonly devicePartition?: string;
   readonly ruleId: string | undefined;
   readonly check: RelayRateLimitCheck;
   readonly isVercel?: boolean;
@@ -39,7 +45,9 @@ export function enforceRelayRateLimit(input: {
   return Effect.tryPromise({
     try: () => input.check(ruleId, {
       request: input.request,
-      rateLimitKey: input.accountId,
+      rateLimitKey: input.devicePartition
+        ? `${input.accountId}:${input.devicePartition}`
+        : input.accountId,
     }),
     catch: () => new RelayRateLimitError({ code: "rate_limit_unavailable" }),
   }).pipe(

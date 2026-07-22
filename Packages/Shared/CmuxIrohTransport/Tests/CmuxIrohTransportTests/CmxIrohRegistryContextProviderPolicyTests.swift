@@ -233,6 +233,55 @@ extension CmxIrohRegistryContextProviderTests {
     }
 
     @Test
+    func pairGrantRateLimitReusesCachedGrantAfterFreshDiscovery() async throws {
+        let fixture = try RegistryFixture()
+        let discovery = try fixture.discovery(targetHints: [])
+        let grant = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohClientOfflinePolicyCache(secureStore: store)
+        let expectation = try fixture.offlineExpectation()
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[1],
+            discovery: discovery,
+            pairGrant: grant,
+            for: expectation,
+            now: fixture.now
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: discovery,
+            pairGrantResponses: [],
+            pairGrantError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "pair_grant_hour_quota",
+                retryAfterSeconds: 600
+            )
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            offlinePolicy: try CmxIrohClientOfflinePolicyContext(
+                cache: cache,
+                expectation: expectation,
+                localBinding: discovery.bindings[0]
+            ),
+            now: { fixture.now }
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(await broker.discoveryRequestCount() == 1)
+        #expect(await broker.pairGrantRequestCount() == 1)
+        #expect(await store.readCount() > 0)
+    }
+
+    @Test
     func authenticatedBrokerFailuresNeverConsultOfflinePolicy() async throws {
         let fixture = try RegistryFixture()
         let discovery = try fixture.discovery(targetHints: [])

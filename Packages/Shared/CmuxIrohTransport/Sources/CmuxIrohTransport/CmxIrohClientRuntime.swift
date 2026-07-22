@@ -330,7 +330,8 @@ public actor CmxIrohClientRuntime {
             }
             let policy = try await resolvePolicy(
                 expectedEndpointID: endpointID,
-                revision: revision
+                revision: revision,
+                allowRegistrationDiscoveryFallback: true
             )
             try requireCurrent(revision)
             await sessionPool.activate(

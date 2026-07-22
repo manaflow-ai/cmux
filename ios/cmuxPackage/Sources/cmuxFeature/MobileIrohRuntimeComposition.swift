@@ -153,6 +153,8 @@ public final class MobileIrohRuntimeComposition:
     private var observedAccountID: String? { observedAuthState?.accountID }
     private var activeAccountID: String?
     private var brokerCooldown = CmxIrohBrokerCooldown()
+    private let diagnosticArchive = DiagnosticReportArchive.defaultArchive()
+    private var previousLaunchDiagnosticReport: DiagnosticReport??
     private var lastKnownBindingAccountID: String?
     private var lastKnownBindingTag: String?
     private var lastKnownBindingID: String?
@@ -582,8 +584,9 @@ public final class MobileIrohRuntimeComposition:
         // it as a fresh directive would slide the deadline forward on every
         // sub-second attempt.
         guard !(error is CmxIrohBrokerCooldownError),
-              let retryAfterSeconds = (error as? any CmxRetryAfterProviding)?
-                  .retryAfterSeconds else { return }
+              let retryAfterSeconds = CmxIrohBrokerCooldown.directiveSeconds(
+                  for: error
+              ) else { return }
         brokerCooldown.record(
             accountID: accountID,
             retryAfterSeconds: retryAfterSeconds,
@@ -592,9 +595,48 @@ public final class MobileIrohRuntimeComposition:
     }
 
     /// Preserves the endpoint when iOS backgrounds the scene.
+    /// Archives the diagnostic ring without touching the runtime. Called on
+    /// scene inactivation (the app switcher opening) so a force-quit that
+    /// never delivers a background transition still leaves the previous
+    /// launch's events exportable.
+    public func archiveDiagnostics() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .appLifecycleChanged,
+            a: DiagnosticAppLifecyclePhase.inactive.rawValue
+        ))
+        persistDiagnosticsSnapshot()
+    }
+
+    /// Reads the previous launch's archive (once) and replaces it with the
+    /// current ring, off the main actor: backgrounding must not spend the
+    /// suspension window on filesystem work.
+    private func persistDiagnosticsSnapshot() {
+        guard let diagnosticLog, let diagnosticArchive else { return }
+        let needsPreviousLoad = previousLaunchDiagnosticReport == nil
+        Task.detached(priority: .utility) { [weak self] in
+            let previous = needsPreviousLoad ? diagnosticArchive.load() : nil
+            if needsPreviousLoad {
+                await self?.cachePreviousLaunchReport(previous)
+            }
+            diagnosticArchive.save(await diagnosticLog.snapshot())
+        }
+    }
+
+    private func cachePreviousLaunchReport(_ report: DiagnosticReport?) {
+        guard previousLaunchDiagnosticReport == nil else { return }
+        previousLaunchDiagnosticReport = .some(report)
+    }
+
     public func didEnterBackground() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .appLifecycleChanged,
+            a: DiagnosticAppLifecyclePhase.background.rawValue
+        ))
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
+        // Archive the diagnostic ring so a later relaunch keeps the events
+        // around a drop exportable.
+        persistDiagnosticsSnapshot()
         let runtime = runtime
         sceneTransitionTask = Task {
             await runtime?.didEnterBackground()
@@ -603,6 +645,10 @@ public final class MobileIrohRuntimeComposition:
 
     /// Health-checks and refreshes the preserved endpoint on foreground return.
     public func didBecomeActive() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .appLifecycleChanged,
+            a: DiagnosticAppLifecyclePhase.active.rawValue
+        ))
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
         let auth = auth
@@ -706,6 +752,8 @@ public final class MobileIrohRuntimeComposition:
         selectedPathObservationTask = nil
         activeAccountID = nil
         brokerCooldown.clear()
+        diagnosticArchive?.clear()
+        previousLaunchDiagnosticReport = .some(nil)
         let fallbackBindingID = lastKnownBindingID
         let preparation: CmxIrohClientSignOutPreparation
         if let previousRuntime {
@@ -1139,6 +1187,8 @@ public final class MobileIrohRuntimeComposition:
             activeAccountID = nil
             if shouldErase {
                 brokerCooldown.clear()
+                diagnosticArchive?.clear()
+                previousLaunchDiagnosticReport = .some(nil)
             }
             await lanPeerDiscovery?.stop()
             if let previousRuntime {
@@ -2087,7 +2137,16 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
 
     public func clearIrohDiagnosticReport() async {
         await diagnosticLog?.clear()
+        diagnosticArchive?.clear()
+        previousLaunchDiagnosticReport = .some(nil)
         publishIrohSettingsUpdate()
+    }
+
+    public func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport? {
+        if let cached = previousLaunchDiagnosticReport { return cached }
+        let loaded = diagnosticArchive?.load()
+        previousLaunchDiagnosticReport = .some(loaded)
+        return loaded
     }
 
     private func observeRelayPolicyDiagnostics(

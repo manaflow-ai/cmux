@@ -672,6 +672,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     }
 
     private static func isConnectivity(_ error: any Error) -> Bool {
-        (error as? CmxIrohTrustBrokerClientError) == .connectivity
+        CmxIrohTrustBrokerClientError.preservesVerifiedPolicyDuringRefresh(error)
     }
 }
