@@ -22,6 +22,7 @@ type tmuxCorpusRPCRecorder struct {
 	requests              []tmuxCorpusRPCRequest
 	workspaces            []map[string]any
 	readText              string
+	surfaceListExtras     map[string]any
 	includePaneMetrics    bool
 	includePointMetrics   bool
 	includeContainerFrame bool
@@ -131,13 +132,17 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 	case "workspace.list":
 		resp["result"] = map[string]any{"workspaces": cloneSliceOfMaps(r.workspaces)}
 	case "surface.list":
-		resp["result"] = map[string]any{"surfaces": []map[string]any{{
+		surface := map[string]any{
 			"id":      "44444444-4444-4444-8444-444444444444",
 			"ref":     "surface:1",
 			"focused": true,
 			"pane_id": "33333333-3333-4333-8333-333333333333",
 			"title":   "shell",
-		}}}
+		}
+		for k, v := range r.surfaceListExtras {
+			surface[k] = v
+		}
+		resp["result"] = map[string]any{"surfaces": []map[string]any{surface}}
 	case "surface.current":
 		resp["result"] = map[string]any{
 			"workspace_id": r.workspaces[0]["id"],
@@ -228,6 +233,12 @@ func (r *tmuxCorpusRPCRecorder) setReadText(text string) {
 	r.readText = text
 }
 
+func (r *tmuxCorpusRPCRecorder) setSurfaceListExtras(extras map[string]any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.surfaceListExtras = cloneMap(extras)
+}
+
 func cloneMap(input map[string]any) map[string]any {
 	out := make(map[string]any, len(input))
 	for k, v := range input {
@@ -302,9 +313,7 @@ func TestTmuxCorpusNewSessionAndNewWindowCommandsDispatchShellText(t *testing.T)
 // so the first teammate spawn failed with "unsupported tmux command:
 // respawn-pane" and Claude Code fell back to headless for the session.
 func TestTmuxCorpusRespawnPaneDispatchesSurfaceRespawn(t *testing.T) {
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", t.TempDir())
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", t.TempDir())
 
 	const paneTarget = "%33333333-3333-4333-8333-333333333333"
 	const wantSurface = "44444444-4444-4444-8444-444444444444"
@@ -352,6 +361,70 @@ func TestTmuxCorpusRespawnPaneDispatchesSurfaceRespawn(t *testing.T) {
 		}
 		if got := requests[0].Params["command"]; got != "/bin/sh -c 'echo hi'" {
 			t.Errorf("command = %q", got)
+		}
+	})
+
+	t.Run("no command reuses stored start command", func(t *testing.T) {
+		recorder := startTmuxCorpusRPCRecorder(t)
+		recorder.setSurfaceListExtras(map[string]any{
+			"tmux_start_command": "claude --resume abc",
+			"initial_command":    "should-not-win",
+		})
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{"-k", "-t", paneTarget})
+		if err != nil {
+			t.Fatalf("respawn-pane: %v", err)
+		}
+		requests := recorder.requestsFor("surface.respawn")
+		if len(requests) != 1 {
+			t.Fatalf("surface.respawn requests = %d, want 1", len(requests))
+		}
+		params := requests[0].Params
+		if got := params["tmux_start_command"]; got != "claude --resume abc" {
+			t.Errorf("tmux_start_command = %q, want stored tmux_start_command to win", got)
+		}
+		if got := params["command"]; got != "/bin/sh -c 'claude --resume abc'" {
+			t.Errorf("command = %q", got)
+		}
+	})
+
+	t.Run("no command falls back to pane_start_command", func(t *testing.T) {
+		recorder := startTmuxCorpusRPCRecorder(t)
+		recorder.setSurfaceListExtras(map[string]any{
+			"pane_start_command": "htop",
+		})
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{"-k", "-t", paneTarget})
+		if err != nil {
+			t.Fatalf("respawn-pane: %v", err)
+		}
+		requests := recorder.requestsFor("surface.respawn")
+		if len(requests) != 1 {
+			t.Fatalf("surface.respawn requests = %d, want 1", len(requests))
+		}
+		if got := requests[0].Params["tmux_start_command"]; got != "htop" {
+			t.Errorf("tmux_start_command = %q, want pane_start_command fallback", got)
+		}
+	})
+
+	t.Run("-c sets working_directory", func(t *testing.T) {
+		recorder := startTmuxCorpusRPCRecorder(t)
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{
+			"-k", "-t", paneTarget, "-c", "/tmp/teammate-cwd", "echo hi",
+		})
+		if err != nil {
+			t.Fatalf("respawn-pane: %v", err)
+		}
+		requests := recorder.requestsFor("surface.respawn")
+		if len(requests) != 1 {
+			t.Fatalf("surface.respawn requests = %d, want 1", len(requests))
+		}
+		if got := requests[0].Params["working_directory"]; got != "/tmp/teammate-cwd" {
+			t.Errorf("working_directory = %v, want /tmp/teammate-cwd", got)
 		}
 	})
 
