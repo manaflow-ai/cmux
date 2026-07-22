@@ -1,4 +1,5 @@
 import class XCTest.XCTestCase
+import func XCTest.XCTSkipIf
 import func XCTest.XCTAssertEqual
 import func XCTest.XCTAssertFalse
 import func XCTest.XCTAssertGreaterThan
@@ -9,7 +10,6 @@ import func XCTest.XCTAssertNotNil
 import func XCTest.XCTAssertTrue
 import func XCTest.XCTFail
 import func XCTest.XCTUnwrap
-import struct XCTest.XCTSkip
 import Combine
 import AppKit
 import Testing
@@ -3494,21 +3494,59 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testNilTargetMainWindowCloseActionDoesNotCloseAttachedInspector() throws {
-        // This exercises a *nil-target* `NSApp.sendAction("__close", to: nil,
-        // from: nil)`: the inspector is docked inside the main terminal window
-        // (no separate inspector window), so the detached-inspector interceptor
-        // correctly declines and the action falls through to AppKit's default
-        // `__close`. Whether that default tears the window down depends on real
-        // window-server key/main resolution, which a headless `xcodebuild test`
-        // host doesn't provide deterministically: here `__close` reaches the main
-        // window and closes it, tearing down the panel and its inspector
-        // (closeCount becomes 1) rather than leaving the docked inspector open.
-        // The interceptor's own behavior (not misclassifying the main window as a
-        // detached inspector) is covered headless by the separate-window nil-target
-        // tests, e.g. testNilTargetControllerCloseActionDoesNotCloseDetachedInspector.
-        throw XCTSkip(
-            "Depends on real window-server nil-target __close routing; headless resolves __close to the main window and tears it down."
+        // Headless limitation, not a product defect. Kept live (not deleted or
+        // `#if false`d) so the body stays type-checked: `XCTSkipIf` is a runtime
+        // condition, so the compiler cannot mark what follows unreachable.
+        try XCTSkipIf(true, "Depends on real window-server nil-target __close routing; headless resolves __close to the main window and tears it down. The interceptor's own classification is covered headless by testNilTargetControllerCloseActionDoesNotCloseDetachedInspector.")
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let contentView = mainWindow.contentView else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        attachPanelPresentationIfNeeded(browserPanel, to: contentView)
+
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(
+                x: contentView.bounds.midX,
+                y: 0,
+                width: contentView.bounds.midX,
+                height: contentView.bounds.height
+            ),
+            configuration: WKWebViewConfiguration()
         )
+        contentView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        mainWindow.makeKeyAndOrderFront(nil)
+        mainWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        _ = NSApp.sendAction(NSSelectorFromString("__close"), to: nil, from: nil)
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "Nil-target main-window Close actions must not be mistaken for detached inspector window closes"
+        )
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
     }
 
     func testNilTargetControllerCloseActionDoesNotCloseDetachedInspector() {
@@ -3581,9 +3619,22 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         // stays 1 instead of reaching 2. The realistic churn path, where the
         // detach records preserved visible intent, is covered headless by
         // testSyncCanPreserveVisibleIntentDuringDetachChurn.
-        throw XCTSkip(
-            "Requires WebKit's asynchronous inspector show to arm the detached-open grace window; the synchronous test inspector arms no grace. Realistic churn is covered by testSyncCanPreserveVisibleIntentDuringDetachChurn."
-        )
+        try XCTSkipIf(true, "Requires WebKit's asynchronous inspector show to arm the detached-open grace window; the synchronous test inspector arms no grace. Realistic churn is covered by testSyncCanPreserveVisibleIntentDuringDetachChurn.")
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate WebKit closing inspector during detach/reattach churn.
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 1)
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 2)
     }
 
 
@@ -4285,15 +4336,110 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testVisibleReplacementLocalHostNormalizesBottomDockedInspectorFrames() throws {
-        // Migrating the hosted page and its docked-inspector companion views from
-        // one local-inline slot to a replacement `NSHostingView<WebViewRepresentable>`
-        // relies on SwiftUI running `updateNSView` and laying out the hosting view.
-        // A headless `xcodebuild test` host doesn't drive that SwiftUI layout, so
-        // the page never migrates: the views stay in the original 180pt-wide slot
-        // and the expected full-width (360pt) normalization never happens.
-        throw XCTSkip(
-            "Requires SwiftUI NSHostingView layout (updateNSView) to migrate hosted views between slots; headless does not drive that layout."
+        // Headless limitation, not a product defect. Kept live (not deleted or
+        // `#if false`d) so the body stays type-checked: `XCTSkipIf` is a runtime
+        // condition, so the compiler cannot mark what follows unreachable.
+        try XCTSkipIf(true, "Requires SwiftUI NSHostingView layout (updateNSView) to migrate hosted views between slots; headless does not drive that layout.")
+        let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        XCTAssertTrue(panel.showDeveloperTools())
+
+        let paneId = PaneID(id: UUID())
+        let representable = WebViewRepresentable(
+            panel: panel,
+            paneId: paneId,
+            shouldAttachWebView: false,
+            useLocalInlineHosting: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            designComposer: nil,
+            omnibarSuggestions: nil,
+            paneTopChromeHeight: 0
         )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let narrowHosting = NSHostingView(rootView: representable)
+        narrowHosting.frame = NSRect(x: 180, y: 0, width: 180, height: 240)
+        contentView.addSubview(narrowHosting)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        narrowHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let initialSlot = panel.webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected initial local inline slot")
+            return
+        }
+
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: initialSlot.bounds.width, height: 72)
+        )
+        inspectorView.autoresizingMask = [.width]
+        initialSlot.addSubview(inspectorView)
+        panel.webView.frame = NSRect(
+            x: 0,
+            y: inspectorView.frame.maxY,
+            width: initialSlot.bounds.width,
+            height: initialSlot.bounds.height - inspectorView.frame.height
+        )
+        initialSlot.layoutSubtreeIfNeeded()
+
+        let replacementHosting = NSHostingView<WebViewRepresentable>(rootView: representable)
+        replacementHosting.frame = contentView.bounds
+        replacementHosting.autoresizingMask = [.width, .height]
+        contentView.addSubview(replacementHosting, positioned: .above, relativeTo: narrowHosting)
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        replacementHosting.rootView = representable
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        narrowHosting.removeFromSuperview()
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let replacementHost = findHostContainerView(in: replacementHosting),
+              let replacementSlot = findWindowBrowserSlotView(in: replacementHost) else {
+            XCTFail("Expected replacement local inline host")
+            return
+        }
+
+        XCTAssertTrue(
+            panel.webView.superview === replacementSlot,
+            "A visible replacement local host should take over the hosted page"
+        )
+        XCTAssertTrue(
+            inspectorView.superview === replacementSlot,
+            "A visible replacement local host should move the DevTools companion views with the page"
+        )
+        XCTAssertEqual(inspectorView.frame.minX, 0, accuracy: 0.5)
+        XCTAssertEqual(inspectorView.frame.minY, 0, accuracy: 0.5)
+        XCTAssertEqual(inspectorView.frame.width, replacementSlot.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(inspectorView.frame.height, 72, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.minX, 0, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.minY, 72, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.width, replacementSlot.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.height, replacementSlot.bounds.height - 72, accuracy: 0.5)
     }
 }
 
