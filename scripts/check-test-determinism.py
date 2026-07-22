@@ -610,16 +610,91 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     return masked_lines
 
 
+def _receiver_default_expression(text: str, receiver: str) -> Optional[str]:
+    binding = re.search(rf"\b{re.escape(receiver)}\s*:", text)
+    if not binding:
+        return None
+    fragment = text[binding.end() :]
+
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    angle_depth = 0
+    assignment_index: Optional[int] = None
+    for index, character in enumerate(fragment):
+        if character == "=" and not (
+            paren_depth or bracket_depth or brace_depth or angle_depth
+        ):
+            assignment_index = index
+            break
+        if character == "(":
+            paren_depth += 1
+        elif character == ")" and paren_depth:
+            paren_depth -= 1
+        elif character == "[":
+            bracket_depth += 1
+        elif character == "]" and bracket_depth:
+            bracket_depth -= 1
+        elif character == "{":
+            brace_depth += 1
+        elif character == "}" and brace_depth:
+            brace_depth -= 1
+        elif character == "<":
+            angle_depth += 1
+        elif character == ">" and angle_depth:
+            angle_depth -= 1
+    if assignment_index is None:
+        return None
+
+    expression = fragment[assignment_index + 1 :]
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    for index, character in enumerate(expression):
+        if character == "(":
+            paren_depth += 1
+        elif character == ")":
+            if paren_depth:
+                paren_depth -= 1
+            elif not (bracket_depth or brace_depth):
+                return expression[:index].strip() or None
+        elif character == "[":
+            bracket_depth += 1
+        elif character == "]" and bracket_depth:
+            bracket_depth -= 1
+        elif character == "{":
+            brace_depth += 1
+        elif character == "}" and brace_depth:
+            brace_depth -= 1
+        elif character == "," and not (
+            paren_depth or bracket_depth or brace_depth
+        ):
+            return expression[:index].strip() or None
+    return expression.strip() or None
+
+
 def _annotated_receiver_kind(text: str, receiver: str) -> Optional[bool]:
+    binding = re.search(rf"\b{re.escape(receiver)}\s*:", text)
+    if not binding:
+        return None
     annotation = re.search(
-        rf"\b{re.escape(receiver)}\s*:\s*"
+        rf"\b{re.escape(receiver)}\s*:\s*(?:(?:any|some)\s+)?"
         r"((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)",
         text,
     )
-    if not annotation:
-        return None
-    type_name = annotation.group(1).rsplit(".", 1)[-1]
-    return type_name in ("ContinuousClock", "SuspendingClock")
+    if annotation:
+        type_name = annotation.group(1).rsplit(".", 1)[-1]
+        if type_name in ("ContinuousClock", "SuspendingClock"):
+            return True
+
+    default_expression = _receiver_default_expression(text, receiver)
+    if default_expression is None:
+        return False
+    declaration = f"= {default_expression}"
+    return bool(
+        _REAL_CLOCK_INIT.search(declaration)
+        or _real_clock_cast_type(declaration)
+    )
 
 
 def _annotated_receiver_type(text: str, receiver: str) -> Optional[str]:
@@ -1708,6 +1783,7 @@ def _resolve_named_receiver_kind(
     scope_mutations: list[Optional[tuple[int, bool]]] = [None]
     scope_declared_real = [False]
     pending_function = False
+    pending_function_header = ""
     pending_parameter: Optional[bool] = None
     pending_function_paren_depth = 0
     pending_function_saw_parameters = False
@@ -1849,11 +1925,21 @@ def _resolve_named_receiver_kind(
 
         if _LOCAL_SCOPE_HEADER.search(candidate):
             pending_function = True
-            pending_parameter = _annotated_receiver_kind(candidate, receiver)
+            pending_function_header = candidate
+            pending_parameter = _annotated_receiver_kind(
+                pending_function_header, receiver
+            )
             pending_function_paren_depth = 0
             pending_function_saw_parameters = False
-        elif pending_function and pending_parameter is None:
-            pending_parameter = _annotated_receiver_kind(candidate, receiver)
+        elif pending_function:
+            pending_function_header = (
+                f"{pending_function_header} {candidate.strip()}"
+            )
+            candidate_parameter = _annotated_receiver_kind(
+                pending_function_header, receiver
+            )
+            if candidate_parameter is not None:
+                pending_parameter = candidate_parameter
         if _CONDITIONAL_SCOPE_HEADER.search(candidate):
             pending_conditional = {}
             pending_conditional_declared_real = False
@@ -1927,6 +2013,7 @@ def _resolve_named_receiver_kind(
                         scope[receiver] = pending_parameter
                         declared_real = pending_parameter
                     pending_function = False
+                    pending_function_header = ""
                     pending_parameter = None
                     pending_function_paren_depth = 0
                     pending_function_saw_parameters = False
@@ -2194,6 +2281,35 @@ class _PythonAliasScope:
     resume_values: Optional[dict[str, bool]] = None
 
 
+def _python_simple_statements(line: str) -> list[str]:
+    """Split semicolon-delimited Python statements outside bracket groups."""
+    statements: list[str] = []
+    start = 0
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    for index, character in enumerate(line):
+        if character == "(":
+            paren_depth += 1
+        elif character == ")" and paren_depth:
+            paren_depth -= 1
+        elif character == "[":
+            bracket_depth += 1
+        elif character == "]" and bracket_depth:
+            bracket_depth -= 1
+        elif character == "{":
+            brace_depth += 1
+        elif character == "}" and brace_depth:
+            brace_depth -= 1
+        elif character == ";" and not (
+            paren_depth or bracket_depth or brace_depth
+        ):
+            statements.append(line[start:index])
+            start = index + 1
+    statements.append(line[start:])
+    return statements
+
+
 def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
     """Resolve standard Python sleep modules once with lexical namespaces."""
     active = set(_PYTHON_SLEEP_MODULES)
@@ -2326,66 +2442,71 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
                 enter_scope(indent, "class")
             continue
 
-        import_line = re.match(r"^\s*import\s+(.+)$", line)
-        if import_line:
-            for import_spec in import_line.group(1).split(","):
-                direct = re.fullmatch(
-                    r"\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*",
-                    import_spec,
-                )
-                if direct:
-                    bound_name = direct.group(1).split(".", 1)[0]
-                    if bound_name in _PYTHON_SLEEP_MODULES:
-                        set_alias(bound_name, True)
-                    else:
-                        set_alias(bound_name, False)
-                alias = re.fullmatch(
-                    r"\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
-                    r"\s+as\s+([A-Za-z_]\w*)\s*",
-                    import_spec,
-                )
-                if alias:
-                    if alias.group(1) in _PYTHON_SLEEP_MODULES:
-                        set_alias(alias.group(2), True)
-                    else:
-                        set_alias(alias.group(2), False)
-            update_continuation(line)
-            continue
-        from_import = re.match(
-            r"^\s*from\s+\S+\s+import\s+(.+)$", line
+        statements = (
+            _python_simple_statements(line) if ";" in line else (line,)
         )
-        if from_import:
-            for import_spec in from_import.group(1).split(","):
-                binding = re.fullmatch(
-                    r"\s*([A-Za-z_]\w*)"
-                    r"(?:\s+as\s+([A-Za-z_]\w*))?\s*",
-                    import_spec,
-                )
-                if binding:
-                    set_alias(binding.group(2) or binding.group(1), False)
-            update_continuation(line)
-            continue
+        for statement in statements:
+            import_line = re.match(r"^\s*import\s+(.+)$", statement)
+            if import_line:
+                for import_spec in import_line.group(1).split(","):
+                    direct = re.fullmatch(
+                        r"\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*",
+                        import_spec,
+                    )
+                    if direct:
+                        bound_name = direct.group(1).split(".", 1)[0]
+                        set_alias(
+                            bound_name,
+                            bound_name in _PYTHON_SLEEP_MODULES,
+                        )
+                    alias = re.fullmatch(
+                        r"\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
+                        r"\s+as\s+([A-Za-z_]\w*)\s*",
+                        import_spec,
+                    )
+                    if alias:
+                        set_alias(
+                            alias.group(2),
+                            alias.group(1) in _PYTHON_SLEEP_MODULES,
+                        )
+                continue
 
-        rebound_names = {
-            match.group(1)
-            for pattern in (
-                _PYTHON_ASSIGNMENT_TARGET,
-                _PYTHON_CHAINED_ASSIGNMENT_TARGET,
-                _PYTHON_DEFINITION_TARGET,
-                _PYTHON_FOR_TARGET,
-                _PYTHON_AS_TARGET,
-                _PYTHON_DEL_TARGET,
+            from_import = re.match(
+                r"^\s*from\s+\S+\s+import\s+(.+)$", statement
             )
-            for match in pattern.finditer(line)
-        }
-        for name in rebound_names:
-            set_alias(name, False)
+            if from_import:
+                for import_spec in from_import.group(1).split(","):
+                    binding = re.fullmatch(
+                        r"\s*([A-Za-z_]\w*)"
+                        r"(?:\s+as\s+([A-Za-z_]\w*))?\s*",
+                        import_spec,
+                    )
+                    if binding:
+                        set_alias(
+                            binding.group(2) or binding.group(1), False
+                        )
+                continue
 
-        if any(
-            call.group(1) in active
-            for call in _PYTHON_MODULE_SLEEP_CALL.finditer(line)
-        ):
-            sleep_lines.add(line_index)
+            rebound_names = {
+                match.group(1)
+                for pattern in (
+                    _PYTHON_ASSIGNMENT_TARGET,
+                    _PYTHON_CHAINED_ASSIGNMENT_TARGET,
+                    _PYTHON_DEFINITION_TARGET,
+                    _PYTHON_FOR_TARGET,
+                    _PYTHON_AS_TARGET,
+                    _PYTHON_DEL_TARGET,
+                )
+                for match in pattern.finditer(statement)
+            }
+            for name in rebound_names:
+                set_alias(name, False)
+
+            if any(
+                call.group(1) in active
+                for call in _PYTHON_MODULE_SLEEP_CALL.finditer(statement)
+            ):
+                sleep_lines.add(line_index)
         update_continuation(line)
     return sleep_lines
 
@@ -2903,6 +3024,17 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/MultilineDefaultedExistentialRealClockTests.swift",
+            "func verify(\n"
+            "    clock: any Clock<Duration> =\n"
+            "        ContinuousClock()\n"
+            ") async {\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/ClosureDefaultRealClockParameterTests.swift",
             "func verify(\n"
             "    clock: ContinuousClock,\n"
@@ -3096,6 +3228,12 @@ def _self_test() -> int:
         (
             "tests/import_then_sleep.py",
             "import time; time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/sleep_then_import.py",
+            "time.sleep(0.3); import fake_time as time\n"
             "assert widget.is_rendered\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
@@ -3642,6 +3780,15 @@ def _self_test() -> int:
             "    #expect(await clockEvents.next() == expected)\n"
             "}\n",
         ),
+        (
+            "Packages/CmuxClock/Tests/ExistentialDefaultVirtualClockTests.swift",
+            "func verifyVirtual(\n"
+            "    clock: any Clock<Duration> = TestRelayClock()\n"
+            ") async {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
+            "}\n",
+        ),
         # A standard-clock binding in a previous function must not leak into a
         # later function whose same-named clock is injected.
         (
@@ -4077,6 +4224,11 @@ def _self_test() -> int:
             "    time = TestClock()\n"
             "    time.sleep(0.3)\n"
             "    assert widget.is_rendered\n",
+        ),
+        (
+            "tests/ImportedShadowedSleepModuleAliasTests.py",
+            "import fake_time as time; time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
         ),
         (
             "tests/ShadowedTimeModuleTests.py",
