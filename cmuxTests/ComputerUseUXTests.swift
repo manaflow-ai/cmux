@@ -1,6 +1,7 @@
 import AppKit
 import CMUXAgentLaunch
 import CmuxFoundation
+import CmuxSettings
 import CmuxTerminal
 import Foundation
 import Testing
@@ -324,6 +325,43 @@ struct ComputerUseUXTests {
         )
 
         #expect(!unmatchedRecentState.shouldShowStatusItem)
+    }
+
+    @MainActor
+    @Test func menuRefreshDoesNotScheduleAgentIndexReload() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-computer-use-menu-refresh-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                Issue.record("Computer-use menu refresh scheduled an agent-index reload")
+                return (
+                    index: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent("hooks", isDirectory: true).path
+            }
+        )
+        let catalog = SettingCatalog()
+        let store = ComputerUseMenuBarSnapshotStore(
+            liveAgentIndex: sharedIndex,
+            stateRepository: ComputerUseStateRepository(),
+            stateDirectoryURL: root.appendingPathComponent("state", isDirectory: true),
+            configStore: JSONConfigStore(fileURL: root.appendingPathComponent("cmux.json")),
+            showInMenuBarKey: catalog.computerUse.showInMenuBar,
+            workspaceTitle: { _ in nil },
+            featureEnabled: { true },
+            refreshPolicy: ComputerUseMenuBarRefreshPolicy(minimumEventReloadInterval: 60)
+        )
+
+        store.refresh()
+
+        #expect(!sharedIndex.hasScheduledRefresh)
+        store.stop()
     }
 
     @Test func menuRefreshPolicyDebouncesAndSkipsFullyInactiveFeature() throws {
