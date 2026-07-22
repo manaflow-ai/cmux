@@ -90,10 +90,10 @@ import Testing
         #expect(TaskComposerFailureTitleStyle.taskAccepted.title(templateName: "Claude") == "Task already accepted")
         #expect(TaskComposerFailureTitleStyle.statusUnconfirmed.title(templateName: "Claude") == "Task status unconfirmed")
         #expect(
-            TaskComposerFailureTitleStyle.forFailure(.alreadyCompleted(hostDisplayName: nil)) == .taskAccepted
+            TaskComposerFailureTitleStyle(failure: .alreadyCompleted(hostDisplayName: nil)) == .taskAccepted
         )
         #expect(
-            TaskComposerFailureTitleStyle.forFailure(.requestTimedOut(hostDisplayName: nil)) == .statusUnconfirmed
+            TaskComposerFailureTitleStyle(failure: .requestTimedOut(hostDisplayName: nil)) == .statusUnconfirmed
         )
     }
 

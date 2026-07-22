@@ -38,14 +38,14 @@ enum TaskComposerFailureTitleStyle: Equatable {
         }
     }
 
-    static func forFailure(_ failure: MobileWorkspaceMutationFailure) -> Self {
+    init(failure: MobileWorkspaceMutationFailure) {
         switch failure {
         case .alreadyCompleted:
-            .taskAccepted
+            self = .taskAccepted
         case .notConnected, .requestTimedOut:
-            .statusUnconfirmed
+            self = .statusUnconfirmed
         default:
-            .launchFailed
+            self = .launchFailed
         }
     }
 }

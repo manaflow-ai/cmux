@@ -91,7 +91,7 @@ extension TaskComposerSheet {
         }
         if shouldRestoreRecoveryBanner {
             failureTitleStyle = .taskAccepted
-            failureText = Self.recoveryFailureMessage(for: recovery.phase)
+            failureText = recoveryFailureMessage(for: recovery.phase)
         }
         return recovery.submittedSnapshot.operationID
     }

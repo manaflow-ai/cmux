@@ -29,7 +29,7 @@ extension TaskComposerSheet {
         }
         let result = await submitTaskComposer(
             snapshot.macDeviceID,
-            Self.workspaceCreateSpec(for: snapshot)
+            workspaceCreateSpec(for: snapshot)
         ) {
             submissionPhase = .committed
         }
@@ -41,7 +41,7 @@ extension TaskComposerSheet {
         case .failure(.alreadyCompleted):
             completedOperationRecovery?.recordReconciliationStillMissing()
             failureTitleStyle = .taskAccepted
-            let message = Self.recoveryFailureMessage(for: .startAgainAvailable)
+            let message = recoveryFailureMessage(for: .startAgainAvailable)
             failureText = message
             announceFailure(message)
         case .failure(let failure):
@@ -73,7 +73,7 @@ extension TaskComposerSheet {
         dismiss()
     }
 
-    static func workspaceCreateSpec(
+    func workspaceCreateSpec(
         for snapshot: MobileTaskSubmissionSnapshot
     ) -> MobileWorkspaceCreateSpec {
         MobileWorkspaceCreateSpec(
@@ -85,10 +85,10 @@ extension TaskComposerSheet {
         )
     }
 
-    static func recoveryFailureMessage(for phase: TaskComposerCompletedOperationRecoveryPhase) -> String {
+    func recoveryFailureMessage(for phase: TaskComposerCompletedOperationRecoveryPhase) -> String {
         switch phase {
         case .refreshRequired:
-            failureMessage(.alreadyCompleted(hostDisplayName: nil))
+            Self.failureMessage(.alreadyCompleted(hostDisplayName: nil))
         case .startAgainAvailable:
             L10n.string(
                 "mobile.taskComposer.recovery.stillMissing",

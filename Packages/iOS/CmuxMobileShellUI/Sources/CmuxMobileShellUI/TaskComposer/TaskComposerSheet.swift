@@ -520,7 +520,7 @@ struct TaskComposerSheet: View {
         submissionPhase = .preparing
         activeSubmissionSnapshot = snapshot
         failureText = nil
-        let spec = Self.workspaceCreateSpec(for: snapshot)
+        let spec = workspaceCreateSpec(for: snapshot)
         let result = await submitTaskComposer(snapshot.macDeviceID, spec) {
             submissionPhase = .committed
         }
@@ -553,7 +553,7 @@ struct TaskComposerSheet: View {
                 )
                 submissionPhase = .retryReady
             }
-            failureTitleStyle = .forFailure(failure)
+            failureTitleStyle = TaskComposerFailureTitleStyle(failure: failure)
             let message = Self.failureMessage(failure)
             failureText = message
             announceFailure(message)
