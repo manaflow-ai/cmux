@@ -99,15 +99,21 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
             var prefixByteCount = 0
             var splitIndex = text.unicodeScalars.startIndex
             while splitIndex < text.unicodeScalars.endIndex {
-                let scalar = text.unicodeScalars[splitIndex]
-                let scalarByteCount = String(scalar).utf8.count
+                let scalarByteCount = UTF8.width(text.unicodeScalars[splitIndex])
                 guard prefixByteCount + scalarByteCount <= maximumByteCount else {
                     break
                 }
                 prefixByteCount += scalarByteCount
                 splitIndex = text.unicodeScalars.index(after: splitIndex)
             }
-            precondition(splitIndex != text.unicodeScalars.startIndex)
+            if splitIndex == text.unicodeScalars.startIndex {
+                // A cap narrower than the first scalar (< 4 bytes) cannot be
+                // honored at a scalar boundary; emit that scalar whole so the
+                // drain always makes progress instead of trapping. Production
+                // caps are KiB-scale, so this branch is pathological-only.
+                prefixByteCount = UTF8.width(text.unicodeScalars[splitIndex])
+                splitIndex = text.unicodeScalars.index(after: splitIndex)
+            }
             let prefix = String(text.unicodeScalars[..<splitIndex])
             pendingChunks[0].text = String(text.unicodeScalars[splitIndex...])
             pendingByteCount = max(0, pendingByteCount - prefixByteCount)

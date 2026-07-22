@@ -78,6 +78,20 @@ import Testing
         #expect(buffer.nextBatch(maximumByteCount: 4) == nil)
     }
 
+    @Test func emitsWholeScalarWhenCapIsNarrowerThanFirstScalar() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+
+        #expect(buffer.enqueue("漢z", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        // "漢" is 3 UTF-8 bytes; a 1-byte cap cannot split at a scalar boundary,
+        // so the drain must still make progress by emitting the scalar whole.
+        #expect(buffer.nextBatch(maximumByteCount: 1)?.text == "漢")
+        #expect(buffer.nextBatch(maximumByteCount: 1)?.text == "z")
+        #expect(buffer.pendingByteCount == 0)
+        #expect(buffer.nextBatch(maximumByteCount: 1) == nil)
+    }
+
     @Test func passesThroughExactCapAndSmallChunks() {
         var buffer = MobileTerminalInputSendBuffer()
         let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")

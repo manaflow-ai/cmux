@@ -911,6 +911,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalLiveFontTokensBySurfaceID: [String: UUID]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
+    private var isRawTerminalInputDrainLoopRunning: Bool
     private var pairingAttemptID: UUID
 
     /// High-level shell phase derived from sign-in and connection state.
@@ -1135,6 +1136,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.rawTerminalInputDrainWaiters = []
+        self.isRawTerminalInputDrainLoopRunning = false
         self.pairingAttemptID = UUID()
     }
 
@@ -5016,13 +5018,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
             return
         }
-        let workspaceCandidate = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        })
-        guard let workspace = workspaceCandidate else { return }
+        guard let workspaceID = workspaceID(containingSurfaceID: surfaceID) else { return }
         let enqueueResult = rawTerminalInputBuffer.enqueue(
             text,
-            workspaceID: workspace.id,
+            workspaceID: workspaceID,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
         )
         handleSynchronousRawTerminalInputEnqueueResult(enqueueResult)
@@ -5069,15 +5068,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8) else {
             return
         }
-        let workspaceCandidate = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        })
-        guard let workspace = workspaceCandidate else { return }
-        let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+        guard let workspaceID = workspaceID(containingSurfaceID: surfaceID) else { return }
         await enqueueTerminalRawInputAwaitingDrain(
             text,
-            workspaceID: workspace.id,
-            terminalID: terminalID
+            workspaceID: workspaceID,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
         )
     }
 
@@ -5095,6 +5090,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ) {
         case .startDraining:
             await drainRawTerminalInputBuffer()
+            // A stale drain loop may still own the buffer (the runner guard
+            // made our call a no-op); wait for it so awaited submitters only
+            // return once their input has actually been handed to the sender.
+            await awaitRawTerminalInputDrainCompletion()
         case .queued:
             await awaitRawTerminalInputDrainCompletion()
         case .rejected:
@@ -5103,6 +5102,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func drainRawTerminalInputBuffer() async {
+        // A drain Task can outlive rawTerminalInputBuffer.clear(): the buffer's
+        // isDraining flag resets synchronously, so a new enqueue can start a
+        // second loop while the old one is still awaiting a send. Two loops
+        // interleaving sends is exactly the input reorder this pipeline exists
+        // to prevent, so an instance-level runner flag keeps at most one loop
+        // alive; late starters return and the active loop drains their chunks.
+        guard !isRawTerminalInputDrainLoopRunning else { return }
+        isRawTerminalInputDrainLoopRunning = true
+        defer {
+            isRawTerminalInputDrainLoopRunning = false
+            resumeRawTerminalInputDrainWaiters()
+        }
         // Matches MobileIrohTerminalLane.maximumInputByteCount and the Mac lane
         // router's maximumInputFrameByteCount.
         while let chunk = rawTerminalInputBuffer.nextBatch(maximumByteCount: 16 * 1_024) {
@@ -5112,7 +5123,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 terminalID: chunk.terminalID
             )
         }
-        resumeRawTerminalInputDrainWaiters()
     }
 
     private func awaitRawTerminalInputDrainCompletion() async {
