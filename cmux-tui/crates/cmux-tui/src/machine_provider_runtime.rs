@@ -1003,6 +1003,7 @@ impl ProviderMachineRuntime {
                 .map(|machine| machine.display_name.clone())
                 .unwrap_or_else(|| "machines".to_string());
             self.stage_mandatory_replacement(None);
+            result.ui.session_available = false;
             result.replacement =
                 Some(crate::machine::MachineSession { session: placeholder_session(), label });
             result.restart_updates = true;
@@ -2007,6 +2008,9 @@ mod tests {
                     if matches!(kind, AcceptedMutationKind::RenameMachine) {
                         assert_eq!(result.session_label.as_deref(), Some("Renamed"));
                     }
+                    if matches!(kind, AcceptedMutationKind::DeleteMachine) {
+                        assert!(result.replacement.is_none());
+                    }
                     if matches!(kind, AcceptedMutationKind::CreateMachine) {
                         assert_eq!(
                             runtime
@@ -2325,6 +2329,7 @@ mod tests {
             .unwrap();
         assert!(result.replacement.is_some());
         assert!(result.restart_updates);
+        assert!(!result.ui.session_available);
         assert!(runtime.pending.as_ref().is_some_and(|pending| pending.retire_open_on_abort));
 
         runtime.abort_replacement();
