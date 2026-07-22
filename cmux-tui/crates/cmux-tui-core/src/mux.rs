@@ -548,6 +548,10 @@ pub struct Mux {
 }
 
 impl Mux {
+    fn default_workspace_name(state: &State) -> String {
+        state.workspaces.len().to_string()
+    }
+
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
         Self::new_with_test_surface_runtime(session, surface_options, false)
     }
@@ -1968,7 +1972,7 @@ impl Mux {
         let notifications = self.surface_notifications();
         let delta = {
             let mut state = self.state.lock().unwrap();
-            let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            let name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
             state.insert_pane(pane);
             stamp_pane_focus(self, &mut state, pane_id);
             state.push_workspace(Workspace {
@@ -2038,7 +2042,7 @@ impl Mux {
                 anyhow::bail!("workspace key already exists: {key}");
             }
             let ws_id = self.next_id();
-            let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            let name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
             let selection_resync = !state.workspaces.is_empty();
             state.push_workspace(Workspace {
                 id: ws_id,
@@ -2098,8 +2102,7 @@ impl Mux {
             let notifications = self.surface_notifications();
             let delta = {
                 let mut state = self.state.lock().unwrap();
-                let workspace_name =
-                    name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+                let workspace_name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
                 state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.push_workspace(Workspace {
@@ -2602,7 +2605,7 @@ impl Mux {
             let notifications = self.surface_notifications();
             let delta = {
                 let mut state = self.state.lock().unwrap();
-                let name = format!("{}", state.workspaces.len() + 1);
+                let name = Self::default_workspace_name(&state);
                 state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.push_workspace(Workspace {
@@ -3799,10 +3802,11 @@ impl Mux {
                 }
                 None if state.workspaces.is_empty() => {
                     let ws_id = self.next_id();
+                    let workspace_name = Self::default_workspace_name(&state);
                     state.push_workspace(Workspace {
                         id: ws_id,
                         key: new_workspace_key.expect("workspace key generated before spawning"),
-                        name: "1".into(),
+                        name: workspace_name,
                         screens: vec![screen],
                         active_screen: 0,
                     });
@@ -5324,6 +5328,7 @@ mod tests {
         );
         let first = mux.apply_layout(None, Some("round-trip".into()), &spec, None).unwrap();
         let exported_shape = node_shape(&screen_root(&mux, first.screen));
+        mux.with_state(|state| assert_eq!(state.workspaces[0].name, "0"));
 
         let round_trip_spec = mux.with_state(|s| {
             fn from_node(node: &Node) -> LayoutSpec {
@@ -6415,6 +6420,7 @@ mod tests {
 
         let (ws0, ws1, pane1, surface1) = mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 2);
+            assert_eq!(s.workspaces[0].name, "0");
             assert_eq!(s.workspaces[1].name, "dev");
             assert_eq!(s.active_workspace, 1);
             let pane = s.workspaces[1].screens[0].active_pane;

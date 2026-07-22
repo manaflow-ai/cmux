@@ -198,6 +198,76 @@ struct AgentArtifactCaptureCoordinatorTests {
     }
 
     @MainActor
+    @Test func removedAndReusedSessionIDCapturesTheSameRevisionAgain() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            artifactCaptureCoordinator: coordinator
+        )
+        let surfaceID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let pendingSessionID = AgentChatSessionRegistry.pendingClaudeSessionID(
+            surfaceID: surfaceID
+        )
+        registry.noteResumeInitiated(
+            sessionID: pendingSessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: projectRoot.path
+        )
+        let firstRecord = try #require(registry.record(sessionID: pendingSessionID))
+        let indexed = snapshot(
+            revision: 1,
+            path: projectRoot.appendingPathComponent("plan.md").path
+        )
+
+        service.scheduleIndexedArtifactCapture(record: firstRecord, snapshot: indexed)
+        let firstTask = try #require(service.artifactCaptureTasks[pendingSessionID]?.task)
+        await firstTask.value
+        #expect(await store.importCount == 1)
+
+        let realSessionID = UUID().uuidString
+        registry.noteResumeInitiated(
+            sessionID: realSessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: projectRoot.path
+        )
+        _ = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: realSessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: projectRoot.path,
+            ppid: nil
+        ))
+        #expect(registry.record(sessionID: pendingSessionID) == nil)
+
+        registry.noteResumeInitiated(
+            sessionID: pendingSessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: projectRoot.path
+        )
+        let reusedRecord = try #require(registry.record(sessionID: pendingSessionID))
+        service.scheduleIndexedArtifactCapture(record: reusedRecord, snapshot: indexed)
+        let reusedTask = try #require(service.artifactCaptureTasks[pendingSessionID]?.task)
+        await reusedTask.value
+
+        #expect(await store.importCount == 2)
+    }
+
+    @MainActor
     @Test func automaticCaptureTracksLiveArtifactsBetaAvailability() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }

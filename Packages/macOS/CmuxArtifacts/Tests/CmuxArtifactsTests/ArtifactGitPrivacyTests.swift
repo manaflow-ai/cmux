@@ -54,6 +54,56 @@ struct ArtifactGitPrivacyTests {
         #expect(outcomes.first?.record == nil)
     }
 
+    @Test("Automatic capture checks extension-specific ignore rules at its real destination")
+    func rejectsExposedJSONDestinationWhenSyntheticProbeIsIgnored() async throws {
+        let root = try gitRepository()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        _ = try await repository.snapshot(projectRoot: root)
+        try """
+        !/.cmux/
+        !/.cmux/artifacts/
+        /.cmux/artifacts/**
+        !/.cmux/artifacts/workspace/
+        !/.cmux/artifacts/workspace/session/
+        !/.cmux/artifacts/**/*.json
+
+        """.write(
+            to: root.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        #expect(try runGit([
+            "-C", root.path, "check-ignore", "--quiet", "--",
+            ".cmux/artifacts/.__cmux_probe__",
+        ]) == 0)
+        #expect(try runGit([
+            "-C", root.path, "check-ignore", "--quiet", "--",
+            ".cmux/artifacts/workspace/session/secret.json",
+        ]) == 1)
+        let source = try ArtifactTestSupport.write(
+            "secret",
+            named: "outside/secret.json",
+            under: root
+        )
+
+        let outcomes = await ArtifactCaptureService(store: repository).capture(
+            candidates: [ArtifactCandidate(sourceURL: source, provenance: .created)],
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                workspaceID: "workspace",
+                sessionID: "session"
+            )
+        )
+
+        #expect(outcomes.first == .skipped(.gitPrivacyUnavailable))
+        let files = try await repository.snapshot(projectRoot: root)
+            .nodes
+            .flattenedArtifactNodes()
+            .filter { !$0.isDirectory }
+        #expect(files.isEmpty)
+    }
+
     private func gitRepository() throws -> URL {
         let root = try ArtifactTestSupport.temporaryDirectory()
         #expect(try runGit(["init", "--quiet", root.path]) == 0)
