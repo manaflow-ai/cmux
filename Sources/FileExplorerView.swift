@@ -95,6 +95,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var lastRootNodeCount: Int = -1
         private var lastRenderedOutlineRevision: UInt64 = .max
         private var observationCancellable: AnyCancellable?
+        private var outlineObservationTask: Task<Void, Never>?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
 
@@ -153,6 +154,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         deinit {
+            outlineObservationTask?.cancel()
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -166,6 +168,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         self?.reloadIfNeeded()
                     }
                 }
+            let outlineChanges = store.outlineChanges
+            outlineObservationTask = Task { @MainActor [weak self] in
+                for await _ in outlineChanges {
+                    guard !Task.isCancelled else { return }
+                    self?.reloadIfNeeded()
+                }
+            }
         }
 
         @MainActor

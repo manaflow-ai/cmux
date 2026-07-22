@@ -709,19 +709,15 @@ enum FileExplorerSelectionRestoration {
 /// but are not annotated @MainActor.
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = [] {
-        didSet { outlineRevision &+= 1 }
-    }
+    @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
-    @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:] {
-        didSet { outlineRevision &+= 1 }
-    }
-    @Published private(set) var contentRevision = 0 {
-        didSet { outlineRevision &+= 1 }
-    }
+    @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
+    @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
     private(set) var outlineRevision: UInt64 = 0
+    let outlineChanges: AsyncStream<UInt64>
+    private let outlineChangeContinuation: AsyncStream<UInt64>.Continuation
 
     var provider: FileExplorerProvider?
 
@@ -763,7 +759,14 @@ final class FileExplorerStore: ObservableObject {
     private let gitStatusProvider: GitStatusProvider
 
     init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
+        let outlineChangeChannel = AsyncStream<UInt64>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        outlineChanges = outlineChangeChannel.stream
+        outlineChangeContinuation = outlineChangeChannel.continuation
         self.gitStatusProvider = gitStatusProvider
+    }
+
+    deinit {
+        outlineChangeContinuation.finish()
     }
 
     var displayRootPath: String {
@@ -863,7 +866,9 @@ final class FileExplorerStore: ObservableObject {
 
     private func applyGitStatusIfChanged(_ status: [String: GitFileStatus]) {
         guard gitStatusByPath != status else { return }
+        outlineRevision &+= 1
         gitStatusByPath = status
+        outlineChangeContinuation.yield(outlineRevision)
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
@@ -931,7 +936,7 @@ final class FileExplorerStore: ObservableObject {
         #endif
         contentRevision &+= 1
         cancelAllLoads()
-        rootNodes = []
+        replaceRootNodes(with: [])
         nodesByPath = [:]
         guard !rootPath.isEmpty, provider != nil else { return }
         isRootLoading = true
@@ -1069,7 +1074,7 @@ final class FileExplorerStore: ObservableObject {
                     pendingDescendIntoFirstChildPath = nil
                 }
             } else {
-                rootNodes = children
+                replaceRootNodes(with: children)
                 isRootLoading = false
                 setRootStatusMessage(nil)
                 if selectedPath == nil {
@@ -1110,7 +1115,13 @@ final class FileExplorerStore: ObservableObject {
 
     private func signalOutlineChange() {
         outlineRevision &+= 1
-        objectWillChange.send()
+        outlineChangeContinuation.yield(outlineRevision)
+    }
+
+    private func replaceRootNodes(with nodes: [FileExplorerNode]) {
+        outlineRevision &+= 1
+        rootNodes = nodes
+        outlineChangeContinuation.yield(outlineRevision)
     }
 
     private func cancelAllLoads() {

@@ -686,7 +686,8 @@ struct FileExplorerStoreTests {
         coordinator.reloadIfNeeded()
         #expect(!store.isExpanded(directory))
 
-        store.rootNodes = [directory]
+        store.expand(node: directory)
+        store.collapse(node: directory)
         coordinator.reloadIfNeeded()
 
         #expect(
