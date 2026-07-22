@@ -43,6 +43,8 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
 
         let scrollView = container.scrollView
         scrollView.documentView = table
+        table.frame = scrollView.contentView.bounds
+        table.autoresizingMask = [.width]
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.hasHorizontalScroller = false

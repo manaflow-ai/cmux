@@ -22,13 +22,11 @@ struct SessionIndexJSONLReader: Sendable {
         var lineStart = buffer.startIndex
         var bytesRead = 0
         var recordsVisited = 0
-        var reachedEnd = false
 
         while bytesRead < maxBytes {
             let readCount = min(chunkSize, maxBytes - bytesRead)
             let chunk = (try? handle.read(upToCount: readCount)) ?? Data()
             if chunk.isEmpty {
-                reachedEnd = true
                 break
             }
             bytesRead += chunk.count
@@ -54,7 +52,7 @@ struct SessionIndexJSONLReader: Sendable {
             }
         }
 
-        if reachedEnd, lineStart < buffer.endIndex {
+        if lineStart < buffer.endIndex {
             let line = Data(buffer[lineStart..<buffer.endIndex])
             if !line.isEmpty {
                 recordsVisited += 1
