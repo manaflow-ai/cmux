@@ -275,21 +275,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 // so combining it with row-height invalidation can leave the
                 // reused views at stale frames. Geometry-changing reorders
                 // take the atomic reload path below. Stable moves keep cells
-                // alive during drag-drop settlement.
+                // alive while the drop settles immediately without row motion.
                 let table = containerView.tableView
-#if DEBUG
-                let context = NSAnimationContext.current
-                tableAnimationContextProbe?(context.duration, context.allowsImplicitAnimation)
-#endif
-                table.beginUpdates()
-                var current = previousIds
-                for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
-                    guard let fromIndex = current.firstIndex(of: nextIds[targetIndex]) else { continue }
-                    table.moveRow(at: fromIndex, to: targetIndex)
-                    current.remove(at: fromIndex)
-                    current.insert(nextIds[targetIndex], at: targetIndex)
+                performTableGeometryUpdateWithoutAnimation {
+                    table.beginUpdates()
+                    var current = previousIds
+                    for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
+                        guard let fromIndex = current.firstIndex(of: nextIds[targetIndex]) else { continue }
+                        table.moveRow(at: fromIndex, to: targetIndex)
+                        current.remove(at: fromIndex)
+                        current.insert(nextIds[targetIndex], at: targetIndex)
+                    }
+                    table.endUpdates()
                 }
-                table.endUpdates()
                 // Per-index state (first-row flag, drop-indicator geometry)
                 // shifts with the order even when per-id content didn't.
                 let visible = table.rows(in: table.visibleRect)
