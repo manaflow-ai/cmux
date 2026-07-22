@@ -232,8 +232,8 @@ struct TranscriptProjectorTests {
         #expect(summary.commandCount == 2)
         #expect(summary.searchedCode)
         #expect(summary.editedFileCount == 1)
-        #expect(summary.eventCount == 1)
-        #expect(summary.items.last?.kind == .unknown("future-event"))
+        #expect(summary.eventCount == 0)
+        #expect(summary.items.last?.kind == .unknown)
         #expect(Set(summary.items.map(\.id)).count == summary.items.count)
     }
 
@@ -484,7 +484,7 @@ private extension TranscriptRow {
     }
 
     var userGrouping: TranscriptProseGrouping? {
-        if case .proseUser(_, _, let grouping) = rowKind {
+        if case .proseUser(_, _, let grouping, _, _) = rowKind {
             return grouping
         }
         return nil

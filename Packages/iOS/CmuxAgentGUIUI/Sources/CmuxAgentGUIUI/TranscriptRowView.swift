@@ -161,6 +161,7 @@ import UIKit
         case .askCard: UIColor(theme.hoverBackground).withAlphaComponent(0.55)
         case .codeBlock: UIColor(theme.hoverBackground).withAlphaComponent(0.45)
         case .inlineCode: UIColor(theme.hoverBackground).withAlphaComponent(0.55)
+        case .attachmentChip: UIColor(theme.hoverBackground).withAlphaComponent(0.7)
         }
     }
 
@@ -221,9 +222,11 @@ import UIKit
         element: TranscriptRowGlyphElement,
         theme: AgentGUITheme
     ) {
-        let tintColor = element.role == .accent
-            ? UIColor(theme.accent)
-            : UIColor(theme.faintForeground)
+        let tintColor = switch element.role {
+        case .accent: UIColor(theme.accent)
+        case .faint: UIColor(theme.faintForeground)
+        case .error: UIColor.systemRed
+        }
         if let indicator = view as? UIActivityIndicatorView {
             indicator.color = tintColor
             indicator.startAnimating()

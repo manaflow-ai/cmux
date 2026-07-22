@@ -73,7 +73,7 @@ struct TranscriptRowSpacing: Hashable, Sendable {
         switch rowKind {
         case .proseAgent(_, let grouping):
             (0, grouping)
-        case .proseUser(_, _, let grouping):
+        case .proseUser(_, _, let grouping, _, _):
             (1, grouping)
         case .pendingTicket, .streaming:
             (2, .single)

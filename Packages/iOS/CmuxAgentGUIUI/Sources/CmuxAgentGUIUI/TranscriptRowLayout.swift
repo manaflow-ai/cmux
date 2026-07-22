@@ -35,8 +35,18 @@ struct TranscriptRowLayout: Sendable {
         switch row.rowKind {
         case .proseAgent(let text, _):
             return proseAgent(text, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
-        case .proseUser(let text, _, _):
-            return bubble(text, pending: false, leading: false, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
+        case .proseUser(let text, _, _, let attachmentCount, let hasImage):
+            return bubble(
+                text,
+                pending: false,
+                leading: false,
+                attachmentCount: attachmentCount,
+                hasImage: hasImage,
+                width: safeWidth,
+                spacing: spacing,
+                scale: scale,
+                builder: builder
+            )
         case .status(let code, let detail):
             return metadata(
                 [AgentGUIL10n.statusCode(code), detail].compactMap(\.self).joined(separator: " - "),
@@ -58,12 +68,9 @@ struct TranscriptRowLayout: Sendable {
                 scale: scale,
                 builder: builder
             )
-        case .hole(let range):
+        case .hole:
             return metadata(
-                AgentGUIL10n.hole(
-                    lowerBound: range.lowerBound.rawValue,
-                    upperBound: range.upperBound.rawValue
-                ),
+                AgentGUIL10n.hole(),
                 width: safeWidth,
                 spacing: spacing,
                 scale: scale,
@@ -88,9 +95,9 @@ struct TranscriptRowLayout: Sendable {
             return activitySummary(summary, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
         case .activityItem(let item):
             return activityItem(item, width: safeWidth, spacing: spacing, scale: scale, builder: builder)
-        case .unsupported(let rawKind, let summary):
+        case .unsupported(_, let summary):
             return genericActivity(
-                TranscriptGenericActivity(kindLabel: rawKind, summary: summary),
+                TranscriptGenericActivity(kindLabel: "event", summary: summary),
                 width: safeWidth,
                 spacing: spacing,
                 scale: scale,

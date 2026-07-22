@@ -28,6 +28,11 @@ public struct TranscriptProjector: Sendable {
                 dayKey: input.dayKey(input.displayTick(entry))
             )
         }
+        let suppressFreshSessionHoles = entryContexts.isEmpty
+            && !input.hasMoreBefore
+            && input.streamingTail?.textTail.isEmpty == false
+            && !input.sendTickets.contains { !Self.isResolved($0.state) }
+            && !input.asks.contains { Self.isActive($0.state) }
         var entryIndex = 0
         var lastDayKey: String?
         var lastPromptSeqByJournal: [JournalID: EntrySeq] = [:]
@@ -53,7 +58,9 @@ public struct TranscriptProjector: Sendable {
                 latestTurnID: latestTurnID,
                 rows: &chronological
             )
-            chronological.append(TranscriptRow(rowID: .hole(hole), rowKind: .hole(range: hole)))
+            if !suppressFreshSessionHoles {
+                chronological.append(TranscriptRow(rowID: .hole(hole), rowKind: .hole(range: hole)))
+            }
             while entryIndex < entryContexts.count,
                   hole.contains(entryContexts[entryIndex].entry.seq) {
                 entryIndex += 1
@@ -166,13 +173,19 @@ public struct TranscriptProjector: Sendable {
         if let user = current.user, case .userMessage(let payload) = user.entry.content.payload {
             turnRows.append(entryRow(
                 user,
-                kind: .proseUser(text: payload.text, ticketState: nil, grouping: .single),
+                kind: .proseUser(
+                    text: payload.text,
+                    ticketState: nil,
+                    grouping: .single,
+                    attachmentCount: payload.attachmentCount,
+                    hasImage: payload.hasImage
+                ),
                 turnID: current.id,
                 unreadPointer: input.unreadPointer
             ))
         }
         let items = current.activity.map(activityItem)
-        if !items.isEmpty {
+        if items.contains(where: isMeaningfulActivity) {
             if live {
                 turnRows.append(contentsOf: zip(current.activity, items).map { context, item in
                     entryRow(
@@ -277,89 +290,6 @@ public struct TranscriptProjector: Sendable {
         )
     }
 
-    private static func activityItem(_ context: EntryContext) -> TranscriptActivityItem {
-        let entry = context.entry
-        let id = TranscriptRowID.entry(journalID: entry.journalID, seq: entry.seq)
-        return switch entry.content.payload {
-        case .userMessage(let payload):
-            TranscriptActivityItem(id: id, kind: .unknown("user"), summary: payload.text, isRunning: false)
-        case .agentProse(let payload):
-            TranscriptActivityItem(id: id, kind: .assistant, summary: payload.markdown, isRunning: false)
-        case .thought(let payload):
-            TranscriptActivityItem(id: id, kind: .thought, summary: payload.text, isRunning: false)
-        case .toolRun(let payload):
-            TranscriptActivityItem(
-                id: id,
-                kind: payload.isTerminal ? .command : .tool,
-                summary: joined([payload.toolName, payload.argumentSummary, payload.resultSummary]),
-                isRunning: payload.isRunning
-            )
-        case .fileChange(let payload):
-            TranscriptActivityItem(
-                id: id,
-                kind: .file,
-                summary: joined([payload.changeKind.rawValue, payload.path, payload.resultSummary]),
-                isRunning: false
-            )
-        case .question(let payload):
-            TranscriptActivityItem(id: id, kind: .question, summary: payload.prompt, isRunning: false)
-        case .permission(let payload):
-            TranscriptActivityItem(
-                id: id,
-                kind: .permission,
-                summary: joined([payload.toolName, payload.detail]),
-                isRunning: false
-            )
-        case .status(let payload):
-            TranscriptActivityItem(id: id, kind: .status, summary: joined([payload.code.rawValue, payload.detail]), isRunning: false)
-        case .attachment(let payload):
-            TranscriptActivityItem(id: id, kind: .attachment, summary: joined([payload.kind, payload.summary]), isRunning: false)
-        case .unknown(let payload):
-            TranscriptActivityItem(
-                id: id,
-                kind: .unknown(payload.rawKind),
-                summary: payload.summary ?? payload.rawKind,
-                isRunning: false
-            )
-        }
-    }
-
-    private static func activitySummary(items: [TranscriptActivityItem]) -> TranscriptActivitySummary {
-        var fileEditCount = 0
-        var toolEditCount = 0
-        var readFileCount = 0
-        var searchedCode = false
-        var listedFiles = false
-        var commandCount = 0
-        var eventCount = 0
-        for item in items {
-            switch item.kind {
-            case .file:
-                fileEditCount += 1
-            case .tool, .command:
-                commandCount += 1
-                let tokens = Set(item.summary.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
-                if !tokens.isDisjoint(with: ["read", "cat", "sed", "nl", "open"]) { readFileCount += 1 }
-                if !tokens.isDisjoint(with: ["rg", "grep", "search"]) { searchedCode = true }
-                if !tokens.isDisjoint(with: ["ls", "find", "list"]) { listedFiles = true }
-                if !tokens.isDisjoint(with: ["edit", "write", "apply_patch", "patch"]) { toolEditCount += 1 }
-            case .assistant:
-                break
-            case .thought, .question, .permission, .status, .attachment, .unknown:
-                eventCount += 1
-            }
-        }
-        return TranscriptActivitySummary(
-            editedFileCount: max(fileEditCount, toolEditCount),
-            readFileCount: readFileCount,
-            searchedCode: searchedCode,
-            listedFiles: listedFiles,
-            commandCount: commandCount,
-            eventCount: eventCount,
-            items: items
-        )
-    }
-
     private static func isRunningActivity(_ context: EntryContext) -> Bool {
         if case .toolRun(let payload) = context.entry.content.payload {
             return payload.isRunning
@@ -446,10 +376,4 @@ public struct TranscriptProjector: Sendable {
         }
     }
 
-    private static func joined(_ parts: [String?]) -> String {
-        parts.compactMap { part in
-            let trimmed = part?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed?.isEmpty == false ? trimmed : nil
-        }.joined(separator: " · ")
-    }
 }

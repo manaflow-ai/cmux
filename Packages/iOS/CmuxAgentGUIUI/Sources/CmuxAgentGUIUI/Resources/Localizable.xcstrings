@@ -35,6 +35,57 @@
         }
       }
     },
+    "agent.activity.event": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベント"
+          }
+        }
+      }
+    },
+    "agent.activity.exitCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了コード %d"
+          }
+        }
+      }
+    },
+    "agent.activity.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗"
+          }
+        }
+      }
+    },
     "agent.activity.details.title": {
       "extractionState": "manual",
       "localizations": {
@@ -252,6 +303,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d件のイベントを処理"
+          }
+        }
+      }
+    },
+    "agent.activity.summary.failed.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1件失敗"
+          }
+        }
+      }
+    },
+    "agent.activity.summary.failed.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d件失敗"
           }
         }
       }
@@ -1021,6 +1106,57 @@
         }
       }
     },
+    "agent.transcript.attachment.includesImage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Includes image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を含む"
+          }
+        }
+      }
+    },
+    "agent.transcript.attachment.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル1件"
+          }
+        }
+      }
+    },
+    "agent.transcript.attachment.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d attachments"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル%d件"
+          }
+        }
+      }
+    },
     "agent.transcript.boundary": {
       "extractionState": "manual",
       "localizations": {
@@ -1055,19 +1191,19 @@
         }
       }
     },
-    "agent.transcript.holeFormat": {
+    "agent.transcript.hole": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Missing entries %lld-%lld"
+            "value": "Syncing earlier messages…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未取得の項目 %lld-%lld"
+            "value": "以前のメッセージを同期中…"
           }
         }
       }

@@ -14,22 +14,22 @@ struct TranscriptActivityItemView: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            if item.isRunning {
+            if item.isRunning && !item.isFailed {
                 TranscriptActivityProgressView(color: UIColor(theme.accent))
                     .frame(width: 12, height: 12)
             } else {
-                Image(systemName: item.kind.symbolName)
+                Image(systemName: item.isFailed ? "exclamationmark.circle.fill" : item.kind.symbolName)
                     .font(.system(size: 9, weight: .regular))
-                    .foregroundStyle(Color(theme.faintForeground))
+                    .foregroundStyle(item.isFailed ? Color(uiColor: .systemRed) : Color(theme.faintForeground))
                     .frame(width: 12, height: 12)
                     .accessibilityHidden(true)
             }
             Text(AgentGUIL10n.activityKind(item.kind))
                 .font(density.metadataFont.weight(.medium))
-                .foregroundStyle(Color(theme.dimForeground))
-            Text(item.summary)
+                .foregroundStyle(item.isFailed ? Color(uiColor: .systemRed) : Color(theme.dimForeground))
+            Text(AgentGUIL10n.activityDetail(item))
                 .font(density.metadataFont)
-                .foregroundStyle(Color(theme.faintForeground))
+                .foregroundStyle(item.isFailed ? Color(uiColor: .systemRed) : Color(theme.faintForeground))
                 .lineLimit(1)
             Spacer(minLength: 0)
         }

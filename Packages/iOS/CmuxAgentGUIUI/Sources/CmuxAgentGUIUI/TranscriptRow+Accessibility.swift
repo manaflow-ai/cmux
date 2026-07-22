@@ -6,8 +6,17 @@ extension TranscriptRow {
         switch rowKind {
         case .proseAgent(let text, _), .streaming(let text):
             AgentGUIL10n.agentAccessibilityLabel(text)
-        case .proseUser(let text, _, _):
-            AgentGUIL10n.userAccessibilityLabel(text)
+        case .proseUser(let text, _, _, let attachmentCount, let hasImage):
+            [
+                AgentGUIL10n.userAccessibilityLabel(text),
+                max(attachmentCount, hasImage ? 1 : 0) > 0
+                    ? AgentGUIL10n.attachmentCount(max(attachmentCount, hasImage ? 1 : 0))
+                    : nil,
+                hasImage ? AgentGUIL10n.string(
+                    "agent.transcript.attachment.includesImage",
+                    defaultValue: "Includes image"
+                ) : nil,
+            ].compactMap(\.self).joined(separator: ", ")
         case .pendingTicket(let ticket):
             AgentGUIL10n.userAccessibilityLabel(ticket.text)
         case .pendingAsk(let ask):
@@ -21,19 +30,19 @@ extension TranscriptRow {
                 "agent.transcript.boundary",
                 defaultValue: "Earlier history is on your Mac"
             )
-        case .hole(let range):
-            AgentGUIL10n.hole(
-                lowerBound: range.lowerBound.rawValue,
-                upperBound: range.upperBound.rawValue
-            )
+        case .hole:
+            AgentGUIL10n.hole()
         case .genericActivity(let activity):
             "\(AgentGUIL10n.activityKind(activity.kindLabel)) \(activity.summary)"
         case .activitySummary(let summary):
             AgentGUIL10n.activitySummary(summary)
         case .activityItem(let item):
             AgentGUIL10n.activityAccessibility(item)
-        case .unsupported(let rawKind, let summary):
-            "\(rawKind) \(summary)"
+        case .unsupported(_, let summary):
+            [
+                AgentGUIL10n.string("agent.activity.event", defaultValue: "Event"),
+                summary,
+            ].filter { !$0.isEmpty }.joined(separator: " ")
         }
     }
 }

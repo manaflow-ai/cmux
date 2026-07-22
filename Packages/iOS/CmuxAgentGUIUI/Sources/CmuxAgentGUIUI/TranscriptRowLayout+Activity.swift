@@ -99,7 +99,7 @@ extension TranscriptRowLayout {
             density: spacing.density
         )
         let summaryText = builder.make(
-            text: item.summary,
+            text: AgentGUIL10n.activityDetail(item),
             style: .metadata,
             density: spacing.density
         )
@@ -144,25 +144,25 @@ extension TranscriptRowLayout {
                 TranscriptRowTextElement(
                     attributedText: kindText,
                     frame: kindFrame,
-                    role: .dim,
+                    role: item.isFailed ? .error : .dim,
                     alignment: .left,
                     maximumNumberOfLines: 1
                 ),
                 TranscriptRowTextElement(
                     attributedText: summaryText,
                     frame: summaryFrame,
-                    role: .faint,
+                    role: item.isFailed ? .error : .faint,
                     alignment: .left,
                     maximumNumberOfLines: 1
                 ),
             ],
             glyphs: [TranscriptRowGlyphElement(
                 frame: CGRect(x: 24, y: lineY + (lineHeight - 12) / 2, width: 12, height: 12),
-                systemName: activitySymbol(item.kind),
+                systemName: item.isFailed ? "exclamationmark.circle.fill" : activitySymbol(item.kind),
                 pointSize: 9,
                 weight: UIFont.Weight.regular.rawValue,
-                role: item.isRunning ? .accent : .faint,
-                isActivityIndicator: item.isRunning
+                role: item.isFailed ? .error : (item.isRunning ? .accent : .faint),
+                isActivityIndicator: item.isRunning && !item.isFailed
             )]
         )
     }
@@ -212,7 +212,7 @@ extension TranscriptRowLayout {
             texts: [TranscriptRowTextElement(
                 attributedText: text,
                 frame: textFrame,
-                role: .faint,
+                role: summary.failedCount > 0 ? .error : .faint,
                 alignment: .left,
                 maximumNumberOfLines: 1
             )],
@@ -221,7 +221,7 @@ extension TranscriptRowLayout {
                 systemName: "chevron.right",
                 pointSize: 9,
                 weight: UIFont.Weight.semibold.rawValue,
-                role: .faint,
+                role: summary.failedCount > 0 ? .error : .faint,
                 isActivityIndicator: false
             )],
             buttons: [TranscriptRowButtonElement(

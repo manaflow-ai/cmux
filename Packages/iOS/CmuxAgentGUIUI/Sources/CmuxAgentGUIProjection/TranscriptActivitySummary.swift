@@ -12,6 +12,8 @@ public struct TranscriptActivitySummary: Hashable, Sendable {
     public let commandCount: Int
     /// Number of other non-prose events.
     public let eventCount: Int
+    /// Number of failed activities in this turn.
+    public let failedCount: Int
     /// Ordered activity items with stable source identities.
     public let items: [TranscriptActivityItem]
 
@@ -23,6 +25,7 @@ public struct TranscriptActivitySummary: Hashable, Sendable {
     ///   - listedFiles: Whether a list-like tool ran.
     ///   - commandCount: Number of tool or command events.
     ///   - eventCount: Number of other non-prose events.
+    ///   - failedCount: Number of failed activities.
     ///   - items: Ordered stable activity items.
     public init(
         editedFileCount: Int,
@@ -31,6 +34,7 @@ public struct TranscriptActivitySummary: Hashable, Sendable {
         listedFiles: Bool,
         commandCount: Int,
         eventCount: Int,
+        failedCount: Int = 0,
         items: [TranscriptActivityItem]
     ) {
         self.editedFileCount = editedFileCount
@@ -39,6 +43,7 @@ public struct TranscriptActivitySummary: Hashable, Sendable {
         self.listedFiles = listedFiles
         self.commandCount = commandCount
         self.eventCount = eventCount
+        self.failedCount = failedCount
         self.items = items
     }
 }

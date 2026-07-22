@@ -29,7 +29,7 @@ enum AgentGUIL10n {
         case "question": string("agent.activity.question", defaultValue: "Question")
         case "permission": string("agent.activity.permission", defaultValue: "Permission")
         case "thought": string("agent.activity.thought", defaultValue: "Thought")
-        default: kind
+        default: string("agent.activity.event", defaultValue: "Event")
         }
     }
 
@@ -44,12 +44,27 @@ enum AgentGUIL10n {
         case .permission: string("agent.activity.permission", defaultValue: "Permission")
         case .status: string("agent.activity.status", defaultValue: "Status")
         case .attachment: string("agent.activity.attachment", defaultValue: "Attachment")
-        case .unknown(let rawKind): rawKind
+        case .unknown: string("agent.activity.event", defaultValue: "Event")
         }
     }
 
     static func activityAccessibility(_ item: TranscriptActivityItem) -> String {
-        [activityKind(item.kind), item.summary].filter { !$0.isEmpty }.joined(separator: ", ")
+        [
+            activityKind(item.kind),
+            activityDetail(item),
+            item.isFailed ? string("agent.activity.failed", defaultValue: "Failed") : nil,
+        ].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    static func activityDetail(_ item: TranscriptActivityItem) -> String {
+        var parts = [item.summary].filter { !$0.isEmpty }
+        if let exitCode = item.exitCode {
+            parts.append(String(
+                format: string("agent.activity.exitCode", defaultValue: "Exit %d"),
+                exitCode
+            ))
+        }
+        return parts.joined(separator: " · ")
     }
 
     static func activitySummary(_ summary: TranscriptActivitySummary) -> String {
@@ -96,6 +111,15 @@ enum AgentGUIL10n {
                 otherDefault: "Processed %d events"
             ))
         }
+        if summary.failedCount > 0 {
+            parts.append(activityCount(
+                summary.failedCount,
+                oneKey: "agent.activity.summary.failed.one",
+                oneDefault: "1 failed",
+                otherKey: "agent.activity.summary.failed.other",
+                otherDefault: "%d failed"
+            ))
+        }
         return parts.isEmpty
             ? string("agent.activity.summary.none", defaultValue: "No activity")
             : parts.formatted(.list(type: .and))
@@ -124,11 +148,17 @@ enum AgentGUIL10n {
         }
     }
 
-    static func hole(lowerBound: Int, upperBound: Int) -> String {
-        String(
-            format: string("agent.transcript.holeFormat", defaultValue: "Missing entries %lld-%lld"),
-            Int64(lowerBound),
-            Int64(upperBound)
+    static func hole() -> String {
+        string("agent.transcript.hole", defaultValue: "Syncing earlier messages…")
+    }
+
+    static func attachmentCount(_ count: Int) -> String {
+        activityCount(
+            count,
+            oneKey: "agent.transcript.attachment.one",
+            oneDefault: "1 attachment",
+            otherKey: "agent.transcript.attachment.other",
+            otherDefault: "%d attachments"
         )
     }
 

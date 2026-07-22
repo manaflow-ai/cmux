@@ -5,5 +5,6 @@ enum TranscriptRowBackgroundKind: Equatable, Sendable {
     case askCard
     case codeBlock
     case inlineCode
+    case attachmentChip
 }
 #endif

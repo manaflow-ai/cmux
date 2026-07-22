@@ -18,6 +18,6 @@ public enum TranscriptActivityKind: Hashable, Sendable {
     case status
     /// Attachment event.
     case attachment
-    /// Future activity kind preserved verbatim.
-    case unknown(String)
+    /// Future activity presented without exposing its raw record kind.
+    case unknown
 }

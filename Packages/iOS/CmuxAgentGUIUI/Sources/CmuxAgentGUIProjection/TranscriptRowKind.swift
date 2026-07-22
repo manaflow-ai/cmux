@@ -5,7 +5,13 @@ public enum TranscriptRowKind: Hashable, Sendable {
     /// Agent-authored prose.
     case proseAgent(text: String, grouping: TranscriptProseGrouping)
     /// User-authored prose.
-    case proseUser(text: String, ticketState: SendTicketState?, grouping: TranscriptProseGrouping)
+    case proseUser(
+        text: String,
+        ticketState: SendTicketState?,
+        grouping: TranscriptProseGrouping,
+        attachmentCount: Int = 0,
+        hasImage: Bool = false
+    )
     /// A transcript status event.
     case status(code: StatusCode, detail: String?)
     /// A display date separator.
