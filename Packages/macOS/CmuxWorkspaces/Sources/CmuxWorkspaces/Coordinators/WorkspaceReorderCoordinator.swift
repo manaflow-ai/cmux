@@ -240,7 +240,8 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     public func sidebarReorderWorkspaceIds(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
-        usesTopLevelRows: Bool = false
+        usesTopLevelRows: Bool = false,
+        targetPinnedState: Bool? = nil
     ) -> [UUID] {
         guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedWorkspaceId,
@@ -248,22 +249,54 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         ) else {
             return model.tabs.map(\.id)
         }
-        return model.sidebarTopLevelWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
+        let projection = projectedPinnedState(
+            workspaceId: draggedWorkspaceId,
+            targetPinnedState: targetPinnedState
+        )
+        return model.sidebarTopLevelWorkspaceIds(
+            promotingWorkspaceId: draggedWorkspaceId,
+            pinnedStateProjection: projection
+        )
     }
 
     /// The pinned subset of the drag's row-id space.
     public func sidebarReorderPinnedWorkspaceIds(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
-        usesTopLevelRows: Bool = false
+        usesTopLevelRows: Bool = false,
+        targetPinnedState: Bool? = nil
     ) -> Set<UUID> {
+        let projection = projectedPinnedState(
+            workspaceId: draggedWorkspaceId,
+            targetPinnedState: targetPinnedState
+        )
         guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId
         ) else {
-            return Set(model.tabs.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
+            return Set(model.tabs.filter { workspace in
+                guard workspace.groupId == nil else { return false }
+                if projection?.workspaceId == workspace.id {
+                    return projection?.isPinned == true
+                }
+                return workspace.isPinned
+            }.map(\.id))
         }
-        return model.sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
+        return model.sidebarTopLevelPinnedWorkspaceIds(
+            promotingWorkspaceId: draggedWorkspaceId,
+            pinnedStateProjection: projection
+        )
+    }
+
+    private func projectedPinnedState(
+        workspaceId: UUID?,
+        targetPinnedState: Bool?
+    ) -> WorkspacePinnedStateProjection? {
+        guard let workspaceId, let targetPinnedState else { return nil }
+        return WorkspacePinnedStateProjection(
+            workspaceId: workspaceId,
+            isPinned: targetPinnedState
+        )
     }
 
     /// The legal insertion range for an in-group member drag, or `nil` when

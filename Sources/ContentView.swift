@@ -16355,14 +16355,9 @@ struct SidebarTabDropDelegate: DropDelegate {
             defaultUsesTopLevelRows: defaultUsesTopLevelRows
         )
         let plannerTargetTabId = plannerTargetTabId(usesTopLevelRows: usesTopLevelRows)
-        let reorderTabIds = tabManager.sidebarReorderWorkspaceIds(
-            forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: plannerTargetTabId,
-            usesTopLevelRows: usesTopLevelRows
-        )
-        let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
-            forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: plannerTargetTabId,
+        let projection = localReorderProjection(
+            draggedTabId: draggedTabId,
+            plannerTargetTabId: plannerTargetTabId,
             usesTopLevelRows: usesTopLevelRows
         )
         let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
@@ -16371,7 +16366,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             usesTopLevelRows: usesTopLevelRows,
             explicitGroupId: explicitGroupId
         )
-        guard let fromIndex = reorderTabIds.firstIndex(of: draggedTabId) else {
+        guard let fromIndex = projection.tabIds.firstIndex(of: draggedTabId) else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
 #endif
@@ -16381,8 +16376,8 @@ struct SidebarTabDropDelegate: DropDelegate {
             draggedTabId: draggedTabId,
             targetTabId: plannerTargetTabId,
             indicator: dragState.dropIndicator,
-            tabIds: reorderTabIds,
-            pinnedTabIds: pinnedTabIds,
+            tabIds: projection.tabIds,
+            pinnedTabIds: projection.pinnedTabIds,
             legalInsertionRange: legalInsertionRange
         ) else {
 #if DEBUG
@@ -16394,7 +16389,9 @@ struct SidebarTabDropDelegate: DropDelegate {
             return false
         }
 
-        guard fromIndex != targetIndex || explicitGroupId != nil else {
+        guard fromIndex != targetIndex ||
+                explicitGroupId != nil ||
+                projection.targetPinnedState != nil else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
 #endif
@@ -16414,7 +16411,8 @@ struct SidebarTabDropDelegate: DropDelegate {
             toIndex: targetIndex,
             isDragOperation: true,
             usesTopLevelRows: usesTopLevelRows,
-            explicitGroupId: explicitGroupId
+            explicitGroupId: explicitGroupId,
+            targetPinnedState: projection.targetPinnedState
         )
         syncSidebarSelection(
             preserving: selectionBeforeReorder,
@@ -16459,6 +16457,64 @@ struct SidebarTabDropDelegate: DropDelegate {
     private func plannerPointerY(pointerY: CGFloat?) -> CGFloat? {
         guard targetTabId != nil else { return nil }
         return pointerY
+    }
+
+    private struct LocalReorderProjection {
+        let tabIds: [UUID]
+        let pinnedTabIds: Set<UUID>
+        let targetPinnedState: Bool?
+    }
+
+    /// Compute destination pinning first, then rebuild the planner's row space
+    /// with that state projected. This keeps the SwiftUI fallback on the same
+    /// transition plan as the AppKit resolver and avoids deriving an insertion
+    /// index from a tier the workspace will leave during the drop.
+    private func localReorderProjection(
+        draggedTabId: UUID,
+        plannerTargetTabId: UUID?,
+        usesTopLevelRows: Bool
+    ) -> LocalReorderProjection {
+        let initialTabIds = tabManager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: plannerTargetTabId,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let initialPinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: plannerTargetTabId,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let destinationIsPinned = SidebarDropPlanner().destinationPinnedState(
+            draggedTabId: draggedTabId,
+            targetTabId: plannerTargetTabId,
+            tabIds: initialTabIds,
+            pinnedTabIds: initialPinnedTabIds
+        )
+        let targetPinnedState = destinationIsPinned != initialPinnedTabIds.contains(draggedTabId)
+            ? destinationIsPinned
+            : nil
+        guard let targetPinnedState else {
+            return LocalReorderProjection(
+                tabIds: initialTabIds,
+                pinnedTabIds: initialPinnedTabIds,
+                targetPinnedState: nil
+            )
+        }
+        return LocalReorderProjection(
+            tabIds: tabManager.sidebarReorderWorkspaceIds(
+                forDraggedWorkspaceId: draggedTabId,
+                targetWorkspaceId: plannerTargetTabId,
+                usesTopLevelRows: usesTopLevelRows,
+                targetPinnedState: targetPinnedState
+            ),
+            pinnedTabIds: tabManager.sidebarReorderPinnedWorkspaceIds(
+                forDraggedWorkspaceId: draggedTabId,
+                targetWorkspaceId: plannerTargetTabId,
+                usesTopLevelRows: usesTopLevelRows,
+                targetPinnedState: targetPinnedState
+            ),
+            targetPinnedState: targetPinnedState
+        )
     }
 
     /// Move a workspace dragged in from another window into this window at the
@@ -16573,14 +16629,13 @@ struct SidebarTabDropDelegate: DropDelegate {
             defaultUsesTopLevelRows: defaultUsesTopLevelRows
         )
         let plannerTargetTabId = plannerTargetTabId(usesTopLevelRows: usesTopLevelRows)
-        let tabIds = tabManager.sidebarReorderWorkspaceIds(
-            forDraggedWorkspaceId: dragState.draggedTabId,
-            targetWorkspaceId: plannerTargetTabId,
-            usesTopLevelRows: usesTopLevelRows
-        )
-        let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
-            forDraggedWorkspaceId: dragState.draggedTabId,
-            targetWorkspaceId: plannerTargetTabId,
+        guard let draggedTabId = dragState.draggedTabId else {
+            dragState.clearDropIndicator()
+            return
+        }
+        let projection = localReorderProjection(
+            draggedTabId: draggedTabId,
+            plannerTargetTabId: plannerTargetTabId,
             usesTopLevelRows: usesTopLevelRows
         )
         let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
@@ -16590,13 +16645,14 @@ struct SidebarTabDropDelegate: DropDelegate {
             explicitGroupId: explicitGroupId
         )
         let plannedIndicator = SidebarDropPlanner().indicator(
-            draggedTabId: dragState.draggedTabId,
+            draggedTabId: draggedTabId,
             targetTabId: plannerTargetTabId,
-            tabIds: tabIds,
-            pinnedTabIds: pinnedTabIds,
+            tabIds: projection.tabIds,
+            pinnedTabIds: projection.pinnedTabIds,
             legalInsertionRange: legalInsertionRange,
             pointerY: pointerY,
-            targetHeight: targetRowHeight
+            targetHeight: targetRowHeight,
+            suppressesNoOp: projection.targetPinnedState == nil
         )
         let nextIndicator = plannedIndicator
         let nextUsesTopLevelRows = nextIndicator != nil && usesTopLevelRows

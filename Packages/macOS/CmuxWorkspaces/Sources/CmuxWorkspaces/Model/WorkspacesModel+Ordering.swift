@@ -1,5 +1,10 @@
 public import Foundation
 
+struct WorkspacePinnedStateProjection {
+    let workspaceId: UUID
+    let isPinned: Bool
+}
+
 // Sidebar ordering reads and reorder-index clamps over the model's own
 // tabs/groups storage, lifted one-for-one from the legacy private TabManager
 // helpers. All are pure reads; mutating flows live on the coordinators.
@@ -34,7 +39,10 @@ extension WorkspacesModel {
     /// The sidebar's top-level row ids in `tabs[]` order (group anchors and
     /// ungrouped workspaces). Optionally inserts a grouped workspace being
     /// promoted to top level as close to its group's row as its pin tier allows.
-    func sidebarTopLevelWorkspaceIds(promotingWorkspaceId promotedWorkspaceId: UUID? = nil) -> [UUID] {
+    func sidebarTopLevelWorkspaceIds(
+        promotingWorkspaceId promotedWorkspaceId: UUID? = nil,
+        pinnedStateProjection: WorkspacePinnedStateProjection? = nil
+    ) -> [UUID] {
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
@@ -62,9 +70,12 @@ extension WorkspacesModel {
                 at: promotedTopLevelInsertionIndex(
                     ids: ids,
                     groupIndex: groupIndex,
-                    promotedIsPinned: tab.isPinned,
+                    promotedIsPinned: pinnedStateProjection?.workspaceId == tab.id
+                        ? pinnedStateProjection?.isPinned == true
+                        : tab.isPinned,
                     tabsById: tabsById,
-                    groupsByAnchorId: groupsByAnchorId
+                    groupsByAnchorId: groupsByAnchorId,
+                    pinnedStateProjection: pinnedStateProjection
                 )
             )
         }
@@ -105,11 +116,22 @@ extension WorkspacesModel {
 
     /// The pinned subset of the top-level rows (pinned groups by group pin,
     /// ungrouped workspaces by workspace pin).
-    func sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: UUID? = nil) -> Set<UUID> {
+    func sidebarTopLevelPinnedWorkspaceIds(
+        promotingWorkspaceId: UUID? = nil,
+        pinnedStateProjection: WorkspacePinnedStateProjection? = nil
+    ) -> Set<UUID> {
         let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        return Set(sidebarTopLevelWorkspaceIds(promotingWorkspaceId: promotingWorkspaceId).filter { id in
-            topLevelWorkspaceIdIsPinned(id, tabsById: tabsById, groupsByAnchorId: groupsByAnchorId)
+        return Set(sidebarTopLevelWorkspaceIds(
+            promotingWorkspaceId: promotingWorkspaceId,
+            pinnedStateProjection: pinnedStateProjection
+        ).filter { id in
+            topLevelWorkspaceIdIsPinned(
+                id,
+                tabsById: tabsById,
+                groupsByAnchorId: groupsByAnchorId,
+                pinnedStateProjection: pinnedStateProjection
+            )
         })
     }
 
@@ -118,11 +140,17 @@ extension WorkspacesModel {
         groupIndex: Int,
         promotedIsPinned: Bool,
         tabsById: [UUID: Tab],
-        groupsByAnchorId: [UUID: WorkspaceGroup]
+        groupsByAnchorId: [UUID: WorkspaceGroup],
+        pinnedStateProjection: WorkspacePinnedStateProjection?
     ) -> Int {
         let desiredIndex = min(groupIndex + 1, ids.count)
         let pinnedCount = ids.reduce(into: 0) { count, id in
-            if topLevelWorkspaceIdIsPinned(id, tabsById: tabsById, groupsByAnchorId: groupsByAnchorId) {
+            if topLevelWorkspaceIdIsPinned(
+                id,
+                tabsById: tabsById,
+                groupsByAnchorId: groupsByAnchorId,
+                pinnedStateProjection: pinnedStateProjection
+            ) {
                 count += 1
             }
         }
@@ -132,8 +160,12 @@ extension WorkspacesModel {
     private func topLevelWorkspaceIdIsPinned(
         _ id: UUID,
         tabsById: [UUID: Tab],
-        groupsByAnchorId: [UUID: WorkspaceGroup]
+        groupsByAnchorId: [UUID: WorkspaceGroup],
+        pinnedStateProjection: WorkspacePinnedStateProjection? = nil
     ) -> Bool {
+        if pinnedStateProjection?.workspaceId == id {
+            return pinnedStateProjection?.isPinned == true
+        }
         if let group = groupsByAnchorId[id] {
             return group.isPinned
         }

@@ -5,6 +5,34 @@ import Testing
 @testable import CmuxFoundation
 
 @Suite struct SidebarDropPlannerPackageTests {
+    @Test func destinationPinStateFollowsTargetTierAndTailSemantics() {
+        let pinned = UUID()
+        let dragged = UUID()
+        let unpinned = UUID()
+        let ids = [pinned, dragged, unpinned]
+        let pinnedIds: Set<UUID> = [pinned, dragged]
+        let planner = SidebarDropPlanner()
+
+        #expect(planner.destinationPinnedState(
+            draggedTabId: dragged,
+            targetTabId: unpinned,
+            tabIds: ids,
+            pinnedTabIds: pinnedIds
+        ) == false)
+        #expect(planner.destinationPinnedState(
+            draggedTabId: unpinned,
+            targetTabId: pinned,
+            tabIds: ids,
+            pinnedTabIds: pinnedIds
+        ) == true)
+        #expect(planner.destinationPinnedState(
+            draggedTabId: dragged,
+            targetTabId: nil,
+            tabIds: ids,
+            pinnedTabIds: pinnedIds
+        ) == false)
+    }
+
     @Test func orderedWorkspaceDropTargetsMatchArrayWorkspaceAction() {
         let first = UUID()
         let second = UUID()

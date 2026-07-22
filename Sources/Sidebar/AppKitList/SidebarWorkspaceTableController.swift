@@ -26,7 +26,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
+    private var windowResizeWillStartObserver: NSObjectProtocol?
     private var windowResizeDidEndObserver: NSObjectProtocol?
+    private var isWindowLiveResizeActive = false
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
     private struct PointerSelectionSession {
@@ -34,7 +36,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let defersPlainCollapse: Bool
         var completedTableAction = false
     }
+    private struct PendingSelectionPreview {
+        let rowId: SidebarWorkspaceRenderItemID
+        let modifiers: NSEvent.ModifierFlags
+    }
     private var pointerSelectionSession: PointerSelectionSession?
+    private var pendingSelectionPreview: PendingSelectionPreview?
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
@@ -43,6 +50,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         get { dropTargetGeometry.computationProbe }
         set { dropTargetGeometry.computationProbe = newValue }
     }
+    var widthSettleProbe: ((CGFloat, IndexSet) -> Void)?
 #endif
 
     deinit {
@@ -51,6 +59,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         if let resizeDidEndObserver {
             NotificationCenter.default.removeObserver(resizeDidEndObserver)
+        }
+        if let windowResizeWillStartObserver {
+            NotificationCenter.default.removeObserver(windowResizeWillStartObserver)
         }
         if let windowResizeDidEndObserver {
             NotificationCenter.default.removeObserver(windowResizeDidEndObserver)
@@ -142,6 +153,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         }
 
+        windowResizeWillStartObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willStartLiveResizeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let resizedWindow = notification.object as? NSWindow,
+                      resizedWindow === self.containerView?.window else {
+                    return
+                }
+                self.isWindowLiveResizeActive = true
+            }
+        }
+
         windowResizeDidEndObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didEndLiveResizeNotification,
             object: nil,
@@ -153,6 +179,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                       resizedWindow === self.containerView?.window else {
                     return
                 }
+                self.isWindowLiveResizeActive = false
                 self.performWidthRemeasureNow()
             }
         }
@@ -328,6 +355,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         recomputeHoveredRow()
         enforceHoverOnVisibleCells()
         updateDropTargets()
+        reapplyPendingSelectionPreview()
     }
 
     /// Row clicks route through the table's action (NSTableView owns the
@@ -431,7 +459,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if extendsSelection {
             apply()
         } else {
-            selectionCoalescer.request(apply)
+            pendingSelectionPreview = PendingSelectionPreview(
+                rowId: rows[row].id,
+                modifiers: modifiers
+            )
+            selectionCoalescer.request { [weak self] in
+                self?.pendingSelectionPreview = nil
+                apply()
+            }
         }
     }
 
@@ -620,8 +655,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     @discardableResult
     func cancelPendingSelectionAndRestorePaint() -> Bool {
         guard selectionCoalescer.cancel() else { return false }
+        pendingSelectionPreview = nil
         restoreOptimisticallyPaintedRows()
         return true
+    }
+
+    private func reapplyPendingSelectionPreview() {
+        guard let pendingSelectionPreview,
+              let row = rows.firstIndex(where: { $0.id == pendingSelectionPreview.rowId }) else {
+            return
+        }
+        _ = previewSelection(row: row, modifiers: pendingSelectionPreview.modifiers)
     }
 
     private func restoreOptimisticallyPaintedRows() {
@@ -748,13 +792,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func viewportWidthDidChange(_ width: CGFloat) {
         let width = normalizedMeasurementWidth(width)
         guard width > 0 else { return }
+        // The clip view posts bounds notifications for vertical scrolling and
+        // row-height layout too. Only a new width should extend the settle
+        // debounce; same-width viewport churn must not starve offscreen rows.
+        guard width != lastLiveMeasuredWidth else { return }
         // Skip the settled width only before a live pass starts. Once rows
         // have reflowed, returning to the starting width is itself a live tick.
         guard hasLiveMeasuredRows || width != lastMeasuredWidth else { return }
         performLiveWidthRemeasure(width: width)
         // Schedule for every width source. Programmatic NSWindow mutations can
-        // report `inLiveResize` during layout without ever posting a matching
-        // didEnd notification; the timer checks the state after it quiesces.
+        // report `inLiveResize` during layout without posting resize lifecycle
+        // notifications, so the controller tracks genuine live drags itself.
         scheduleDeferredWidthSettle()
     }
 
@@ -773,11 +821,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 guard let self, self.deferredWidthSettleGeneration == generation else { return }
                 self.deferredWidthSettleTimer = nil
                 let window = self.containerView?.window
-                // Real divider and window drags have explicit completion
-                // notifications. If the timer lands during a pause in those
-                // drags, leave the full settle to that lifecycle edge.
-                guard window?.inLiveResize != true,
-                      !TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) else {
+                // Explicit lifecycle notifications settle real divider and
+                // window drags. Programmatic frame changes do not enter the
+                // controller-owned live-resize state and settle after debounce.
+                if self.isWindowLiveResizeActive ||
+                    TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) {
+                    self.scheduleDeferredWidthSettle()
                     return
                 }
                 self.performWidthRemeasureNow()
@@ -849,6 +898,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // it started from.
         guard width != lastMeasuredWidth || hasLiveMeasuredRows else { return }
         var changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
+#if DEBUG
+        widthSettleProbe?(width, changed)
+#endif
         lastMeasuredWidth = width
         hasLiveMeasuredRows = false
         lastLiveMeasuredWidth = 0

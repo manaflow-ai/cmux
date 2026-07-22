@@ -606,7 +606,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func cancelingQueuedSelectionRestoresAuthoritativeCellPaint() throws {
+    func queuedSelectionPreviewSurvivesApplyAndCancelRestoresAuthoritativePaint() throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let window = NSWindow(
@@ -623,17 +623,18 @@ struct SidebarAppKitRowCellTests {
         manager.selectTab(firstWorkspace)
         let firstModel = Self.makeModel(workspaceId: firstWorkspace.id, index: 0, isActive: true)
         let secondModel = Self.makeModel(workspaceId: secondWorkspace.id, index: 1)
+        let rows = [
+            Self.makeRowConfiguration(
+                model: firstModel,
+                actions: Self.makeActions(model: firstModel, tab: firstWorkspace, tabManager: manager)
+            ),
+            Self.makeRowConfiguration(
+                model: secondModel,
+                actions: Self.makeActions(model: secondModel, tab: secondWorkspace, tabManager: manager)
+            ),
+        ]
         controller.apply(
-            rows: [
-                Self.makeRowConfiguration(
-                    model: firstModel,
-                    actions: Self.makeActions(model: firstModel, tab: firstWorkspace, tabManager: manager)
-                ),
-                Self.makeRowConfiguration(
-                    model: secondModel,
-                    actions: Self.makeActions(model: secondModel, tab: secondWorkspace, tabManager: manager)
-                ),
-            ],
+            rows: rows,
             actions: Self.makeTableActions(),
             workspaceIds: [firstWorkspace.id, secondWorkspace.id],
             selectedWorkspaceId: firstWorkspace.id,
@@ -659,6 +660,19 @@ struct SidebarAppKitRowCellTests {
         controller.pointerMouseDown(row: 1, modifiers: [])
 
         #expect(manager.selectedTabId == firstWorkspace.id)
+        #expect(firstPaint.last == false)
+        #expect(secondPaint.last == true)
+
+        // An unrelated authoritative render can arrive before the coalesced
+        // selection. It must reconcile the cells, then restore the pending
+        // press preview instead of flashing the old selected workspace.
+        controller.apply(
+            rows: rows,
+            actions: Self.makeTableActions(),
+            workspaceIds: [firstWorkspace.id, secondWorkspace.id],
+            selectedWorkspaceId: firstWorkspace.id,
+            selectedScrollTargetWorkspaceId: firstWorkspace.id
+        )
         #expect(firstPaint.last == false)
         #expect(secondPaint.last == true)
 
@@ -711,7 +725,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func programmaticWidthChangeEventuallyRemeasuresOffscreenRows() {
+    func programmaticWidthChangeEventuallyRemeasuresOffscreenRows() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let window = NSWindow(
@@ -740,17 +754,22 @@ struct SidebarAppKitRowCellTests {
         container.tableView.layoutSubtreeIfNeeded()
         let offscreenRow = models.count - 1
         let wideHeight = container.tableView.rect(ofRow: offscreenRow).height
+        var settleMeasurements: [(CGFloat, IndexSet)] = []
+        controller.widthSettleProbe = { settleMeasurements.append(($0, $1)) }
 
         window.setContentSize(NSSize(width: 180, height: 120))
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         let heightBeforeSettle = container.tableView.rect(ofRow: offscreenRow).height
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.25))
+        try? await Task.sleep(for: .milliseconds(250))
         container.tableView.layoutSubtreeIfNeeded()
         let heightAfterSettle = container.tableView.rect(ofRow: offscreenRow).height
 
         #expect(abs(heightBeforeSettle - wideHeight) < 0.5)
+        #expect(settleMeasurements.count == 1)
+        #expect(settleMeasurements.last?.0 == 180)
+        #expect(settleMeasurements.last?.1.contains(offscreenRow) == true)
         #expect(heightAfterSettle > wideHeight)
     }
 

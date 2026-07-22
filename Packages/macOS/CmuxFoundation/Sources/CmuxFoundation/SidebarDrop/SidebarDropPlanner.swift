@@ -8,6 +8,25 @@ public import Foundation
 public struct SidebarDropPlanner {
     public init() {}
 
+    /// Pin tier represented by a root-row destination. A row inherits that
+    /// row's effective tier. Blank space at the list tail is unpinned when an
+    /// unpinned destination remains, otherwise it preserves the mover's tier.
+    public func destinationPinnedState(
+        draggedTabId: UUID,
+        targetTabId: UUID?,
+        tabIds: [UUID],
+        pinnedTabIds: Set<UUID>
+    ) -> Bool {
+        if let targetTabId {
+            return pinnedTabIds.contains(targetTabId)
+        }
+        let draggedIsPinned = pinnedTabIds.contains(draggedTabId)
+        let hasOtherUnpinnedTab = tabIds.contains { id in
+            id != draggedTabId && !pinnedTabIds.contains(id)
+        }
+        return hasOtherUnpinnedTab ? false : draggedIsPinned
+    }
+
     public func indicator(
         draggedTabId: UUID?,
         targetTabId: UUID?,
@@ -16,31 +35,8 @@ public struct SidebarDropPlanner {
         legalInsertionRange: ClosedRange<Int>? = nil,
         pointerY: CGFloat? = nil,
         targetHeight: CGFloat? = nil,
-        preserveTargetEdge: Bool = false
-    ) -> SidebarDropIndicator? {
-        indicator(
-            draggedTabId: draggedTabId,
-            targetTabId: targetTabId,
-            tabIds: tabIds,
-            pinnedTabIds: pinnedTabIds,
-            legalInsertionRange: legalInsertionRange,
-            pointerY: pointerY,
-            targetHeight: targetHeight,
-            preserveTargetEdge: preserveTargetEdge,
-            suppressesNoOp: true
-        )
-    }
-
-    func indicator(
-        draggedTabId: UUID?,
-        targetTabId: UUID?,
-        tabIds: [UUID],
-        pinnedTabIds: Set<UUID>,
-        legalInsertionRange: ClosedRange<Int>? = nil,
-        pointerY: CGFloat? = nil,
-        targetHeight: CGFloat? = nil,
         preserveTargetEdge: Bool = false,
-        suppressesNoOp: Bool
+        suppressesNoOp: Bool = true
     ) -> SidebarDropIndicator? {
         guard tabIds.count > 1, let draggedTabId else { return nil }
         guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
