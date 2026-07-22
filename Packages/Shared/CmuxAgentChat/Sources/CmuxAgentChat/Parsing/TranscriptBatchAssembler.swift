@@ -83,7 +83,8 @@ struct TranscriptBatchAssembler {
         completion: TranscriptToolCompletion,
         resultSeq: Int
     ) {
-        if let references = pendingArtifactMutations.removeValue(forKey: key), completion.succeeded {
+        if let references = pendingArtifactMutations.removeValue(forKey: key),
+           completion.authorizesArtifactMutation {
             appendArtifactReferences(
                 paths: references.map(\.path),
                 provenance: .created,
@@ -95,7 +96,7 @@ struct TranscriptBatchAssembler {
         // questions, `completion.applied` resolves each by its own prompt,
         // so multi-question cards each get their correct answer.
         for pendingMessage in pendingMessages {
-            if completion.succeeded {
+            if completion.authorizesArtifactMutation {
                 appendArtifactReferences(
                     paths: mutationPaths(in: pendingMessage),
                     provenance: .created,

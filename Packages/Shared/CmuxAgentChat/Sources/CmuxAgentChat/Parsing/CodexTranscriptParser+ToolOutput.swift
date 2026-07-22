@@ -93,8 +93,24 @@ extension CodexTranscriptParser {
             output: text,
             isError: (exitCode ?? 0) != 0,
             exitCode: exitCode,
-            durationSeconds: duration
+            durationSeconds: duration,
+            authorizesArtifactMutation: authorizesArtifactMutation(
+                output: text,
+                exitCode: exitCode
+            )
         )
+    }
+
+    private func authorizesArtifactMutation(output: String?, exitCode: Int?) -> Bool {
+        if let exitCode { return exitCode == 0 }
+        guard let firstLine = output?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0.isNewline })
+            .first?
+            .lowercased() else {
+            return false
+        }
+        return firstLine == "done!" || firstLine == "success." || firstLine == "success"
     }
 
     /// Extracts renderable output from strings, inline/nested output objects,

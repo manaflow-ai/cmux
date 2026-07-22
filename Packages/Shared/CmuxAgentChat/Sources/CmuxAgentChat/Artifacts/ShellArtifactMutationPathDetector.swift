@@ -1,6 +1,6 @@
 import Foundation
 
-/// Identifies explicit output targets in shell commands without treating inputs as writes.
+/// Identifies redirections and explicit output flags without guessing positional writes.
 struct ShellArtifactMutationPathDetector: Sendable {
     private enum Token: Equatable {
         case word(String)
@@ -12,14 +12,6 @@ struct ShellArtifactMutationPathDetector: Sendable {
         "-o", "--out", "--outfile", "--output", "--output-file",
         "--save", "--save-to", "--dest", "--destination", "--export",
     ]
-    private static let allDestinationCommands: Set<String> = ["tee", "touch"]
-    private static let lastDestinationCommands: Set<String> = [
-        "convert", "cp", "ffmpeg", "install", "magick", "mv", "screencapture",
-    ]
-    private static let commandWrappers: Set<String> = [
-        "command", "env", "nice", "nohup", "sudo", "time", "xcrun",
-    ]
-
     func paths(in command: String) -> [String] {
         let tokens = tokenize(command)
         var paths: [String] = []
@@ -50,22 +42,6 @@ struct ShellArtifactMutationPathDetector: Sendable {
             }
         }
 
-        for segment in segments(tokens) {
-            let words = segment.compactMap { token -> String? in
-                guard case .word(let word) = token else { return nil }
-                return word
-            }
-            guard let commandIndex = commandIndex(in: words) else { continue }
-            let executable = URL(fileURLWithPath: words[commandIndex]).lastPathComponent.lowercased()
-            let arguments = Array(words.dropFirst(commandIndex + 1))
-            if Self.allDestinationCommands.contains(executable) {
-                for argument in positionalArguments(arguments) {
-                    append(argument)
-                }
-            } else if Self.lastDestinationCommands.contains(executable) {
-                append(positionalArguments(arguments).last)
-            }
-        }
         return paths
     }
 
@@ -140,55 +116,6 @@ struct ShellArtifactMutationPathDetector: Sendable {
         if escaped { word.append("\\") }
         flushWord()
         return tokens
-    }
-
-    private func segments(_ tokens: [Token]) -> [[Token]] {
-        var result: [[Token]] = [[]]
-        for token in tokens {
-            if token == .boundary {
-                if result.last?.isEmpty == false { result.append([]) }
-            } else {
-                result[result.count - 1].append(token)
-            }
-        }
-        return result.filter { !$0.isEmpty }
-    }
-
-    private func commandIndex(in words: [String]) -> Int? {
-        var index = 0
-        while index < words.count {
-            let word = words[index]
-            if word.contains("="), !word.hasPrefix("-") {
-                index += 1
-                continue
-            }
-            let executable = URL(fileURLWithPath: word).lastPathComponent.lowercased()
-            if Self.commandWrappers.contains(executable) {
-                index += 1
-                while index < words.count, words[index].hasPrefix("-") { index += 1 }
-                continue
-            }
-            return index
-        }
-        return nil
-    }
-
-    private func positionalArguments(_ arguments: [String]) -> [String] {
-        var result: [String] = []
-        var skipsOutputValue = false
-        for argument in arguments {
-            if skipsOutputValue {
-                skipsOutputValue = false
-                continue
-            }
-            if Self.outputFlags.contains(argument) {
-                skipsOutputValue = true
-                continue
-            }
-            if argument.hasPrefix("-") { continue }
-            result.append(argument)
-        }
-        return result
     }
 
     private func nextWord(after index: Int, in tokens: [Token]) -> String? {

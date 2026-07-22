@@ -3,7 +3,14 @@ import Foundation
 
 /// Reads one regular artifact through a no-follow descriptor with a hard byte cap.
 struct ArtifactBoundedFileReader {
-    func data(url: URL, artifactsRoot: URL, maximumBytes: Int64) throws -> Data? {
+    func pathEntryExists(url: URL) throws -> Bool {
+        var status = stat()
+        if lstat(url.path, &status) == 0 { return true }
+        if errno == ENOENT { return false }
+        throw CocoaError(.fileReadUnknown)
+    }
+
+    func data(url: URL, allowedRoot: URL, maximumBytes: Int64) throws -> Data? {
         try Task.checkCancellation()
         guard maximumBytes >= 0, maximumBytes < Int.max else { return nil }
         let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
@@ -32,7 +39,7 @@ struct ArtifactBoundedFileReader {
             return String(cString: baseAddress.assumingMemoryBound(to: CChar.self))
         }
         let descriptorURL = URL(fileURLWithPath: descriptorPath, isDirectory: false)
-        guard ArtifactPathResolver().relativePath(descriptorURL, root: artifactsRoot) != nil else {
+        guard ArtifactPathResolver().relativePath(descriptorURL, root: allowedRoot) != nil else {
             return nil
         }
 

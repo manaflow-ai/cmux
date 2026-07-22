@@ -31,42 +31,34 @@ struct ArtifactGitIgnoreManager {
         try updated.write(to: excludeURL, atomically: true, encoding: .utf8)
     }
 
-    /// Verifies the effective Git view for every file automatic capture will write.
-    func permitsAutomaticWrites(
+    /// Establishes one fail-closed validator for an automatic import batch.
+    func automaticWriteValidator(
         projectRoot: URL,
-        destinations: [URL],
         commandRunner: any ArtifactGitCommandRunning
-    ) -> Bool {
-        guard !destinations.isEmpty else { return false }
+    ) -> ArtifactGitPrivacyValidator? {
         guard let repository = locateGitRepository(startingAt: projectRoot) else {
-            return !containsGitMarker(startingAt: projectRoot)
+            guard !containsGitMarker(startingAt: projectRoot) else { return nil }
+            return ArtifactGitPrivacyValidator(worktreeRoot: nil, commandRunner: commandRunner)
         }
         let artifactsRoot = ArtifactStorePaths(projectRoot: projectRoot).artifactsRoot
         guard let relativeArtifactsPath = ArtifactPathResolver().relativePath(
             artifactsRoot,
             root: repository.worktreeRoot
         ) else {
-            return false
+            return nil
         }
-        for destination in destinations {
-            guard let relativeDestination = ArtifactPathResolver().relativePath(
-                destination,
-                root: repository.worktreeRoot
-            ),
-            let ignoreStatus = try? commandRunner.terminationStatus(arguments: [
-                "-C", repository.worktreeRoot.path,
-                "check-ignore", "--quiet", "--", relativeDestination,
-            ]), ignoreStatus == 0 else {
-                return false
-            }
-        }
-        guard let trackedStatus = try? commandRunner.terminationStatus(arguments: [
+        guard let result = try? commandRunner.run(arguments: [
             "-C", repository.worktreeRoot.path,
-            "ls-files", "--error-unmatch", "--", relativeArtifactsPath,
-        ]) else {
-            return false
+            "ls-files", "-z", "--", relativeArtifactsPath,
+        ], standardInput: nil),
+        result.terminationStatus == 0,
+        result.standardOutput.isEmpty else {
+            return nil
         }
-        return trackedStatus == 1
+        return ArtifactGitPrivacyValidator(
+            worktreeRoot: repository.worktreeRoot,
+            commandRunner: commandRunner
+        )
     }
 
     private func locateGitRepository(startingAt projectRoot: URL) -> (worktreeRoot: URL, gitDirectory: URL)? {

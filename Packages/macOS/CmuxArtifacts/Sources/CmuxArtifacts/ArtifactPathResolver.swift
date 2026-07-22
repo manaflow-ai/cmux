@@ -63,16 +63,27 @@ struct ArtifactPathResolver: Sendable {
         return fallbackPrefix
     }
 
-    func uniqueDestination(source: URL, directory: URL, fileManager: FileManager) -> URL {
+    func uniqueDestination(
+        source: URL,
+        directory: URL,
+        fileManager: FileManager,
+        reservedPaths: Set<String> = []
+    ) -> URL {
         let proposed = directory.appendingPathComponent(source.lastPathComponent, isDirectory: false)
-        guard fileManager.fileExists(atPath: proposed.path) else { return proposed }
+        guard fileManager.fileExists(atPath: proposed.path)
+                || reservedPaths.contains(proposed.standardizedFileURL.path) else {
+            return proposed
+        }
         let basename = source.deletingPathExtension().lastPathComponent
         let pathExtension = source.pathExtension
         for suffix in 2...10_000 {
             var name = "\(basename)-\(suffix)"
             if !pathExtension.isEmpty { name += ".\(pathExtension)" }
             let candidate = directory.appendingPathComponent(name, isDirectory: false)
-            if !fileManager.fileExists(atPath: candidate.path) { return candidate }
+            if !fileManager.fileExists(atPath: candidate.path),
+               !reservedPaths.contains(candidate.standardizedFileURL.path) {
+                return candidate
+            }
         }
         return directory.appendingPathComponent("\(UUID().uuidString)-\(source.lastPathComponent)")
     }

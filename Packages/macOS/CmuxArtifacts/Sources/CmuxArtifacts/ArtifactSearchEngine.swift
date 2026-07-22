@@ -52,7 +52,7 @@ struct ArtifactSearchEngine {
         let maximumBytes = min(configuration.contentSearchMaximumBytes, remainingBytes)
         guard let data = try ArtifactBoundedFileReader().data(
             url: URL(fileURLWithPath: node.absolutePath),
-            artifactsRoot: artifactsRoot,
+            allowedRoot: artifactsRoot,
             maximumBytes: maximumBytes
         ) else {
             return nil
