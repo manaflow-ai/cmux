@@ -490,7 +490,13 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
             return 1
         payloads = payloads_from_log(stdin_log)
-        for session_id in ["pi-session-test", "pi-session-notification-fails"]:
+        for session_id in [
+            "pi-session-test",
+            "pi-session-notification-fails",
+            "pi-session-legacy",
+            "pi-session-unknown",
+            "pi-session-malformed",
+        ]:
             # Verify each completion path routes its notification before suppressing the native stop fallback.
             completion_events = [
                 payload.get("hook_event_name")
