@@ -55,20 +55,27 @@ import Testing
         let submitted = Self.snapshot(operationID: operationID)
         var recovery = TaskComposerCompletedOperationRecovery(submittedSnapshot: submitted)
 
-        recovery.markCurrentRequestUnresolved()
-        #expect(recovery.isRequestResolutionPending)
-        #expect(recovery.blocksSubmission)
+        recovery.markCurrentRequestDifferent()
+        #expect(!recovery.blocksSubmission)
         #expect(!recovery.allowsStartAgain)
 
-        recovery.reconcileCurrentRequest(
+        let shouldRestoreAfterWhitespaceEdit = recovery.reconcileCurrentRequest(
             Self.snapshot(operationID: operationID, workspaceName: "   ")
         )
+        #expect(shouldRestoreAfterWhitespaceEdit)
         #expect(recovery.appliesToCurrentRequest)
         #expect(recovery.blocksSubmission)
 
-        recovery.reconcileCurrentRequest(
+        let shouldPreserveCurrentBanner = recovery.reconcileCurrentRequest(
+            Self.snapshot(operationID: operationID, workspaceName: "")
+        )
+        #expect(!shouldPreserveCurrentBanner)
+
+        recovery.markCurrentRequestDifferent()
+        let shouldRestoreForDifferentRequest = recovery.reconcileCurrentRequest(
             Self.snapshot(operationID: operationID, workspaceName: "Different workspace")
         )
+        #expect(!shouldRestoreForDifferentRequest)
         #expect(!recovery.appliesToCurrentRequest)
         #expect(!recovery.blocksSubmission)
 
