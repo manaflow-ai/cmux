@@ -92,6 +92,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        model = nil
+        hintPill.resetForReuse()
+    }
+
     // MARK: Configure
 
     func configure(
@@ -681,6 +687,14 @@ final class SidebarShortcutHintPillView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
+    }
+
+    func resetForReuse() {
+        representedIdentity = nil
+        isRevealed = false
+        visibilityGeneration &+= 1
+        applyImmediateVisibility(false)
+        label.stringValue = ""
     }
 
     private func setRevealed(_ revealed: Bool, animated: Bool = true) {

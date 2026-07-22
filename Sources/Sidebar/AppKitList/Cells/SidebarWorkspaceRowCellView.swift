@@ -241,6 +241,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        pumpCancellables.removeAll()
+        model = nil
+        hintPill.resetForReuse()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Detachment without a configure pass must not leave the status
