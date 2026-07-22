@@ -210,6 +210,36 @@ struct FilePreviewReloadTests {
         #expect(pdfView.document?.page(at: 0)?.rotation == 90)
     }
 
+    @Test("Latest preview load state keeps one active and one latest pending request")
+    func latestPreviewLoadStateConflatesPendingRequests() throws {
+        var state = FilePreviewLatestRequestState<String>()
+        let active = try #require(state.submit("active"))
+
+        #expect(state.submit("superseded") == nil)
+        #expect(state.submit("latest") == nil)
+        let activeCompletion = state.complete(id: active.id)
+
+        #expect(!activeCompletion.shouldDeliver)
+        let pending = try #require(activeCompletion.next)
+        #expect(pending.request == "latest")
+        let latestCompletion = state.complete(id: pending.id)
+        #expect(latestCompletion.shouldDeliver)
+        #expect(latestCompletion.next == nil)
+    }
+
+    @Test("Canceling preview load state drops pending work and suppresses active delivery")
+    func latestPreviewLoadStateCancelsPendingRequests() throws {
+        var state = FilePreviewLatestRequestState<String>()
+        let active = try #require(state.submit("active"))
+        #expect(state.submit("pending") == nil)
+
+        state.cancel()
+        let completion = state.complete(id: active.id)
+
+        #expect(!completion.shouldDeliver)
+        #expect(completion.next == nil)
+    }
+
     private func waitForPDFDocumentReplacement(
         in pdfView: PDFView,
         replacing previousDocument: PDFDocument?,
