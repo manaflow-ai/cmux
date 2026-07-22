@@ -4,6 +4,41 @@ import Testing
 
 @Suite("Artifact repository safety")
 struct ArtifactRepositorySafetyTests {
+    @Test("Provenance rejects valid metadata with mismatched identity")
+    func rejectsMismatchedProvenanceIdentity() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        try FileManager.default.createDirectory(
+            at: paths.provenanceRoot,
+            withIntermediateDirectories: true
+        )
+        let metadataURL = paths.provenanceRoot.appendingPathComponent("digest.json")
+
+        for (embeddedDigest, embeddedSize) in [("other-digest", Int64(4)), ("digest", Int64(5))] {
+            let existing = ArtifactMetadataDocument(
+                version: 1,
+                digest: embeddedDigest,
+                lastKnownRelativePath: "old/path.md",
+                size: embeddedSize,
+                events: []
+            )
+            let existingData = try JSONEncoder().encode(existing)
+            try existingData.write(to: metadataURL)
+
+            #expect(throws: ArtifactStoreError.corruptProvenance(metadataURL.path)) {
+                try recorder.record(
+                    paths: paths,
+                    digest: "digest",
+                    relativePath: "workspace/session/plan.md",
+                    size: 4,
+                    event: event
+                )
+            }
+            #expect(try Data(contentsOf: metadataURL) == existingData)
+        }
+    }
+
     @Test("Corrupt provenance is preserved instead of overwritten")
     func preservesCorruptProvenance() throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

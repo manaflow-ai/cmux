@@ -10,6 +10,79 @@ import Testing
 #endif
 
 struct AgentArtifactCaptureCoordinatorTests {
+    @Test func sequentialStaleSnapshotDoesNotRegressCompletedGeneration() async throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = AgentChatSessionRecord(
+            sessionID: "session",
+            agentKind: .claude,
+            workspaceID: "workspace",
+            surfaceID: nil,
+            workingDirectory: projectRoot.path,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: .now,
+            title: nil,
+            pid: nil
+        )
+        let older = snapshot(
+            generation: "older",
+            path: projectRoot.appendingPathComponent("older.md").path
+        )
+        let newer = snapshot(
+            generation: "newer",
+            path: projectRoot.appendingPathComponent("newer.md").path
+        )
+
+        await coordinator.capture(record: record, snapshot: newer)
+        await coordinator.capture(record: record, snapshot: older)
+        await coordinator.capture(record: record, snapshot: newer)
+
+        #expect(await store.importCount == 1)
+    }
+
+    @MainActor
+    @Test func completedCaptureTaskIsReleased() async throws {
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            artifactCaptureCoordinator: coordinator
+        )
+        let record = AgentChatSessionRecord(
+            sessionID: "session",
+            agentKind: .claude,
+            workspaceID: "workspace",
+            surfaceID: nil,
+            workingDirectory: FileManager.default.temporaryDirectory.path,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: .now,
+            title: nil,
+            pid: nil
+        )
+        let snapshot = AgentChatArtifactIndex.Snapshot(
+            referencedPaths: [],
+            artifacts: [],
+            generation: "empty"
+        )
+
+        service.scheduleIndexedArtifactCapture(record: record, snapshot: snapshot)
+        let task = try #require(service.artifactCaptureTasks[record.sessionID])
+        await task.value
+
+        #expect(service.artifactCaptureTasks[record.sessionID] == nil)
+    }
+
     @Test func olderCaptureFinishingLastDoesNotRegressCompletedGeneration() async throws {
         let projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -73,9 +146,14 @@ struct AgentArtifactCaptureCoordinatorTests {
 }
 
 private actor OutOfOrderCaptureStore: ArtifactStoring {
+    private let suspendsFirstImport: Bool
     private var firstImportStarted: CheckedContinuation<Void, Never>?
     private var firstImportRelease: CheckedContinuation<Void, Never>?
     private(set) var importCount = 0
+
+    init(suspendsFirstImport: Bool = true) {
+        self.suspendsFirstImport = suspendsFirstImport
+    }
 
     func waitUntilFirstImportStarts() async {
         guard importCount == 0 else { return }
@@ -127,7 +205,7 @@ private actor OutOfOrderCaptureStore: ArtifactStoring {
         capturedAt _: Date
     ) async -> [ArtifactImportAttempt] {
         importCount += 1
-        if importCount == 1 {
+        if importCount == 1, suspendsFirstImport {
             firstImportStarted?.resume()
             firstImportStarted = nil
             await withCheckedContinuation { continuation in

@@ -11,6 +11,35 @@ import Testing
 
 struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     @MainActor
+    @Test func cancelledHistoryResolutionIsNotCachedAsMissing() async throws {
+        let home = try temporaryHomeDirectory()
+        let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        )
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            cwd: "/Users/example/project",
+            ppid: 123
+        ))
+
+        let historyTask = Task { @MainActor in
+            await service.history(sessionID: sessionID, beforeSeq: nil, limit: 20)
+        }
+        historyTask.cancel()
+        _ = await historyTask.value
+
+        let debugRecord = try #require(service.debugSessionDump().first)
+        #expect(debugRecord["resolution_failed"] as? Bool == false)
+    }
+
+    @MainActor
     @Test func onlyHookEventsProvideAuthoritativeAgentLifecycleState() throws {
         let registry = AgentChatSessionRegistry()
         let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
