@@ -84,6 +84,62 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func explicitAccountRecoveryDialsForgottenLiveMacAndClearsMarker() async throws {
+        let fixture = try await makeFixture(
+            candidates: [try candidate(deviceID: "mac-a", endpointByte: "a")],
+            reportedDeviceID: "mac-a"
+        )
+        defer { fixture.cleanup() }
+        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
+        await fixture.shell.rememberForgottenMacDeviceID(
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
+            scope: scope
+        )
+
+        #expect(await fixture.shell.hasForgottenMacsInCurrentScope())
+        #expect(await fixture.shell.recoverForgottenIrohMacFromAccount())
+
+        #expect(fixture.shell.connectionState == .connected)
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+        let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
+        let saved = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(saved.macDeviceID == "mac-a")
+        #expect(saved.instanceTag == "stable")
+        #expect(!(await fixture.shell.hasForgottenMacsInCurrentScope()))
+        #expect(!(await fixture.shell.isForgottenMacDeviceID(
+            "mac-a",
+            instanceTag: "stable",
+            scope: scope
+        )))
+    }
+
+    @Test
+    func failedExplicitAccountRecoveryLeavesForgottenMarker() async throws {
+        let fixture = try await makeFixture(
+            candidates: [try candidate(deviceID: "mac-a", endpointByte: "a")],
+            reportedDeviceID: "different-mac"
+        )
+        defer { fixture.cleanup() }
+        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
+        await fixture.shell.rememberForgottenMacDeviceID(
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
+            scope: scope
+        )
+
+        #expect(!(await fixture.shell.recoverForgottenIrohMacFromAccount()))
+
+        #expect(fixture.shell.connectionState == .disconnected)
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+        #expect(try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil).isEmpty)
+        #expect(await fixture.shell.isForgottenMacDeviceID(
+            "mac-a",
+            instanceTag: "stable",
+            scope: scope
+        ))
+    }
+
+    @Test
     func unreachableCandidateFallsThroughToNextLiveMac() async throws {
         let first = try candidate(deviceID: "mac-a", endpointByte: "a")
         let second = try candidate(deviceID: "mac-b", endpointByte: "b")
