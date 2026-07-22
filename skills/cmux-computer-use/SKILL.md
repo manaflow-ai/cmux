@@ -34,9 +34,10 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   startup with its internal permission gate disabled. Starting cmux or an agent
   never requests access or shows onboarding.
 - Wrappers are pure forced proxies. They never copy or launch the helper and
-  never fall back to in-process computer use. The helper owns the external
-  onboarding UI, while the proxy keeps its own external-flow flag off so the
-  first driving call waits for both helper grants before it is forwarded.
+  never fall back to in-process computer use. cmux owns the onboarding window,
+  while the helper raises its own native permission requests and the proxy
+  keeps its external-flow flag off so the first driving call waits for both
+  helper grants before it is forwarded.
 - Kill switch: set `CMUX_COMPUTER_USE_MCP_DISABLED=1`, or toggle it off in
   Settings → Computer Use (persists to `~/.config/cmux/cmux.json` and is
   exported to spawned terminals).
@@ -53,10 +54,12 @@ the main cmux app:
 
 Onboarding appears on the first real Computer Use tool invocation, not on cmux
 or agent startup. Re-run it any time from **Settings → Computer Use → Run
-Onboarding Again**. Each permission step exposes the real helper app as a file
-drag source for the matching System Settings list and reads status from the
-running helper over its Unix socket. The main cmux process never calls a TCC API
-or executes the driver binary.
+Onboarding Again**. Its two-card overview mirrors the native Codex Computer Use
+flow: each **Allow** action asks the standalone helper to raise the matching
+macOS prompt, then reads status from that helper over its Unix socket. A real
+helper-app drag source is retained only as a recovery path when macOS cannot
+raise the prompt normally. The main cmux process never calls a TCC API or
+executes the driver binary.
 
 If actions fail with a permission error, grant Accessibility to cmux Computer
 Use. If screenshots come back blank, grant Screen Recording to cmux Computer
@@ -97,14 +100,16 @@ driver build.
 
 ## Finding and focusing the driving session
 
-While an agent is driving, the **Computer Use menu-bar item** lists live agent
-sessions:
+While an agent is driving, the **cmux Computer Use** menu-bar item projects only
+the most recently active live agent session and offers two presentation modes:
 
-- **Focus terminal** — reveal the workspace + surface running that agent (shared
-  reveal path with notifications).
-- **Focus target** — bring forward the app the agent is driving, read from the
-  driver's per-session state files under
-  `~/Library/Application Support/cmux/computer-use/runtime/<scope>/state/`.
+- **View Computer Use** — bring forward the app the agent is driving and resume
+  automatically following new targets.
+- **Continue in Background** — keep automation running without fronting its
+  target and reveal the exact workspace + surface running that agent.
+
+The active target and session ordering come from the driver's per-session state
+files under `~/Library/Application Support/cmux/computer-use/runtime/<scope>/state/`.
 
 The item hides when there is no live or recent session. Toggle visibility in
 Settings → Computer Use.

@@ -19,7 +19,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
-    private static let expandedContentSize = NSSize(width: 900, height: 665)
+    private static let expandedContentSize = NSSize(width: 596, height: 435)
     private static let permissionCompanionContentSize = NSSize(width: 680, height: 250)
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
@@ -70,13 +70,12 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             onSystemSettingsOpened: { [weak self] in
                 self?.showPermissionCompanion()
             },
-            onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() },
-            onClose: { [weak self] in self?.close() }
+            onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() }
         )
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hostingController)
         window.title = String(localized: "computerUse.onboarding.windowTitle", defaultValue: "Computer Use Setup")
-        window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
@@ -99,10 +98,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         )
         permissionSettingsWillOpen()
         window.orderFrontRegardless()
-    }
-
-    private func close() {
-        dismiss()
     }
 
     func dismiss() {
@@ -259,12 +254,10 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.contentMinSize = contentSize
         window.contentMaxSize = contentSize
         window.setContentSize(contentSize)
-        for buttonType in [
-            NSWindow.ButtonType.closeButton,
-            .miniaturizeButton,
-            .zoomButton,
-        ] {
-            window.standardWindowButton(buttonType)?.isHidden = !showsStandardButtons
+        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            let button = window.standardWindowButton(buttonType)
+            button?.isHidden = !showsStandardButtons
+            button?.isEnabled = showsStandardButtons && buttonType == .closeButton
         }
     }
 

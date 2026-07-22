@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="34abe5947e4354a45c1b691a789c4c6ceaa13e3e"
+CMUX_CUA_PINNED_SHA="4a6298c99a3045dc45792dc161c99fc135435078"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 OUTPUT=""
@@ -301,14 +301,11 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
   if [ -z "$_host_id" ] && [ -f "$_cua_contents/Info.plist" ]; then
     _host_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$_cua_contents/Info.plist" 2>/dev/null || true)"
   fi
-  _host_name="${PRODUCT_NAME:-}"
-  if [ -z "$_host_name" ] && [ -f "$_cua_contents/Info.plist" ]; then
-    _host_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$_cua_contents/Info.plist" 2>/dev/null || true)"
-  fi
   [ -n "$_host_id" ] || _host_id="com.cmuxterm.app"
-  [ -n "$_host_name" ] || _host_name="cmux"
   HELPER_ID="${_host_id}.computer-use"
-  HELPER_DISPLAY="${CMUX_CUA_HELPER_DISPLAY_NAME:-${_host_name} Computer Use}"
+  # Keep the TCC-facing product name stable across release, tests, and tagged
+  # dogfood builds. Runtime isolation still comes from HELPER_ID.
+  HELPER_DISPLAY="${CMUX_CUA_HELPER_DISPLAY_NAME:-cmux Computer Use}"
   cat > "$HELPER_APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

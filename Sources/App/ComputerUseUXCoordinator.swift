@@ -92,6 +92,13 @@ final class ComputerUseUXCoordinator {
             }
         }
 
+        // Automatic target following and explicit menu presentation share one
+        // controller, so background/view mode cannot drift between entrypoints.
+        let watchTarget = ComputerUseWatchTargetController(
+            stateDirectoryURL: stateDirectoryURL,
+            featureEnabled: featureEnabled
+        )
+
         let snapshotStore = ComputerUseMenuBarSnapshotStore(
             liveAgentIndex: liveAgentIndex,
             stateRepository: stateRepository,
@@ -103,29 +110,21 @@ final class ComputerUseUXCoordinator {
         )
         menuBarController = ComputerUseMenuBarController(
             snapshotStore: snapshotStore,
-            onFocusTerminal: onFocusTerminal,
-            canFocusTarget: { identity in
-                guard let pid = pid_t(exactly: identity.processIdentifier) else { return false }
-                return identity.matches(NSRunningApplication(processIdentifier: pid))
+            isRunningInBackground: {
+                watchTarget.isRunningInBackground
             },
-            onFocusTarget: { identity in
-                guard let pid = pid_t(exactly: identity.processIdentifier),
-                      let application = NSRunningApplication(processIdentifier: pid),
-                      identity.matches(application)
-                else {
-                    return
-                }
-                // NSRunningApplication.activate is unreliable at fronting another
-                // app on macOS 14+; NSWorkspace.openApplication genuinely brings
-                // the already-running target to the front.
-                if let bundleURL = application.bundleURL {
-                    let configuration = NSWorkspace.OpenConfiguration()
-                    configuration.activates = true
-                    configuration.createsNewApplicationInstance = false
-                    NSWorkspace.shared.openApplication(at: bundleURL, configuration: configuration) { _, _ in }
-                } else {
-                    _ = application.activate(options: [.activateAllWindows])
-                }
+            onContinueInBackground: { workspaceID, surfaceID in
+                watchTarget.continueInBackground()
+                onFocusTerminal(workspaceID, surfaceID)
+            },
+            canViewComputerUse: { identity in
+                watchTarget.canViewTarget(identity)
+            },
+            onViewComputerUse: { identity in
+                _ = watchTarget.viewTarget(identity)
+            },
+            onNoLiveSessions: {
+                watchTarget.resetPresentationMode()
             }
         )
 
@@ -136,10 +135,6 @@ final class ComputerUseUXCoordinator {
         // Bring the app the local driver is steering to the front (once per target)
         // so the user watches the automation instead of the cmux-hosted cursor
         // clicking on top of a hidden target. Gated the same way via `featureEnabled`.
-        let watchTarget = ComputerUseWatchTargetController(
-            stateDirectoryURL: stateDirectoryURL,
-            featureEnabled: featureEnabled
-        )
         watchTarget.start()
         watchTargetController = watchTarget
 

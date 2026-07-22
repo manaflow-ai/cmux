@@ -252,17 +252,13 @@ struct ComputerUseUXTests {
 
         #expect(first !== second)
         #expect(first.contentViewController !== second.contentViewController)
+        #expect(first.contentView?.frame.size == CGSize(width: 596, height: 435))
+        #expect(!first.styleMask.contains(.miniaturizable))
+        #expect(!first.styleMask.contains(.resizable))
     }
 
     @Test @MainActor func firstUseOnboardingStartsAtOverview() {
         #expect(ComputerUseOnboardingView.initialStep == .overview)
-    }
-
-    @Test func completingAccessibilityAdvancesAndOpensScreenRecordingSettings() {
-        let transition = ComputerUseOnboardingStep.accessibility.continuation
-
-        #expect(transition.nextStep == .screenRecording)
-        #expect(transition.settingsStepToOpen == .screenRecording)
     }
 
     @Test func permissionCompanionSitsBesideSystemSettingsOnItsActualDisplay() throws {

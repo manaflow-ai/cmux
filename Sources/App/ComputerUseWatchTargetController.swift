@@ -25,7 +25,12 @@ enum ComputerUseWatchTargetDecision {
     ///   from yanking focus back on every click.
     /// - otherwise a *different* app is now being driven -> return `current` so the
     ///   caller activates it once and records it as `lastActivated`.
-    static func activation(current: Int?, lastActivated: Int?) -> Int? {
+    static func activation(
+        current: Int?,
+        lastActivated: Int?,
+        automaticActivationEnabled: Bool = true
+    ) -> Int? {
+        guard automaticActivationEnabled else { return nil }
         guard let current else { return nil }
         if current == lastActivated { return nil }
         return current
@@ -108,7 +113,9 @@ struct ComputerUseWatchTargetFeed: Sendable {
 /// Fronts each distinct target exactly once (`ComputerUseWatchTargetDecision`)
 /// so it never competes with the user's own focus while a session runs. Gated by
 /// `featureEnabled` and validated with `ComputerUseTargetIdentity`, mirroring the
-/// menu bar's "Focus Target" action and the cursor overlay's watcher/poll shape.
+/// menu bar's "View Computer Use" action and the cursor overlay's watcher/poll shape.
+/// Choosing "Continue in Background" pauses automatic activation until the user
+/// explicitly returns to the target or the active session ends.
 @MainActor
 final class ComputerUseWatchTargetController {
     private let stateDirectoryURL: URL
@@ -116,6 +123,9 @@ final class ComputerUseWatchTargetController {
     private let feed: ComputerUseWatchTargetFeed
     private let pollInterval: TimeInterval
     private let activate: @MainActor (NSRunningApplication) -> Void
+
+    /// Whether automation should keep running without automatically fronting its target.
+    private(set) var isRunningInBackground = false
 
     /// The pid of the target we most recently fronted. Persists across idle gaps
     /// so a paused-then-resumed same target is not re-fronted; only reset when a
@@ -198,12 +208,47 @@ final class ComputerUseWatchTargetController {
         pollTimer?.invalidate()
         pollTimer = nil
         lastActivatedTargetPID = nil
+        isRunningInBackground = false
+    }
+
+    /// Preserves the originating terminal as the user's foreground context.
+    func continueInBackground() {
+        isRunningInBackground = true
+    }
+
+    /// Fronts a validated target and resumes automatic following for new targets.
+    @discardableResult
+    func viewTarget(_ identity: ComputerUseTargetIdentity) -> Bool {
+        guard
+            let pid = pid_t(exactly: identity.processIdentifier),
+            let application = NSRunningApplication(processIdentifier: pid),
+            identity.matches(application)
+        else {
+            return false
+        }
+
+        isRunningInBackground = false
+        activate(application)
+        lastActivatedTargetPID = identity.processIdentifier
+        return true
+    }
+
+    /// Reports whether a captured target still identifies the same running app.
+    func canViewTarget(_ identity: ComputerUseTargetIdentity) -> Bool {
+        guard let pid = pid_t(exactly: identity.processIdentifier) else { return false }
+        return identity.matches(NSRunningApplication(processIdentifier: pid))
+    }
+
+    /// Restores visible follow mode for the next Computer Use session.
+    func resetPresentationMode() {
+        isRunningInBackground = false
+        lastActivatedTargetPID = nil
     }
 
     func refresh() {
         // Feature off: do nothing and, crucially, leave `lastActivatedTargetPID`
         // untouched so toggling off/on does not re-front the same live target.
-        guard featureEnabled() else { return }
+        guard featureEnabled(), !isRunningInBackground else { return }
 
         // Never scan the untrusted state directory on the main thread. The driver
         // rewrites its state files many times per second while driving, so doing
@@ -233,7 +278,8 @@ final class ComputerUseWatchTargetController {
         guard
             let pidToActivate = ComputerUseWatchTargetDecision.activation(
                 current: current,
-                lastActivated: lastActivatedTargetPID
+                lastActivated: lastActivatedTargetPID,
+                automaticActivationEnabled: !isRunningInBackground
             ),
             let pid = pid_t(exactly: pidToActivate),
             let application = NSRunningApplication(processIdentifier: pid)

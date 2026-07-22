@@ -45,6 +45,17 @@ final class ComputerUseRuntimeService {
         installedHelperURL
     }
 
+    /// The branded helper icon used while its top-level copy is still installing.
+    ///
+    /// Keep `helperAppURL` restricted to the installed helper because permission
+    /// interactions need that independently registered URL. Presentation can use
+    /// the identical nested app immediately, avoiding a generic first frame.
+    var presentationIcon: NSImage? {
+        let candidate = installedHelperURL ?? bundledHelperAppURL
+        guard let candidate else { return nil }
+        return NSWorkspace.shared.icon(forFile: candidate.path)
+    }
+
     var stateDirectoryURL: URL {
         paths.stateDirectoryURL
     }
@@ -127,13 +138,11 @@ final class ComputerUseRuntimeService {
     }
 
     func requestAccessibility() async -> Bool {
-        guard await ensureStandaloneHelperInstalled() != nil else { return false }
-        return await openAccessibilitySettings()
+        await requestSystemPermission(named: "accessibility")
     }
 
     func requestScreenRecording() async -> Bool {
-        guard await ensureStandaloneHelperInstalled() != nil else { return false }
-        return await openScreenRecordingSettings()
+        await requestSystemPermission(named: "screen_recording")
     }
 
     func revealHelperInFinder() {
@@ -165,6 +174,25 @@ final class ComputerUseRuntimeService {
         guard await launchHelper(at: helperURL) else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         _ = await Self.waitForDaemonStart(paths: paths, transport: transport)
+    }
+
+    /// Asks the independently attributed helper to raise one native TCC request.
+    ///
+    /// This host-only daemon method is separate from the MCP tool registry, so an
+    /// agent cannot bypass onboarding with `check_permissions { prompt: true }`.
+    private func requestSystemPermission(named name: String) async -> Bool {
+        guard acceptsNewLaunches, !Task.isCancelled else { return false }
+        await startIfNeeded()
+        guard acceptsNewLaunches, !Task.isCancelled else { return false }
+        return await Self.sendDaemonRequest(
+            [
+                "method": "request_system_permission",
+                "name": name,
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 5
+        )?["ok"] as? Bool == true
     }
 
     private func stopDaemon() async {

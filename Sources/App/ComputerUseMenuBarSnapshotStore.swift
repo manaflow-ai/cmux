@@ -180,8 +180,9 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             }
 
             guard let self, let result, !Task.isCancelled, generation == self.refreshGeneration else { return }
-            let rows = result.rows.compactMap { row -> ComputerUseMenuBarRow? in
+            let rows = [result.mostRecentlyActiveRow].compactMap { row -> ComputerUseMenuBarRow? in
                 guard
+                    let row,
                     let state = result.scan.newestStateByScopeID[row.id],
                     let pid = pid_t(exactly: state.targetPID),
                     let application = NSRunningApplication(processIdentifier: pid),
@@ -192,7 +193,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 return row.withTargetIdentity(identity)
             }
             self.snapshot = ComputerUseMenuBarSnapshot(
-                rows: rows.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending },
+                rows: rows,
                 hasRecentStateFiles: result.scan.hasRecentStateFiles,
                 showInMenuBar: currentShowInMenuBar,
                 featureEnabled: currentFeatureEnabled

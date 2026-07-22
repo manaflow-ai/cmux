@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// Non-blocking, one-permission-at-a-time onboarding for local computer use.
+/// Two-card onboarding for the standalone local computer-use helper.
 ///
-/// Permissions belong to the standalone `cmux Computer Use` helper. Each step
-/// opens the matching System Settings pane, offers the helper as a real file-URL
-/// drag source, and refreshes status from the helper's own TCC identity.
+/// Permissions belong to `cmux Computer Use`, which raises the native TCC
+/// requests itself. A file-URL drag companion remains available only as a
+/// recovery path when the helper cannot request a permission normally.
 @MainActor
 struct ComputerUseOnboardingView: View {
     static let initialStep = ComputerUseOnboardingStep.overview
@@ -14,7 +14,6 @@ struct ComputerUseOnboardingView: View {
     let initialStep: ComputerUseOnboardingStep
     let onSystemSettingsOpened: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
-    let onClose: () -> Void
 
     @State private var step: ComputerUseOnboardingStep
     @State private var accessibilityGranted = false
@@ -31,15 +30,14 @@ struct ComputerUseOnboardingView: View {
         runtimeService: ComputerUseRuntimeService,
         initialStep: ComputerUseOnboardingStep = .overview,
         onSystemSettingsOpened: @escaping @MainActor () -> Void = {},
-        onExpandedRequested: @escaping @MainActor () -> Void = {},
-        onClose: @escaping () -> Void
+        onExpandedRequested: @escaping @MainActor () -> Void = {}
     ) {
         self.runtimeService = runtimeService
         self.initialStep = initialStep
         self.onSystemSettingsOpened = onSystemSettingsOpened
         self.onExpandedRequested = onExpandedRequested
-        self.onClose = onClose
         _step = State(initialValue: initialStep)
+        _helperIcon = State(initialValue: runtimeService.presentationIcon)
         _isPermissionCompanionVisible = State(initialValue: false)
     }
 
@@ -75,39 +73,39 @@ struct ComputerUseOnboardingView: View {
 
             VStack(spacing: 0) {
                 helperHeroIcon
-                    .padding(.top, 68)
+                    .padding(.top, 55)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.title",
                     defaultValue: "Enable cmux Computer Use"
                 ))
-                .font(.system(size: 38, weight: .bold))
-                .padding(.top, 24)
+                .font(.system(size: 26, weight: .bold))
+                .padding(.top, 19)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.detail",
-                    defaultValue: "cmux Computer Use needs these permissions to use apps on your Mac.\nThese permissions are used when you ask an agent to perform tasks."
+                    defaultValue: "cmux Computer Use needs these permissions to use apps on your Mac.\nThese permissions are used when you ask cmux to perform tasks."
                 ))
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .lineSpacing(5)
+                .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 20)
+                .padding(.top, 15)
 
                 permissionOverview
-                    .padding(.top, 34)
+                    .padding(.top, 12)
 
-                Spacer(minLength: 34)
+                Spacer(minLength: 35)
             }
-            .padding(.horizontal, 52)
+            .padding(.horizontal, 38)
 
             ComputerUseWindowDragRegion()
                 .frame(maxWidth: .infinity)
-                .frame(height: 56)
+                .frame(height: 46)
                 .accessibilityHidden(true)
         }
-        .frame(width: 900, height: 665)
+        .frame(width: 596, height: 435)
     }
 
     private var helperHeroIcon: some View {
@@ -118,225 +116,205 @@ struct ComputerUseOnboardingView: View {
                     .interpolation(.high)
             } else {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .fill(Color.accentColor.gradient)
                     Image(systemName: "cursorarrow.motionlines")
-                        .font(.system(size: 36, weight: .semibold))
+                        .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(.white)
                 }
             }
         }
-        .frame(width: 86, height: 86)
-        .shadow(color: .black.opacity(0.28), radius: 14, y: 8)
+        .frame(width: 52, height: 52)
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
         .accessibilityHidden(true)
     }
 
-    @ViewBuilder
     private var permissionOverview: some View {
         VStack(spacing: 18) {
-            if accessibilityGranted {
-                completedPermissionCard(
-                    symbolName: "accessibility",
-                    title: String(
-                        localized: "computerUse.onboarding.accessibility.short",
-                        defaultValue: "Accessibility"
-                    ),
-                    detail: String(
-                        localized: "computerUse.onboarding.accessibility.cardDetail",
-                        defaultValue: "Allows cmux Computer Use to access app interfaces"
-                    ),
-                    tint: .blue
+            permissionCard(
+                permissionStep: .accessibility,
+                granted: accessibilityGranted,
+                title: String(
+                    localized: "computerUse.onboarding.accessibility.short",
+                    defaultValue: "Accessibility"
+                ),
+                detail: String(
+                    localized: "computerUse.onboarding.accessibility.cardDetail",
+                    defaultValue: "Allows cmux to access app interfaces"
                 )
-            }
-
-            if screenRecordingGranted {
-                completedPermissionCard(
-                    symbolName: "rectangle.inset.filled.and.person.filled",
-                    title: String(
-                        localized: "computerUse.onboarding.screenRecording.short",
-                        defaultValue: "Screen Recording"
-                    ),
-                    detail: String(
-                        localized: "computerUse.onboarding.screenRecording.cardDetail",
-                        defaultValue: "Allows cmux Computer Use to see app windows and screen content"
-                    ),
-                    tint: .indigo
+            )
+            permissionCard(
+                permissionStep: .screenRecording,
+                granted: screenRecordingGranted,
+                title: String(
+                    localized: "computerUse.onboarding.screenshots.short",
+                    defaultValue: "Screenshots"
+                ),
+                detail: String(
+                    localized: "computerUse.onboarding.screenshots.cardDetail",
+                    defaultValue: "cmux uses screenshots to know where to click"
                 )
-            }
-
-            if let pendingPermissionStep {
-                pendingPermissionCard(permissionStep: pendingPermissionStep)
-            } else {
-                Button(
-                    String(localized: "computerUse.onboarding.done", defaultValue: "Done"),
-                    action: onClose
-                )
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .padding(.top, 2)
-            }
+            )
         }
     }
 
-    private func completedPermissionCard(
-        symbolName: String,
+    private func permissionCard(
+        permissionStep: ComputerUseOnboardingStep,
+        granted: Bool,
         title: String,
-        detail: String,
-        tint: Color
+        detail: String
     ) -> some View {
-        HStack(spacing: 24) {
+        HStack(spacing: 16) {
+            permissionIcon(for: permissionStep)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 17, weight: .bold))
+                Text(detail)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+            permissionAction(for: permissionStep, granted: granted)
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 18)
+        .frame(maxWidth: .infinity)
+        .frame(height: 80)
+        .background(
+            Color(nsColor: .controlBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 25, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 25, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.11), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.16), radius: 3, y: 2)
+    }
+
+    @ViewBuilder
+    private func permissionIcon(for permissionStep: ComputerUseOnboardingStep) -> some View {
+        if permissionStep == .accessibility {
             ZStack {
                 Circle()
-                    .fill(tint.gradient)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(red: 0.14, green: 0.75, blue: 1), .blue],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                 Circle()
-                    .strokeBorder(.white.opacity(0.7), lineWidth: 3)
-                Image(systemName: symbolName)
-                    .font(.system(size: 38, weight: .medium))
+                    .strokeBorder(.white.opacity(0.9), lineWidth: 2)
+                Image(systemName: "accessibility")
+                    .font(.system(size: 32, weight: .medium))
                     .foregroundStyle(.white)
             }
-            .frame(width: 78, height: 78)
+            .padding(2)
+            .background(Color.blue, in: Circle())
+            .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+            .frame(width: 56, height: 56)
             .accessibilityHidden(true)
+        } else {
+            Image(systemName: "camera.viewfinder")
+                .symbolRenderingMode(.hierarchical)
+                .font(.system(size: 43, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 56, height: 56)
+                .accessibilityHidden(true)
+        }
+    }
 
-            VStack(alignment: .leading, spacing: 7) {
-                Text(title)
-                    .font(.system(size: 23, weight: .bold))
-                Text(detail)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 24)
-
-            HStack(spacing: 9) {
+    @ViewBuilder
+    private func permissionAction(
+        for permissionStep: ComputerUseOnboardingStep,
+        granted: Bool
+    ) -> some View {
+        if granted {
+            HStack(spacing: 7) {
                 Text(String(localized: "computerUse.onboarding.done", defaultValue: "Done"))
-                    .font(.system(size: 18, weight: .bold))
                 Image(systemName: "checkmark")
-                    .font(.system(size: 17, weight: .semibold))
             }
+            .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 24)
-        .frame(height: 118)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 32))
-        .overlay {
-            RoundedRectangle(cornerRadius: 32)
-                .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1.5)
-        }
-    }
-
-    private func pendingPermissionCard(permissionStep: ComputerUseOnboardingStep) -> some View {
-        let title = permissionStep == .accessibility
-            ? String(
-                localized: "computerUse.onboarding.accessibility.short",
-                defaultValue: "Accessibility"
-            )
-            : String(
-                localized: "computerUse.onboarding.screenRecording.short",
-                defaultValue: "Screen Recording"
-            )
-        let label = helperAppURL == nil
-            ? String(
-                localized: "computerUse.onboarding.preparingHelper",
-                defaultValue: "Preparing cmux Computer Use…"
-            )
-            : String(
-                localized: "computerUse.onboarding.completeInSystemSettings",
-                defaultValue: "Complete \(title) in System Settings"
-            )
-
-        return Button {
-            beginPermissionSetup(for: permissionStep)
-        } label: {
-            HStack(spacing: 12) {
-                if helperAppURL == nil {
-                    ProgressView()
-                        .controlSize(.small)
+        } else {
+            Button {
+                beginPermissionSetup(for: permissionStep)
+            } label: {
+                Group {
+                    if permissionSetupInFlight, step == permissionStep {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    } else {
+                        Text(String(localized: "computerUse.onboarding.allow", defaultValue: "Allow"))
+                            .font(.system(size: 14, weight: .medium))
+                    }
                 }
-                Text(label.uppercased())
-                    .font(.system(size: 17, weight: .bold))
-                    .tracking(1.2)
+                .frame(width: 57, height: 24)
+                .foregroundStyle(.white)
+                .background(Color.accentColor, in: Capsule())
             }
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 114)
-            .contentShape(RoundedRectangle(cornerRadius: 32))
+            .buttonStyle(.plain)
+            .disabled(helperAppURL == nil || permissionSetupInFlight)
+            .accessibilityHint(String(
+                localized: "computerUse.onboarding.openSystemSettings",
+                defaultValue: "Open System Settings"
+            ))
         }
-        .buttonStyle(.plain)
-        .disabled(helperAppURL == nil || permissionSetupInFlight)
-        .overlay {
-            RoundedRectangle(cornerRadius: 32)
-                .strokeBorder(
-                    Color.secondary.opacity(0.38),
-                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 9])
-                )
-        }
-        .accessibilityHint(String(
-            localized: "computerUse.onboarding.openSystemSettings",
-            defaultValue: "Open System Settings"
-        ))
-    }
-
-    private var pendingPermissionStep: ComputerUseOnboardingStep? {
-        if !accessibilityGranted { return .accessibility }
-        if !screenRecordingGranted { return .screenRecording }
-        return nil
     }
 
     private var permissionCompanion: some View {
-        Group {
-            if step == .done {
-                permissionCompanionReady
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .center, spacing: 13) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(.tint)
-                            .accessibilityHidden(true)
-                        Text(permissionCompanionInstruction)
-                            .font(.title3.weight(.bold))
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 8)
-                    }
-
-                    helperDragTile
-
-                    HStack(spacing: 10) {
-                        Button {
-                            isPermissionCompanionVisible = false
-                            onExpandedRequested()
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 12, weight: .semibold))
-                                .frame(width: 28, height: 28)
-                                .background(Color.secondary.opacity(0.12), in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-                        .accessibilityLabel(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-
-                        Button(
-                            String(
-                                localized: "computerUse.onboarding.openSystemSettings",
-                                defaultValue: "Open System Settings"
-                            )
-                        ) {
-                            beginPermissionSetup(for: step)
-                        }
-
-                        Spacer()
-                        permissionStatus(granted: currentPermissionGranted)
-                        Button(
-                            refreshInFlight
-                                ? String(localized: "computerUse.onboarding.checking", defaultValue: "Checking…")
-                                : String(localized: "computerUse.onboarding.checkAgain", defaultValue: "Check Again"),
-                            action: refreshPermissions
-                        )
-                        .disabled(refreshInFlight)
-                    }
-                    .controlSize(.small)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 13) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                Text(permissionCompanionInstruction)
+                    .font(.title3.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
             }
+
+            helperDragTile
+
+            HStack(spacing: 10) {
+                Button {
+                    isPermissionCompanionVisible = false
+                    onExpandedRequested()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .background(Color.secondary.opacity(0.12), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
+                .accessibilityLabel(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
+
+                Button(
+                    String(
+                        localized: "computerUse.onboarding.openSystemSettings",
+                        defaultValue: "Open System Settings"
+                    )
+                ) {
+                    beginPermissionSetup(for: step)
+                }
+
+                Spacer()
+                permissionStatus(granted: currentPermissionGranted)
+                Button(
+                    refreshInFlight
+                        ? String(localized: "computerUse.onboarding.checking", defaultValue: "Checking…")
+                        : String(localized: "computerUse.onboarding.checkAgain", defaultValue: "Check Again"),
+                    action: refreshPermissions
+                )
+                .disabled(refreshInFlight)
+            }
+            .controlSize(.small)
         }
         .padding(20)
         .frame(width: 680, height: 250)
@@ -393,44 +371,6 @@ struct ComputerUseOnboardingView: View {
             defaultValue: "Drag \(runtimeService.applicationName) into the permission list"
         ))
         .opacity(helperAppURL == nil ? 0.55 : 1)
-    }
-
-    private var permissionCompanionReady: some View {
-        HStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 42, weight: .medium))
-                .foregroundStyle(.green)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 10) {
-                Text(String(
-                    localized: "computerUse.onboarding.done.title",
-                    defaultValue: "Computer Use Is Ready"
-                ))
-                .font(.title2.weight(.semibold))
-                HStack(spacing: 8) {
-                    permissionStatus(
-                        granted: accessibilityGranted,
-                        label: String(
-                            localized: "computerUse.onboarding.accessibility.short",
-                            defaultValue: "Accessibility"
-                        )
-                    )
-                    permissionStatus(
-                        granted: screenRecordingGranted,
-                        label: String(
-                            localized: "computerUse.onboarding.screenRecording.short",
-                            defaultValue: "Screen Recording"
-                        )
-                    )
-                }
-            }
-            Spacer()
-            Button(
-                String(localized: "computerUse.onboarding.done", defaultValue: "Done"),
-                action: onClose
-            )
-            .buttonStyle(.borderedProminent)
-        }
     }
 
     private var permissionCompanionInstruction: String {
@@ -503,15 +443,9 @@ struct ComputerUseOnboardingView: View {
             guard initialStep != Self.initialStep, !initialPermissionFlowStarted else { return }
             initialPermissionFlowStarted = true
 
-            if initialStep == .accessibility, status.accessibility {
-                if status.screenRecording {
-                    step = .done
-                } else {
-                    beginPermissionSetup(for: .screenRecording)
-                }
-            } else if initialStep == .screenRecording, status.screenRecording {
-                step = .done
-            } else {
+            if initialStep == .accessibility, !status.accessibility {
+                beginPermissionSetup(for: .accessibility)
+            } else if initialStep == .screenRecording, !status.screenRecording {
                 beginPermissionSetup(for: initialStep)
             }
         }
@@ -527,13 +461,28 @@ struct ComputerUseOnboardingView: View {
         step = permissionStep
         permissionSetupInFlight = true
         permissionCheckArmed = true
-        isPermissionCompanionVisible = true
-        onSystemSettingsOpened()
         Task { @MainActor in
-            let didOpenSettings = if permissionStep == .accessibility {
+            let didRequestPermission = if permissionStep == .accessibility {
                 await runtimeService.requestAccessibility()
             } else {
                 await runtimeService.requestScreenRecording()
+            }
+
+            guard !didRequestPermission else {
+                permissionSetupInFlight = false
+                return
+            }
+
+            // The pinned helper normally raises the native TCC request itself.
+            // Keep the legacy drag companion as a recovery path for a stale or
+            // unavailable helper, rather than replacing the reference UI during
+            // the normal permission flow.
+            isPermissionCompanionVisible = true
+            onSystemSettingsOpened()
+            let didOpenSettings = if permissionStep == .accessibility {
+                await runtimeService.openAccessibilitySettings()
+            } else {
+                await runtimeService.openScreenRecordingSettings()
             }
             permissionSetupInFlight = false
             guard didOpenSettings else {
@@ -548,7 +497,7 @@ struct ComputerUseOnboardingView: View {
     private func refreshHelperPresentation() {
         let url = runtimeService.helperAppURL
         helperAppURL = url
-        helperIcon = url.map { NSWorkspace.shared.icon(forFile: $0.path) }
+        helperIcon = runtimeService.presentationIcon
     }
 
     private func applyPermissions(
@@ -558,14 +507,12 @@ struct ComputerUseOnboardingView: View {
         accessibilityGranted = newAccessibilityGranted
         screenRecordingGranted = newScreenRecordingGranted
 
-        if step == .accessibility, newAccessibilityGranted {
-            if newScreenRecordingGranted {
-                step = .done
-            } else {
-                beginPermissionSetup(for: .screenRecording)
-            }
-        } else if step == .screenRecording, newScreenRecordingGranted {
-            step = .done
+        let activePermissionWasGranted =
+            (step == .accessibility && newAccessibilityGranted)
+            || (step == .screenRecording && newScreenRecordingGranted)
+        if isPermissionCompanionVisible, activePermissionWasGranted {
+            isPermissionCompanionVisible = false
+            onExpandedRequested()
         }
     }
 }
