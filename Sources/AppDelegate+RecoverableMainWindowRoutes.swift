@@ -65,8 +65,18 @@ extension AppDelegate {
         return false
     }
 
-    private func liveRecoverableMainWindow(windowId: UUID, cachedWindow: NSWindow?) -> NSWindow? {
-        cachedWindow ?? windowForMainWindowId(windowId)
+    func liveRecoverableMainWindow(windowId: UUID, cachedWindow: NSWindow?) -> NSWindow? {
+        let appKitWindows = NSApp.windows
+        let isLiveOwner: (NSWindow) -> Bool = { window in
+            appKitWindows.contains(where: { $0 === window })
+                && (window.isVisible || window.isMiniaturized)
+                && self.mainWindowId(from: window) == windowId
+        }
+
+        if let cachedWindow, isLiveOwner(cachedWindow) {
+            return cachedWindow
+        }
+        return appKitWindows.first(where: isLiveOwner)
     }
 
     private func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
@@ -80,19 +90,19 @@ extension AppDelegate {
 
     private func recoverableMainWindowRouteSnapshot(windowId: UUID) -> MainWindowRouteSnapshot? {
         guard let route = mainWindowRouteLedger.routesByWindowId[windowId],
-              let manager = route.tabManager,
-              let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else {
+              let manager = route.tabManager else {
             return nil
         }
+        route.window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window)
+        guard let window = route.window else { return nil }
         return MainWindowRouteSnapshot(windowId: route.windowId, tabManager: manager, window: window)
     }
 
     private func recoverableMainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
         sortedRecoverableMainWindowRoutes().compactMap { route in
-            guard let manager = route.tabManager,
-                  let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else {
-                return nil
-            }
+            guard let manager = route.tabManager else { return nil }
+            route.window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window)
+            guard let window = route.window else { return nil }
             return MainWindowRouteSnapshot(windowId: route.windowId, tabManager: manager, window: window)
         }
     }
@@ -112,9 +122,7 @@ extension AppDelegate {
         let before = mainWindowRouteLedger.routesByWindowId.count
         mainWindowRouteLedger.routesByWindowId = mainWindowRouteLedger.routesByWindowId.filter { _, route in
             guard let manager = route.tabManager else { return false }
-            if let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) {
-                route.window = window
-            }
+            route.window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window)
             return tabManagerHasRegisteredTerminalSurface(manager)
         }
         let after = mainWindowRouteLedger.routesByWindowId.count
@@ -138,7 +146,7 @@ extension AppDelegate {
         mainWindowRouteLedger.routesByWindowId[windowId] = RecoverableMainWindowRoute(
             windowId: windowId,
             tabManager: tabManager,
-            window: liveRecoverableMainWindow(windowId: windowId, cachedWindow: window),
+            window: window,
             order: mainWindowRouteLedger.issueOrder()
         )
 #if DEBUG

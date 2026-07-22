@@ -183,6 +183,7 @@ class TabManager: ObservableObject {
     /// Stable identifier of the owning macOS window. Used only for opt-in title
     /// templates that expose a WM-matchable per-window token.
     var windowId: UUID?
+    private(set) var isFinalizedForWindowClose = false
 
     // Wave-4 sub-model (TabManager decomposition): the workspace list, the
     // sidebar group sections, and the selected-workspace id storage live in
@@ -1308,7 +1309,7 @@ class TabManager: ObservableObject {
     /// Restores the startup invariant when the workspace collection is empty.
     @discardableResult
     func recoverEmptyWorkspaceAfterStartupIfNeeded() -> Bool {
-        guard tabs.isEmpty else { return false }
+        guard !isFinalizedForWindowClose, tabs.isEmpty else { return false }
         addWorkspace()
         return true
     }
@@ -2064,6 +2065,8 @@ class TabManager: ObservableObject {
     /// Finalizes every workspace owned by a closing window without creating a
     /// replacement workspace or recording per-workspace closed-item history.
     func finalizeAllWorkspacesForWindowClose() {
+        guard !isFinalizedForWindowClose else { return }
+        isFinalizedForWindowClose = true
         let closingWorkspaces = Array(tabs)
         panelTitleUpdateCoalescer.flushNow()
 
@@ -2152,9 +2155,7 @@ class TabManager: ObservableObject {
         removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
 
-        if tabs.isEmpty {
-            // The UI assumes each window always has at least one workspace.
-            _ = addWorkspace()
+        if recoverEmptyWorkspaceAfterStartupIfNeeded() {
             return removed
         }
 

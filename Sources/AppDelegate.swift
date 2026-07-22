@@ -4509,6 +4509,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         fileExplorerState: FileExplorerState? = nil,
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
+        guard !tabManager.isFinalizedForWindowClose else { return }
         guard !mainWindowVisibilityController.hasCommittedClose(for: window) else {
             // SwiftUI's window accessor can run once more while dismantling a
             // retained NSWindow. A committed close is authoritative: never
@@ -5641,7 +5642,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func focusMainWindow(windowId: UUID) -> Bool {
-        guard let window = windowForMainWindowId(windowId) else { return false }
+        let window: NSWindow?
+        if let route = recoverableMainWindowRoute(windowId: windowId) {
+            route.window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: route.window)
+            window = route.window
+        } else {
+            window = windowForMainWindowId(windowId)
+        }
+        guard let window else { return false }
         let didFocus = mainWindowVisibilityController.focus(window, reason: .focusMainWindow)
         if didFocus {
             publishCmuxWindowLifecycle(name: "window.focused", windowId: windowId, origin: "focus_request")
@@ -16161,9 +16169,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return commitMainWindowClose(context: context, window: window)
         }
         guard let windowId = mainWindowId(from: window),
-              let manager = tabManagerFor(windowId: windowId) else {
+              let route = recoverableMainWindowRoute(windowId: windowId),
+              liveRecoverableMainWindow(windowId: windowId, cachedWindow: route.window) === window,
+              let manager = route.tabManager else {
             return false
         }
+        route.window = window
         return commitMainWindowClose(
             windowId: windowId,
             tabManager: manager,
