@@ -144,8 +144,9 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     ///   - basePoints: The unscaled base point size.
     ///   - percent: The global magnification percent used for the conversion.
     /// - Returns: The runtime point size for `percent`, clamped to Ghostty's
-    ///   supported native range.
+    ///   supported native range, or zero to preserve runtime-default behavior.
     public static func runtimeFontSize(fromBasePoints basePoints: Float32, percent: Int) -> Float32 {
+        guard basePoints.isFinite, basePoints > 0 else { return 0 }
         let scaledPoints = basePoints * Float32(GlobalFontMagnification.scale(for: percent))
         return TerminalFontSizePolicy().clampedRuntimePoints(scaledPoints)
     }
