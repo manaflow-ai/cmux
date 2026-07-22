@@ -474,7 +474,8 @@ extension SessionIndexStore {
         guard !roots.isEmpty else { return [] }
 
         let fm = FileManager.default
-        var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
+        var seenSessionIDs = Set<String>()
+        var entriesInReverseAppendOrder: [AntigravityHistoryMetadata] = []
         let target = max(0, offset) + max(0, limit)
         for root in roots {
             if Task.isCancelled { break }
@@ -488,7 +489,9 @@ extension SessionIndexStore {
             let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
                 ?? Date.distantPast
 
-            let pageLimit = needle.isEmpty && cwdFilter == nil && offset == 0 && limit == perAgentLimit ? 1 : nil
+            let pageLimit = needle.isEmpty && cwdFilter == nil && offset == 0 && limit == perAgentLimit
+                ? 1
+                : antigravityHistoryExplicitPageLimit
             SessionIndexJSONLReader().fromTailPages(url: historyURL, maxBytesPerPage: antigravityHistoryByteCap, maximumPageCount: pageLimit) { object in
                 if Task.isCancelled { return true }
                 guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
@@ -506,46 +509,33 @@ extension SessionIndexStore {
                 ) else {
                     return false
                 }
+                guard seenSessionIDs.insert(sessionId).inserted else { return false }
 
                 let modified = antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
-                let metadata = AntigravityHistoryMetadata(
+                entriesInReverseAppendOrder.append(AntigravityHistoryMetadata(
                     sessionId: sessionId,
                     title: title,
                     cwd: cwd,
                     modified: modified,
                     fileURL: historyURL
-                )
-                if let existing = latestBySessionID[sessionId] {
-                    if metadata.modified > existing.modified {
-                        latestBySessionID[sessionId] = metadata
-                    }
-                } else {
-                    latestBySessionID[sessionId] = metadata
-                }
-                return target > 0 && latestBySessionID.count >= target
+                ))
+                return target > 0 && entriesInReverseAppendOrder.count >= target
             }
         }
-        let entries = latestBySessionID.values
-            .sorted {
-                if $0.modified == $1.modified {
-                    return $0.sessionId < $1.sessionId
-                }
-                return $0.modified > $1.modified
-            }
-            .map { metadata in
-                SessionEntry(
-                    id: "\(registration.id):\(metadata.sessionId)",
-                    agent: .registered(RegisteredSessionAgent(registration: registration)),
-                    sessionId: metadata.sessionId,
-                    title: metadata.title,
-                    cwd: metadata.cwd,
-                    gitBranch: nil,
-                    pullRequest: nil,
-                    modified: metadata.modified,
-                    fileURL: metadata.fileURL,
-                    specifics: .registered(registration)
-                )
-            }
+        let entries = entriesInReverseAppendOrder.map { metadata in
+            SessionEntry(
+                id: "\(registration.id):\(metadata.sessionId)",
+                agent: .registered(RegisteredSessionAgent(registration: registration)),
+                sessionId: metadata.sessionId,
+                title: metadata.title,
+                cwd: metadata.cwd,
+                gitBranch: nil,
+                pullRequest: nil,
+                modified: metadata.modified,
+                fileURL: metadata.fileURL,
+                specifics: .registered(registration)
+            )
+        }
         return Array(entries.dropFirst(offset).prefix(limit))
     }
 

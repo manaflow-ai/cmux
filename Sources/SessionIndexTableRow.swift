@@ -28,16 +28,26 @@ enum SessionIndexTableRow {
         }
     }
 
+    static func containedPreviewEntryID(
+        _ candidate: SessionEntry.ID?,
+        in section: IndexSection
+    ) -> SessionEntry.ID? {
+        guard let candidate, section.entries.contains(where: { $0.id == candidate }) else { return nil }
+        return candidate
+    }
+
     func hasEquivalentContent(to other: SessionIndexTableRow) -> Bool {
         switch (self, other) {
         case let (
             .section(lhsSection, lhsLimit, lhsDragged, lhsPreview, lhsCollapsed, lhsPopover, _, _, _),
             .section(rhsSection, rhsLimit, rhsDragged, rhsPreview, rhsCollapsed, rhsPopover, _, _, _)
         ):
+            let lhsContainedPreview = Self.containedPreviewEntryID(lhsPreview, in: lhsSection)
+            let rhsContainedPreview = Self.containedPreviewEntryID(rhsPreview, in: rhsSection)
             return lhsSection == rhsSection
                 && lhsLimit == rhsLimit
                 && lhsDragged == rhsDragged
-                && lhsPreview == rhsPreview
+                && lhsContainedPreview == rhsContainedPreview
                 && lhsCollapsed == rhsCollapsed
                 && lhsPopover == rhsPopover
         case let (.gap(lhsKey, lhsValid, _), .gap(rhsKey, rhsValid, _)):

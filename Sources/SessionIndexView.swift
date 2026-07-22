@@ -217,7 +217,7 @@ struct SessionIndexView: View {
                     section: section,
                     rowLimit: Self.collapsedRowLimit,
                     isDragged: draggedKey == section.key,
-                    previewEntryId: previewEntry?.id,
+                    previewEntryId: SessionIndexTableRow.containedPreviewEntryID(previewEntry?.id, in: section),
                     isCollapsed: collapsedSections.contains(section.key),
                     isPopoverOpen: openPopoverSection == section.key,
                     actions: sectionActions,
@@ -1305,10 +1305,10 @@ enum SessionTranscriptLoader {
         var lineIndex = 0
         var didHitTurnLimit = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
-
-        let metrics = SessionIndexStore.forEachJSONLineFromTail(
+        let metrics = SessionIndexJSONLReader().fromTailPages(
             url: url,
-            maxBytes: SessionIndexStore.antigravityHistoryByteCap
+            maxBytesPerPage: SessionIndexStore.antigravityHistoryByteCap,
+            maximumPageCount: SessionIndexStore.antigravityHistoryPreviewPageLimit
         ) { object in
             defer { lineIndex += 1 }
             if Task.isCancelled { return true }

@@ -664,9 +664,9 @@ final class SessionIndexStore: ObservableObject {
     nonisolated static let perAgentLimit = 30
     nonisolated static let headByteCap = 64 * 1024
     nonisolated static let tailByteCap = 32 * 1024
-    /// Antigravity keeps every prompt in one append-only history file. Read only
-    /// the newest bounded window for initial rows and previews.
     nonisolated static let antigravityHistoryByteCap = 16 * 1024 * 1024
+    nonisolated static let antigravityHistoryExplicitPageLimit = 16
+    nonisolated static let antigravityHistoryPreviewPageLimit = 8
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     nonisolated static let searchMaxFiles = 1500
 

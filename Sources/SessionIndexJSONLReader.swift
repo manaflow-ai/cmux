@@ -104,15 +104,31 @@ struct SessionIndexJSONLReader: Sendable {
             && data.first != 0x0a
             && !startsOnNewline
         let firstNewline = payload.firstIndex(of: 0x0a)
-        var lines = payload.split(separator: 0x0a, omittingEmptySubsequences: true)
-        if startsWithinRecord, !lines.isEmpty {
-            lines.removeFirst()
-        }
+        let completeRecordsStart = startsWithinRecord
+            ? firstNewline.map { payload.index(after: $0) } ?? payload.endIndex
+            : payload.startIndex
 
         var recordsVisited = 0
-        for line in lines.reversed() {
+        var lineEnd = payload.endIndex
+        while lineEnd > completeRecordsStart {
+            while lineEnd > completeRecordsStart,
+                  payload[payload.index(before: lineEnd)] == 0x0a {
+                lineEnd = payload.index(before: lineEnd)
+            }
+            guard lineEnd > completeRecordsStart else { break }
+
+            let currentLineEnd = lineEnd
+            let lineStart: Data.SubSequence.Index
+            if let newline = payload[completeRecordsStart..<lineEnd].lastIndex(of: 0x0a) {
+                lineStart = payload.index(after: newline)
+                lineEnd = newline
+            } else {
+                lineStart = completeRecordsStart
+                lineEnd = completeRecordsStart
+            }
+            guard lineStart < currentLineEnd else { continue }
             recordsVisited += 1
-            if Self.visit(line: Data(line), body: body) {
+            if Self.visit(line: Data(payload[lineStart..<currentLineEnd]), body: body) {
                 break
             }
         }
