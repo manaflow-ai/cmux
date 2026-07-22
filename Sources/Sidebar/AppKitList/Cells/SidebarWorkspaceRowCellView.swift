@@ -508,7 +508,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         hintPill.configure(
             text: model.shortcutHintText,
             fontSize: model.scaled(9),
-            emphasis: model.isActive ? 1.0 : 0.9
+            emphasis: model.isActive ? 1.0 : 0.9,
+            representedIdentity: model.workspaceId
         )
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
         bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor

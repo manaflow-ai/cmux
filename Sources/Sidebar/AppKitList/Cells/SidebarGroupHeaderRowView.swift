@@ -200,7 +200,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         hintPill.configure(
             text: model.shortcutHintText,
             fontSize: GlobalFontMagnification.scaledSize(9, percent: percent),
-            emphasis: model.isAnchorActive ? 1.0 : 0.9
+            emphasis: model.isAnchorActive ? 1.0 : 0.9,
+            representedIdentity: model.groupId
         )
 
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -599,6 +600,7 @@ final class SidebarShortcutHintPillView: NSView {
     private let label = NSTextField(labelWithString: "")
     private let reduceMotionProvider: () -> Bool
     private var emphasis: Double = 1.0
+    private var representedIdentity: UUID?
     private var isRevealed = false
     private var visibilityGeneration: UInt64 = 0
 
@@ -633,9 +635,16 @@ final class SidebarShortcutHintPillView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(text: String?, fontSize: CGFloat, emphasis: Double) {
+    func configure(
+        text: String?,
+        fontSize: CGFloat,
+        emphasis: Double,
+        representedIdentity: UUID? = nil
+    ) {
+        let identityChanged = self.representedIdentity != representedIdentity
+        self.representedIdentity = representedIdentity
         guard let text else {
-            setRevealed(false)
+            setRevealed(false, animated: !identityChanged)
             return
         }
         self.emphasis = emphasis
@@ -644,7 +653,7 @@ final class SidebarShortcutHintPillView: NSView {
         label.textColor = .labelColor
         materialView.layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
-        setRevealed(true)
+        setRevealed(true, animated: !identityChanged)
     }
 
     func fittingPillSize() -> NSSize {
@@ -674,7 +683,13 @@ final class SidebarShortcutHintPillView: NSView {
         nil
     }
 
-    private func setRevealed(_ revealed: Bool) {
+    private func setRevealed(_ revealed: Bool, animated: Bool = true) {
+        if !animated {
+            isRevealed = revealed
+            visibilityGeneration &+= 1
+            applyImmediateVisibility(revealed)
+            return
+        }
         guard isRevealed != revealed else { return }
         isRevealed = revealed
         visibilityGeneration &+= 1
