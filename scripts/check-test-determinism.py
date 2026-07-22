@@ -223,6 +223,9 @@ _PYTHON_MODULE_SLEEP_CALL = re.compile(
 _PYTHON_ASSIGNMENT_TARGET = re.compile(
     r"(?:^|;)\s*([A-Za-z_]\w*)\s*(?::[^=,\n]+)?=(?!=)"
 )
+_PYTHON_CHAINED_ASSIGNMENT_TARGET = re.compile(
+    r"(?<![=!<>:])=\s*([A-Za-z_]\w*)\s*=(?!=)"
+)
 _PYTHON_DEFINITION_TARGET = re.compile(
     r"^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)\b"
 )
@@ -234,6 +237,7 @@ _PYTHON_DEL_TARGET = re.compile(r"^\s*del\s+([A-Za-z_]\w*)\b")
 _PYTHON_FUNCTION_HEADER = re.compile(
     r"^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\("
 )
+_PYTHON_CLASS_HEADER = re.compile(r"^\s*class\s+([A-Za-z_]\w*)\b")
 _LOCAL_SCOPE_HEADER = re.compile(
     r"^\s*"
     r"(?:(?:@\w+(?:\([^)]*\))?|[A-Za-z_]\w*(?:\([^)]*\))?)\s+)*"
@@ -1622,7 +1626,9 @@ def _resolve_named_receiver_type(
 
 
 def _is_explicit_real_clock_member_chain(
-    masked_lines: list[str], idx: int
+    masked_lines: list[str],
+    idx: int,
+    external_real_members: Optional[dict[str, set[str]]] = None,
 ) -> bool:
     """Recognize `value.clock.sleep` when both value type and member are explicit."""
     current = masked_lines[idx]
@@ -1664,9 +1670,15 @@ def _is_explicit_real_clock_member_chain(
     )
     if receiver_type is None:
         return False
-    return _explicit_clock_member_kind(
+    same_file_kind = _explicit_clock_member_kind(
         masked_lines, receiver_type, member
-    ) is True
+    )
+    if same_file_kind is not None:
+        return same_file_kind
+    return bool(
+        external_real_members is not None
+        and member in external_real_members.get(receiver_type, set())
+    )
 
 
 def _resolve_named_receiver_kind(
@@ -2082,7 +2094,9 @@ def _is_named_real_clock_sleep(
     external_real_members: Optional[dict[str, set[str]]] = None,
 ) -> bool:
     """Resolve a named receiver through Swift-like lexical brace scopes."""
-    if _is_explicit_real_clock_member_chain(masked_lines, idx):
+    if _is_explicit_real_clock_member_chain(
+        masked_lines, idx, external_real_members
+    ):
         return True
     current = masked_lines[idx]
     sleep_match = _NAMED_SLEEP_CALL.search(current)
@@ -2172,30 +2186,66 @@ def _python_function_parameter_names(signature: str) -> set[str]:
     return names
 
 
+@dataclass
+class _PythonAliasScope:
+    header_indent: int
+    prior_values: dict[str, bool]
+    kind: str
+    resume_values: Optional[dict[str, bool]] = None
+
+
 def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
-    """Resolve standard Python sleep modules once with function-local scopes."""
+    """Resolve standard Python sleep modules once with lexical namespaces."""
     active = set(_PYTHON_SLEEP_MODULES)
-    scopes: list[tuple[int, dict[str, bool]]] = [(-1, {})]
-    pending_signature: Optional[tuple[int, list[str], int]] = None
+    scopes = [_PythonAliasScope(-1, {}, "root")]
+    pending_scope_header: Optional[
+        tuple[str, int, list[str], int]
+    ] = None
     continuation_depth = 0
     backslash_continuation = False
     sleep_lines: set[int] = set()
 
     def set_alias(name: str, is_active: bool) -> None:
-        prior_values = scopes[-1][1]
+        prior_values = scopes[-1].prior_values
         prior_values.setdefault(name, name in active)
         if is_active:
             active.add(name)
         else:
             active.discard(name)
 
+    def apply_values(values: dict[str, bool]) -> None:
+        for name, is_active in values.items():
+            if is_active:
+                active.add(name)
+            else:
+                active.discard(name)
+
+    def enter_scope(header_indent: int, kind: str) -> None:
+        resume_values = None
+        if scopes[-1].kind == "class":
+            resume_values = {
+                name: name in active for name in scopes[-1].prior_values
+            }
+            apply_values(scopes[-1].prior_values)
+        scopes.append(
+            _PythonAliasScope(
+                header_indent,
+                {},
+                kind,
+                resume_values,
+            )
+        )
+
     def pop_scope() -> None:
-        _, prior_values = scopes.pop()
+        frame = scopes.pop()
+        prior_values = frame.prior_values
         for name, was_active in prior_values.items():
             if was_active:
                 active.add(name)
             else:
                 active.discard(name)
+        if frame.resume_values is not None:
+            apply_values(frame.resume_values)
 
     def update_continuation(line: str) -> None:
         nonlocal continuation_depth, backslash_continuation
@@ -2211,28 +2261,35 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
         stripped = line.strip()
         indent = len(line) - len(line.lstrip())
 
-        if pending_signature is not None:
-            header_indent, signature_lines, paren_depth = pending_signature
+        if pending_scope_header is not None:
+            kind, header_indent, signature_lines, paren_depth = (
+                pending_scope_header
+            )
             signature_lines.append(line)
             paren_depth += line.count("(") - line.count(")")
             if paren_depth > 0:
-                pending_signature = (
+                pending_scope_header = (
+                    kind,
                     header_indent,
                     signature_lines,
                     paren_depth,
                 )
                 continue
-            scopes.append((header_indent, {}))
-            for name in _python_function_parameter_names(
-                " ".join(signature_lines)
-            ):
-                set_alias(name, False)
-            pending_signature = None
+            enter_scope(header_indent, kind)
+            if kind == "function":
+                for name in _python_function_parameter_names(
+                    " ".join(signature_lines)
+                ):
+                    set_alias(name, False)
+            pending_scope_header = None
             continue
 
         is_continuation = continuation_depth > 0 or backslash_continuation
         if stripped and not is_continuation:
-            while len(scopes) > 1 and indent <= scopes[-1][0]:
+            while (
+                len(scopes) > 1
+                and indent <= scopes[-1].header_indent
+            ):
                 pop_scope()
 
         function_header = _PYTHON_FUNCTION_HEADER.match(line)
@@ -2241,11 +2298,32 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
             paren_depth = line.count("(") - line.count(")")
             signature_lines = [line]
             if paren_depth > 0:
-                pending_signature = (indent, signature_lines, paren_depth)
+                pending_scope_header = (
+                    "function",
+                    indent,
+                    signature_lines,
+                    paren_depth,
+                )
             else:
-                scopes.append((indent, {}))
+                enter_scope(indent, "function")
                 for name in _python_function_parameter_names(line):
                     set_alias(name, False)
+            continue
+
+        class_header = _PYTHON_CLASS_HEADER.match(line)
+        if class_header:
+            set_alias(class_header.group(1), False)
+            paren_depth = line.count("(") - line.count(")")
+            signature_lines = [line]
+            if paren_depth > 0:
+                pending_scope_header = (
+                    "class",
+                    indent,
+                    signature_lines,
+                    paren_depth,
+                )
+            else:
+                enter_scope(indent, "class")
             continue
 
         import_line = re.match(r"^\s*import\s+(.+)$", line)
@@ -2292,6 +2370,7 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
             match.group(1)
             for pattern in (
                 _PYTHON_ASSIGNMENT_TARGET,
+                _PYTHON_CHAINED_ASSIGNMENT_TARGET,
                 _PYTHON_DEFINITION_TARGET,
                 _PYTHON_FOR_TARGET,
                 _PYTHON_AS_TARGET,
@@ -2302,8 +2381,10 @@ def _python_standard_sleep_lines(masked_lines: list[str]) -> set[int]:
         for name in rebound_names:
             set_alias(name, False)
 
-        call = _PYTHON_MODULE_SLEEP_CALL.search(line)
-        if call and call.group(1) in active:
+        if any(
+            call.group(1) in active
+            for call in _PYTHON_MODULE_SLEEP_CALL.finditer(line)
+        ):
             sleep_lines.add(line_index)
         update_continuation(line)
     return sleep_lines
@@ -3017,6 +3098,27 @@ def _self_test() -> int:
             "    time = TestClock()\n"
             "time.sleep(0.3)\n"
             "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/multiline_class_scope_before_sleep.py",
+            "import time\n"
+            "class Fixture(\n"
+            "    BaseFixture,\n"
+            "):\n"
+            "    time = TestClock()\n"
+            "time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/class_member_not_method_scope.py",
+            "import time\n"
+            "class Fixture:\n"
+            "    time = TestClock()\n"
+            "    def verify(self):\n"
+            "        time.sleep(0.3)\n"
+            "        assert widget.is_rendered\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
@@ -3937,12 +4039,27 @@ def _self_test() -> int:
             "assert widget.is_rendered\n",
         ),
         (
+            "tests/ChainedShadowedSleepModuleAliasTests.py",
+            "import time as clock_time\n"
+            "fixture = clock_time = TestClock()\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+        ),
+        (
             "tests/MultilineParameterSleepModuleAliasTests.py",
             "import time as clock_time\n"
             "def verify(\n"
             "    clock_time: TestClock,\n"
             "):\n"
             "    clock_time.sleep(0.3)\n"
+            "    assert widget.is_rendered\n",
+        ),
+        (
+            "tests/ClassScopedSleepModuleAliasTests.py",
+            "import time\n"
+            "class Fixture:\n"
+            "    time = TestClock()\n"
+            "    time.sleep(0.3)\n"
             "    assert widget.is_rendered\n",
         ),
         (
