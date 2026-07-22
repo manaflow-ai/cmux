@@ -1548,6 +1548,339 @@ mod tests {
         write_frame(stream, &protocol::ResponseEnvelope::success(request.id, snapshot.clone()));
     }
 
+    fn serve_runtime_refresh(
+        stream: &mut UnixStream,
+        reader: &mut BufReader<UnixStream>,
+        catalog: &protocol::SnapshotResult,
+        workspace: Option<&protocol::WorkspaceSnapshotResult>,
+    ) {
+        let refresh: protocol::RequestEnvelope = read_frame(reader);
+        assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+        write_frame(stream, &protocol::ResponseEnvelope::success(refresh.id, catalog.clone()));
+        serve_machine_lifecycle_snapshot(stream, reader, catalog);
+        if let Some(workspace) = workspace {
+            serve_workspace_snapshot(stream, reader, workspace);
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum AcceptedMutationKind {
+        CreateMachine,
+        RenameMachine,
+        DeleteMachine,
+        RestoreMachine,
+        PurgeMachine,
+        CreateWorkspace,
+        RestoreWorkspace,
+        PurgeWorkspace,
+        InvokeAction,
+    }
+
+    impl AcceptedMutationKind {
+        const ALL: [Self; 9] = [
+            Self::CreateMachine,
+            Self::RenameMachine,
+            Self::DeleteMachine,
+            Self::RestoreMachine,
+            Self::PurgeMachine,
+            Self::CreateWorkspace,
+            Self::RestoreWorkspace,
+            Self::PurgeWorkspace,
+            Self::InvokeAction,
+        ];
+    }
+
+    fn accepted_mutation_request(
+        kind: AcceptedMutationKind,
+        machine: MachineKey,
+    ) -> MachineRequest {
+        match kind {
+            AcceptedMutationKind::CreateMachine => MachineRequest::Create,
+            AcceptedMutationKind::RenameMachine => MachineRequest::RenameManagedMachine {
+                machine,
+                expected_version: 1,
+                name: "Renamed".into(),
+            },
+            AcceptedMutationKind::DeleteMachine => {
+                MachineRequest::DeleteManagedMachine { machine, expected_version: 1 }
+            }
+            AcceptedMutationKind::RestoreMachine => {
+                MachineRequest::RestoreManagedMachine { machine, expected_version: 1 }
+            }
+            AcceptedMutationKind::PurgeMachine => {
+                MachineRequest::PurgeManagedMachine { machine, expected_version: 1 }
+            }
+            AcceptedMutationKind::CreateWorkspace => {
+                MachineRequest::CreateManagedIsolatedWorkspace(machine)
+            }
+            AcceptedMutationKind::RestoreWorkspace => MachineRequest::RestoreManagedWorkspace {
+                machine,
+                workspace_id: "workspace-1".into(),
+                expected_version: 1,
+            },
+            AcceptedMutationKind::PurgeWorkspace => MachineRequest::PurgeManagedWorkspace {
+                machine,
+                workspace_id: "workspace-1".into(),
+                expected_version: 1,
+            },
+            AcceptedMutationKind::InvokeAction => MachineRequest::InvokeProviderAction {
+                action_id: "billing".into(),
+                values: BTreeMap::new(),
+            },
+        }
+    }
+
+    fn serve_accepted_mutation(
+        kind: AcceptedMutationKind,
+        stream: &mut UnixStream,
+        reader: &mut BufReader<UnixStream>,
+    ) {
+        let mutation: protocol::RequestEnvelope = read_frame(reader);
+        let request_id = mutation.id;
+        match (kind, mutation.request) {
+            (AcceptedMutationKind::CreateMachine, protocol::ProviderRequest::CreateMachine(_)) => {
+                write_frame(
+                    stream,
+                    &protocol::ResponseEnvelope::success(
+                        request_id,
+                        protocol::CreateMachineResult {
+                            machine_id: id("created-machine"),
+                            revision: 2,
+                            notice: None,
+                        },
+                    ),
+                );
+            }
+            (
+                AcceptedMutationKind::RenameMachine,
+                protocol::ProviderRequest::RenameMachine(params),
+            ) if params.display_name == "Renamed" => {
+                write_frame(
+                    stream,
+                    &protocol::ResponseEnvelope::success(
+                        request_id,
+                        protocol::MachineMutationResult {
+                            machine_id: id("machine-1"),
+                            version: 2,
+                            revision: 2,
+                            notice: None,
+                        },
+                    ),
+                );
+            }
+            (AcceptedMutationKind::DeleteMachine, protocol::ProviderRequest::DeleteMachine(_))
+            | (
+                AcceptedMutationKind::RestoreMachine,
+                protocol::ProviderRequest::RestoreMachine(_),
+            )
+            | (AcceptedMutationKind::PurgeMachine, protocol::ProviderRequest::PurgeMachine(_)) => {
+                write_frame(
+                    stream,
+                    &protocol::ResponseEnvelope::success(
+                        request_id,
+                        protocol::MachineMutationResult {
+                            machine_id: id("machine-1"),
+                            version: 2,
+                            revision: 2,
+                            notice: None,
+                        },
+                    ),
+                );
+            }
+            (
+                AcceptedMutationKind::CreateWorkspace,
+                protocol::ProviderRequest::CreateWorkspace(_),
+            ) => {
+                write_frame(
+                    stream,
+                    &protocol::ResponseEnvelope::success(
+                        request_id,
+                        protocol::CreateWorkspaceResult { revision: 2, notice: None },
+                    ),
+                );
+            }
+            (
+                AcceptedMutationKind::RestoreWorkspace,
+                protocol::ProviderRequest::RestoreWorkspace(_),
+            )
+            | (
+                AcceptedMutationKind::PurgeWorkspace,
+                protocol::ProviderRequest::PurgeWorkspace(_),
+            ) => {
+                write_frame(
+                    stream,
+                    &protocol::ResponseEnvelope::success(
+                        request_id,
+                        protocol::WorkspaceMutationResult {
+                            workspace_id: id("workspace-1"),
+                            version: 2,
+                            revision: 2,
+                            notice: None,
+                        },
+                    ),
+                );
+            }
+            (AcceptedMutationKind::InvokeAction, protocol::ProviderRequest::InvokeAction(_)) => {
+                write_frame(
+                    stream,
+                    &protocol::ResponseEnvelope::success(
+                        request_id,
+                        protocol::InvokeActionResult {
+                            revision: 2,
+                            notice: None,
+                            url: None,
+                            selected_scope_id: None,
+                            selected_machine_id: None,
+                        },
+                    ),
+                );
+            }
+            (_, request) => panic!("unexpected request for {kind:?}: {request:?}"),
+        }
+    }
+
+    #[test]
+    fn every_accepted_provider_mutation_survives_followup_refresh_failure() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let catalog = provider_managed_snapshot(1);
+        let workspace = active_workspace_snapshot(1);
+        let server_catalog = catalog;
+        let server_workspace = workspace;
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_catalog.clone());
+            serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
+            for kind in AcceptedMutationKind::ALL {
+                serve_runtime_refresh(
+                    &mut stream,
+                    &mut reader,
+                    &server_catalog,
+                    Some(&server_workspace),
+                );
+                serve_accepted_mutation(kind, &mut stream, &mut reader);
+                let failed_refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+                assert!(matches!(failed_refresh.request, protocol::ProviderRequest::Snapshot(_)));
+                write_frame(
+                    &mut stream,
+                    &protocol::ResponseEnvelope::<protocol::SnapshotResult>::failure(
+                        failed_refresh.id,
+                        protocol::ProviderError {
+                            code: protocol::ProviderErrorCode::Unavailable,
+                            message: format!("refresh failed after accepted {kind:?}"),
+                            retryable: true,
+                        },
+                    ),
+                );
+            }
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let machine = key_for_id(&runtime.keys, &id("machine-1")).unwrap();
+        let mut rejected = Vec::new();
+        for kind in AcceptedMutationKind::ALL {
+            if matches!(kind, AcceptedMutationKind::RenameMachine) {
+                runtime.open = Some(OpenConnection {
+                    client: runtime.client.clone(),
+                    connection_id: id("open-machine"),
+                    machine_id: id("machine-1"),
+                });
+            }
+            match runtime.perform_request(accepted_mutation_request(kind, machine)) {
+                Ok(result) => {
+                    assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
+                    assert!(
+                        result
+                            .ui
+                            .notice
+                            .as_deref()
+                            .is_some_and(|notice| notice.contains("refresh failed after accepted")),
+                        "accepted {kind:?} did not surface its refresh failure"
+                    );
+                    if matches!(kind, AcceptedMutationKind::RenameMachine) {
+                        assert_eq!(result.session_label.as_deref(), Some("Renamed"));
+                    }
+                }
+                Err(error) => rejected.push(format!("{kind:?}: {error}")),
+            }
+            runtime.open = None;
+        }
+        drop(runtime);
+        server.join().unwrap();
+
+        assert!(
+            rejected.is_empty(),
+            "durably accepted mutations were reported as failed:\n{}",
+            rejected.join("\n")
+        );
+    }
+
+    #[test]
+    fn accepted_scope_selection_survives_lifecycle_refresh_failure() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let catalog = provider_managed_snapshot(1);
+        let workspace = active_workspace_snapshot(1);
+        let server_catalog = catalog;
+        let server_workspace = workspace;
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_catalog.clone());
+            serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
+            serve_runtime_refresh(
+                &mut stream,
+                &mut reader,
+                &server_catalog,
+                Some(&server_workspace),
+            );
+
+            let select: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                &select.request,
+                protocol::ProviderRequest::SelectScope(params)
+                    if params.scope_id == id("personal")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    select.id,
+                    protocol::SelectScopeResult { snapshot: server_catalog },
+                ),
+            );
+            let lifecycle: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                lifecycle.request,
+                protocol::ProviderRequest::MachineLifecycleSnapshot(_)
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::<protocol::MachineLifecycleSnapshotResult>::failure(
+                    lifecycle.id,
+                    protocol::ProviderError {
+                        code: protocol::ProviderErrorCode::Unavailable,
+                        message: "scope lifecycle refresh failed after acceptance".into(),
+                        retryable: true,
+                    },
+                ),
+            );
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let result = runtime
+            .perform_request(MachineRequest::SelectProviderScope("personal".into()))
+            .expect("an accepted scope selection must survive a lifecycle refresh error");
+        assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
+        assert!(
+            result
+                .ui
+                .notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("scope lifecycle refresh failed"))
+        );
+        drop(runtime);
+        server.join().unwrap();
+    }
+
     fn assert_accepted_workspace_mutation_survives_refresh_error(delete: bool) {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
