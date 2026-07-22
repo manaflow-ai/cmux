@@ -139,4 +139,35 @@ import Testing
         #expect(files.deletions == 1_002)
         #expect(files.truncated)
     }
+
+    @Test func truncatesInsideAnOversizedSingleHunk() {
+        let fileHeader = [
+            "diff --git a/Big.swift b/Big.swift",
+            "index 1111111..2222222 100644",
+            "--- a/Big.swift",
+            "+++ b/Big.swift",
+        ]
+        let hunkHeader = "@@ -1,300 +1,300 @@"
+        let body = (1...300).map { "-old line \($0)" } + (1...300).map { "+new line \($0)" }
+        let diff = (fileHeader + [hunkHeader] + body).joined(separator: "\n")
+
+        let bounded = WorkspaceDiffTruncator(maximumBytes: 1 << 20, maximumLines: 100).truncate(diff)
+
+        #expect(bounded.truncated)
+        let lines = bounded.text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        #expect(lines.count <= 100)
+        let hunkStart = lines.firstIndex { $0.hasPrefix("@@") }
+        // A single hunk larger than the cap must yield a partial hunk, not a
+        // contentless header-only diff.
+        #expect(hunkStart != nil)
+        guard let hunkStart else { return }
+        let included = Array(lines[(hunkStart + 1)...])
+        #expect(!included.isEmpty)
+        let old = included.filter { $0.hasPrefix("-") || $0.hasPrefix(" ") }.count
+        let new = included.filter { $0.hasPrefix("+") || $0.hasPrefix(" ") }.count
+        // The rewritten header must describe exactly the included body.
+        #expect(lines[hunkStart] == "@@ -1,\(old) +1,\(new) @@")
+    }
 }
