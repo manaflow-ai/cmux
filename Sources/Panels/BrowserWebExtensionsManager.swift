@@ -299,7 +299,10 @@ final class BrowserWebExtensionsManager: NSObject {
         func requestLifecycleClose() {
             isLifecycleClose = true
             if popover.isShown {
-                popover.performClose(nil)
+                // Lifecycle teardown must not be vetoed by a delegate, nested
+                // popover, or child window. `performClose` can refuse all
+                // three, leaving the WebKit ownership cycle alive forever.
+                popover.close()
             }
             if !popover.isShown {
                 beginCloseCompletion(event: nil)
@@ -1459,6 +1462,11 @@ final class BrowserWebExtensionsManager: NSObject {
         let identifier = Self.contextIdentifier(for: managementID)
         let dataTypes = WKWebExtensionController.allExtensionDataTypes
         let context = loadedContext(managementID: managementID)
+        // WebKit stops enumerating an extension's records once its context is
+        // unloaded. Capture them first so removal clears storage and rules.
+        let dataRecords = await controller.dataRecords(ofTypes: dataTypes)
+            .filter { $0.uniqueIdentifier == identifier }
+        try requireActive()
         if let context {
             cancelPermissionPrompts(for: context)
             await closePresentedPopups(forExtensionIdentifier: context.uniqueIdentifier)
@@ -1466,8 +1474,6 @@ final class BrowserWebExtensionsManager: NSObject {
             loadedContexts.removeAll { $0 === context }
             managedRecordIDsByContextIdentifier.removeValue(forKey: context.uniqueIdentifier)
         }
-        let dataRecords = await controller.dataRecords(ofTypes: dataTypes)
-            .filter { $0.uniqueIdentifier == identifier }
         try requireActive()
         do {
             guard try await directoryRepository.removeManagedRecord(

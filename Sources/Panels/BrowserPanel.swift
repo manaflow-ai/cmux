@@ -3629,7 +3629,15 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
 
-        let webView = CmuxWebView(frame: .zero, configuration: config)
+        let userContentControllerPolicy: CmuxWebView.UserContentControllerPolicy =
+            baseConfiguration == nil
+            ? .installBrowserHooks
+            : .preserveSuppliedConfiguration
+        let webView = CmuxWebView(
+            frame: .zero,
+            configuration: config,
+            userContentControllerPolicy: userContentControllerPolicy
+        )
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
