@@ -12,6 +12,46 @@ import Testing
 struct SessionIndexTableViewportTests {
     @MainActor
     @Test
+    func tableHeightsTrackFontMagnificationWithoutMeasuringOffscreenViews() {
+        let section = IndexSection(
+            key: .directory("/tmp/vault-scale"),
+            title: "vault-scale",
+            icon: .folder,
+            entries: [Self.makeEntry(index: 0)]
+        )
+        let row = SessionIndexTableRow.section(
+            section: section,
+            rowLimit: 5,
+            isDragged: false,
+            previewEntryId: nil,
+            isCollapsed: false,
+            isPopoverOpen: false,
+            actions: IndexSectionActions(
+                onBeginDrag: {},
+                onPreviewEntry: { _ in },
+                onDismissPreview: { _ in },
+                onResume: nil,
+                search: { _, _, _, _ in .init(entries: [], errors: []) },
+                loadSnapshot: { cwd in .init(cwd: cwd ?? "", entries: [], errors: []) }
+            ),
+            setCollapsed: { _ in },
+            setPopoverOpen: { _ in }
+        )
+        let calculator = SessionIndexTableRowHeightCalculator()
+        let standardHeight = calculator.height(
+            for: row,
+            environment: .init(colorScheme: .light, globalFontMagnificationPercent: 100)
+        )
+        let magnifiedHeight = calculator.height(
+            for: row,
+            environment: .init(colorScheme: .light, globalFontMagnificationPercent: 200)
+        )
+
+        #expect(magnifiedHeight > standardHeight)
+    }
+
+    @MainActor
+    @Test
     func vaultUsesViewportBoundedAppKitRowsAtScale() throws {
         let defaults = SessionIndexDefaultsSnapshot()
         defer { defaults.restore() }
@@ -20,24 +60,7 @@ struct SessionIndexTableViewportTests {
         store.grouping = .directory
         store.directoryOrder = []
         store.replaceEntriesForTesting(
-            (0..<46).map { index in
-                SessionEntry(
-                    id: "claude:/tmp/vault-scale/session-\(index).jsonl",
-                    agent: .claude,
-                    sessionId: "session-\(index)",
-                    title: "Synthetic session \(index)",
-                    cwd: "/tmp/vault-scale/project-\(index)",
-                    gitBranch: nil,
-                    pullRequest: nil,
-                    modified: Date(timeIntervalSince1970: TimeInterval(10_000 - index)),
-                    fileURL: nil,
-                    specifics: .claude(
-                        model: nil,
-                        permissionMode: nil,
-                        configDirectoryForResume: nil
-                    )
-                )
-            }
+            (0..<46).map(Self.makeEntry)
         )
 
         let host = NSHostingView(
@@ -65,6 +88,25 @@ struct SessionIndexTableViewportTests {
         #expect(visibleRows.length > 0)
         #expect(table.numberOfRows > visibleRows.length)
         #expect(realizedRows.count <= visibleRows.length + 2)
+    }
+
+    private static func makeEntry(index: Int) -> SessionEntry {
+        SessionEntry(
+            id: "claude:/tmp/vault-scale/session-\(index).jsonl",
+            agent: .claude,
+            sessionId: "session-\(index)",
+            title: "Synthetic session \(index)",
+            cwd: "/tmp/vault-scale/project-\(index)",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: TimeInterval(10_000 - index)),
+            fileURL: nil,
+            specifics: .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: nil
+            )
+        )
     }
 }
 

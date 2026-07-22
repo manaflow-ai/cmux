@@ -475,7 +475,7 @@ extension SessionIndexStore {
 
         let fm = FileManager.default
         var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
-
+        let target = max(0, offset) + max(0, limit)
         for root in roots {
             if Task.isCancelled { break }
             let historyURL = URL(fileURLWithPath: root, isDirectory: true)
@@ -488,7 +488,7 @@ extension SessionIndexStore {
             let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
                 ?? Date.distantPast
 
-            forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
+            forEachJSONLineFromTail(url: historyURL, maxBytes: antigravityHistoryByteCap) { object in
                 if Task.isCancelled { return true }
                 guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
                     return false
@@ -521,7 +521,7 @@ extension SessionIndexStore {
                 } else {
                     latestBySessionID[sessionId] = metadata
                 }
-                return false
+                return target > 0 && latestBySessionID.count >= target
             }
         }
 

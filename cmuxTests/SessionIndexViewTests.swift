@@ -369,7 +369,7 @@ final class SessionIndexViewTests: XCTestCase {
     }
 
     // Regression for https://github.com/manaflow-ai/cmux/issues/6302.
-    // The always-visible sidebar list is built from `scanAll()`, which loads
+    // The always-visible sidebar list is built from `loadInitialEntries()`, which loads
     // only each agent's 30 most-recent sessions across ALL folders and then
     // groups that already-capped pool by folder. A folder can therefore
     // contribute ≤ collapsedRowLimit sessions to the in-memory list even
