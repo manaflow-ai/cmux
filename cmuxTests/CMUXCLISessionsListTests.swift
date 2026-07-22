@@ -2,6 +2,92 @@ import Foundation
 import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func agentsDoNotFocusWindowBeforeReadOnlyInspection() throws {
+        let cliPath = try bundledCLIPath()
+        let responder = try agentsInstanceResponder(workspaces: [:])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", responder.path,
+                "--window", "window-local",
+                "agents", "--json",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let methods = responder.receivedRequests.compactMap { request -> String? in
+            guard let data = request.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return payload["method"] as? String
+        }
+        #expect(methods.contains("system.tree"))
+        #expect(!methods.contains("window.focus"))
+    }
+
+    @Test func agentsTreeEnforcesNodeLimitDuringCandidateConstruction() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-candidate-limit-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "selected": [
+                    "sessionId": "selected",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-selected",
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 100.0,
+                ],
+                "unselected": [
+                    "sessionId": "unselected",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-unselected",
+                    "restoreAuthority": true,
+                    "startedAt": 200.0,
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": ["surface-selected", "surface-unselected"],
+        ])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", responder.path,
+                "agents", "tree", "--agent", "codex",
+                "--session", "selected", "--max-nodes", "1", "--json",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status != 0)
+        #expect(result.stderr.contains("more than 1 nodes"))
+    }
+
     @Test func agentsIncludeWorkspaceOwnedSessionsWhenSavedSurfaceIsStale() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
