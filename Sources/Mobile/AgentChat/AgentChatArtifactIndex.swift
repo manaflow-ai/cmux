@@ -1,8 +1,11 @@
 import CmuxAgentChat
+import Darwin
 import Foundation
 
 /// Builds and caches the transcript-derived artifact scope for chat sessions.
 actor AgentChatArtifactIndex {
+    static let hardMaximumTranscriptBytes: UInt64 = 128 * 1024 * 1024
+
     struct Snapshot: Sendable {
         let referencedPaths: Set<String>
         let artifacts: [ChatArtifactIndexedReference]
@@ -66,22 +69,24 @@ actor AgentChatArtifactIndex {
         workingDirectory: String?,
         maximumFileBytes: UInt64? = nil
     ) async throws -> Snapshot {
-        let key = try Self.cacheKey(transcriptPath: transcriptPath, workingDirectory: workingDirectory)
-        if let maximumFileBytes, key.fileSize > maximumFileBytes {
-            throw CocoaError(
-                .fileReadTooLarge,
-                userInfo: [
-                    NSFilePathErrorKey: transcriptPath,
-                ]
-            )
-        }
+        try Task.checkCancellation()
+        let byteLimit = min(maximumFileBytes ?? Self.hardMaximumTranscriptBytes,
+                            Self.hardMaximumTranscriptBytes)
+        let opened = try Self.openTranscript(
+            path: transcriptPath,
+            workingDirectory: workingDirectory,
+            maximumFileBytes: byteLimit
+        )
+        defer { try? opened.handle.close() }
+        let key = opened.key
         if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
             return cached.snapshot
         }
+        let data = try Self.readTranscript(opened.handle, byteCount: key.fileSize)
         nextSnapshotRevision &+= 1
         let snapshot = try Self.buildSnapshot(
             agentKind: agentKind,
-            transcriptPath: transcriptPath,
+            data: data,
             workingDirectory: workingDirectory,
             generation: key.generation,
             revision: nextSnapshotRevision,
@@ -125,30 +130,64 @@ actor AgentChatArtifactIndex {
         return canonicalPath.map(CanonicalPathResult.success) ?? .notInSet
     }
 
-    private static func cacheKey(transcriptPath: String, workingDirectory: String?) throws -> CacheKey {
-        let attributes = try FileManager.default.attributesOfItem(atPath: transcriptPath)
-        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
-        let modifiedAt = attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
-        let systemNumber = (attributes[.systemNumber] as? NSNumber)?.uint64Value ?? 0
-        let fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
-        return CacheKey(
-            transcriptPath: transcriptPath,
+    private static func openTranscript(
+        path: String,
+        workingDirectory: String?,
+        maximumFileBytes: UInt64
+    ) throws -> (key: CacheKey, handle: FileHandle) {
+        let descriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: path])
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_size >= 0 else {
+            try? handle.close()
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: path])
+        }
+        let size = UInt64(status.st_size)
+        guard size <= maximumFileBytes else {
+            try? handle.close()
+            throw CocoaError(.fileReadTooLarge, userInfo: [NSFilePathErrorKey: path])
+        }
+        let modifiedAt = Date(
+            timeIntervalSince1970: Double(status.st_mtimespec.tv_sec)
+                + Double(status.st_mtimespec.tv_nsec) / 1_000_000_000
+        )
+        let key = CacheKey(
+            transcriptPath: path,
             workingDirectory: workingDirectory,
             fileSize: size,
             modifiedAt: modifiedAt,
-            transcriptLineage: "\(transcriptPath):\(systemNumber):\(fileNumber)"
+            transcriptLineage: "\(path):\(status.st_dev):\(status.st_ino)"
         )
+        return (key, handle)
+    }
+
+    private static func readTranscript(_ handle: FileHandle, byteCount: UInt64) throws -> Data {
+        var data = Data()
+        data.reserveCapacity(Int(byteCount))
+        var remaining = Int(byteCount)
+        while remaining > 0 {
+            try Task.checkCancellation()
+            let chunk = try handle.read(upToCount: min(remaining, 64 * 1024)) ?? Data()
+            guard !chunk.isEmpty else { break }
+            data.append(chunk)
+            remaining -= chunk.count
+        }
+        return data
     }
 
     private static func buildSnapshot(
         agentKind: ChatAgentKind,
-        transcriptPath: String,
+        data: Data,
         workingDirectory: String?,
         generation: String,
         revision: UInt64,
         transcriptLineage: String
     ) throws -> Snapshot {
-        let data = try Data(contentsOf: URL(fileURLWithPath: transcriptPath), options: .mappedIfSafe)
         let text = String(decoding: data, as: UTF8.self)
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let parseResult: ChatTranscriptParseResult
