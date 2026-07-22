@@ -21,6 +21,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cmux_tui_machine_protocol::BearerToken;
+use zeroize::Zeroize;
 
 use crate::process_diagnostics::BoundedDiagnosticBuffer;
 
@@ -626,7 +627,7 @@ fn random_bearer_token() -> io::Result<BearerToken> {
     getrandom::fill(&mut bytes)
         .map_err(|_| io::Error::other("cryptographic randomness is unavailable"))?;
     let encoded = URL_SAFE_NO_PAD.encode(bytes);
-    bytes.fill(0);
+    bytes.zeroize();
     BearerToken::new(encoded).map_err(|_| io::Error::other("generated bearer token was invalid"))
 }
 
@@ -639,7 +640,7 @@ fn random_hex(byte_count: usize) -> io::Result<String> {
         use std::fmt::Write as _;
         let _ = write!(encoded, "{byte:02x}");
     }
-    bytes.fill(0);
+    bytes.zeroize();
     Ok(encoded)
 }
 

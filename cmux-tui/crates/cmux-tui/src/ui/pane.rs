@@ -6,7 +6,7 @@
 //! pane's border is highlighted — this is also where flashing
 //! notifications will hook in later.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cmux_tui_core::{BrowserStatus, Rect, SurfaceKind};
 use ghostty_vt::RenderState;
@@ -88,8 +88,8 @@ pub struct DrawCursors {
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
     let areas = app.pane_areas.clone();
-    app.rendered_terminal_bounds
-        .retain(|surface, _| areas.iter().any(|area| area.surface == *surface));
+    let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
+    app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
     for area in &areas {
@@ -349,7 +349,7 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     if surface.kind() == SurfaceKind::Browser {
         let cursor = super::omnibar::draw(app, frame, area);
         draw_browser_content(app, frame, area, &surface);
-        return DrawCursors { input: cursor, terminal: None };
+        return DrawCursors { input: cursor.filter(|_| focused), terminal: None };
     }
 
     let selection: Option<Selection> =

@@ -30,3 +30,4 @@ base64.workspace = true
 getrandom.workspace = true
 libc.workspace = true
 smallvec.workspace = true
+zeroize.workspace = true

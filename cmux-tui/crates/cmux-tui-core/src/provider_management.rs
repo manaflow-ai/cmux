@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::{
     Mux, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
@@ -31,7 +32,7 @@ struct SensitiveBytes(Vec<u8>);
 #[cfg(target_os = "linux")]
 impl Drop for SensitiveBytes {
     fn drop(&mut self) {
-        self.0.fill(0);
+        self.0.zeroize();
     }
 }
 
@@ -53,7 +54,7 @@ enum Request {
 impl Drop for Request {
     fn drop(&mut self) {
         if let Self::InstallOrRotate { authority: Some(authority), .. } = self {
-            unsafe { authority.as_bytes_mut() }.fill(0);
+            authority.zeroize();
         }
     }
 }
@@ -154,7 +155,7 @@ fn read_message(reader: impl Read) -> io::Result<SensitiveBytes> {
     let mut bytes = Vec::new();
     BufReader::new(reader).take(MAX_MESSAGE_BYTES + 1).read_until(b'\n', &mut bytes)?;
     if bytes.len() as u64 > MAX_MESSAGE_BYTES {
-        bytes.fill(0);
+        bytes.zeroize();
         return Err(io::Error::new(io::ErrorKind::InvalidData, "management request is too large"));
     }
     if bytes.last() == Some(&b'\n') {

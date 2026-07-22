@@ -50,6 +50,8 @@ use machine_provider_client::{
 use machine_provider_runtime::ProviderMachineController;
 use machine_runtime::MachineRuntime;
 use session::{RemoteSession, Session};
+#[cfg(unix)]
+use zeroize::Zeroize;
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
@@ -541,7 +543,7 @@ fn take_provider_workspace_authority() -> anyhow::Result<Option<ProviderWorkspac
         let decoded = std::str::from_utf8(&bytes)
             .map(str::to_owned)
             .map_err(|_| anyhow::anyhow!("provider workspace authority is not valid UTF-8"));
-        bytes.fill(0);
+        bytes.zeroize();
         decoded?
     };
     #[cfg(not(unix))]

@@ -45,6 +45,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 #[cfg(unix)]
 use serde_json::Value;
+#[cfg(unix)]
+use zeroize::Zeroize;
 
 #[cfg(unix)]
 use crate::session::{RemoteMessageReader, RemoteMessageWriter, RemoteTransport};
@@ -669,7 +671,7 @@ impl ProviderClient {
             Err(RecvTimeoutError::Disconnected) => return Err(ProviderClientError::Disconnected),
         };
         let decoded = serde_json::from_slice(&frame);
-        frame.fill(0);
+        frame.zeroize();
         let response: ResponseEnvelope<T> = decoded?;
         if response.id != id {
             return Err(ProviderClientError::Protocol(
@@ -758,7 +760,7 @@ fn dispatch_control_frame(
     let mut value: Value = match decoded {
         Ok(value) => value,
         Err(error) => {
-            frame.fill(0);
+            frame.zeroize();
             return Err(ReaderFailure::InvalidFrame(error.to_string()));
         }
     };
@@ -774,7 +776,7 @@ fn dispatch_control_frame(
         (true, false) => {
             let event: EventEnvelope = serde_json::from_value(value)
                 .map_err(|error| ReaderFailure::InvalidFrame(error.to_string()))?;
-            frame.fill(0);
+            frame.zeroize();
             if let ProviderEvent::SnapshotChanged(change) = &event.event {
                 inner.publish_snapshot_revision(change.revision);
             }
@@ -799,10 +801,10 @@ fn dispatch_control_frame(
                 if let Err(error) = response.send(Ok(frame))
                     && let Ok(mut frame) = error.0
                 {
-                    frame.fill(0);
+                    frame.zeroize();
                 }
             } else {
-                frame.fill(0);
+                frame.zeroize();
             }
             Ok(())
         }
@@ -815,7 +817,7 @@ fn dispatch_control_frame(
 #[cfg(unix)]
 fn zeroize_json_strings(value: &mut Value) {
     match value {
-        Value::String(value) => unsafe { value.as_bytes_mut() }.fill(0),
+        Value::String(value) => value.zeroize(),
         Value::Array(values) => values.iter_mut().for_each(zeroize_json_strings),
         Value::Object(values) => values.values_mut().for_each(zeroize_json_strings),
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
@@ -891,7 +893,7 @@ fn write_json_frame<W: Write, T: Serialize>(
 ) -> ProviderResult<()> {
     let mut encoded = serde_json::to_vec(value)?;
     if encoded.len() > limit {
-        encoded.fill(0);
+        encoded.zeroize();
         return Err(ProviderClientError::FrameTooLarge { limit });
     }
     let result = writer
@@ -900,7 +902,7 @@ fn write_json_frame<W: Write, T: Serialize>(
         .and_then(|()| writer.flush());
     // Frames can contain credentials. Clear the reusable allocation before it
     // is freed so normal allocator reuse does not expose their serialized form.
-    encoded.fill(0);
+    encoded.zeroize();
     result.map_err(ProviderClientError::Io)
 }
 

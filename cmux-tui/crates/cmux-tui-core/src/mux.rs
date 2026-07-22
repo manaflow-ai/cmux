@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
+use zeroize::Zeroize;
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
@@ -44,7 +45,7 @@ impl ProviderWorkspaceAuthority {
             .contains(&value.len())
             || value.bytes().any(|byte| byte.is_ascii_control())
         {
-            unsafe { value.as_bytes_mut() }.fill(0);
+            value.zeroize();
             anyhow::bail!(
                 "provider workspace authority must be 32 to 512 bytes without control characters"
             );
@@ -120,7 +121,7 @@ impl Drop for ProviderWorkspaceAuthority {
     fn drop(&mut self) {
         // NUL bytes remain valid UTF-8, so the boxed string can be cleared in
         // place before its allocation is released.
-        unsafe { self.0.as_bytes_mut() }.fill(0);
+        self.0.zeroize();
     }
 }
 

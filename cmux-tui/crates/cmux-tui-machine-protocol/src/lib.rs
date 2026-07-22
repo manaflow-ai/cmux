@@ -12,6 +12,7 @@ use std::fmt;
 use serde::de::Error as _;
 use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use zeroize::Zeroize;
 
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
 pub const PROTOCOL_VERSION: u16 = 1;
@@ -99,7 +100,7 @@ impl BearerToken {
         if validate_opaque(&value) {
             Ok(Self(value))
         } else {
-            unsafe { value.as_bytes_mut() }.fill(0);
+            value.zeroize();
             Err(InvalidOpaqueId)
         }
     }
@@ -119,7 +120,7 @@ impl Drop for BearerToken {
     fn drop(&mut self) {
         // Replacing every byte with NUL preserves UTF-8 validity while
         // clearing the credential's owned allocation before it is released.
-        unsafe { self.0.as_bytes_mut() }.fill(0);
+        self.0.zeroize();
     }
 }
 

@@ -20,6 +20,7 @@ use cmux_tui_core::{
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
+use zeroize::Zeroize;
 
 use super::tree::{TreeView, parse_tree};
 
@@ -35,7 +36,7 @@ const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 fn zeroize_string(value: &mut str) {
     // NUL is valid UTF-8, so the serialized request can be cleared in place
     // immediately after the synchronous transport write finishes.
-    unsafe { value.as_bytes_mut() }.fill(0);
+    value.zeroize();
 }
 
 fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {

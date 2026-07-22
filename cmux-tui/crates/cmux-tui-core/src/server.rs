@@ -38,6 +38,7 @@ use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
+use zeroize::Zeroize;
 
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
@@ -1827,7 +1828,7 @@ fn with_provider_workspace_authority<T>(
 fn zeroize_string(value: &mut str) {
     // NUL remains valid UTF-8, so decoded control frames can be cleared in
     // place immediately after dispatch.
-    unsafe { value.as_bytes_mut() }.fill(0);
+    value.zeroize();
 }
 
 fn node_json(node: &Node, active_pane: PaneId) -> Value {

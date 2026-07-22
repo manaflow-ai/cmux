@@ -1,6 +1,6 @@
 //! Dynamic machine catalog backed by a versioned external provider.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(test)]
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use cmux_tui_core::{Mux, SurfaceOptions};
 use cmux_tui_machine_protocol as protocol;
+use zeroize::Zeroize;
 
 use crate::config::MachineConfig;
 use crate::machine::{
@@ -288,8 +289,9 @@ impl ProviderMachineRuntime {
                 }
                 let (session, label, open) = candidate?;
                 self.close_open_connection();
+                let session_available = open.is_some();
                 self.open = open;
-                let mut ui = self.ui_state(true);
+                let mut ui = self.ui_state(session_available);
                 ui.notice = self.notice.take();
                 let mut result = MachineActionResult::replace(ui, session, label);
                 result.restart_updates = true;
@@ -851,7 +853,7 @@ fn random_mutation_nonce() -> anyhow::Result<String> {
         use std::fmt::Write as _;
         let _ = write!(encoded, "{byte:02x}");
     }
-    bytes.fill(0);
+    bytes.zeroize();
     Ok(encoded)
 }
 
@@ -965,6 +967,8 @@ fn machine_ui_state(
 ) -> MachineUiState {
     reconcile_keys(keys, snapshot, machine_lifecycle_snapshot);
     let active = snapshot.selected_machine_id.as_ref().and_then(|id| key_for_id(keys, id));
+    let snapshot_machine_ids: HashSet<_> =
+        snapshot.machines.iter().map(|machine| machine.id.clone()).collect();
     let mut ui = MachineUiState::new(MachineSnapshot {
         machines: snapshot
             .machines
@@ -984,7 +988,7 @@ fn machine_ui_state(
                     .iter()
                     .filter(|managed| {
                         managed.status == protocol::MachineLifecycleStatus::Recoverable
-                            && !snapshot.machines.iter().any(|machine| machine.id == managed.id)
+                            && !snapshot_machine_ids.contains(&managed.id)
                     })
                     .filter_map(|machine| {
                         Some(MachineDescriptor {
@@ -1767,7 +1771,7 @@ mod tests {
                 purge: true,
             },
         });
-        let server_catalog = catalog.clone();
+        let server_catalog = catalog;
         let server_lifecycle = lifecycle.clone();
         let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {

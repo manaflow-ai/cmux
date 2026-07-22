@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use cmux_tui_core::ProviderWorkspaceAuthority;
 use cmux_tui_core::provider_management::{self, ClientError};
+use zeroize::Zeroize;
 
 const UPGRADE_REQUIRED_EXIT: i32 = 78;
 const MAX_AUTHORITY_FILE_BYTES: u64 = 513;
@@ -13,7 +14,7 @@ struct SensitiveBytes(Vec<u8>);
 
 impl Drop for SensitiveBytes {
     fn drop(&mut self) {
-        self.0.fill(0);
+        self.0.zeroize();
     }
 }
 
