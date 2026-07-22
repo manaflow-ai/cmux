@@ -217,6 +217,7 @@ _LOCAL_SCOPE_HEADER = re.compile(
 _CONDITIONAL_SCOPE_HEADER = re.compile(
     r"^\s*(?:}\s*else\s+)?(?:if|while|for)\b"
 )
+_COMPILATION_DIRECTIVE = re.compile(r"^\s*#(if|elseif|else|endif)\b")
 _FOR_SCOPE_BINDING = re.compile(
     r"^\s*for(?:\s+try)?(?:\s+await)?\s+([A-Za-z_]\w*)\s+in\b"
 )
@@ -692,6 +693,50 @@ def _receiver_declaration_kind(
     return bool(_REAL_CLOCK_TYPE.search(probe) or _REAL_CLOCK_INIT.search(probe))
 
 
+@dataclass
+class _CompilationScopeFrame:
+    base_scopes: list[dict[str, bool]]
+    base_scope_kinds: list[str]
+    branch_scopes: list[list[dict[str, bool]]]
+    has_else: bool = False
+
+
+def _copy_scope_stack(scopes: list[dict[str, bool]]) -> list[dict[str, bool]]:
+    return [dict(scope) for scope in scopes]
+
+
+def _merge_compilation_branches(
+    frame: _CompilationScopeFrame, receiver: str
+) -> list[dict[str, bool]]:
+    branches = list(frame.branch_scopes)
+    if not frame.has_else:
+        branches.append(_copy_scope_stack(frame.base_scopes))
+
+    merged = _copy_scope_stack(frame.base_scopes)
+    for scope_index, scope in enumerate(merged):
+        values = [
+            branch[scope_index].get(receiver)
+            for branch in branches
+            if scope_index < len(branch)
+        ]
+        if any(value is True for value in values):
+            scope[receiver] = True
+        elif any(value is False for value in values):
+            scope[receiver] = False
+        else:
+            scope.pop(receiver, None)
+    return merged
+
+
+def _nearest_receiver_kind(
+    scopes: list[dict[str, bool]], receiver: str
+) -> Optional[bool]:
+    return next(
+        (scope[receiver] for scope in reversed(scopes) if receiver in scope),
+        None,
+    )
+
+
 def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     """Resolve a named receiver through Swift-like lexical brace scopes."""
     current = masked_lines[idx]
@@ -740,8 +785,33 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     pending_function_paren_depth = 0
     pending_function_saw_parameters = False
     pending_conditional: Optional[dict[str, bool]] = None
+    compilation_frames: list[_CompilationScopeFrame] = []
 
     for candidate_index, candidate in enumerate(prefix_lines):
+        compilation_directive = _COMPILATION_DIRECTIVE.match(candidate)
+        if compilation_directive:
+            directive = compilation_directive.group(1)
+            if directive == "if":
+                compilation_frames.append(
+                    _CompilationScopeFrame(
+                        base_scopes=_copy_scope_stack(scopes),
+                        base_scope_kinds=list(scope_kinds),
+                        branch_scopes=[],
+                    )
+                )
+            elif directive in ("elseif", "else") and compilation_frames:
+                frame = compilation_frames[-1]
+                frame.branch_scopes.append(_copy_scope_stack(scopes))
+                frame.has_else = frame.has_else or directive == "else"
+                scopes = _copy_scope_stack(frame.base_scopes)
+                scope_kinds = list(frame.base_scope_kinds)
+            elif directive == "endif" and compilation_frames:
+                frame = compilation_frames.pop()
+                frame.branch_scopes.append(_copy_scope_stack(scopes))
+                scopes = _merge_compilation_branches(frame, receiver)
+                scope_kinds = list(frame.base_scope_kinds)
+            continue
+
         if _LOCAL_SCOPE_HEADER.search(candidate):
             pending_function = True
             pending_parameter = _annotated_receiver_kind(candidate, receiver)
@@ -810,9 +880,13 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
                     scopes.pop()
                     scope_kinds.pop()
             elif declaration is not None:
-                kind = _receiver_declaration_kind(
-                    declaration, prefix_lines[candidate_index + 1 :]
-                )
+                if pending_conditional is not None and not declaration.strip():
+                    inherited_kind = _nearest_receiver_kind(scopes, receiver)
+                    kind = inherited_kind if inherited_kind is not None else False
+                else:
+                    kind = _receiver_declaration_kind(
+                        declaration, prefix_lines[candidate_index + 1 :]
+                    )
                 if pending_conditional is not None:
                     pending_conditional[receiver] = kind
                 else:
