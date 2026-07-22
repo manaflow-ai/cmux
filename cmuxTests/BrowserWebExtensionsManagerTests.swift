@@ -5,6 +5,7 @@ import CryptoKit
 import Foundation
 import Network
 import os
+import SwiftUI
 import Testing
 import WebKit
 
@@ -693,6 +694,56 @@ struct BrowserWebExtensionsManagerTests {
     @Test func managerHidesEmptyCatalogSection() {
         #expect(!BrowserExtensionsManagerPage.shouldShowCatalog(entryCount: 0))
         #expect(BrowserExtensionsManagerPage.shouldShowCatalog(entryCount: 1))
+    }
+
+    @Test func toolbarSubscriptionSurvivesInitialPhaseAndProcessesLaterInvalidations() async throws {
+        let profileID = UUID()
+        let updateChannel = AsyncStream<BrowserWebExtensionUpdate>.makeStream()
+        var loadCount = 0
+        let toolbar = BrowserExtensionsToolbarButton(
+            isPresented: .constant(false),
+            panelID: UUID(),
+            profileID: profileID,
+            iconPointSize: 16,
+            hitSize: 24,
+            loadSnapshot: {
+                loadCount += 1
+                return BrowserWebExtensionsPresentationSnapshot(
+                    state: .ready,
+                    extensions: [],
+                    failures: []
+                )
+            },
+            updates: { updateChannel.stream },
+            openManager: { true },
+            setToolbarPinned: { _, _ in true },
+            performAction: { _, _ in true }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 80),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let hostingView = NSHostingView(rootView: toolbar)
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            updateChannel.continuation.finish()
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+
+        try await Self.waitUntil("toolbar initial snapshot") { loadCount == 1 }
+
+        updateChannel.continuation.yield(.phaseChanged(.ready))
+        try await Self.waitUntil("toolbar phase refresh") { loadCount == 2 }
+
+        updateChannel.continuation.yield(.snapshotInvalidated(profileID))
+        try await Self.waitUntil("toolbar first live refresh") { loadCount == 3 }
+
+        updateChannel.continuation.yield(.snapshotInvalidated(profileID))
+        try await Self.waitUntil("toolbar second live refresh") { loadCount == 4 }
     }
 
     @available(macOS 15.4, *)
