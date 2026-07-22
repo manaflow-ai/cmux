@@ -12,6 +12,7 @@ struct MobileVoiceSettingsPage: View {
     let openVoiceMode: () -> Void
 
     var body: some View {
+        @Bindable var voiceSettings = voiceSettings
         let appleRow = appleEngineRow(selectedEngine: voiceSettings.selectedEngine)
         let downloadableRows = downloadableEngineRows(
             selectedEngine: voiceSettings.selectedEngine,
@@ -52,6 +53,11 @@ struct MobileVoiceSettingsPage: View {
                     )
                 }
                 .accessibilityIdentifier("MobileSettingsVoiceVocabulary")
+
+                Toggle(isOn: $voiceSettings.voiceModeAutoSubmit) {
+                    Text(L10n.string("mobile.voiceMode.autoSubmit", defaultValue: "Auto-submit"))
+                }
+                .accessibilityIdentifier("MobileVoiceModeAutoSubmit")
             }
 
             if canOpenVoiceMode {

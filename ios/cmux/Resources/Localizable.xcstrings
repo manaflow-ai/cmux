@@ -10864,6 +10864,23 @@
         }
       }
     },
+    "mobile.voiceMode.whisperPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whisper close to your iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneに口を近づけてささやいてください。"
+          }
+        }
+      }
+    },
     "mobile.workspaces.rescan": {
       "extractionState": "manual",
       "localizations": {

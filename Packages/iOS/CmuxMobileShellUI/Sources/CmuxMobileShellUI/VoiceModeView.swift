@@ -31,23 +31,31 @@ struct VoiceModeView: View {
     @State private var utteranceHistory = VoiceUtteranceHistory()
     @State private var errorMessage: String?
     @State private var showingHostPicker = false
-    @State private var typedText = ""
-    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
-        @Bindable var voiceSettings = voiceSettings
-        return NavigationStack {
-            VStack(spacing: isTextFieldFocused ? 12 : 24) {
-                targetCard
-                transcriptArea
-                Spacer(minLength: isTextFieldFocused ? 0 : 8)
-                micButton
-                    .scaleEffect(isTextFieldFocused ? 0.72 : 1)
-                    .frame(height: isTextFieldFocused ? 76 : 104)
-                Toggle(isOn: $voiceSettings.voiceModeAutoSubmit) {
-                    Text(L10n.string("mobile.voiceMode.autoSubmit", defaultValue: "Auto-submit"))
+        NavigationStack {
+            VStack(spacing: 20) {
+                VoiceModeDestinationView(
+                    workspaceTitle: store.voiceFocusSnapshot?.workspaceTitle,
+                    surfaceTitle: store.voiceFocusSnapshot?.surfaceTitle,
+                    hasTerminal: hasVoiceTarget
+                )
+                VoiceModeTranscriptView(
+                    finalizedTranscripts: utteranceHistory.utterances.map(\.text),
+                    partialTranscript: partialTranscript
+                )
+                Spacer(minLength: 0)
+                VoiceModeMicrophoneControl(
+                    isListening: isListening,
+                    isStarting: isStarting,
+                    isEnabled: hasVoiceTarget || isListening || isStarting
+                ) {
+                    if isListening || isStarting {
+                        stopListening()
+                    } else {
+                        Task { await startListening() }
+                    }
                 }
-                .accessibilityIdentifier("MobileVoiceModeAutoSubmit")
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.footnote)
@@ -57,8 +65,8 @@ struct VoiceModeView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, isTextFieldFocused ? 8 : 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
             .navigationTitle(connectedHostName.isEmpty ? L10n.string("mobile.voiceMode.title", defaultValue: "Voice Mode") : connectedHostName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -86,9 +94,6 @@ struct VoiceModeView: View {
             .sheet(isPresented: $showingHostPicker) {
                 MobileHostPickerView(store: store)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                textInputRow
-            }
             .onDisappear {
                 // Leaving the screen is a hard cancel, not a graceful stop: a
                 // graceful finish waits on the recognizer's final result, so a
@@ -102,134 +107,6 @@ struct VoiceModeView: View {
         .accessibilityIdentifier("MobileVoiceModeView")
     }
 
-    @ViewBuilder
-    private var targetCard: some View {
-        let snapshot = store.voiceFocusSnapshot
-        VStack(alignment: .leading, spacing: 8) {
-            Label(
-                L10n.string("mobile.voiceMode.target", defaultValue: "Target"),
-                systemImage: snapshot?.isTerminal == true ? "terminal" : "exclamationmark.triangle"
-            )
-            .font(.headline)
-            if let snapshot, snapshot.isTerminal {
-                if let layout = snapshot.layout {
-                    VoiceFocusLayoutView(layout: layout)
-                    VStack(alignment: .leading, spacing: 2) {
-                        if let workspaceTitle = snapshot.workspaceTitle {
-                            Text(workspaceTitle)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(snapshot.surfaceTitle ?? L10n.string("mobile.voiceMode.terminal", defaultValue: "Terminal"))
-                            .fontWeight(.semibold)
-                    }
-                    .font(.caption)
-                } else {
-                    Text(snapshot.surfaceTitle ?? L10n.string("mobile.voiceMode.terminal", defaultValue: "Terminal"))
-                        .font(.title3.weight(.semibold))
-                    if let workspaceTitle = snapshot.workspaceTitle {
-                        Text(workspaceTitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } else {
-                Text(L10n.string("mobile.voiceMode.noTerminalFocused", defaultValue: "No terminal focused"))
-                    .font(.title3.weight(.semibold))
-                Text(L10n.string("mobile.voiceMode.clickTerminal", defaultValue: "Click a terminal pane on your Mac."))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .accessibilityIdentifier("MobileVoiceModeTargetCard")
-    }
-
-    private var transcriptArea: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(utteranceHistory.utterances) { utterance in
-                    VoiceUtteranceRow(utterance: utterance) {
-                        resendUtterance(id: utterance.id)
-                    }
-                }
-                if !partialTranscript.isEmpty {
-                    Text(partialTranscript)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .font(.body)
-            .textSelection(.enabled)
-        }
-        .frame(maxWidth: .infinity, minHeight: isTextFieldFocused ? 72 : 180)
-        .accessibilityIdentifier("MobileVoiceModeTranscript")
-    }
-
-    private var micButton: some View {
-        Button {
-            if isListening || isStarting {
-                stopListening()
-            } else {
-                Task { await startListening() }
-            }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(isListening ? Color.red : Color.accentColor)
-                    .frame(width: 104, height: 104)
-                Image(systemName: isListening ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 40, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-        }
-        // Keep the button tappable while starting: the action path treats a tap
-        // during `isStarting` as cancel, so disabling it there would leave the
-        // user with no way to abort a hung permission prompt or engine spin-up.
-        .disabled(!hasVoiceTarget && !isListening && !isStarting)
-        .accessibilityLabel(isListening
-            ? L10n.string("mobile.voiceMode.stopListening", defaultValue: "Stop Listening")
-            : L10n.string("mobile.voiceMode.startListening", defaultValue: "Start Listening"))
-        .accessibilityIdentifier("MobileVoiceModeMicButton")
-    }
-
-    private var textInputRow: some View {
-        HStack(spacing: 10) {
-            TextField(
-                L10n.string("mobile.voiceMode.textPlaceholder", defaultValue: "Type or dictate…"),
-                text: $typedText
-            )
-            .focused($isTextFieldFocused)
-            .submitLabel(.send)
-            .onSubmit(sendTypedText)
-            .textInputAutocapitalization(.sentences)
-            .autocorrectionDisabled(false)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color(.secondarySystemBackground), in: Capsule())
-            .accessibilityIdentifier("MobileVoiceModeTextField")
-
-            Button {
-                sendTypedText()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 34, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSendTypedText)
-            .foregroundStyle(canSendTypedText ? Color.accentColor : Color.secondary)
-            .accessibilityLabel(L10n.string("mobile.voiceMode.sendText", defaultValue: "Send"))
-            .accessibilityIdentifier("MobileVoiceModeSendButton")
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
-    }
-
     /// Whether the Mac currently offers a valid Voice Mode target, independent
     /// of this view's own start-in-progress state.
     private var hasVoiceTarget: Bool {
@@ -238,10 +115,6 @@ struct VoiceModeView: View {
 
     private var canStartListening: Bool {
         hasVoiceTarget && !isStarting
-    }
-
-    private var canSendTypedText: Bool {
-        hasVoiceTarget && !typedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @MainActor
@@ -365,22 +238,6 @@ struct VoiceModeView: View {
             updateTask?.cancel()
         }
         updateTask = nil
-    }
-
-    private func resendUtterance(id: VoiceUtterance.ID) {
-        guard let utterance = utteranceHistory.utterance(id: id),
-              utteranceHistory.beginSending(id: id) else {
-            return
-        }
-        sendUtterance(id: id, text: utterance.text)
-    }
-
-    private func sendTypedText() {
-        let text = typedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard hasVoiceTarget, !text.isEmpty else { return }
-        typedText = ""
-        let id = utteranceHistory.appendFinal(text: text)
-        sendUtterance(id: id, text: text)
     }
 
     private func sendUtterance(id: VoiceUtterance.ID, text: String) {
