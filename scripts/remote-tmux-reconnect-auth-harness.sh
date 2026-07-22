@@ -132,6 +132,11 @@ await() {
 
 restore_auth() { [ -f "$AUTH.off" ] && mv "$AUTH.off" "$AUTH"; }
 
+# A retry has reached the sshd since SSHD_BEFORE was sampled. The checks below wait on this
+# instead of sleeping out the worst-case backoff: the failed attempt IS the auth-required
+# report, so once it has happened the question they ask is already answerable.
+sshd_retried() { [ "$(sshd_log_lines)" -gt "${SSHD_BEFORE:-0}" ]; }
+
 # Lines in the loopback sshd's log. Every reconnect attempt reaches that sshd and is logged
 # even when it fails authentication, so a growing count is direct evidence the connection is
 # still retrying. Without this, "no login reappeared" is equally true of a stranded host that
@@ -253,19 +258,19 @@ else
   if ! await "the login workspace to close" 30 login_absent; then
     fail "the login workspace would not close; the rest of this scenario is meaningless"
   else
-    # Give the wait loop time to notice the closure and the retry time to fail again — the
-    # exact window in which the old behavior reopened a tab.
+    # Wait for the retry to reach the sshd rather than sleeping out the worst-case backoff.
+    # That failed attempt is the auth-required report, i.e. the exact moment the old behavior
+    # reopened a tab, so both halves of the requirement become answerable as soon as it lands.
     SSHD_BEFORE="$(sshd_log_lines)"
-    sleep 45
-    if login_tab_present; then
-      fail "a login reappeared after being dismissed; closing it does not stick"
-    else
-      pass "no login reappeared after dismissal"
-    fi
-    # And the other half of the requirement: dismissing must not strand the host.
-    SSHD_AFTER="$(sshd_log_lines)"
-    if [ "${SSHD_AFTER:-0}" -gt "${SSHD_BEFORE:-0}" ]; then
-      pass "the connection kept retrying after the dismissal (sshd log $SSHD_BEFORE -> $SSHD_AFTER)"
+    if await "the connection to retry after the dismissal" 60 sshd_retried; then
+      pass "the connection kept retrying after the dismissal (sshd log $SSHD_BEFORE -> $(sshd_log_lines))"
+      # Short settle for the app's turn between the ssh exit and a workspace appearing.
+      sleep 3
+      if login_tab_present; then
+        fail "a login reappeared after being dismissed; closing it does not stick"
+      else
+        pass "no login reappeared after dismissal"
+      fi
     else
       fail "no reconnect attempts after the dismissal — the host is stranded until restart"
     fi
@@ -355,12 +360,20 @@ else
     fail "no control stream to drop for the straggler check"
   else
     log "dropping one stream ($ONE) while others stay connected"
+    SSHD_BEFORE="$(sshd_log_lines)"
     kill "$ONE" 2>/dev/null
-    sleep 40
-    if login_tab_present; then
-      fail "a login appeared while the host still had a live connection"
+    # The dropped stream's retry reaching sshd is its auth-required report. Waiting for that
+    # edge, rather than a fixed 40s, means a failure here says the straggler case was never
+    # exercised instead of passing vacuously.
+    if await "the dropped stream to retry" 60 sshd_retried; then
+      sleep 3
+      if login_tab_present; then
+        fail "a login appeared while the host still had a live connection"
+      else
+        pass "no login offered while a connection to the host was live"
+      fi
     else
-      pass "no login offered while a connection to the host was live"
+      fail "no reconnect attempt reached sshd, so the straggler case was never exercised"
     fi
   fi
   restore_auth
