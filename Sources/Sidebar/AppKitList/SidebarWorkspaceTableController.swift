@@ -479,6 +479,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func workspaceDragSessionDidEnd() {
         reorderDragWindowPoint = nil
+        reorderDragPayloadWorkspaceId = nil
         retireReorderIndicator()
     }
 
@@ -496,6 +497,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// the controller paints the affected cells directly instead.
     private var reorderIndicatorPainter: SidebarWorkspaceTableReorderIndicatorPainter?
 
+    /// Workspace id parsed from the drag pasteboard at validateDrop time.
+    /// Survives dragState teardown (app-resign failsafe) so re-plans and the
+    /// final drop can re-arm the drag instead of silently no-oping.
+    private var reorderDragPayloadWorkspaceId: UUID?
+
     func tableView(
         _ tableView: NSTableView,
         validateDrop info: any NSDraggingInfo,
@@ -503,6 +509,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         proposedDropOperation dropOperation: NSTableView.DropOperation
     ) -> NSDragOperation {
         guard pasteboardCarriesReorderPayload(info) else { return [] }
+        reorderDragPayloadWorkspaceId = SidebarTabDragPayload.workspaceId(
+            fromPasteboardString: info.draggingPasteboard.string(
+                forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+            )
+        )
         return updateReorderDrag(windowPoint: info.draggingLocation) ? .move : []
     }
 
@@ -515,11 +526,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         reorderDragWindowPoint = nil
         guard pasteboardCarriesReorderPayload(info),
               let actions,
-              actions.isValidWorkspaceDrag(),
               let table = containerView?.tableView else { return false }
+        let payloadWorkspaceId = SidebarTabDragPayload.workspaceId(
+            fromPasteboardString: info.draggingPasteboard.string(
+                forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+            )
+        )
         let point = table.convert(info.draggingLocation, from: nil)
         let targets = reorderDropTargets()
-        let performed = actions.performWorkspaceDrop(point, targets)
+        let performed = actions.performWorkspaceDrop(point, targets, payloadWorkspaceId)
 #if DEBUG
         // Every silent "the workspace I dragged didn't move" report needs
         // this line: where the drop landed, how many targets existed, and
@@ -534,6 +549,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func reorderDropDragExited() {
+        reorderDragPayloadWorkspaceId = nil
         guard reorderDragWindowPoint != nil || reorderIndicatorPainter != nil else { return }
         reorderDragWindowPoint = nil
         retireReorderIndicator()
@@ -558,7 +574,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard !targets.isEmpty,
               let update = actions.updateWorkspaceDrag(
                   table.convert(windowPoint, from: nil),
-                  targets
+                  targets,
+                  reorderDragPayloadWorkspaceId
               )
         else {
             reorderDragWindowPoint = nil

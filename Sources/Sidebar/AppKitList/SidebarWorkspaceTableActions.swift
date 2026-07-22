@@ -25,8 +25,11 @@ struct SidebarWorkspaceTableActions {
     let beginWorkspaceDrag: (UUID) -> Void
     let endWorkspaceDrag: () -> Void
     let isValidWorkspaceDrag: () -> Bool
-    let updateWorkspaceDrag: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> SidebarWorkspaceTableReorderDropUpdate?
-    let performWorkspaceDrop: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool
+    /// The trailing UUID is the drag pasteboard's workspace id, used to
+    /// re-arm drag state that was cleared while the native session stayed
+    /// alive (app-resign failsafe mid-drag).
+    let updateWorkspaceDrag: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate?
+    let performWorkspaceDrop: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> Bool
     let clearWorkspaceDropIndicator: () -> Void
     let currentDropIndicator: () -> SidebarDropIndicator?
     let currentDropIndicatorScope: () -> SidebarWorkspaceReorderDropIndicatorScope

@@ -309,7 +309,7 @@ struct SidebarWorkspaceTableTests {
         var indicatorClears = 0
         let draggedId = ids[2]
         let actions = makeTableActions(
-            updateWorkspaceDrag: { point, targets in
+            updateWorkspaceDrag: { point, targets, _ in
                 plannedPoints.append(point)
                 plannedTargetCounts.append(targets.count)
                 return SidebarWorkspaceTableReorderDropUpdate(
@@ -483,7 +483,7 @@ struct SidebarWorkspaceTableTests {
 
     @MainActor
     private func makeTableActions(
-        updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _ in nil },
+        updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
         clearWorkspaceDropIndicator: @escaping () -> Void = {}
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
@@ -495,7 +495,7 @@ struct SidebarWorkspaceTableTests {
             endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
-            performWorkspaceDrop: { _, _ in false },
+            performWorkspaceDrop: { _, _, _ in false },
             clearWorkspaceDropIndicator: clearWorkspaceDropIndicator,
             currentDropIndicator: { nil },
             currentDropIndicatorScope: { .raw },

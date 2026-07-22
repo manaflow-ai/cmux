@@ -57,22 +57,38 @@ public final class SidebarDragAutoScrollController: ObservableObject {
             return
         }
 
-        // AppKit drag/drop autoscroll guidance recommends autoscroll(with:)
-        // when periodic drag updates are available; use it first.
-        if applyNativeAutoscroll(to: scrollView) {
-            activePlan = plan(for: scrollView)
-            if activePlan == nil {
-                stop()
-            }
-            return
-        }
-
         activePlan = self.plan(for: scrollView)
         guard let plan = activePlan else {
             stop()
             return
         }
+        // Parked at a content boundary the plan cannot cross: native
+        // autoscroll(with:) has no clamp, so at the very bottom (or top) it
+        // overshoots into the elastic region and rubber-bands back on every
+        // tick — a continuous 60Hz stutter. Stop until the pointer reaches a
+        // position that can actually scroll; the next drag update restarts.
+        guard canAdvance(plan.direction, in: scrollView) else {
+            stop()
+            return
+        }
+
+        // AppKit drag/drop autoscroll guidance recommends autoscroll(with:)
+        // when periodic drag updates are available; use it first.
+        if applyNativeAutoscroll(to: scrollView) {
+            return
+        }
         _ = apply(plan: plan, to: scrollView)
+    }
+
+    private func canAdvance(_ direction: SidebarAutoScrollDirection, in scrollView: NSScrollView) -> Bool {
+        guard let documentView = scrollView.documentView else { return false }
+        let clipView = scrollView.contentView
+        let directionMultiplier: CGFloat = (direction == .down) ? 1 : -1
+        let flippedMultiplier: CGFloat = documentView.isFlipped ? 1 : -1
+        var probe = clipView.bounds
+        probe.origin.y += directionMultiplier * flippedMultiplier
+        let constrained = clipView.constrainBoundsRect(probe)
+        return abs(constrained.origin.y - clipView.bounds.origin.y) > 0.01
     }
 
     private func applyNativeAutoscroll(to scrollView: NSScrollView) -> Bool {
