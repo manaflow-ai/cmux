@@ -174,6 +174,10 @@ jobs:
             echo "WebExtension tests reported a hidden failure or process restart"
             exit 1
           fi
+          if echo "$OUTPUT" | grep -Eq "database integrity compromised by API violation|Unhandled SQLite error|Unable to commit dynamic rules savepoint|Failed to release storage savepoint|WebProcessProxy::processDidTerminate:.*reason=Crash"; then
+            echo "WebExtension tests reported storage corruption or a WebKit process crash"
+            exit 1
+          fi
           if ! echo "$OUTPUT" | grep -q "Test run with 128 tests in 1 suite passed"; then
             echo "WebExtension test run did not report all 128 tests passing"
             exit 1
