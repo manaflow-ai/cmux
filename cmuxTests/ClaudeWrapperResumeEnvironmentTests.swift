@@ -98,6 +98,113 @@ import Testing
         #expect(recorded.contains("CLAUDE_CODE_USE_VERTEX=1"), Comment(rawValue: recorded))
     }
 
+    @Test func claudeFallbackHookTimesIncreaseWithinOneShellProcess() throws {
+        let fileManager = FileManager.default
+        let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let wrapperURL = repoRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
+        let sandbox = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-claude-hook-time-\(String(UUID().uuidString.prefix(8)))", isDirectory: true)
+        let binDir = sandbox.appendingPathComponent("bin", isDirectory: true)
+        let toolBin = sandbox.appendingPathComponent("hook-tools", isDirectory: true)
+        let homeDir = sandbox.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: toolBin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: homeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let socketURL = sandbox.appendingPathComponent("cmux.sock", isDirectory: false)
+        let socketFD = try bindUnixSocket(at: socketURL.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketURL.path)
+        }
+
+        let argvURL = sandbox.appendingPathComponent("claude-argv.bin", isDirectory: false)
+        try writeExecutable(
+            binDir.appendingPathComponent("claude", isDirectory: false),
+            """
+            #!/usr/bin/env bash
+            : "${CMUX_TEST_ARGV_PATH:?}"
+            printf '%s\\0' "$@" > "$CMUX_TEST_ARGV_PATH"
+            """
+        )
+        let capturedAtURL = sandbox.appendingPathComponent("captured-at.txt", isDirectory: false)
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try writeExecutable(
+            fakeCmuxURL,
+            """
+            #!/bin/sh
+            if [ "${1:-}" = "--socket" ] && [ "${3:-}" = "ping" ]; then
+              exit 0
+            fi
+            printf '%s\\n' "${CMUX_AGENT_HOOK_CAPTURED_AT:-}" >> "${CMUX_TEST_CAPTURED_AT:?}"
+            """
+        )
+
+        let wrapper = Process()
+        wrapper.executableURL = wrapperURL
+        wrapper.environment = [
+            "PATH": "\(binDir.path):/usr/bin:/bin",
+            "HOME": homeDir.path,
+            "TMPDIR": sandbox.path,
+            "CMUX_SURFACE_ID": UUID().uuidString,
+            "CMUX_SOCKET_PATH": socketURL.path,
+            "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
+            "CMUX_TEST_ARGV_PATH": argvURL.path,
+            "CMUX_TEST_CAPTURED_AT": capturedAtURL.path,
+        ]
+        wrapper.standardInput = FileHandle.nullDevice
+        wrapper.standardOutput = FileHandle.nullDevice
+        wrapper.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(wrapper, shellDescription: "cmux-claude-wrapper settings capture")
+
+        let argv = try Data(contentsOf: argvURL)
+            .split(separator: 0)
+            .compactMap { String(data: Data($0), encoding: .utf8) }
+        let settingsIndex = try #require(argv.firstIndex(of: "--settings"))
+        let settings = try #require(argv.indices.contains(settingsIndex + 1) ? argv[settingsIndex + 1] : nil)
+        let settingsObject = try #require(
+            JSONSerialization.jsonObject(with: Data(settings.utf8)) as? [String: Any]
+        )
+        let hooks = try #require(settingsObject["hooks"] as? [String: Any])
+        let stopMatchers = try #require(hooks["Stop"] as? [[String: Any]])
+        let stopHooks = try #require(stopMatchers.first?["hooks"] as? [[String: Any]])
+        let command = try #require(stopHooks.first?["command"] as? String)
+
+        for tool in ["mkdir", "rm", "rmdir", "sleep"] {
+            try fileManager.createSymbolicLink(
+                at: toolBin.appendingPathComponent(tool, isDirectory: false),
+                withDestinationURL: URL(fileURLWithPath: "/bin/\(tool)")
+            )
+        }
+        let fakeDateURL = toolBin.appendingPathComponent("date", isDirectory: false)
+        try writeExecutable(fakeDateURL, "#!/bin/sh\nprintf '1893456000\\n'\n")
+
+        let hook = Process()
+        hook.executableURL = URL(fileURLWithPath: "/bin/sh")
+        hook.arguments = ["-c", Array(repeating: command, count: 4).joined(separator: "; ")]
+        hook.environment = [
+            "PATH": toolBin.path,
+            "TMPDIR": sandbox.path,
+            "CMUX_AGENT_HOOK_DATE_BIN": fakeDateURL.path,
+            "CMUX_CLAUDE_HOOK_CMUX_BIN": fakeCmuxURL.path,
+            "CMUX_TEST_CAPTURED_AT": capturedAtURL.path,
+        ]
+        hook.standardInput = FileHandle.nullDevice
+        hook.standardOutput = FileHandle.nullDevice
+        hook.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(hook, shellDescription: "Claude fallback hook timestamps", timeout: 10)
+
+        let rawTimes = try String(contentsOf: capturedAtURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        #expect(rawTimes.count == 4)
+        let times = try rawTimes.map { try #require(Double($0)) }
+        for (earlier, later) in zip(times, times.dropFirst()) {
+            #expect(earlier < later, Comment(rawValue: rawTimes.joined(separator: ",")))
+        }
+    }
+
     private func runWithBoundedWait(
         _ process: Process,
         shellDescription: String,

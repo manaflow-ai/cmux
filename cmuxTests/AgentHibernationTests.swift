@@ -469,6 +469,7 @@ struct AgentHibernationTests {
         let sessionId = "codex-stale-idle-reconcile"
         let staleIdleEventTime: TimeInterval = 100
         let newerRunningEventTime: TimeInterval = 200
+        let laterBookkeepingTime: TimeInterval = 300
         workspace.recordAgentPID(key: "codex.\(sessionId)", pid: pid_t(pid), panelId: panelId, refreshPorts: false)
         workspace.setAgentLifecycle(
             key: "codex",
@@ -495,7 +496,8 @@ struct AgentHibernationTests {
                     "pid": pid,
                     "agentLifecycle": "idle",
                     "runtimeStatus": "idle",
-                    "updatedAt": staleIdleEventTime,
+                    "runtimeStatusEventTime": staleIdleEventTime,
+                    "updatedAt": laterBookkeepingTime,
                     "launchCommand": [
                         "launcher": "codex",
                         "executablePath": "/usr/local/bin/codex",

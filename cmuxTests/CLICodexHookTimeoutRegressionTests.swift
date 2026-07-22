@@ -298,17 +298,75 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(lockPreserved, containing: "preserved", timeout: 1))
         #expect(waitForFileLineCount(capturedAt, count: 3, timeout: 3))
 
+        let fallbackLockStarted = root.appendingPathComponent("cmux-codex-hook-time.lock.started", isDirectory: false)
+        try FileManager.default.createDirectory(at: fallbackLock, withIntermediateDirectories: false)
+        try "\(ProcessInfo.processInfo.processIdentifier)\n".write(
+            to: fallbackLockOwner,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "1893455980\n".write(to: fallbackLockStarted, atomically: true, encoding: .utf8)
+        let staleReusedOwnerRun = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": toolBin.path,
+                "TMPDIR": root.path,
+                "CMUX_AGENT_HOOK_DATE_BIN": fakeDate.path,
+                "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_TEST_CAPTURED_AT": capturedAt.path,
+                "CMUX_TEST_DONE": doneFile.path,
+                "CMUX_TEST_FALLBACK_LOCK": fallbackLock.path,
+                "CMUX_TEST_MKDIR_COUNT": mkdirAttemptCount.path,
+                "CMUX_TEST_LOCK_THRESHOLD": recoveryThresholdReached.path,
+            ],
+            standardInput: #"{"session_id":"codex-session","prompt":"stale reused owner timestamp"}"#,
+            timeout: 4
+        )
+        #expect(!staleReusedOwnerRun.timedOut, Comment(rawValue: staleReusedOwnerRun.stderr))
+        #expect(staleReusedOwnerRun.status == 0, Comment(rawValue: staleReusedOwnerRun.stderr))
+        #expect(staleReusedOwnerRun.stdout == "{}\n")
+        #expect(waitForFileLineCount(capturedAt, count: 4, timeout: 3))
+
         let rawCapturedTimes = try String(contentsOf: capturedAt, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
             .map(String.init)
-        #expect(rawCapturedTimes.count == 3)
+        #expect(rawCapturedTimes.count == 4)
         let capturedTimes = try rawCapturedTimes.map { rawValue in
             let value = try #require(Double(rawValue))
             #expect(value.isFinite && value > 0, Comment(rawValue: rawValue))
             #expect(rawValue.hasPrefix("1893456000."), Comment(rawValue: rawValue))
             return value
         }
-        #expect(capturedTimes[0] < capturedTimes[1], Comment(rawValue: rawCapturedTimes.joined(separator: ",")))
+        for (earlier, later) in zip(capturedTimes, capturedTimes.dropFirst()) {
+            #expect(earlier < later, Comment(rawValue: rawCapturedTimes.joined(separator: ",")))
+        }
+    }
+
+    @Test func codexProcessHarnessDrainsLargeInputAndOutputWithoutDeadlock() {
+        let byteCount = 256 * 1024
+        let script = """
+        import os
+        import sys
+        sys.stdin.buffer.read()
+        os.write(1, b"x" * \(byteCount))
+        os.write(2, b"y" * \(byteCount))
+        """
+        let result = runCodexHookProcess(
+            executablePath: "/usr/bin/python3",
+            arguments: ["-c", script],
+            environment: ["PATH": "/usr/bin:/bin"],
+            standardInput: String(repeating: "i", count: byteCount),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.utf8.count == byteCount)
+        #expect(result.stderr.utf8.count == byteCount)
     }
 
     @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
@@ -645,6 +703,105 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["agentLifecycle"] as? String == "idle")
         #expect(session["runtimeStatus"] as? String == "idle")
         #expect(session["runtimeStatusEventTime"] as? Double == idleStopEventTime)
+    }
+
+    @Test func codexOlderStopDoesNotMutateNewerRunningSessionMetadata() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-stale-stop-metadata-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("codex-meta")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-stale-stop-metadata-session"
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let newerRunningEventTime: TimeInterval = 200
+        let staleStopEventTime: TimeInterval = 100
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": "/newer/running/cwd",
+                    "pid": 4242,
+                    "agentLifecycle": "running",
+                    "lastSubtitle": "Newer running subtitle",
+                    "lastBody": "Newer running body",
+                    "lastNotificationStatus": "error",
+                    "runtimeStatus": "running",
+                    "runtimeStatusEventTime": newerRunningEventTime,
+                    "activePromptDepth": 1,
+                    "activePromptTurnId": "newer-turn",
+                    "activePromptTurnIds": ["newer-turn"],
+                    "lastPromptTurnId": "newer-turn",
+                    "startedAt": newerRunningEventTime,
+                    "updatedAt": newerRunningEventTime,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 8
+        )
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CODEX_PID": "5252",
+            ],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"older-turn","cwd":"/older/stop/cwd","hook_event_name":"Stop","timestamp":\#(staleStopEventTime),"last_assistant_message":"older completion"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let sentCommands = commands.snapshot()
+        #expect(!sentCommands.contains { $0.hasPrefix("set_status codex Idle ") })
+        #expect(!sentCommands.contains { $0.hasPrefix("set_agent_lifecycle codex idle ") })
+        #expect(!sentCommands.contains { $0.hasPrefix("notify_target") })
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        let session = try #require(sessions[sessionId] as? [String: Any])
+        #expect(session["cwd"] as? String == "/newer/running/cwd")
+        #expect(session["pid"] as? Int == 4242)
+        #expect(session["agentLifecycle"] as? String == "running")
+        #expect(session["lastSubtitle"] as? String == "Newer running subtitle")
+        #expect(session["lastBody"] as? String == "Newer running body")
+        #expect(session["lastNotificationStatus"] as? String == "error")
+        #expect(session["runtimeStatus"] as? String == "running")
+        #expect(session["runtimeStatusEventTime"] as? Double == newerRunningEventTime)
+        #expect(session["activePromptDepth"] as? Int == 1)
+        #expect(session["activePromptTurnId"] as? String == "newer-turn")
+        #expect(session["activePromptTurnIds"] as? [String] == ["newer-turn"])
+        #expect(session["terminalPromptTurnIds"] == nil)
+        #expect(session["updatedAt"] as? Double == newerRunningEventTime)
     }
 
     @Test func codexFarFutureISOEventTimeDoesNotPoisonRuntimeOrdering() throws {
