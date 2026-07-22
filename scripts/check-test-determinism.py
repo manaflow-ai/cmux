@@ -48,6 +48,7 @@ import json
 import pathlib
 import re
 import sys
+import tempfile
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -5514,6 +5515,46 @@ def _self_test() -> int:
             f"{RULE_SLEEP_THEN_ASSERT!r} "
             f"(got {sorted(project_real_clock_alias_rules)})"
         )
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        fixture_root = pathlib.Path(temporary_directory)
+        fixture_sources = {
+            "Packages/CmuxClock/Sources/CmuxClock/SystemUpdateClock.swift": (
+                "public struct SystemUpdateClock {\n"
+                "    public func sleep(for duration: Duration) async throws {\n"
+                "        try await Task.sleep(for: duration)\n"
+                "    }\n"
+                "}\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/SplitFixture.swift": (
+                "struct SplitFixture {\n"
+                "    let clock: SystemUpdateClock\n"
+                "}\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/SplitFixture+Refresh.swift": (
+                "extension SplitFixture {\n"
+                "    func verifyRefresh() async throws {\n"
+                "        try await self.clock.sleep(for: .milliseconds(300))\n"
+                "        #expect(widget.isRendered)\n"
+                "    }\n"
+                "}\n"
+            ),
+        }
+        for relative_path, source in fixture_sources.items():
+            fixture_path = fixture_root / relative_path
+            fixture_path.parent.mkdir(parents=True, exist_ok=True)
+            fixture_path.write_text(source, encoding="utf-8")
+
+        collection_rules = {
+            finding.rule
+            for finding in collect_findings(fixture_root, ("Packages",))
+        }
+        if RULE_SLEEP_THEN_ASSERT not in collection_rules:
+            failures.append(
+                "POSITIVE collected split-file project clock member: missing "
+                f"{RULE_SLEEP_THEN_ASSERT!r} "
+                f"(got {sorted(collection_rules)})"
+            )
 
     shadowed_project_clock_sources = [
         project_real_clock_sources[0],
