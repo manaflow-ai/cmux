@@ -848,10 +848,13 @@ impl ProviderMachineRuntime {
                 // selected machine failed. Keep the current mux transport and
                 // restart catalog updates against the fresh control client.
                 let mut ui = self.ui_state_for_open_connection();
-                ui.notice = Some(format!(
-                    "{}: {error}",
-                    localization::catalog().sidebar.machine_reconnect_failed
-                ));
+                append_notice(
+                    &mut ui.notice,
+                    format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_reconnect_failed
+                    ),
+                );
                 Ok(MachineActionResult {
                     ui,
                     replacement: None,
