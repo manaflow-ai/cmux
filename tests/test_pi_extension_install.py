@@ -311,6 +311,7 @@ if (await completionHookCount() !== completionCount) throw new Error("agent_sett
 await handlers.get("agent_settled")({}, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("duplicate agent_settled emitted completion twice");
 await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("shutdown after settlement emitted a duplicate stop");
 const interruptedCtx = {
   cwd: "/tmp/pi-project",
   isIdle() { return true; },
