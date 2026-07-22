@@ -218,6 +218,10 @@ _LOCAL_SCOPE_HEADER = re.compile(
 _CONDITIONAL_SCOPE_HEADER = re.compile(
     r"^\s*(?:}\s*else\s+)?(?:if|while|for)\b"
 )
+_SWITCH_SCOPE_HEADER = re.compile(r"^\s*switch\b")
+_SWITCH_CASE_HEADER = re.compile(
+    r"^\s*(?:@unknown\s+)?(?:case\b|default\s*:)"
+)
 _COMPILATION_DIRECTIVE = re.compile(r"^\s*#(if|elseif|else|endif)\b")
 _TYPE_SCOPE_HEADER = re.compile(
     r"\b(struct|class|actor|enum|extension|protocol)\s+"
@@ -833,10 +837,10 @@ def _has_explicit_real_member(
 ) -> bool:
     """Find this type's explicit real-clock member, independent of file order."""
     depth = 0
-    pending_type: Optional[tuple[str, bool]] = None
-    active_types: list[tuple[str, int, bool]] = []
+    pending_type: Optional[str] = None
+    active_types: list[tuple[str, int]] = []
     call_type: Optional[str] = None
-    call_is_extension = False
+    explicit_member_types: set[str] = set()
     real_member_types: set[str] = set()
 
     for line_index, candidate in enumerate(masked_lines):
@@ -850,7 +854,7 @@ def _has_explicit_real_member(
                 and active_types
             ):
                 declared_type = f"{active_types[-1][0]}.{declared_type}"
-            pending_type = (declared_type, type_kind == "extension")
+            pending_type = declared_type
         events: list[tuple[int, str, Optional[str]]] = []
         events.extend(
             (position, "binding", declaration)
@@ -871,12 +875,10 @@ def _has_explicit_real_member(
             if event == "call":
                 if active_types:
                     call_type = active_types[-1][0]
-                    call_is_extension = active_types[-1][2]
             elif event == "{":
                 depth += 1
                 if pending_type is not None:
-                    type_name, is_extension = pending_type
-                    active_types.append((type_name, depth, is_extension))
+                    active_types.append((pending_type, depth))
                     pending_type = None
             elif event == "}":
                 if active_types and active_types[-1][1] == depth:
@@ -886,19 +888,22 @@ def _has_explicit_real_member(
                 declaration is not None
                 and active_types
                 and depth == active_types[-1][1]
-                and _receiver_declaration_kind(
-                    declaration, masked_lines[line_index + 1 :]
-                )
             ):
-                real_member_types.add(active_types[-1][0])
+                type_name = active_types[-1][0]
+                explicit_member_types.add(type_name)
+                if _receiver_declaration_kind(
+                    declaration, masked_lines[line_index + 1 :]
+                ):
+                    real_member_types.add(type_name)
 
     if call_type is None:
         return False
     if call_type in real_member_types:
         return True
+    if call_type in explicit_member_types:
+        return False
     return bool(
-        call_is_extension
-        and external_real_members is not None
+        external_real_members is not None
         and receiver in external_real_members.get(call_type, set())
     )
 
@@ -988,6 +993,7 @@ def _resolve_named_receiver_kind(
     pending_function_paren_depth = 0
     pending_function_saw_parameters = False
     pending_conditional: Optional[dict[str, bool]] = None
+    pending_switch = False
     compilation_frames: list[_CompilationScopeFrame] = []
 
     for candidate_index, candidate in enumerate(prefix_lines):
@@ -1015,6 +1021,14 @@ def _resolve_named_receiver_kind(
                 scope_kinds = list(frame.base_scope_kinds)
             continue
 
+        if _SWITCH_CASE_HEADER.match(candidate):
+            if len(scopes) > 1 and scope_kinds[-1] == "case":
+                scopes.pop()
+                scope_kinds.pop()
+            if scope_kinds[-1] == "switch":
+                scopes.append({})
+                scope_kinds.append("case")
+
         if _LOCAL_SCOPE_HEADER.search(candidate):
             pending_function = True
             pending_parameter = _annotated_receiver_kind(candidate, receiver)
@@ -1027,6 +1041,8 @@ def _resolve_named_receiver_kind(
             for_binding = _FOR_SCOPE_BINDING.search(candidate)
             if for_binding and for_binding.group(1) == receiver:
                 pending_conditional[receiver] = False
+        if _SWITCH_SCOPE_HEADER.search(candidate):
+            pending_switch = True
 
         events: list[tuple[int, str, Optional[str]]] = []
         events.extend(
@@ -1052,6 +1068,7 @@ def _resolve_named_receiver_kind(
                     pending_function_paren_depth -= 1
             elif event == "{":
                 is_conditional_body = pending_conditional is not None
+                is_switch_body = pending_switch
                 scope = dict(pending_conditional or {})
                 pending_conditional = None
                 is_function_body = bool(
@@ -1059,7 +1076,12 @@ def _resolve_named_receiver_kind(
                     and pending_function_saw_parameters
                     and pending_function_paren_depth == 0
                 )
-                scope_kind = "function" if is_function_body else "block"
+                if is_function_body:
+                    scope_kind = "function"
+                elif is_switch_body:
+                    scope_kind = "switch"
+                else:
+                    scope_kind = "block"
                 if is_function_body:
                     if pending_parameter is not None:
                         scope[receiver] = pending_parameter
@@ -1067,8 +1089,14 @@ def _resolve_named_receiver_kind(
                     pending_parameter = None
                     pending_function_paren_depth = 0
                     pending_function_saw_parameters = False
+                if is_switch_body:
+                    pending_switch = False
                 closure_kind = None
-                if not is_function_body and not is_conditional_body:
+                if not (
+                    is_function_body
+                    or is_conditional_body
+                    or is_switch_body
+                ):
                     closure_header = _closure_header_text(
                         candidate[pos + 1 :],
                         prefix_lines[candidate_index + 1 :],
@@ -1096,6 +1124,9 @@ def _resolve_named_receiver_kind(
                 scopes.append(scope)
                 scope_kinds.append(scope_kind)
             elif event == "}":
+                if len(scopes) > 1 and scope_kinds[-1] == "case":
+                    scopes.pop()
+                    scope_kinds.pop()
                 if len(scopes) > 1:
                     scopes.pop()
                     scope_kinds.pop()
