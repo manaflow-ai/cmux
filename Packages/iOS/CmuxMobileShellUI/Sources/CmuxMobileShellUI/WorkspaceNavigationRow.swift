@@ -70,6 +70,17 @@ struct WorkspaceNavigationRow: View {
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(workspace.name)
         .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
+        .accessibilityActions {
+            if customizeWorkspace != nil {
+                Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
+                    isCustomizing = true
+                }
+            } else if renameWorkspace != nil {
+                Button(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename")) {
+                    isRenaming = true
+                }
+            }
+        }
         .sheet(isPresented: $isRenaming) {
             WorkspaceRenameSheet(currentName: workspace.name) { newName in
                 renameWorkspace?(workspace.id, newName)
