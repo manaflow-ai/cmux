@@ -1046,15 +1046,19 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             workspaceId: UUID(),
             initialInput: "echo resume\n"
         )
+        defer { panel.surface.teardownSurface() }
 
         XCTAssertTrue(
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertTrue(
+            waitForRuntimeSurfaceCreateAttempt(panel.surface),
             "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
+        )
+        XCTAssertNil(
+            panel.surface.uiWindow,
+            "The runtime start must not have needed a real window: the bootstrap window does not count as one."
         )
     }
 
@@ -1063,15 +1067,19 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             workspaceId: UUID(),
             initialCommand: "echo startup"
         )
+        defer { panel.surface.teardownSurface() }
 
         XCTAssertTrue(
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertTrue(
+            waitForRuntimeSurfaceCreateAttempt(panel.surface),
             "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
+        )
+        XCTAssertNil(
+            panel.surface.uiWindow,
+            "The runtime start must not have needed a real window: the bootstrap window does not count as one."
         )
     }
 
@@ -1497,14 +1505,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
-        MobileHostService.shared.start()
-        defer {
-            MobileHostService.shared.stop()
-        }
-        guard await waitForMobileHostRoutesForTesting() else {
-            XCTFail("Expected mobile host to publish routes before creating attach ticket")
-            return
-        }
+        defer { MobileHostPublicStatusCache.removeAll() }
+        try publishLoopbackMobileHostRouteForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1533,14 +1535,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
-        MobileHostService.shared.start()
-        defer {
-            MobileHostService.shared.stop()
-        }
-        guard await waitForMobileHostRoutesForTesting() else {
-            XCTFail("Expected mobile host to publish routes before creating attach ticket")
-            return
-        }
+        defer { MobileHostPublicStatusCache.removeAll() }
+        try publishLoopbackMobileHostRouteForTesting()
 
         let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let backgroundWorkspace = manager.addWorkspace(
@@ -1579,14 +1575,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
-        MobileHostService.shared.start()
-        defer {
-            MobileHostService.shared.stop()
-        }
-        guard await waitForMobileHostRoutesForTesting() else {
-            XCTFail("Expected mobile host to publish routes before creating attach ticket")
-            return
-        }
+        defer { MobileHostPublicStatusCache.removeAll() }
+        try publishLoopbackMobileHostRouteForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1742,25 +1732,42 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 #endif
 
-    private func waitForMobileHostRoutesForTesting() async -> Bool {
-        for _ in 0..<200 {
-            let response = await TerminalController.shared.mobileHostHandleRPC(
-                MobileHostRPCRequest(
-                    id: "status",
-                    method: "mobile.host.status",
-                    params: [:],
-                    auth: nil
-                )
-            )
-            if case let .ok(rawPayload) = response,
-               let payload = rawPayload as? [String: Any],
-               let routes = payload["routes"] as? [[String: Any]],
-               !routes.isEmpty {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: 10_000_000)
+    /// Publishes the loopback route the attach-ticket path reads.
+    ///
+    /// This replaces a wait on `mobile.host.status`, which cannot succeed: that method is the
+    /// unauthenticated probe and deliberately discloses no routes at all, so the old predicate was
+    /// unsatisfiable rather than slow. Seeding the cache directly also keeps these tests off a real
+    /// listener bind, which is what they want anyway -- an attach ticket only needs a non-empty
+    /// `MobileHostPublicStatusCache`.
+    private func publishLoopbackMobileHostRouteForTesting(port: Int = 8_765) throws {
+        let route = try CmxAttachRoute(
+            id: CmxAttachTransportKind.debugLoopback.rawValue,
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: port),
+            priority: 0
+        )
+        MobileHostPublicStatusCache.update(routes: [route])
+        XCTAssertFalse(
+            MobileHostPublicStatusCache.snapshot().isEmpty,
+            "Seeding the public status cache is the precondition the attach-ticket path reads."
+        )
+    }
+
+    /// Waits for the first runtime-creation attempt.
+    ///
+    /// A startup surface installs its per-surface `claude` wrapper shim on a detached task and only
+    /// calls `createSurface` once that finishes, so the attempt lands one async hop after the
+    /// initializer returns rather than synchronously inside it.
+    private func waitForRuntimeSurfaceCreateAttempt(
+        _ surface: TerminalSurface,
+        timeout: TimeInterval = 5
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
-        return false
+        return surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0
     }
 }
 
