@@ -6,7 +6,7 @@
 //! pane's border is highlighted — this is also where flashing
 //! notifications will hook in later.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cmux_tui_core::{BrowserStatus, Rect, SurfaceKind};
 use ghostty_vt::RenderState;
@@ -78,27 +78,37 @@ pub(crate) fn client_border_labels(clients: &[ClientInfo]) -> HashMap<u64, Strin
         .collect()
 }
 
-/// Draw every pane of the current frame. Returns the terminal cursor
-/// position for the focused pane, if visible.
-pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
+#[derive(Default)]
+pub struct DrawCursors {
+    pub input: Option<(u16, u16)>,
+    pub terminal: Option<(u16, u16)>,
+}
+
+/// Draw every pane of the current frame and return its visible input cursors.
+pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
     let areas = app.pane_areas.clone();
-    app.rendered_terminal_bounds
-        .retain(|surface, _| areas.iter().any(|area| area.surface == *surface));
-    let mut cursor = None;
+    let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
+    app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
+    let mut input_cursor = None;
+    let mut terminal_cursor = None;
     for area in &areas {
         let focused = Some(area.pane) == active_pane;
         draw_box(app, frame, area, focused);
         if area.bar.is_some() {
             draw_tab_bar(app, frame, area, focused);
         }
-        if let Some(c) = draw_content(app, frame, area, focused) {
-            cursor = Some(c);
+        let cursors = draw_content(app, frame, area, focused);
+        if cursors.input.is_some() {
+            input_cursor = cursors.input;
+        }
+        if cursors.terminal.is_some() {
+            terminal_cursor = cursors.terminal;
         }
         draw_scrollbar(app, frame, area, focused);
         push_resize_hits(app, area);
     }
-    cursor
+    DrawCursors { input: input_cursor, terminal: terminal_cursor }
 }
 
 /// The pane's border box. The top row is left to the tab bar; here we
@@ -326,23 +336,20 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
 
 /// Draw one pane's terminal content; returns the frame cursor position
 /// when this pane is focused and its cursor is visible.
-fn draw_content(
-    app: &mut App,
-    frame: &mut Frame,
-    area: &PaneArea,
-    focused: bool,
-) -> Option<(u16, u16)> {
+fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) -> DrawCursors {
     let rect = area.content;
     app.rendered_terminal_bounds.remove(&area.surface);
     if rect.width == 0 || rect.height == 0 {
-        return None;
+        return DrawCursors::default();
     }
-    let surface = app.session.surface(area.surface)?;
+    let Some(surface) = app.session.surface(area.surface) else {
+        return DrawCursors::default();
+    };
     surface.take_dirty();
     if surface.kind() == SurfaceKind::Browser {
-        super::omnibar::draw(app, frame, area);
+        let cursor = super::omnibar::draw(app, frame, area);
         draw_browser_content(app, frame, area, &surface);
-        return None;
+        return DrawCursors { input: cursor.filter(|_| focused), terminal: None };
     }
 
     let selection: Option<Selection> =
@@ -354,7 +361,9 @@ fn draw_content(
         .render_states
         .entry(area.surface)
         .or_insert_with(|| RenderState::new().expect("render state alloc"));
-    let render = surface.render_frame(rs).ok()?;
+    let Ok(render) = surface.render_frame(rs) else {
+        return DrawCursors::default();
+    };
     let live = super::terminal_grid::rendered_viewport_rect(rect, frame.area(), &render);
     app.rendered_terminal_bounds.insert(area.surface, live);
 
@@ -366,7 +375,7 @@ fn draw_content(
         &app.chrome,
         |col, row| selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
     );
-    focused.then_some(cursor).flatten()
+    DrawCursors { input: None, terminal: focused.then_some(cursor).flatten() }
 }
 
 fn draw_browser_content(
