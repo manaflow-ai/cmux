@@ -405,6 +405,42 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func workspaceDescriptionLinkPolicyAllowsOnlyWebURLs() throws {
+        let httpURL = try #require(URL(string: "http://example.com"))
+        let httpsURL = try #require(URL(string: "https://example.com"))
+        let fileURL = try #require(URL(string: "file:///tmp/not-ok.command"))
+        let customURL = try #require(URL(string: "x-custom://open"))
+
+        #expect(SidebarWorkspaceDescriptionLinkPolicy.canOpen(httpURL))
+        #expect(SidebarWorkspaceDescriptionLinkPolicy.canOpen(httpsURL))
+        #expect(!SidebarWorkspaceDescriptionLinkPolicy.canOpen(fileURL))
+        #expect(!SidebarWorkspaceDescriptionLinkPolicy.canOpen(customURL))
+    }
+
+    @Test
+    func workspaceDescriptionFileURLClickIsIgnoredByOpenPolicy() throws {
+        let url = try #require(URL(string: "file:///tmp/not-ok.command"))
+        let model = Self.makeModel(customDescription: "[launch](\(url.absoluteString))")
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { candidate in
+                guard SidebarWorkspaceDescriptionLinkPolicy.canOpen(candidate) else { return }
+                openedURL = candidate
+            }
+        )
+        _ = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+
+        try Self.click(
+            textView,
+            at: NSPoint(x: min(12, textView.bounds.width / 2), y: textView.bounds.midY)
+        )
+
+        #expect(openedURL == nil)
+    }
+
+    @Test
     func hoverEnforcementShortCircuitsWhenAlreadyCorrect() {
         let model = Self.makeModel()
         let cell = Self.configuredCell(model: model)

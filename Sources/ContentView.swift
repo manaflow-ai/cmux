@@ -11622,6 +11622,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 NSWorkspace.shared.open(url)
             },
             onOpenWorkspaceDescriptionURL: { url in
+                guard SidebarWorkspaceDescriptionLinkPolicy.canOpen(url) else { return }
                 NSWorkspace.shared.open(url)
             },
             onOpenPullRequest: { [prefer = input.settings.openPullRequestLinksInCmuxBrowser] url in
