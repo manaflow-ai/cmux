@@ -3,8 +3,93 @@ import CmuxMobilePairedMac
 import CmuxMobileSupport
 import SwiftUI
 
-/// Keeps the Mac and folder on one compact route so both remain visible while typing.
+/// Groups the optional workspace title with the Mac and directory that define
+/// where the task will run.
 struct TaskComposerContextSection: View {
+    @Binding var workspaceName: String
+    let machines: [MobilePairedMac]
+    let selectedMacDeviceID: String
+    let directory: String
+    let isDisabled: Bool
+    let selectMachine: (MobilePairedMac) -> Void
+    let selectDirectory: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TaskComposerWorkspaceNameField(
+                workspaceName: $workspaceName,
+                isDisabled: isDisabled
+            )
+
+            Divider()
+                .padding(.horizontal, 10)
+
+            TaskComposerRoutePicker(
+                machines: machines,
+                selectedMacDeviceID: selectedMacDeviceID,
+                directory: directory,
+                isDisabled: isDisabled,
+                selectMachine: selectMachine,
+                selectDirectory: selectDirectory
+            )
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .shadow(color: Color.black.opacity(0.04), radius: 12, y: 5)
+    }
+}
+
+private struct TaskComposerWorkspaceNameField: View {
+    @Binding var workspaceName: String
+    let isDisabled: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "rectangle.and.pencil.and.ellipsis")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.indigo)
+                .frame(width: 28, height: 28)
+                .background(Color.indigo.opacity(0.12), in: Circle())
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(L10n.string("mobile.taskComposer.workspaceName", defaultValue: "Workspace name"))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                TextField(
+                    L10n.string(
+                        "mobile.taskComposer.workspaceName.generatedPlaceholder",
+                        defaultValue: "Generated from prompt"
+                    ),
+                    text: $workspaceName
+                )
+                .textFieldStyle(.plain)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .textInputAutocapitalization(.words)
+                .submitLabel(.done)
+                .disabled(isDisabled)
+                .accessibilityLabel(
+                    L10n.string(
+                        "mobile.taskComposer.workspaceName",
+                        defaultValue: "Workspace name"
+                    )
+                )
+                .accessibilityIdentifier("MobileTaskComposerWorkspaceName")
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+}
+
+private struct TaskComposerRoutePicker: View {
     let machines: [MobilePairedMac]
     let selectedMacDeviceID: String
     let directory: String
@@ -65,13 +150,6 @@ struct TaskComposerContextSection: View {
             .accessibilityIdentifier("MobileTaskComposerDirectory")
         }
         .padding(10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
-                .allowsHitTesting(false)
-        }
-        .shadow(color: Color.black.opacity(0.04), radius: 12, y: 5)
     }
 
     @ViewBuilder

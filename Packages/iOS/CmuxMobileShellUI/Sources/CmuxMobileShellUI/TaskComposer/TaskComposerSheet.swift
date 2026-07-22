@@ -198,7 +198,6 @@ struct TaskComposerSheet: View {
                     VStack(spacing: 12) {
                         TaskComposerPromptCard(
                             prompt: promptBinding,
-                            workspaceName: workspaceNameBinding,
                             placeholder: promptPlaceholder,
                             isDisabled: submissionPhase.disablesRequestEditing,
                             templates: templates,
@@ -208,6 +207,7 @@ struct TaskComposerSheet: View {
                         )
 
                         TaskComposerContextSection(
+                            workspaceName: workspaceNameBinding,
                             machines: machines,
                             selectedMacDeviceID: selectedMacDeviceID,
                             directory: directory,

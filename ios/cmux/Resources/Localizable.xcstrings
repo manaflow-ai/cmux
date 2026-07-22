@@ -9775,19 +9775,19 @@
         }
       }
     },
-    "mobile.taskComposer.workspaceName.placeholder": {
+    "mobile.taskComposer.workspaceName.generatedPlaceholder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace name (optional)"
+            "value": "Generated from prompt"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペース名（任意）"
+            "value": "プロンプトから自動生成"
           }
         }
       }

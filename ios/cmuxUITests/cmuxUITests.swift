@@ -1010,10 +1010,22 @@ final class cmuxUITests: XCTestCase {
 
         let workspaceName = app.textFields["MobileTaskComposerWorkspaceName"]
         XCTAssertTrue(workspaceName.waitForExistence(timeout: 8))
-        try typeText("Release checklist", into: workspaceName, in: app)
-
         let prompt = app.textFields["MobileTaskComposerPrompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 3))
+        let machine = app.buttons["MobileTaskComposerMachineMenu"]
+        XCTAssertTrue(machine.waitForExistence(timeout: 3))
+        XCTAssertGreaterThan(
+            workspaceName.frame.minY,
+            prompt.frame.maxY,
+            "Workspace name should sit outside and below the prompt canvas"
+        )
+        XCTAssertLessThan(
+            workspaceName.frame.maxY,
+            machine.frame.minY,
+            "Workspace name should lead the workspace context card"
+        )
+
+        try typeText("Release checklist", into: workspaceName, in: app)
         try typeText("Verify the release", into: prompt, in: app)
 
         let create = app.buttons["MobileTaskComposerCreateButton"]
