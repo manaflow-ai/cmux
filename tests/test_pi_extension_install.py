@@ -333,6 +333,7 @@ if (await completionHookCount() !== completionCount) throw new Error("interrupte
 await handlers.get("agent_settled")({}, interruptedCtx);
 if (await completionHookCount() !== completionCount) throw new Error("late settlement emitted completion after shutdown");
 process.env.CMUX_PI_HOOKS_DISABLED = "1";
+const disabledCompletionCount = await completionHookCount();
 const disabledCtx = {
   cwd: "/tmp/pi-project",
   isIdle() { return true; },
@@ -342,6 +343,7 @@ const disabledCtx = {
 };
 await handlers.get("session_start")({}, disabledCtx);
 await handlers.get("session_shutdown")({ reason: "disabled" }, disabledCtx);
+if (await completionHookCount() !== disabledCompletionCount) throw new Error("hooks-disabled mode emitted completion hooks");
 delete process.env.CMUX_PI_HOOKS_DISABLED;
 const notificationFailureCtx = {
   cwd: "/tmp/pi-project",
