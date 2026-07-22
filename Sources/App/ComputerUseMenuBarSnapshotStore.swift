@@ -113,7 +113,10 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             return
         }
 
-        let entries = liveAgentIndex.currentIndexSchedulingRefresh()?.liveEntries() ?? []
+        // Shared-index change notifications already drive this projection. Reading
+        // the cache here must not schedule another machine-wide process scan: state
+        // files can be rewritten many times per second during computer use.
+        let entries = liveAgentIndex.index?.liveEntries() ?? []
         let pending = entries.map { pair in
             let snapshot = pair.entry.snapshot
             let rootPIDs = pair.entry.agentProcessIDs.isEmpty ? pair.entry.processIDs : pair.entry.agentProcessIDs
