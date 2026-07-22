@@ -32,8 +32,6 @@ use std::ffi::CStr;
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
 use std::net::Shutdown;
-#[cfg(unix)]
-use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,7 +48,6 @@ use machine_provider_client::{
 use machine_provider_runtime::ProviderMachineController;
 use machine_runtime::MachineRuntime;
 use session::{RemoteSession, Session};
-#[cfg(unix)]
 use zeroize::Zeroize;
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -159,6 +156,75 @@ fn remove_secret_environment_variable(name: &str) {
     // Startup calls this before creating runtime threads. The connector or
     // provider-managed mux already owns any credential selected for this mode.
     unsafe { std::env::remove_var(name) };
+}
+
+fn take_secret_environment_variable(name: &str) -> Option<OsString> {
+    let value = std::env::var_os(name);
+    remove_secret_environment_variable(name);
+    value
+}
+
+fn zeroize_os_string(value: OsString) {
+    let mut bytes = value.into_encoded_bytes();
+    bytes.zeroize();
+}
+
+#[cfg(unix)]
+struct CapturedProviderToken(Option<OsString>);
+
+#[cfg(unix)]
+impl CapturedProviderToken {
+    fn capture() -> Self {
+        Self(take_secret_environment_variable(MACHINE_PROVIDER_TOKEN_ENV))
+    }
+
+    #[cfg(test)]
+    fn from_value(value: OsString) -> Self {
+        Self(Some(value))
+    }
+
+    fn into_bearer(mut self) -> anyhow::Result<Option<BearerToken>> {
+        self.0.take().map(parse_provider_token).transpose()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for CapturedProviderToken {
+    fn drop(&mut self) {
+        if let Some(value) = self.0.take() {
+            zeroize_os_string(value);
+        }
+    }
+}
+
+struct CapturedProviderWorkspaceAuthority(Option<OsString>);
+
+impl CapturedProviderWorkspaceAuthority {
+    fn capture() -> Self {
+        Self(take_secret_environment_variable(PROVIDER_WORKSPACE_AUTHORITY_ENV))
+    }
+
+    fn into_authority(mut self) -> anyhow::Result<Option<ProviderWorkspaceAuthority>> {
+        if self.0.is_none() {
+            return Ok(None);
+        }
+        require_non_dumpable_provider_process()?;
+        let mut bytes = self.0.take().expect("presence checked").into_encoded_bytes();
+        let value = std::str::from_utf8(&bytes)
+            .map(str::to_owned)
+            .map_err(|_| anyhow::anyhow!("provider workspace authority is not valid UTF-8"));
+        bytes.zeroize();
+        let value = value?;
+        ProviderWorkspaceAuthority::new(value).map(Some)
+    }
+}
+
+impl Drop for CapturedProviderWorkspaceAuthority {
+    fn drop(&mut self) {
+        if let Some(value) = self.0.take() {
+            zeroize_os_string(value);
+        }
+    }
 }
 
 fn discard_provider_secret_environment() {
@@ -486,20 +552,13 @@ fn resolve_provider_launch(
 }
 
 #[cfg(unix)]
-fn provider_connector(launch: ProviderLaunch) -> anyhow::Result<Arc<dyn MachineProviderConnector>> {
-    provider_connector_with_unix_token(launch, std::env::var_os(MACHINE_PROVIDER_TOKEN_ENV))
-}
-
-#[cfg(unix)]
 fn provider_connector_with_unix_token(
     launch: ProviderLaunch,
-    unix_token: Option<OsString>,
+    unix_token: CapturedProviderToken,
 ) -> anyhow::Result<Arc<dyn MachineProviderConnector>> {
     let connector: Arc<dyn MachineProviderConnector> = match launch {
-        ProviderLaunch::Unix(socket) => match unix_token {
-            Some(token) => {
-                Arc::new(UnixProviderConnector::new(socket, parse_provider_token(token)?))
-            }
+        ProviderLaunch::Unix(socket) => match unix_token.into_bearer()? {
+            Some(token) => Arc::new(UnixProviderConnector::new(socket, token)),
             None => Arc::new(UnixProviderConnector::generated(socket)),
         },
         ProviderLaunch::Command(command) => Arc::new(CommandProviderConnector::new(command)?),
@@ -515,42 +574,13 @@ fn provider_connector_with_unix_token(
 
 #[cfg(unix)]
 fn parse_provider_token(value: OsString) -> anyhow::Result<BearerToken> {
-    let value = value
-        .into_string()
-        .map_err(|_| anyhow::anyhow!("machine-provider credential is not valid UTF-8"))?;
+    let mut bytes = value.into_encoded_bytes();
+    let value = std::str::from_utf8(&bytes)
+        .map(str::to_owned)
+        .map_err(|_| anyhow::anyhow!("machine-provider credential is not valid UTF-8"));
+    bytes.zeroize();
+    let value = value?;
     BearerToken::new(value).map_err(|_| anyhow::anyhow!("machine-provider credential is invalid"))
-}
-
-fn take_provider_workspace_authority() -> anyhow::Result<Option<ProviderWorkspaceAuthority>> {
-    #[cfg(target_os = "linux")]
-    {
-        if !linux_environment_variable_present(PROVIDER_WORKSPACE_AUTHORITY_ENV.as_bytes()) {
-            return Ok(None);
-        }
-        require_non_dumpable_provider_process()?;
-    }
-    let Some(value) = std::env::var_os(PROVIDER_WORKSPACE_AUTHORITY_ENV) else {
-        return Ok(None);
-    };
-    #[cfg(not(target_os = "linux"))]
-    require_non_dumpable_provider_process()?;
-    // The mux owns the parsed credential now. Scrub the inherited copy before
-    // a terminal surface or helper process can inherit it.
-    remove_secret_environment_variable(PROVIDER_WORKSPACE_AUTHORITY_ENV);
-    #[cfg(unix)]
-    let value = {
-        let mut bytes = value.into_vec();
-        let decoded = std::str::from_utf8(&bytes)
-            .map(str::to_owned)
-            .map_err(|_| anyhow::anyhow!("provider workspace authority is not valid UTF-8"));
-        bytes.zeroize();
-        decoded?
-    };
-    #[cfg(not(unix))]
-    let value = value
-        .into_string()
-        .map_err(|_| anyhow::anyhow!("provider workspace authority is not valid UTF-8"))?;
-    ProviderWorkspaceAuthority::new(value).map(Some)
 }
 
 fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
@@ -614,6 +644,9 @@ fn main() {
         std::process::exit(cli::run(&raw_args, USAGE));
     }
     let args = parse_args(raw_args);
+    #[cfg(unix)]
+    let provider_token = CapturedProviderToken::capture();
+    let provider_workspace_authority = CapturedProviderWorkspaceAuthority::capture();
     let config = config::load();
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
@@ -624,20 +657,21 @@ fn main() {
             let connect_external = launch.enables_client_machine_connect();
             let local_machines =
                 if connect_external { config.machines.clone() } else { Vec::new() };
-            Ok((provider_connector(launch)?, local_machines, connect_external))
+            Ok((
+                provider_connector_with_unix_token(launch, provider_token)?,
+                local_machines,
+                connect_external,
+            ))
         })
         .transpose()
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
     let provider_workspace_authority = if provider.is_none() && !args.attach {
-        take_provider_workspace_authority().unwrap_or_else(|error| usage_exit(&error.to_string()))
+        provider_workspace_authority
+            .into_authority()
+            .unwrap_or_else(|error| usage_exit(&error.to_string()))
     } else {
-        remove_secret_environment_variable(PROVIDER_WORKSPACE_AUTHORITY_ENV);
         None
     };
-    // The selected connector owns its parsed token now. Remove both ambient
-    // provider variables before any worker, provider, or shell can inherit them.
-    #[cfg(unix)]
-    remove_secret_environment_variable(MACHINE_PROVIDER_TOKEN_ENV);
     #[cfg(not(unix))]
     if provider.is_some() {
         validate_provider_process_args(&args)
@@ -1083,7 +1117,7 @@ mod tests {
         let listener = UnixListener::bind(&socket).unwrap();
         let connector = provider_connector_with_unix_token(
             ProviderLaunch::Unix(socket.clone()),
-            Some(OsString::from("edge-fixed-token")),
+            CapturedProviderToken::from_value(OsString::from("edge-fixed-token")),
         )
         .unwrap();
 
@@ -1137,7 +1171,8 @@ mod tests {
             harden_provider_secret_process().unwrap();
             let dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
             assert_eq!(dumpable, 0);
-            let authority = take_provider_workspace_authority().unwrap().unwrap();
+            let authority =
+                CapturedProviderWorkspaceAuthority::capture().into_authority().unwrap().unwrap();
             assert_eq!(format!("{authority:?}"), "ProviderWorkspaceAuthority([redacted])");
             remove_secret_environment_variable(MACHINE_PROVIDER_TOKEN_ENV);
             assert!(std::env::var_os(MACHINE_PROVIDER_TOKEN_ENV).is_none());
