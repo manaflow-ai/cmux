@@ -310,6 +310,16 @@ final class WorkspaceContentViewVisibilityTests {
         let restoreBody = try Self.functionBody(named: "attemptCommandPaletteFocusRestoreIfNeeded", in: contentViewSource)
         #expect(
             restoreBody.contains(
+                "guard tabManager.selectedTabId == nil || tabManager.selectedTabId == target.workspaceId else {\n            commandPaletteFocusRestoreCoordinator.clear()"
+            )
+        )
+        #expect(
+            restoreBody.contains(
+                "guard targetWorkspace.focusedPanelId == nil || targetWorkspace.focusedPanelId == target.panelId else {\n            commandPaletteFocusRestoreCoordinator.clear()"
+            )
+        )
+        #expect(
+            restoreBody.contains(
                 "guard targetWorkspace.panels[target.panelId] != nil else {\n            commandPaletteFocusRestoreCoordinator.clear()"
             )
         )

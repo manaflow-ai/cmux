@@ -9453,6 +9453,14 @@ struct ContentView: View {
             commandPaletteFocusRestoreCoordinator.clear()
             return
         }
+        guard tabManager.selectedTabId == nil || tabManager.selectedTabId == target.workspaceId else {
+            commandPaletteFocusRestoreCoordinator.clear()
+            return
+        }
+        guard targetWorkspace.focusedPanelId == nil || targetWorkspace.focusedPanelId == target.panelId else {
+            commandPaletteFocusRestoreCoordinator.clear()
+            return
+        }
         guard targetWorkspace.panels[target.panelId] != nil else {
             commandPaletteFocusRestoreCoordinator.clear()
             return
