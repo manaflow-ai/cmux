@@ -2,7 +2,14 @@ import Foundation
 @testable import CmuxArtifacts
 
 actor SidebarCaptureSpy: ArtifactCapturing {
-    private(set) var lastAdd: SidebarCaptureAddCall?
+    private let rejectedSourceURLs: Set<URL>
+    private(set) var addCallCount = 0
+    private(set) var addedSourceURLs: [URL] = []
+    private(set) var lastContext: ArtifactCaptureContext?
+
+    init(rejectedSourceURLs: Set<URL> = []) {
+        self.rejectedSourceURLs = rejectedSourceURLs
+    }
 
     func capture(
         candidates: [ArtifactCandidate],
@@ -17,7 +24,12 @@ actor SidebarCaptureSpy: ArtifactCapturing {
         context: ArtifactCaptureContext,
         capturedAt: Date
     ) throws -> ArtifactImportOutcome {
-        lastAdd = SidebarCaptureAddCall(sourceURL: sourceURL, context: context)
+        addCallCount += 1
+        addedSourceURLs.append(sourceURL)
+        lastContext = context
+        if rejectedSourceURLs.contains(sourceURL) {
+            throw ArtifactStoreError.unsupportedExtension(sourceURL.pathExtension)
+        }
         return .alreadyStored(ArtifactRecord(
             digest: "digest",
             sourcePath: sourceURL.path,
