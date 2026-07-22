@@ -241,10 +241,7 @@ extension TranscriptRenderingRegressionTests {
 
         #expect(controller.currentRows.count == 600)
         #expect(initialCount <= 24)
-        let fillDeadline = ContinuousClock.now + .seconds(10)
-        while controller.heightCache.count < 600, ContinuousClock.now < fillDeadline {
-            await Task.yield()
-        }
+        await Self.awaitInitialPaint(in: controller, expectedRowCount: 600)
         #expect(controller.heightCache.count == 600)
         #expect(controller.backgroundLayoutComputationCount == 600)
         controller.collectionView.setContentOffset(
@@ -259,6 +256,59 @@ extension TranscriptRenderingRegressionTests {
         controller.collectionView.layoutIfNeeded()
         #expect(controller.layoutComputationCount - initialCount == 1)
         #expect(controller.heightCache.count == 600)
+    }
+
+    @Test func initialLayoutWidthMismatchReschedulesAndReachesFirstPaint() async {
+        let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
+        let container = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = container
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        container.addChild(controller)
+        controller.view.frame = container.view.bounds
+        container.view.addSubview(controller.view)
+        controller.didMove(toParent: container)
+        Self.pumpLayoutHarnessRunLoop()
+
+        controller.apply(input: TranscriptProjectionInput(entries: Self.perfEntries(tailRevision: 0)))
+        controller.scrollToBottom(animated: false)
+        controller.view.frame.size.width = 430
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        await Self.awaitInitialPaint(in: controller, expectedRowCount: 600)
+
+        #expect(controller.dataSource.snapshot().itemIdentifiers.count == 600)
+        #expect(controller.initialLayoutTask == nil)
+        #expect(controller.initialLayoutBatchCount == 2)
+        #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
+    }
+
+    @Test func repeatedStreamingAppliesReusePendingInitialBatchAndReachFirstPaint() async {
+        let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
+        let container = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = container
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        container.addChild(controller)
+        controller.view.frame = container.view.bounds
+        container.view.addSubview(controller.view)
+        controller.didMove(toParent: container)
+        Self.pumpLayoutHarnessRunLoop()
+
+        for revision in 0...20 {
+            controller.apply(input: TranscriptProjectionInput(
+                entries: Self.perfEntries(tailRevision: revision)
+            ))
+        }
+        await Self.awaitInitialPaint(in: controller, expectedRowCount: 600)
+
+        #expect(controller.dataSource.snapshot().itemIdentifiers == controller.currentRows.map(\.rowID))
+        #expect(controller.heightCache.count == 600)
+        #expect(controller.initialLayoutTask == nil)
+        #expect(controller.initialLayoutBatchCount <= 2)
+        #expect(controller.backgroundLayoutComputationCount <= 601)
     }
 
     private static let rowLayoutContentVariants = [
@@ -374,6 +424,18 @@ extension TranscriptRenderingRegressionTests {
 
     private static func pumpLayoutHarnessRunLoop() {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private static func awaitInitialPaint(
+        in controller: TranscriptListViewController,
+        expectedRowCount: Int
+    ) async {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while controller.dataSource.snapshot().itemIdentifiers.count != expectedRowCount,
+              let task = controller.initialLayoutTask,
+              ContinuousClock.now < deadline {
+            await task.value
+        }
     }
 
     private static func frameBytes(_ frames: [CGRect]) -> [UInt8] {

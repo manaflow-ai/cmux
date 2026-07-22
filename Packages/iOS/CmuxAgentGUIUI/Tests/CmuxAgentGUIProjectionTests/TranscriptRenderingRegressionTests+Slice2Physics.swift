@@ -128,6 +128,58 @@ extension TranscriptRenderingRegressionTests {
         #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
     }
 
+    @Test func scrollingUpWhileKeyboardIsDockedKeepsHistoryStationaryOnDismiss() throws {
+        let mounted = Self.makeSlice2PhysicsMount()
+        defer { mounted.window.isHidden = true }
+        let controller = mounted.container.transcript
+        controller.scrollToBottom(animated: false)
+        #expect(mounted.field.becomeFirstResponder())
+        Self.pumpLiveRunLoop(duration: 0.7)
+        #expect(controller.keyboardPinsTranscriptToLayoutGuide)
+
+        let historyY = (-controller.collectionView.contentInset.top + controller.bottomRestOffset.y) / 2
+        controller.collectionView.setContentOffset(CGPoint(x: 0, y: historyY), animated: false)
+        controller.scrollViewDidScroll(controller.collectionView)
+        controller.collectionView.layoutIfNeeded()
+        #expect(!controller.keyboardPinsTranscriptToLayoutGuide)
+        let anchor = try #require(controller.captureAnchor())
+        let beforeDismiss = try Self.slice2ScreenFrame(of: anchor.rowID, in: controller).minY
+
+        mounted.field.resignFirstResponder()
+        Self.pumpLiveRunLoop(duration: 0.5)
+        let afterDismiss = try Self.slice2ScreenFrame(of: anchor.rowID, in: controller).minY
+        #expect(abs(afterDismiss - beforeDismiss) <= 1 / max(mounted.window.screen.scale, 1))
+    }
+
+    @Test func pillJumpWithKeyboardUpPinsNewestRowAboveComposer() throws {
+        let mounted = Self.makeSlice2PhysicsMount()
+        defer {
+            mounted.field.resignFirstResponder()
+            Self.pumpLiveRunLoop(duration: 0.5)
+            mounted.window.isHidden = true
+        }
+        let controller = mounted.container.transcript
+        controller.scrollToBottom(animated: false)
+        #expect(mounted.field.becomeFirstResponder())
+        Self.pumpLiveRunLoop(duration: 0.7)
+
+        controller.collectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.collectionView.contentInset.top),
+            animated: false
+        )
+        controller.scrollViewDidScroll(controller.collectionView)
+        #expect(!controller.keyboardPinsTranscriptToLayoutGuide)
+        try #require(controller.pillHost).rootView.action()
+        Self.pumpLiveRunLoop(duration: 0.5)
+
+        let newestID = try #require(controller.currentRows.first?.rowID)
+        let newestFrame = try Self.slice2ScreenFrame(of: newestID, in: controller)
+        let composerTop = mounted.composer.convert(mounted.composer.bounds, to: mounted.window).minY
+        #expect(controller.keyboardPinsTranscriptToLayoutGuide)
+        #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
+        #expect(newestFrame.maxY <= composerTop + 1 / max(mounted.window.screen.scale, 1))
+    }
+
     private static func makeSlice2PhysicsMount() -> (
         window: UIWindow,
         root: UIViewController,

@@ -3,6 +3,10 @@ import Foundation
 import UIKit
 
 extension GhosttySurfaceView {
+    var hasLocalKeyboardFirstResponder: Bool {
+        inputProxy.isFirstResponder || composerContainer.firstResponderInSubtree() != nil
+    }
+
     func observeKeyboardVisibilityReconciliation() {
         NotificationCenter.default.addObserver(
             self,

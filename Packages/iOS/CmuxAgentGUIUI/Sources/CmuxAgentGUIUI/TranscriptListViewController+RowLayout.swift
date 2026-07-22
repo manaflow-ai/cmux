@@ -29,6 +29,7 @@ extension TranscriptListViewController {
             row: row,
             width: width,
             density: currentDensity,
+            spacing: spacing,
             height: layout.height,
             askState: askState,
             layout: layout

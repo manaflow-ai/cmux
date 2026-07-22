@@ -34,14 +34,16 @@ public import UIKit
     var scrollAnimator: UIViewPropertyAnimator?
     var initialLayoutTask: Task<Void, Never>?
     var initialLayoutGeneration: UInt64 = 0
+    var initialLayoutBatchCount = 0
     var isAutoStickingToBottom = false
-    private var jumpSnapshotView: UIView?
-    private var collectionViewportView: UIView!
-    private var collectionMotionView: UIView!
-    private var collectionViewportBottomConstraint: NSLayoutConstraint!
-    private var collectionViewportRootBottomConstraint: NSLayoutConstraint!
-    private var collectionViewportHeightConstraint: NSLayoutConstraint!
-    private var keyboardPinsTranscriptToLayoutGuide = true
+    var jumpSnapshotView: UIView?
+    var collectionViewportView: UIView!
+    var collectionMotionView: UIView!
+    var collectionViewportBottomConstraint: NSLayoutConstraint!
+    var collectionViewportRootBottomConstraint: NSLayoutConstraint!
+    var collectionViewportHeightConstraint: NSLayoutConstraint!
+    var keyboardPinsTranscriptToLayoutGuide = true
+    var isUpdatingKeyboardPinning = false
     var bottomChromeHeight: CGFloat = 0
     static let nativeBottomEdgeReadabilityClearance: CGFloat = 52
     private var unreadTracker = TranscriptUnreadTracker()
@@ -110,7 +112,9 @@ public import UIKit
         if dataSource.snapshot().itemIdentifiers.isEmpty,
            projection.rows.count >= 100,
            collectionView.bounds.width > 1 {
-            scheduleInitialLayout(for: projection.rows)
+            if initialLayoutTask == nil {
+                scheduleInitialLayout(for: projection.rows)
+            }
             return
         }
         cancelInitialLayout()
@@ -143,7 +147,11 @@ public import UIKit
             let generation = initialLayoutGeneration
             Task { [weak self] in
                 await initialLayoutTask.value
-                guard let self, self.initialLayoutGeneration == generation else { return }
+                guard let self else { return }
+                guard self.initialLayoutGeneration == generation else {
+                    self.scrollToBottom(animated: animated)
+                    return
+                }
                 self.performScrollToBottom(animated: animated)
             }
             return
@@ -152,67 +160,6 @@ public import UIKit
             self?.performScrollToBottom(animated: animated)
         }
     }
-    private func performScrollToBottom(animated: Bool) {
-        let distance = distanceFromBottom
-        guard animated, distance > 0.5 else {
-            collectionView.setContentOffset(bottomRestOffset, animated: false)
-            updateUnreadCountFromVisibility()
-            updatePillVisibility()
-            return
-        }
-        if distance < collectionView.bounds.height * 1.75 {
-            animateRealScrollToBottom(duration: 0.45)
-            return
-        }
-        collectionView.layoutIfNeeded()
-        guard let oldSnapshot = collectionMotionView.snapshotView(afterScreenUpdates: false) else {
-            animateRealScrollToBottom(duration: 0.4)
-            return
-        }
-        let travel = max(1, collectionViewportView.bounds.height)
-        oldSnapshot.frame = collectionViewportView.bounds
-        oldSnapshot.isUserInteractionEnabled = false
-        collectionViewportView.addSubview(oldSnapshot)
-        jumpSnapshotView = oldSnapshot
-        UIView.performWithoutAnimation {
-            self.collectionView.setContentOffset(self.bottomRestOffset, animated: false)
-            self.collectionView.layoutIfNeeded()
-            self.collectionMotionView.transform = CGAffineTransform(translationX: 0, y: travel)
-        }
-        let animator = UIViewPropertyAnimator(duration: 0.4, curve: .easeOut) { [weak self, weak oldSnapshot] in
-            self?.collectionMotionView.transform = .identity
-            oldSnapshot?.transform = CGAffineTransform(translationX: 0, y: -travel)
-        }
-        scrollAnimator = animator
-        animator.addCompletion { [weak self, weak animator, weak oldSnapshot] _ in
-            oldSnapshot?.removeFromSuperview()
-            guard let self, self.scrollAnimator === animator else { return }
-            self.collectionMotionView.transform = .identity
-            self.jumpSnapshotView = nil
-            self.scrollAnimator = nil
-            self.updateUnreadCountFromVisibility()
-            self.updatePillVisibility()
-        }
-        animator.startAnimation()
-    }
-
-    private func animateRealScrollToBottom(duration: TimeInterval) {
-        let animator = UIViewPropertyAnimator(duration: duration, curve: .easeOut) { [weak self] in
-            guard let self else { return }
-            self.collectionView.setContentOffset(self.bottomRestOffset, animated: false)
-        }
-        scrollAnimator = animator
-        animator.addCompletion { [weak self, weak animator] position in
-            guard let self, self.scrollAnimator === animator else { return }
-            self.scrollAnimator = nil
-            guard position == .end else { return }
-            self.collectionView.setContentOffset(self.bottomRestOffset, animated: false)
-            self.updateUnreadCountFromVisibility()
-            self.updatePillVisibility()
-        }
-        animator.startAnimation()
-    }
-
     private func configureCollectionView() {
         let layout = TranscriptCollectionLayout()
         layout.heightForItem = { [weak self] indexPath, width in
@@ -422,28 +369,13 @@ public import UIKit
         let baseBottomSafeArea = view.window?.safeAreaInsets.bottom ?? 0
         let keyboardObstruction = view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY
         let keyboardIsDocked = keyboardObstruction > baseBottomSafeArea + 0.5
-        if !keyboardIsDocked {
-            setKeyboardPinsTranscriptToLayoutGuide(distanceFromBottom <= 0.5)
-        }
+        updateKeyboardPinningForCurrentScrollPosition()
         collectionViewportBottomConstraint.constant = 0
         collectionViewportHeightConstraint.constant = 0
         (view as? TranscriptChromePassthroughView)?.bottomPassthroughHeight = pixelRounded(
             bottomChromeHeight + (keyboardIsDocked ? 0 : baseBottomSafeArea)
         )
         updatePillBottomConstraint()
-    }
-
-    func setKeyboardPinsTranscriptToLayoutGuide(_ pinsToKeyboard: Bool) {
-        guard keyboardPinsTranscriptToLayoutGuide != pinsToKeyboard else { return }
-        keyboardPinsTranscriptToLayoutGuide = pinsToKeyboard
-        collectionViewportBottomConstraint.isActive = false
-        collectionViewportRootBottomConstraint.isActive = false
-        if pinsToKeyboard {
-            collectionViewportBottomConstraint.isActive = true
-        } else {
-            collectionViewportRootBottomConstraint.isActive = true
-        }
-        view.setNeedsLayout()
     }
 
     func pixelRounded(_ value: CGFloat) -> CGFloat {
@@ -497,11 +429,7 @@ extension TranscriptListViewController: UICollectionViewDelegate {
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let baseBottomSafeArea = view.window?.safeAreaInsets.bottom ?? 0
-        let keyboardObstruction = view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY
-        if keyboardObstruction <= baseBottomSafeArea + 0.5 {
-            setKeyboardPinsTranscriptToLayoutGuide(distanceFromBottom <= 0.5)
-        }
+        updateKeyboardPinningForCurrentScrollPosition()
         (collectionView as? TranscriptCollectionView)?.updateAccessibilityOrder()
         updateUnreadCountFromVisibility()
         updatePillVisibility()
