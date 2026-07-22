@@ -433,7 +433,11 @@ extension Workspace {
         } else {
             listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
         }
-        let ttyName = surfaceTTYNames[panelId]
+        let persistentRemotePTYSessionID = remotePTYSessionIDForSnapshot(panelId: panelId)
+        let persistsRemoteTTYIdentity =
+            persistentRemotePTYSessionID != nil &&
+            !isDefaultFreestyleSSHDRemoteWorkspace
+        let ttyName = persistsRemoteTTYIdentity ? surfaceTTYNames[panelId] : nil
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
@@ -546,7 +550,7 @@ extension Workspace {
                 resumeBinding: resumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
-                remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
+                remotePTYSessionID: persistentRemotePTYSessionID,
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
@@ -1653,7 +1657,11 @@ extension Workspace {
                 restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
-            applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
+            applySessionPanelMetadata(
+                snapshot,
+                toPanelId: terminalPanel.id,
+                restoredPersistentRemotePTYSessionID: restoredRemotePTYSessionID
+            )
             return terminalPanel.id
         case .browser:
             guard let browserPanel = newBrowserSurface(
@@ -1738,7 +1746,11 @@ extension Workspace {
         }
     }
 
-    func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+    func applySessionPanelMetadata(
+        _ snapshot: SessionPanelSnapshot,
+        toPanelId panelId: UUID,
+        restoredPersistentRemotePTYSessionID: String? = nil
+    ) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
@@ -1802,12 +1814,15 @@ extension Workspace {
 
         surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
 
-        if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
+        // A persistent remote PTY has a durable session identity and remains
+        // alive across cmux restarts. Local PTY names are ephemeral OS
+        // allocations, so legacy local snapshot values are deliberately ignored.
+        if normalizedRemotePTYSessionID(restoredPersistentRemotePTYSessionID) != nil,
+           let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ttyName.isEmpty {
             surfaceTTYNames[panelId] = ttyName
-        } else {
-            surfaceTTYNames.removeValue(forKey: panelId)
+            syncRemotePortScanTTYs()
         }
-        syncRemotePortScanTTYs()
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {

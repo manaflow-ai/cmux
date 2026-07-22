@@ -1679,6 +1679,8 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var notifications: [SessionNotificationSnapshot]? = nil
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
+    /// Retained only for identity-bound persistent remote PTYs. Host-local TTY
+    /// names are runtime allocations and must never cross a cmux relaunch.
     var ttyName: String?
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
