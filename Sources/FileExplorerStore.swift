@@ -716,8 +716,6 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
     private(set) var outlineRevision: UInt64 = 0
-    let outlineChanges: AsyncStream<UInt64>
-    private let outlineChangeContinuation: AsyncStream<UInt64>.Continuation
 
     var provider: FileExplorerProvider?
 
@@ -759,14 +757,7 @@ final class FileExplorerStore: ObservableObject {
     private let gitStatusProvider: GitStatusProvider
 
     init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
-        let outlineChangeChannel = AsyncStream<UInt64>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        outlineChanges = outlineChangeChannel.stream
-        outlineChangeContinuation = outlineChangeChannel.continuation
         self.gitStatusProvider = gitStatusProvider
-    }
-
-    deinit {
-        outlineChangeContinuation.finish()
     }
 
     var displayRootPath: String {
@@ -868,7 +859,6 @@ final class FileExplorerStore: ObservableObject {
         guard gitStatusByPath != status else { return }
         outlineRevision &+= 1
         gitStatusByPath = status
-        outlineChangeContinuation.yield(outlineRevision)
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
@@ -950,28 +940,28 @@ final class FileExplorerStore: ObservableObject {
 
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
-        let inserted = expandedPaths.insert(node.path).inserted
+        expandedPaths.insert(node.path)
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
-            signalOutlineChange()
+            outlineRevision &+= 1
+            objectWillChange.send()
             let nodePath = node.path
             let task = Task { [weak self] in
                 guard let self else { return }
                 await self.loadChildren(for: node, at: nodePath)
             }
             loadTasks[node.path] = task
-        } else if inserted {
-            signalOutlineChange()
         }
     }
 
     func collapse(node: FileExplorerNode) {
         let removed = expandedPaths.remove(node.path) != nil
+        if removed { outlineRevision &+= 1 }
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
-        if removed { signalOutlineChange() }
+        objectWillChange.send()
     }
 
     func isExpanded(_ node: FileExplorerNode) -> Bool {
@@ -1048,7 +1038,8 @@ final class FileExplorerStore: ObservableObject {
         if !silent {
             loadingPaths.insert(path)
             parentNode?.error = nil
-            if parentNode != nil { signalOutlineChange() }
+            if parentNode != nil { outlineRevision &+= 1 }
+            objectWillChange.send()
         }
 
         do {
@@ -1084,12 +1075,14 @@ final class FileExplorerStore: ObservableObject {
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)
-            if parentNode != nil { signalOutlineChange() }
+            if parentNode != nil { outlineRevision &+= 1 }
+            objectWillChange.send()
 
             // Auto-expand children that were previously expanded
             for child in children where child.isDirectory && expandedPaths.contains(child.path) {
                 child.isLoading = true
-                signalOutlineChange()
+                outlineRevision &+= 1
+                objectWillChange.send()
                 let childPath = child.path
                 let childTask = Task { [weak self] in
                     guard let self else { return }
@@ -1108,20 +1101,15 @@ final class FileExplorerStore: ObservableObject {
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
-                if parentNode != nil { signalOutlineChange() }
+                if parentNode != nil { outlineRevision &+= 1 }
+                objectWillChange.send()
             }
         }
-    }
-
-    private func signalOutlineChange() {
-        outlineRevision &+= 1
-        outlineChangeContinuation.yield(outlineRevision)
     }
 
     private func replaceRootNodes(with nodes: [FileExplorerNode]) {
         outlineRevision &+= 1
         rootNodes = nodes
-        outlineChangeContinuation.yield(outlineRevision)
     }
 
     private func cancelAllLoads() {
