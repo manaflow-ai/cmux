@@ -12,6 +12,8 @@ public enum ArtifactSkipReason: String, Equatable, Sendable {
     case pathOutsideStore
     /// Existing provenance metadata is corrupt and must not be overwritten.
     case corruptProvenance
+    /// Git does not prove the artifact store is ignored and untracked.
+    case gitPrivacyUnavailable
     /// The filename extension is not allowlisted.
     case unsupportedExtension
     /// The file exceeds the configured size limit.

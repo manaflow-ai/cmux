@@ -48,11 +48,11 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             var textOccurrences: [String] = []
             switch message.kind {
             case .fileEdit(let edit):
-                structuredOccurrences = [(edit.filePath, .created)]
+                structuredOccurrences = [(edit.filePath, .referenced)]
             case .attachment(let attachment):
                 structuredOccurrences = attachment.hostPath.map { [($0, .attached)] } ?? []
             case .toolUse(let toolUse):
-                let provenance: ChatArtifactProvenance = Self.isFileMutationTool(toolUse.toolName)
+                let provenance: ChatArtifactProvenance = toolUse.authorizesCreatedArtifactProvenance
                     ? .created
                     : .referenced
                 structuredOccurrences = (toolUse.referencedPaths ?? []).map { ($0, provenance) }
@@ -138,11 +138,6 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             provenance: Self.higherPrecedence(previous?.provenance, provenance),
             lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq)
         )
-    }
-
-    private static func isFileMutationTool(_ toolName: String) -> Bool {
-        let normalized = toolName.split(separator: ".").last.map(String.init) ?? toolName
-        return normalized.lowercased() == "apply_patch"
     }
 
     private static func higherPrecedence(

@@ -78,6 +78,27 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.provenance == .referenced)
     }
 
+    @Test("Successful sidechain authorization survives incremental parse calls")
+    func successfulSidechainMutationAcrossParseCalls() throws {
+        let invocation = claudeLine(type: "assistant", content: [[
+            "type": "tool_use", "id": "side-write", "name": "Write",
+            "input": ["file_path": "/tmp/side.md", "content": "draft"],
+        ]], isSidechain: true)
+        let parser = ClaudeTranscriptParser()
+        let first = parser.parse(lines: [invocation], startingSeq: 0)
+        let success = claudeLine(type: "user", content: [[
+            "type": "tool_result", "tool_use_id": "side-write",
+            "content": "saved", "is_error": false,
+        ]], isSidechain: true)
+
+        let second = parser.parse(lines: [success], startingSeq: 1, state: first.state)
+        let artifact = try #require(indexedArtifacts(second).first)
+
+        #expect(artifact.path.hasSuffix("/tmp/side.md"))
+        #expect(artifact.provenance == .created)
+        #expect(artifact.lastReferencedSeq == 1)
+    }
+
     private func indexedArtifacts(
         _ result: ChatTranscriptParseResult
     ) -> [ChatArtifactIndexedReference] {

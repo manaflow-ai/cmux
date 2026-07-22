@@ -10,6 +10,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
     private let fileManager: FileManager
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    private let gitCommandRunner: any ArtifactGitCommandRunning
     private let maximumScanDepth: Int
     private let nodeBudget: Int
 
@@ -25,6 +26,27 @@ public actor LocalArtifactRepository: ArtifactStoring {
         nodeBudget: Int = 20_000
     ) {
         self.fileManager = fileManager
+        self.gitCommandRunner = SystemArtifactGitCommandRunner()
+        self.maximumScanDepth = max(1, maximumScanDepth)
+        self.nodeBudget = max(1, nodeBudget)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        self.encoder = encoder
+    }
+
+    /// Creates a repository with an injected Git command seam for tests.
+    init(
+        fileManager: FileManager,
+        gitCommandRunner: any ArtifactGitCommandRunning,
+        maximumScanDepth: Int = 32,
+        nodeBudget: Int = 20_000
+    ) {
+        self.fileManager = fileManager
+        self.gitCommandRunner = gitCommandRunner
         self.maximumScanDepth = max(1, maximumScanDepth)
         self.nodeBudget = max(1, nodeBudget)
         let decoder = JSONDecoder()
@@ -115,6 +137,15 @@ public actor LocalArtifactRepository: ArtifactStoring {
             return candidates.map { _ in .rejected(error) }
         } catch {
             return candidates.map { _ in .rejected(.pathOutsideStore(paths.artifactsRoot.path)) }
+        }
+        if candidates.contains(where: { $0.provenance != .manual }),
+           !ArtifactGitIgnoreManager(fileManager: fileManager).permitsAutomaticCapture(
+               projectRoot: paths.projectRoot,
+               commandRunner: gitCommandRunner
+           ) {
+            return candidates.map { _ in
+                .rejected(.gitPrivacyUnavailable(paths.artifactsRoot.path))
+            }
         }
 
         var attempts = Array<ArtifactImportAttempt?>(repeating: nil, count: candidates.count)

@@ -8,7 +8,7 @@ struct LocalArtifactRepositoryTests {
     func importsWithGroupingAndProvenance() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
-        try FileManager.default.createDirectory(at: root.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        #expect(try runGit(["init", "--quiet", root.path]) == 0)
         let source = try ArtifactTestSupport.write("# Plan", named: "plan.md", under: root.appendingPathComponent("source"))
         let repository = LocalArtifactRepository()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
@@ -45,7 +45,7 @@ struct LocalArtifactRepositoryTests {
             contentsOf: root.appendingPathComponent(".git/info/exclude"),
             encoding: .utf8
         )
-        #expect(exclude == ".cmux/artifacts/\n")
+        #expect(exclude.split(separator: "\n").contains(".cmux/artifacts/"))
         _ = try await repository.snapshot(projectRoot: root)
         let secondExclude = try String(
             contentsOf: root.appendingPathComponent(".git/info/exclude"),
@@ -452,6 +452,16 @@ struct LocalArtifactRepositoryTests {
             )
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+    }
+
+    @discardableResult
+    private func runGit(_ arguments: [String]) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 
     private func firstResult(

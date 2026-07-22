@@ -242352,6 +242352,40 @@
         }
       }
     },
+    "cli.artifact.error.gitPrivacyPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git privacy could not be verified for artifact store: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアの Git プライバシーを確認できませんでした: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.gitPrivacyUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic capture paused because Git does not prove the artifact store is ignored and untracked."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアが無視され未追跡であることを Git で確認できないため、自動取得を一時停止しました。"
+          }
+        }
+      }
+    },
     "cli.artifact.error.corruptProvenance": {
       "extractionState": "manual",
       "localizations": {

@@ -169,7 +169,8 @@ public struct ClaudeTranscriptParser: Sendable {
                 output: output,
                 isError: isError,
                 exitCode: parsedExitCode(from: output)
-            )
+            ),
+            resultSeq: seq
         )
     }
 
@@ -425,12 +426,7 @@ public struct ClaudeTranscriptParser: Sendable {
         guard let content = root["message"]?["content"] else { return }
         if root["type"]?.string == "user" {
             for block in content.array ?? [] where block["type"]?.string == "tool_result" {
-                if let output = resultText(from: block["content"]) {
-                    assembler.appendArtifactReferences(
-                        paths: artifactText.paths(in: output),
-                        seq: seq
-                    )
-                }
+                resolveToolResult(block, seq: seq, into: &assembler)
             }
             return
         }
@@ -450,11 +446,15 @@ public struct ClaudeTranscriptParser: Sendable {
                     input?["file_path"]?.string,
                     input?["notebook_path"]?.string,
                 ].compactMap { $0 })
-                assembler.appendArtifactReferences(
-                    paths: paths.filter { targets.contains($0) },
-                    provenance: .created,
-                    seq: seq
-                )
+                let mutationTargets = paths.filter { targets.contains($0) }
+                assembler.appendArtifactReferences(paths: mutationTargets, seq: seq)
+                if let callID = block["id"]?.string {
+                    assembler.registerArtifactMutation(
+                        paths: mutationTargets,
+                        pendingKey: callID,
+                        seq: seq
+                    )
+                }
                 assembler.appendArtifactReferences(
                     paths: paths.filter { !targets.contains($0) },
                     seq: seq
