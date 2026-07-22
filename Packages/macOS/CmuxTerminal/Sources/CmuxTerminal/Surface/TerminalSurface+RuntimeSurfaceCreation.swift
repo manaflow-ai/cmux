@@ -156,8 +156,8 @@ extension TerminalSurface {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
         setManagedEnvironmentValue(
-            "CMUX_COMPUTER_USE_MCP_DISABLED",
-            spawnPolicy.computerUseEnabled ? "0" : "1"
+            Self.computerUseAppEnabledEnvironmentKey,
+            spawnPolicy.computerUseEnabled ? "1" : "0"
         )
 
         if let cliBinURL = Bundle.main.resourceURL?.appendingPathComponent("bin") {

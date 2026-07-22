@@ -913,6 +913,25 @@ cmux_claude_sideload_flags_disabled() {
     return 1
 }
 
+cmux_computer_use_auth_token() {
+    local auth_file metadata owner mode token
+    auth_file="${CMUX_CUA_AUTH_TOKEN_FILE:-}"
+    if [[ -n "$auth_file" && "$auth_file" == /* && -f "$auth_file" && ! -L "$auth_file" ]]; then
+        metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || true)"
+        read -r owner mode <<< "$metadata"
+        if [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == "600" ]]; then
+            IFS= read -r token < "$auth_file" || true
+            if [[ -n "$token" ]]; then
+                printf '%s' "$token"
+                return 0
+            fi
+        fi
+    fi
+    token="${CUA_DRIVER_SOCKET_AUTH_TOKEN:-}"
+    [[ -n "$token" ]] || return 1
+    printf '%s' "$token"
+}
+
 cmux_computer_use_config() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     cmux_claude_sideload_flags_disabled && return 1
@@ -928,8 +947,7 @@ cmux_computer_use_config() {
     done
     local driver state_dir default_session cua_socket runtime_scope runtime_uid auth_token
     driver="$(cmux_computer_use_resolve_driver)" || return 1
-    auth_token="${CUA_DRIVER_SOCKET_AUTH_TOKEN:-}"
-    [[ -n "$auth_token" ]] || return 1
+    auth_token="$(cmux_computer_use_auth_token)" || return 1
     runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
     runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     [[ -n "$runtime_scope" ]] || runtime_scope="default"

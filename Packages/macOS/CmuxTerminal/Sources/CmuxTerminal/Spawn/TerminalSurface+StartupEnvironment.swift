@@ -19,6 +19,9 @@ extension TerminalSurface {
     /// The managed `COLORTERM` value exported to spawned shells.
     public static let managedColorTerm = "truecolor"
 
+    /// Spawn-time fallback for the app-managed Computer Use setting.
+    public static let computerUseAppEnabledEnvironmentKey = "CMUX_COMPUTER_USE_APP_ENABLED"
+
     /// The live computer-use authority read by every generated agent shim.
     public static func computerUseLiveSettingFileURL(homeDirectory: URL) -> URL {
         homeDirectory
@@ -136,15 +139,16 @@ extension TerminalSurface {
             #!/usr/bin/env bash
             cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
             cmux_computer_use_setting=\(shellSingleQuoted(computerUseSettingURL.path))
+            cmux_computer_use_enabled="${CMUX_COMPUTER_USE_APP_ENABLED:-1}"
             if [[ -r "$cmux_computer_use_setting" ]]; then
                 IFS= read -r cmux_computer_use_enabled < "$cmux_computer_use_setting" || true
-                # One-directional: the setting can DISABLE computer use, but must
-                # never force-enable over a user/inherited
-                # CMUX_COMPUTER_USE_MCP_DISABLED=1 (the documented kill switch).
-                case "$cmux_computer_use_enabled" in
-                    0) export CMUX_COMPUTER_USE_MCP_DISABLED=1 ;;
-                esac
             fi
+            # App authority and the user's documented kill switch are separate:
+            # app state may disable attachment, but enabling it never clears a
+            # user-exported CMUX_COMPUTER_USE_MCP_DISABLED=1.
+            case "$cmux_computer_use_enabled" in
+                0) export CMUX_COMPUTER_USE_MCP_DISABLED=1 ;;
+            esac
             if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
                 cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"
                 if [[ -x "$cmux_candidate" ]]; then
@@ -240,15 +244,16 @@ extension TerminalSurface {
             #!/usr/bin/env bash
             cmux_wrapper=\(shellSingleQuoted(codexWrapperURL.path))
             cmux_computer_use_setting=\(shellSingleQuoted(computerUseSettingURL.path))
+            cmux_computer_use_enabled="${CMUX_COMPUTER_USE_APP_ENABLED:-1}"
             if [[ -r "$cmux_computer_use_setting" ]]; then
                 IFS= read -r cmux_computer_use_enabled < "$cmux_computer_use_setting" || true
-                # One-directional: the setting can DISABLE computer use, but must
-                # never force-enable over a user/inherited
-                # CMUX_COMPUTER_USE_MCP_DISABLED=1 (the documented kill switch).
-                case "$cmux_computer_use_enabled" in
-                    0) export CMUX_COMPUTER_USE_MCP_DISABLED=1 ;;
-                esac
             fi
+            # App authority and the user's documented kill switch are separate:
+            # app state may disable attachment, but enabling it never clears a
+            # user-exported CMUX_COMPUTER_USE_MCP_DISABLED=1.
+            case "$cmux_computer_use_enabled" in
+                0) export CMUX_COMPUTER_USE_MCP_DISABLED=1 ;;
+            esac
             if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
                 cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-codex-wrapper"
                 if [[ -x "$cmux_candidate" ]]; then

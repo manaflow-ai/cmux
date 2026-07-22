@@ -179,9 +179,13 @@ struct cmuxApp: App {
             computerUsePaths.scope,
             1
         )
+        // The helper bearer token is written to a private per-user runtime file
+        // and read only by the agent wrappers. Never place the capability in the
+        // app environment inherited by every terminal child.
+        unsetenv(ComputerUseRuntimePaths.authenticationTokenEnvironmentKey)
         setenv(
-            ComputerUseRuntimePaths.authenticationTokenEnvironmentKey,
-            computerUsePaths.authenticationToken,
+            ComputerUseRuntimePaths.authenticationTokenFileEnvironmentKey,
+            computerUsePaths.authenticationTokenFileURL.path,
             1
         )
         let computerUseRuntimeService = ComputerUseRuntimeService(paths: computerUsePaths)

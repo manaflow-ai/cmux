@@ -226,6 +226,25 @@ cmux_computer_use_resolve_driver() {
     printf '%s' "$driver_real"
 }
 
+cmux_computer_use_auth_token() {
+    local auth_file metadata owner mode token
+    auth_file="${CMUX_CUA_AUTH_TOKEN_FILE:-}"
+    if [[ -n "$auth_file" && "$auth_file" == /* && -f "$auth_file" && ! -L "$auth_file" ]]; then
+        metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || true)"
+        read -r owner mode <<< "$metadata"
+        if [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == "600" ]]; then
+            IFS= read -r token < "$auth_file" || true
+            if [[ -n "$token" ]]; then
+                printf '%s' "$token"
+                return 0
+            fi
+        fi
+    fi
+    token="${CUA_DRIVER_SOCKET_AUTH_TOKEN:-}"
+    [[ -n "$token" ]] || return 1
+    printf '%s' "$token"
+}
+
 cmux_codex_emit_computer_use_args() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     local arg
@@ -238,8 +257,7 @@ cmux_codex_emit_computer_use_args() {
     done
     local driver default_session runtime_scope runtime_uid cua_socket state_dir auth_token
     driver="$(cmux_computer_use_resolve_driver)" || return 1
-    auth_token="${CUA_DRIVER_SOCKET_AUTH_TOKEN:-}"
-    [[ -n "$auth_token" ]] || return 1
+    auth_token="$(cmux_computer_use_auth_token)" || return 1
     # Stable per-terminal session id so the branded cursor survives helper restarts.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"

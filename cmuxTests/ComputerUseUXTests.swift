@@ -33,7 +33,7 @@ struct ComputerUseUXTests {
             try Data("not-json".utf8).write(to: directory.appendingPathComponent("broken.json"))
             let result = ComputerUseStateRepository().scan(
                 directoryURL: directory,
-                sessions: [ComputerUseSessionProcessScope(id: "row", sessionID: "session-1", processIDs: [42])],
+                sessions: [ComputerUseSessionScope(id: "row", driverSessionID: "session-1")],
                 now: Date(timeIntervalSince1970: 2_000_000_000)
             )
 
@@ -53,7 +53,7 @@ struct ComputerUseUXTests {
             )
             let result = ComputerUseStateRepository(recentActivityInterval: 3_600).scan(
                 directoryURL: directory,
-                sessions: [ComputerUseSessionProcessScope(id: "row", sessionID: "session-1", processIDs: [42])],
+                sessions: [ComputerUseSessionScope(id: "row", driverSessionID: "session-1")],
                 now: now
             )
 
@@ -67,25 +67,23 @@ struct ComputerUseUXTests {
             try writeState(
                 to: directory.appendingPathComponent("matching.json"),
                 pid: 99,
-                session: "cmux-surface-1",
+                session: "cmux-surface-1-mcp-101-1000",
                 targetPID: 84,
                 lastActionAt: now.addingTimeInterval(-20)
             )
-            // A newer state whose process happens to be in the live agent's
-            // process tree belongs to another surface and must not be paired.
+            // A newer state from another surface must not be paired with this row.
             try writeState(
                 to: directory.appendingPathComponent("foreign.json"),
                 pid: 42,
-                session: "cmux-surface-2",
+                session: "cmux-surface-2-mcp-202-2000",
                 targetPID: 198,
                 lastActionAt: now.addingTimeInterval(-1)
             )
             let result = ComputerUseStateRepository().scan(
                 directoryURL: directory,
-                sessions: [ComputerUseSessionProcessScope(
+                sessions: [ComputerUseSessionScope(
                     id: "row",
-                    sessionID: "cmux-surface-1",
-                    processIDs: [42]
+                    driverSessionID: "cmux-surface-1"
                 )],
                 now: now
             )
@@ -303,14 +301,20 @@ struct ComputerUseUXTests {
     }
 
     @Test func taggedRuntimeSocketFitsDarwinUnixPathLimit() {
+        let longTagPrefix = String(repeating: "computer-use-long-tag-", count: 4)
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/\(String(repeating: "long-home-", count: 10))"),
-            environment: ["CMUX_TAG": "permission-owner-v2"]
+            environment: ["CMUX_TAG": "\(longTagPrefix)a"]
+        )
+        let sibling = ComputerUseRuntimePaths(
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            environment: ["CMUX_TAG": "\(longTagPrefix)b"]
         )
 
         // Darwin's `sockaddr_un.sun_path` holds at most 104 bytes including
         // the terminating NUL, so the filesystem path must stay below 104.
         #expect(paths.daemonSocketURL.path.utf8.count < 104)
+        #expect(paths.scope != sibling.scope)
     }
 
     @Test func defaultRuntimeUsesDarwinPerUserTemporaryDirectory() {
@@ -468,9 +472,15 @@ struct ComputerUseUXTests {
         try runShim(at: shim.executablePath, logURL: logURL, inheritedDisabled: "0")
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "1")
 
-        // Setting enabled + no inherited kill switch -> attachment stays enabled.
+        // A terminal spawned while the app setting was disabled must observe a
+        // later live enable without confusing app state with the user kill switch.
         try "1\n".write(to: settingURL, atomically: true, encoding: .utf8)
-        try runShim(at: shim.executablePath, logURL: logURL, inheritedDisabled: "0")
+        try runShim(
+            at: shim.executablePath,
+            logURL: logURL,
+            inheritedDisabled: "0",
+            appEnabledAtSpawn: "0"
+        )
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "0")
 
         // Setting enabled but the user exported the documented kill switch
@@ -707,12 +717,18 @@ struct ComputerUseUXTests {
         try data.write(to: url, options: .atomic)
     }
 
-    private func runShim(at path: String, logURL: URL, inheritedDisabled: String = "0") throws {
+    private func runShim(
+        at path: String,
+        logURL: URL,
+        inheritedDisabled: String = "0",
+        appEnabledAtSpawn: String = "1"
+    ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_TEST_LOG"] = logURL.path
         environment["CMUX_COMPUTER_USE_MCP_DISABLED"] = inheritedDisabled
+        environment[TerminalSurface.computerUseAppEnabledEnvironmentKey] = appEnabledAtSpawn
         process.environment = environment
         try process.run()
         process.waitUntilExit()

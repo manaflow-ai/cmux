@@ -750,7 +750,7 @@
 		C0A710C30000000000000002 /* ComputerUsePermissionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */; };
 		C0A710C10000000000000002 /* ComputerUseRuntimePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710C10000000000000001 /* ComputerUseRuntimePaths.swift */; };
 		C0A710010000000000000002 /* ComputerUseRuntimeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710010000000000000001 /* ComputerUseRuntimeService.swift */; };
-		C0A710030000000000000002 /* ComputerUseSessionProcessScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710030000000000000001 /* ComputerUseSessionProcessScope.swift */; };
+		C0A710030000000000000002 /* ComputerUseSessionScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710030000000000000001 /* ComputerUseSessionScope.swift */; };
 		C0A710050000000000000002 /* ComputerUseStateRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710050000000000000001 /* ComputerUseStateRepository.swift */; };
 		C0A710040000000000000002 /* ComputerUseStateScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710040000000000000001 /* ComputerUseStateScan.swift */; };
 		C0A710160000000000000002 /* ComputerUseTargetIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */; };
@@ -2945,7 +2945,7 @@
 		C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUsePermissionStatus.swift; sourceTree = "<group>"; };
 		C0A710C10000000000000001 /* ComputerUseRuntimePaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseRuntimePaths.swift; sourceTree = "<group>"; };
 		C0A710010000000000000001 /* ComputerUseRuntimeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseRuntimeService.swift; sourceTree = "<group>"; };
-		C0A710030000000000000001 /* ComputerUseSessionProcessScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseSessionProcessScope.swift; sourceTree = "<group>"; };
+		C0A710030000000000000001 /* ComputerUseSessionScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseSessionScope.swift; sourceTree = "<group>"; };
 		C0A710050000000000000001 /* ComputerUseStateRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseStateRepository.swift; sourceTree = "<group>"; };
 		C0A710040000000000000001 /* ComputerUseStateScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseStateScan.swift; sourceTree = "<group>"; };
 		C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseTargetIdentity.swift; sourceTree = "<group>"; };
@@ -5000,7 +5000,7 @@
 					C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */,
 					C0A710C10000000000000001 /* ComputerUseRuntimePaths.swift */,
 					C0A710010000000000000001 /* ComputerUseRuntimeService.swift */,
-					C0A710030000000000000001 /* ComputerUseSessionProcessScope.swift */,
+					C0A710030000000000000001 /* ComputerUseSessionScope.swift */,
 					C0A710050000000000000001 /* ComputerUseStateRepository.swift */,
 					C0A710A10000000000000001 /* AgentCursorPointerView.swift */,
 					C0A710A00000000000000001 /* ComputerUseCursorOverlayController.swift */,
@@ -7539,7 +7539,7 @@
 					C0A710C30000000000000002 /* ComputerUsePermissionStatus.swift in Sources */,
 					C0A710C10000000000000002 /* ComputerUseRuntimePaths.swift in Sources */,
 					C0A710010000000000000002 /* ComputerUseRuntimeService.swift in Sources */,
-					C0A710030000000000000002 /* ComputerUseSessionProcessScope.swift in Sources */,
+					C0A710030000000000000002 /* ComputerUseSessionScope.swift in Sources */,
 					C0A710050000000000000002 /* ComputerUseStateRepository.swift in Sources */,
 					C0A710040000000000000002 /* ComputerUseStateScan.swift in Sources */,
 					C0A710160000000000000002 /* ComputerUseTargetIdentity.swift in Sources */,

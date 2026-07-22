@@ -119,7 +119,6 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         let entries = liveAgentIndex.index?.liveEntries() ?? []
         let pending = entries.map { pair in
             let snapshot = pair.entry.snapshot
-            let rootPIDs = pair.entry.agentProcessIDs.isEmpty ? pair.entry.processIDs : pair.entry.agentProcessIDs
             let workspaceName = workspaceTitle(pair.panelKey.workspaceId)
                 ?? String(localized: "computerUse.menu.unknownWorkspace", defaultValue: "Unknown Workspace")
             let rowID = [
@@ -139,10 +138,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 surfaceID: pair.panelKey.panelId,
                 targetIdentity: nil
             )
-            return (
-                row: row,
-                rootPIDs: rootPIDs
-            )
+            return row
         }
 
         let repository = stateRepository
@@ -161,16 +157,12 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             let result = await withTaskGroup(of: ComputerUseMenuBarScanResult?.self) { group in
                 group.addTask(priority: .utility) {
                     guard !Task.isCancelled else { return nil }
-                    let processSnapshot = CmuxTopProcessSnapshot.capture(
-                        includeProcessDetails: false,
-                        includeCMUXScope: false
-                    )
-                    guard !Task.isCancelled else { return nil }
-                    let scopes = pending.map { item in
-                        ComputerUseSessionProcessScope(
-                            id: item.row.id,
-                            sessionID: item.row.sessionID,
-                            processIDs: processSnapshot.expandedPIDs(rootPIDs: item.rootPIDs)
+                    let scopes = pending.map { row in
+                        ComputerUseSessionScope(
+                            id: row.id,
+                            driverSessionID: ComputerUseSessionScope.driverSessionID(
+                                surfaceID: row.surfaceID
+                            )
                         )
                     }
                     let scan = repository.scan(
@@ -180,7 +172,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                     )
                     guard !Task.isCancelled else { return nil }
                     return ComputerUseMenuBarScanResult(
-                        rows: pending.map(\.row),
+                        rows: pending,
                         scan: scan
                     )
                 }

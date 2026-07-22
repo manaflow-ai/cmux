@@ -102,8 +102,13 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     private func close() {
+        dismiss()
+    }
+
+    func dismiss() {
         stopSystemSettingsObservation()
         window?.close()
+        window = nil
     }
 
     func windowWillClose(_ notification: Notification) {

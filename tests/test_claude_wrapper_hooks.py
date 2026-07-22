@@ -935,6 +935,7 @@ def computer_use_sandbox(
     path_helper_trap: bool = False,
     stale_helper_bundle_id: str | None = None,
     auth_token: bool = True,
+    auth_token_file: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
         sandbox_home = tmp / "home"
@@ -942,8 +943,14 @@ def computer_use_sandbox(
         env["HOME"] = str(sandbox_home)
         env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
         env.pop("CMUX_CUA_DRIVER", None)
+        env.pop("CMUX_CUA_AUTH_TOKEN_FILE", None)
         env.pop("CUA_DRIVER_SOCKET_AUTH_TOKEN", None)
-        if auth_token:
+        if auth_token_file:
+            token_file = tmp / "auth-token"
+            token_file.write_text("cmux-test-auth-token\n", encoding="utf-8")
+            token_file.chmod(0o600)
+            env["CMUX_CUA_AUTH_TOKEN_FILE"] = str(token_file)
+        elif auth_token:
             env["CUA_DRIVER_SOCKET_AUTH_TOKEN"] = "cmux-test-auth-token"
         if bundled_driver:
             make_executable(
@@ -1201,6 +1208,22 @@ def test_computer_use_skips_without_daemon_credential(failures: list[str]) -> No
         extract_injected_mcp_config(real_argv) is None,
         f"computer use missing auth: expected no MCP injection, got {real_argv}",
         failures,
+    )
+
+
+def test_computer_use_reads_private_daemon_credential_file(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(auth_token=False, auth_token_file=True),
+    )
+    expect(code == 0, f"computer use auth file: wrapper exited {code}: {stderr}", failures)
+    expect_cua_driver_config(
+        extract_injected_mcp_config(real_argv),
+        failures,
+        "computer use auth file",
+        "cmux-cua-driver",
+        helper_owned=True,
     )
 
 
@@ -2427,6 +2450,7 @@ def main() -> int:
     test_live_socket_attaches_cua_driver_when_available(failures)
     test_computer_use_wrapper_is_a_pure_proxy(failures)
     test_computer_use_skips_without_daemon_credential(failures)
+    test_computer_use_reads_private_daemon_credential_file(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_driver_does_not_require_external_runtime_auth(failures)
     test_computer_use_uses_trusted_cua_driver_override(failures)

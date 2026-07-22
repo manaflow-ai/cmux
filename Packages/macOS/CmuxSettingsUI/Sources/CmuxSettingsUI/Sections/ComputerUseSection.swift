@@ -121,7 +121,8 @@ public struct ComputerUseSection: View {
                 granted: accessibilityGranted,
                 request: {
                     beginPermissionFlow(hostActions.requestComputerUseAccessibility)
-                }
+                },
+                openSettings: hostActions.openComputerUseAccessibilitySettings
             )
         }
     }
@@ -140,14 +141,16 @@ public struct ComputerUseSection: View {
                 granted: screenRecordingGranted,
                 request: {
                     beginPermissionFlow(hostActions.requestComputerUseScreenRecording)
-                }
+                },
+                openSettings: hostActions.openComputerUseScreenRecordingSettings
             )
         }
     }
 
     private func permissionControls(
         granted: Bool,
-        request: @escaping () -> Void
+        request: @escaping () -> Void,
+        openSettings: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 8) {
             Circle()
@@ -162,7 +165,13 @@ public struct ComputerUseSection: View {
             .foregroundStyle(.secondary)
             Button(String(localized: "settings.computerUse.permission.grant", defaultValue: "Grant…"), action: request)
                 .disabled(granted)
-            Button(String(localized: "settings.computerUse.permission.openSystemSettings", defaultValue: "Open System Settings"), action: request)
+            Button(
+                String(
+                    localized: "settings.computerUse.permission.openSystemSettings",
+                    defaultValue: "Open System Settings"
+                ),
+                action: openSettings
+            )
         }
         .controlSize(.small)
     }

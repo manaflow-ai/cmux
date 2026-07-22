@@ -22,6 +22,7 @@ final class ComputerUseRuntimeService {
     private var installedHelperURL: URL?
     private var installationTask: Task<URL?, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.missing
+    private var acceptsNewLaunches = true
 
     init(
         bundle: Bundle = .main,
@@ -54,10 +55,12 @@ final class ComputerUseRuntimeService {
 
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
     func setEnabled(_ newValue: Bool) async {
+        guard acceptsNewLaunches, !Task.isCancelled else { return }
         if newValue {
             await startIfNeeded()
         } else {
             await stopDaemon()
+            try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
             cachedStatus = .missing
         }
     }
@@ -65,8 +68,12 @@ final class ComputerUseRuntimeService {
     /// Installs the nested helper at its independently registered top-level URL.
     @discardableResult
     func ensureStandaloneHelperInstalled() async -> URL? {
+        guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return nil }
         if let installationTask {
-            return await installationTask.value
+            let result = await installationTask.value
+            guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+            installedHelperURL = result
+            return result
         }
         guard let bundledHelperAppURL else { return nil }
 
@@ -74,12 +81,14 @@ final class ComputerUseRuntimeService {
         let isCurrent = await Task.detached(priority: .userInitiated) {
             Self.helperIsCurrent(nested: bundledHelperAppURL, destination: destination)
         }.value
+        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         if isCurrent {
             installedHelperURL = destination
             return destination
         }
 
         await stopDaemon()
+        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         recoverStaleDaemonIfNeeded(helperURL: destination)
         let directory = paths.installedHelperDirectoryURL
         let task = Task.detached(priority: .userInitiated) {
@@ -92,6 +101,7 @@ final class ComputerUseRuntimeService {
         installationTask = task
         let result = await task.value
         installationTask = nil
+        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         installedHelperURL = result
         return result
     }
@@ -105,7 +115,10 @@ final class ComputerUseRuntimeService {
         }
 
         await stopDaemon()
-        await launchHelper(at: helperURL)
+        guard await launchHelper(at: helperURL) else {
+            cachedStatus = .missing
+            return status()
+        }
         cachedStatus = await Self.waitForPermissionStatus(
             paths: paths,
             transport: transport
@@ -143,10 +156,14 @@ final class ComputerUseRuntimeService {
     }
 
     private func startIfNeeded() async {
+        guard acceptsNewLaunches, !Task.isCancelled else { return }
         guard let helperURL = await ensureStandaloneHelperInstalled() else { return }
+        guard acceptsNewLaunches, !Task.isCancelled else { return }
         guard !(await Self.isDaemonListening(paths: paths, transport: transport)) else { return }
+        guard acceptsNewLaunches, !Task.isCancelled else { return }
         recoverStaleDaemonIfNeeded(helperURL: helperURL)
-        await launchHelper(at: helperURL)
+        guard await launchHelper(at: helperURL) else { return }
+        guard acceptsNewLaunches, !Task.isCancelled else { return }
         _ = await Self.waitForDaemonStart(paths: paths, transport: transport)
     }
 
@@ -161,44 +178,82 @@ final class ComputerUseRuntimeService {
         _ = await Self.waitForDaemonStop(paths: paths, transport: transport)
     }
 
-    private func launchHelper(at helperURL: URL) async {
+    private func launchHelper(at helperURL: URL) async -> Bool {
+        guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return false }
         let launch = ComputerUseHelperLaunchConfiguration(paths: paths)
-        try? FileManager.default.createDirectory(
-            at: paths.runtimeDirectoryURL,
-            withIntermediateDirectories: true
-        )
-        try? FileManager.default.createDirectory(
-            at: paths.stateDirectoryURL,
-            withIntermediateDirectories: true
-        )
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: paths.runtimeDirectoryURL.path
-        )
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: paths.stateDirectoryURL.path
-        )
 
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.createsNewApplicationInstance = true
         configuration.arguments = launch.arguments
         configuration.environment = launch.environment
-        await withCheckedContinuation { continuation in
+        let launched = await withCheckedContinuation { continuation in
             NSWorkspace.shared.openApplication(
                 at: helperURL,
                 configuration: configuration
-            ) { _, _ in
-                continuation.resume()
+            ) { _, error in
+                continuation.resume(returning: error == nil)
             }
         }
+        guard launched, acceptsNewLaunches, !Task.isCancelled else {
+            terminateRunningHelper(at: helperURL)
+            return false
+        }
+        return true
+    }
+
+    /// Creates and validates the private runtime before any helper launch.
+    /// Existing symlinks, foreign ownership, or permission failures abort the
+    /// launch instead of falling through to a predictable shared `/tmp` path.
+    func prepareRuntimeForLaunch() -> Bool {
+        guard acceptsNewLaunches else { return false }
+        let fileManager = FileManager.default
+        let computerUseParent = paths.computerUseDirectoryURL.deletingLastPathComponent()
+        do {
+            try fileManager.createDirectory(at: computerUseParent, withIntermediateDirectories: true)
+        } catch {
+            return false
+        }
+
+        let privateDirectories = [
+            paths.runtimeDirectoryURL.deletingLastPathComponent(),
+            paths.runtimeDirectoryURL,
+            paths.computerUseDirectoryURL,
+            paths.stateDirectoryURL.deletingLastPathComponent().deletingLastPathComponent(),
+            paths.stateDirectoryURL.deletingLastPathComponent(),
+            paths.stateDirectoryURL,
+        ]
+        guard privateDirectories.allSatisfy(Self.ensurePrivateDirectory) else { return false }
+        return Self.writeAuthenticationToken(paths.authenticationToken, to: paths.authenticationTokenFileURL)
+    }
+
+    /// Synchronously prevents relaunch and stops the out-of-process helper.
+    /// App termination cannot rely on an unstructured async task surviving exit.
+    func stopForTermination() {
+        acceptsNewLaunches = false
+        installationTask?.cancel()
+        installationTask = nil
+        _ = Self.sendDaemonRequestSynchronously(
+            ["method": "shutdown"],
+            paths: paths,
+            transport: transport,
+            timeout: 0.25
+        )
+        terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
+        try? FileManager.default.removeItem(at: paths.daemonSocketURL)
+        try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
+        cachedStatus = .missing
     }
 
     /// Removes a helper left by an older app process whose per-launch socket
     /// credential no longer matches this process.
     private func recoverStaleDaemonIfNeeded(helperURL: URL) {
         guard FileManager.default.fileExists(atPath: paths.daemonSocketURL.path) else { return }
+        terminateRunningHelper(at: helperURL)
+        try? FileManager.default.removeItem(at: paths.daemonSocketURL)
+    }
+
+    private func terminateRunningHelper(at helperURL: URL) {
         let expectedURL = helperURL.standardizedFileURL
         if let bundleIdentifier = Bundle(url: helperURL)?.bundleIdentifier {
             for application in NSRunningApplication.runningApplications(
@@ -207,7 +262,68 @@ final class ComputerUseRuntimeService {
                 _ = application.forceTerminate()
             }
         }
-        try? FileManager.default.removeItem(at: paths.daemonSocketURL)
+    }
+
+    nonisolated private static func ensurePrivateDirectory(_ directoryURL: URL) -> Bool {
+        let path = directoryURL.path
+        var metadata = stat()
+        if Darwin.lstat(path, &metadata) != 0 {
+            guard errno == ENOENT, Darwin.mkdir(path, mode_t(0o700)) == 0 else { return false }
+        }
+
+        guard Darwin.lstat(path, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR),
+              metadata.st_uid == geteuid(),
+              Darwin.chmod(path, mode_t(0o700)) == 0,
+              Darwin.lstat(path, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR),
+              metadata.st_uid == geteuid(),
+              (metadata.st_mode & mode_t(0o777)) == mode_t(0o700)
+        else {
+            return false
+        }
+        return true
+    }
+
+    nonisolated private static func writeAuthenticationToken(_ token: String, to fileURL: URL) -> Bool {
+        let descriptor = Darwin.open(
+            fileURL.path,
+            O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+            mode_t(0o600)
+        )
+        guard descriptor >= 0 else { return false }
+        defer { Darwin.close(descriptor) }
+
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              metadata.st_uid == geteuid(),
+              metadata.st_nlink == 1,
+              Darwin.fchmod(descriptor, mode_t(0o600)) == 0,
+              Darwin.ftruncate(descriptor, 0) == 0,
+              Darwin.lseek(descriptor, 0, SEEK_SET) == 0
+        else {
+            return false
+        }
+
+        let bytes = Array((token + "\n").utf8)
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes.withUnsafeBytes { buffer -> Int in
+                guard let baseAddress = buffer.baseAddress else { return -1 }
+                return Darwin.write(descriptor, baseAddress.advanced(by: offset), bytes.count - offset)
+            }
+            if written < 0, errno == EINTR { continue }
+            guard written > 0 else { return false }
+            offset += written
+        }
+        guard Darwin.fsync(descriptor) == 0,
+              Darwin.fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & mode_t(0o777)) == mode_t(0o600)
+        else {
+            return false
+        }
+        return true
     }
 
     private func openSystemSettings(_ deepLink: String) async -> Bool {
@@ -316,6 +432,22 @@ final class ComputerUseRuntimeService {
         transport: SocketTransport,
         timeout: TimeInterval
     ) async -> [String: Any]? {
+        await Task.detached(priority: .userInitiated) {
+            sendDaemonRequestSynchronously(
+                request,
+                paths: paths,
+                transport: transport,
+                timeout: timeout
+            )
+        }.value
+    }
+
+    nonisolated private static func sendDaemonRequestSynchronously(
+        _ request: [String: Any],
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport,
+        timeout: TimeInterval
+    ) -> [String: Any]? {
         let authenticatedRequest: [String: Any] = [
             "auth_token": paths.authenticationToken,
             "request": request,
@@ -328,16 +460,14 @@ final class ComputerUseRuntimeService {
             return nil
         }
         let socketPath = paths.daemonSocketURL.path
-        return await Task.detached(priority: .userInitiated) {
-            guard
-                let response = transport.probeCommand(line, at: socketPath, timeout: timeout),
-                let data = response.data(using: .utf8),
-                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else {
-                return nil
-            }
-            return object
-        }.value
+        guard
+            let response = transport.probeCommand(line, at: socketPath, timeout: timeout),
+            let data = response.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+        return object
     }
 
     nonisolated private static func waitForPermissionStatus(

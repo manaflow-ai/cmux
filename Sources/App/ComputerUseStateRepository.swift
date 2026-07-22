@@ -14,7 +14,7 @@ struct ComputerUseStateRepository: Sendable {
 
     func scan(
         directoryURL: URL,
-        sessions: [ComputerUseSessionProcessScope],
+        sessions: [ComputerUseSessionScope],
         now: Date,
         fileManager: FileManager = .default
     ) -> ComputerUseStateScan {
@@ -48,13 +48,12 @@ struct ComputerUseStateRepository: Sendable {
         }
 
         var newestStateByScopeID: [String: ComputerUseDriverState] = [:]
-        for session in sessions where !session.processIDs.isEmpty {
-            // Match on pid-tree containment only: the driver pid is a descendant
-            // of exactly one session's agent process. The injected MCP env does
-            // not carry the hook session id, so the state file's `session` field
-            // never equals the hook sessionID in production.
+        for session in sessions {
+            // Every cmux wrapper gives the driver a stable per-surface session
+            // identity. Pair on that direct identity so state refreshes never
+            // need a machine-wide process-tree capture.
             newestStateByScopeID[session.id] = recentStates
-                .filter { state in session.processIDs.contains(state.pid) }
+                .filter { state in session.matches(driverSessionID: state.session) }
                 .max { $0.lastActionAt < $1.lastActionAt }
         }
 

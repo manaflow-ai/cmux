@@ -149,10 +149,23 @@ final class ComputerUseUXCoordinator {
     }
 
     func teardown() {
+        enabledSettingTask?.cancel()
+        enabledSettingTask = nil
         toolInvocationTask?.cancel()
         toolInvocationTask = nil
+        onboardingGateTask?.cancel()
+        onboardingGateTask = nil
+        menuBarController?.removeFromMenuBar()
+        menuBarController = nil
         watchTargetController?.stop()
         watchTargetController = nil
+        onboardingWindowController?.dismiss()
+        onboardingWindowController = nil
+    }
+
+    func teardownForTermination() {
+        teardown()
+        runtimeService.stopForTermination()
     }
 
     func presentOnboarding(
