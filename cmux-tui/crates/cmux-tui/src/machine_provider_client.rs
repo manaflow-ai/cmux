@@ -669,6 +669,10 @@ impl ProviderClient {
         Ok(ProviderEventReceiver { queue })
     }
 
+    pub(crate) fn is_live(&self) -> bool {
+        self.inner.live.load(Ordering::Acquire)
+    }
+
     /// Consume a provider-issued, one-use ticket into cmux's normal remote
     /// session transport. This function deliberately makes one connection and
     /// one handshake attempt. Callers cannot retry because the descriptor is
