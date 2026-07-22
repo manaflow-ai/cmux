@@ -415,7 +415,10 @@ struct WorkspaceDetailView: View {
     }
 
     var titleMenuContent: some View {
-        WorkspaceTitleMenuContent(
+        let openTextSheet: (() -> Void)? = activeSurface == .terminal
+            ? { openTextSheetFromMenu() }
+            : nil
+        return WorkspaceTitleMenuContent(
             workspace: workspace,
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
@@ -423,7 +426,7 @@ struct WorkspaceDetailView: View {
             presentRename: presentRenameFromMenu,
             toggleReadState: toggleWorkspaceReadStateFromMenu,
             requestClose: requestCloseWorkspaceFromMenu,
-            openTextSheet: activeSurface == .terminal ? openTextSheetFromMenu : nil,
+            openTextSheet: openTextSheet,
             copyDebugLogs: copyDebugLogsMenuAction,
             sendFeedback: openFeedbackComposerFromMenu
         )

@@ -125,12 +125,12 @@ import Testing
             liveTerminals: [terminal],
             snapshotRows: [],
             selectedID: terminal.id,
+            isChatMode: true,
             chatDestination: chat,
             localBrowserDestination: localBrowser,
             browserStreamRows: [stream],
             supportsBrowserStream: true,
-            activeBrowserStreamPanelID: "browser-stream",
-            isChatMode: true
+            activeBrowserStreamPanelID: "browser-stream"
         ).activeDestinationID == "chat:chat-1")
 
         #expect(menuValue(
@@ -261,7 +261,10 @@ import Testing
 
     private func terminals(count: Int) -> [MobileTerminalPreview] {
         (1...count).map { index in
-            MobileTerminalPreview(id: "terminal-\(index)", name: "Terminal \(index)")
+            MobileTerminalPreview(
+                id: MobileTerminalPreview.ID(rawValue: "terminal-\(index)"),
+                name: "Terminal \(index)"
+            )
         }
     }
 

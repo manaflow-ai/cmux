@@ -2,6 +2,7 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import Foundation
 import SwiftUI
 
@@ -41,6 +42,7 @@ public struct SurfaceSwitcherAccessibilityPreviewView: View {
                     }
                 }
         }
+        .preferredColorScheme(terminalTheme.terminalColorScheme)
     }
 
     private var menuValue: TerminalPickerMenuValue {
@@ -138,10 +140,8 @@ public struct SurfaceSwitcherAccessibilityPreviewView: View {
         guard count > 0 else { return [] }
         return (1...count).map { index in
             MobileTerminalPreview(
-                id: "terminal-\(index)",
-                name: index == 24
-                    ? "Terminal 24 with a long duplicate-friendly title"
-                    : "Terminal \(index)"
+                id: MobileTerminalPreview.ID(rawValue: "terminal-\(index)"),
+                name: index == 1 ? "Build" : String(format: "Terminal %02d", index)
             )
         }
     }
@@ -149,21 +149,33 @@ public struct SurfaceSwitcherAccessibilityPreviewView: View {
     private func browserRows(count: Int) -> [BrowserStreamPickerRow] {
         guard count > 0 else { return [] }
         return (1...count).map { index in
-            BrowserStreamPickerRow(
+            let suffix = String(format: "%02d", index)
+            return BrowserStreamPickerRow(
                 MobileBrowserPanelDescriptor(
                     panelID: "browser-stream-\(index)",
                     workspaceID: "workspace-surface-switcher-preview",
-                    url: "https://stream-\(index).cmux.dev",
-                    title: index == count
-                        ? "Stream \(index) with a long duplicate-friendly title"
-                        : "Stream \(index)",
+                    url: "https://browser-\(suffix).example.test/path",
+                    title: browserTitle(index: index, count: count),
                     pageWidth: 1280,
                     pageHeight: 900,
                     canGoBack: index > 1,
                     canGoForward: false,
-                    isLoading: index == 3
+                    isLoading: index == 4
                 )
             )
+        }
+    }
+
+    private func browserTitle(index: Int, count: Int) -> String {
+        switch index {
+        case 2, 3:
+            return "Dashboard"
+        case 7:
+            return "Quarterly planning dashboard with a deliberately long title"
+        case count:
+            return "Stream \(count)"
+        default:
+            return "Stream \(index)"
         }
     }
 }
