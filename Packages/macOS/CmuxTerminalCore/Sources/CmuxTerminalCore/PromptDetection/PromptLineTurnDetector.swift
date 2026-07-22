@@ -170,6 +170,15 @@ public struct PromptLineTurnDetector: Sendable {
         return containsC0Control || containsDelete
     }
 
+    @inline(__always)
+    static func firstByteDisqualifiesWaitingPrompt(
+        in line: [UInt8],
+        promptFirstByte: UInt8
+    ) -> Bool {
+        guard let firstByte = line.first else { return false }
+        return firstByte != promptFirstByte
+    }
+
     /// Confirms a prompt boundary after its debounce interval elapsed.
     ///
     /// Stale confirmations return zero, including candidates invalidated by
@@ -229,6 +238,12 @@ public struct PromptLineTurnDetector: Sendable {
     private var lineCannotBecomeWaitingPrompt: Bool {
         if logicalLineOverflowed || unstoredLineByteCount > 0 { return true }
         if logicalLine.count > maximumWaitingPromptLineByteCount { return true }
+        if Self.firstByteDisqualifiesWaitingPrompt(
+            in: logicalLine,
+            promptFirstByte: configuration.promptBytes[0]
+        ) {
+            return true
+        }
         return !configuration.waitingPromptLineBytes.contains { $0.starts(with: logicalLine) }
     }
 
@@ -344,6 +359,15 @@ public struct PromptLineTurnDetector: Sendable {
             return
         }
         if logicalLine.count > maximumWaitingPromptLineByteCount {
+            if visibleByteCount > 0 {
+                markOutputObserved()
+            }
+            return
+        }
+        if Self.firstByteDisqualifiesWaitingPrompt(
+            in: logicalLine,
+            promptFirstByte: configuration.promptBytes[0]
+        ) {
             if visibleByteCount > 0 {
                 markOutputObserved()
             }

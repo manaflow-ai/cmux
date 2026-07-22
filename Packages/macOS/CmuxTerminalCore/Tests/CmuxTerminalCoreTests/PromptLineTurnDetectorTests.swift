@@ -261,6 +261,29 @@ struct PromptLineTurnDetectorTests {
         #expect(detector.confirm(confirmation) == 1)
     }
 
+    @Test("First byte rejects impossible waiting prompt lines")
+    func firstByteRejectsImpossibleWaitingPrompts() {
+        let promptFirstByte = UInt8(ascii: ">")
+        #expect(
+            !PromptLineTurnDetector.firstByteDisqualifiesWaitingPrompt(
+                in: [],
+                promptFirstByte: promptFirstByte
+            )
+        )
+        #expect(
+            !PromptLineTurnDetector.firstByteDisqualifiesWaitingPrompt(
+                in: [promptFirstByte],
+                promptFirstByte: promptFirstByte
+            )
+        )
+        #expect(
+            PromptLineTurnDetector.firstByteDisqualifiesWaitingPrompt(
+                in: [UInt8(ascii: "x")],
+                promptFirstByte: promptFirstByte
+            )
+        )
+    }
+
     @Test("Printable-run scanning stops exactly at control bytes")
     func printableRunScanningStopsAtControls() {
         let controlBytes = Array(UInt8(0x00)...UInt8(0x1F)) + [UInt8(0x7F)]
