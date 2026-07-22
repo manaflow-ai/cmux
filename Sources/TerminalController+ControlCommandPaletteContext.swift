@@ -257,10 +257,16 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         }
         if routing.hasSurfaceIDParam {
             guard let surfaceID = routing.surfaceID else { return nil }
+            if let dock = windowDockContainingPanel(surfaceID) {
+                return controlPaletteWindowDockWorkspace(dock, tabManager: tabManager)
+            }
             return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })
         }
         if routing.hasPaneIDParam {
             guard let paneID = routing.paneID else { return nil }
+            if let dock = windowDockContainingPane(paneID) {
+                return controlPaletteWindowDockWorkspace(dock, tabManager: tabManager)
+            }
             guard let located = v2LocatePane(paneID),
                   located.tabManager === tabManager else {
                 return nil
@@ -295,5 +301,18 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             return (false, nil)
         }
         return (true, workspace)
+    }
+
+    /// A window-Dock surface or pane inherits the owning window's main-area
+    /// workspace. Verify the owner identity so a contradictory explicit window
+    /// cannot redirect a Dock selector into another window.
+    private func controlPaletteWindowDockWorkspace(
+        _ dock: DockSplitStore,
+        tabManager: TabManager
+    ) -> Workspace? {
+        guard AppDelegate.shared?.tabManagerForWindowDockOwner(dock.workspaceId) === tabManager else {
+            return nil
+        }
+        return tabManager.selectedWorkspace ?? tabManager.tabs.first
     }
 }
