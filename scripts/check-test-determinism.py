@@ -5211,6 +5211,58 @@ def _self_test() -> int:
             f"(got {sorted(qualified_inherited_member_rules)})"
         )
 
+    project_real_clock_sources = [
+        (
+            "Packages/CmuxClock/Sources/CmuxClock/SystemUpdateClock.swift",
+            "public struct SystemUpdateClock {\n"
+            "    public func sleep(for duration: Duration) async throws {\n"
+            "        try await Task.sleep(for: duration)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/SystemUpdateClockTests.swift",
+            "let clock = SystemUpdateClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+        ),
+    ]
+    project_real_clock_rules = {
+        finding.rule
+        for finding in scan_sources(project_real_clock_sources)
+    }
+    if RULE_SLEEP_THEN_ASSERT not in project_real_clock_rules:
+        failures.append(
+            "POSITIVE project-defined real clock: missing "
+            f"{RULE_SLEEP_THEN_ASSERT!r} "
+            f"(got {sorted(project_real_clock_rules)})"
+        )
+
+    shadowed_project_clock_sources = [
+        project_real_clock_sources[0],
+        (
+            "Packages/CmuxClock/Tests/CmuxClockTests/ShadowedSystemClockTests.swift",
+            "private struct SystemUpdateClock {\n"
+            "    let base = TestRelayClock()\n"
+            "    func sleep(until deadline: Deadline) async throws {\n"
+            "        try await base.sleep(until: deadline)\n"
+            "    }\n"
+            "}\n"
+            "let clock = SystemUpdateClock()\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await events.next() == expected)\n",
+        ),
+    ]
+    shadowed_project_clock_rules = {
+        finding.rule
+        for finding in scan_sources(shadowed_project_clock_sources)
+    }
+    if shadowed_project_clock_rules:
+        failures.append(
+            "NEGATIVE shadowed project clock: unexpected "
+            f"{sorted(shadowed_project_clock_rules)}"
+        )
+
     cross_file_negatives = [
         (
             "Tests/SplitNestedRealFixture.swift",
