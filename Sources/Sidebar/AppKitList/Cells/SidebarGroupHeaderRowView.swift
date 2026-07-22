@@ -94,8 +94,29 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        suspendPresentation()
         model = nil
         hintPill.resetForReuse()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { suspendPresentation() }
+    }
+
+    func suspendPresentation() {
+        actions = nil
+        contextMenuDidOpen = nil
+        contextMenuDidClose = nil
+        contextMenuVisible = false
+    }
+
+    func configurePresentation(model: SidebarGroupHeaderRowModel) {
+        suspendPresentation()
+        guard self.model != model else { return }
+        self.model = model
+        applyModel(model)
+        needsLayout = true
     }
 
     // MARK: Configure

@@ -201,7 +201,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        controller.setPresentationActive(false)
+        controller.setPresentationActive(false, workspaceIds: [first.workspaceId])
         controller.viewportDidChange()
         controller.performWidthRemeasureNow()
         await flushStagedTableMutations()
@@ -218,7 +218,10 @@ struct SidebarWorkspaceTableTests {
         await flushStagedTableMutations()
         #expect(container.tableView.numberOfRows == 0)
 
-        controller.setPresentationActive(true)
+        controller.setPresentationActive(
+            true,
+            workspaceIds: [first.workspaceId, second.workspaceId]
+        )
         controller.apply(
             rows: [first, second],
             actions: actions,

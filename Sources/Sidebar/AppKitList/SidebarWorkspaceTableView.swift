@@ -25,7 +25,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
 #if DEBUG
         context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
 #endif
-        context.coordinator.setPresentationActive(isPresented)
+        context.coordinator.setPresentationActive(isPresented, workspaceIds: workspaceIds)
         guard isPresented else { return }
         context.coordinator.apply(
             rows: rows,

@@ -67,6 +67,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var contextMenuDidClose: (() -> Void)?
     private var isEditing = false
     private var pumpCancellables: [AnyCancellable] = []
+    private var isPresentationActive = true
 
 #if DEBUG
     /// Test seam: observes every full model application (configure, pump,
@@ -243,7 +244,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        pumpCancellables.removeAll()
+        suspendPresentation()
         model = nil
         hintPill.resetForReuse()
     }
@@ -253,9 +254,35 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Detachment without a configure pass must not leave the status
         // popover attached to an unmounted row (its presentation state is
         // cell-local, so closing is the full teardown).
-        if window == nil, statusPopoverPresenter.isShown {
-            statusPopoverPresenter.close()
+        if window == nil {
+            if statusPopoverPresenter.isShown {
+                statusPopoverPresenter.close()
+            }
+            suspendPresentation()
         }
+    }
+
+    func setPresentationActive(_ isActive: Bool) {
+        isPresentationActive = isActive
+        leadingSpinner?.isPresentationActive = isActive
+        trailingSpinner?.isPresentationActive = isActive
+    }
+
+    func suspendPresentation() {
+        actions = nil
+        contextMenuDidOpen = nil
+        contextMenuDidClose = nil
+        contextMenuVisible = false
+        pumpCancellables.removeAll()
+        setPresentationActive(false)
+    }
+
+    func configurePresentation(model: SidebarWorkspaceRowModel) {
+        suspendPresentation()
+        guard self.model != model else { return }
+        self.model = model
+        applyModel(model)
+        needsLayout = true
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -570,13 +597,23 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
             color: spinnerColor,
+<<<<<<< HEAD
             in: contentContainer
+=======
+            presentationActive: isPresentationActive,
+            in: self
+>>>>>>> 0fab0fe185 (fix: release hidden sidebar payloads)
         )
         trailingSpinner = Self.updateSpinner(
             existing: trailingSpinner,
             visible: trailingSpinnerVisible && !showsCloseNow,
             color: spinnerColor,
+<<<<<<< HEAD
             in: contentContainer
+=======
+            presentationActive: isPresentationActive,
+            in: self
+>>>>>>> 0fab0fe185 (fix: release hidden sidebar payloads)
         )
         let agentCount = model.snapshot.activeCodingAgentCount
         let tooltip = agentCount == 1
@@ -593,12 +630,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         existing: GPUSpinnerNSView?,
         visible: Bool,
         color: NSColor,
+        presentationActive: Bool,
         in parent: NSView
     ) -> GPUSpinnerNSView? {
         if visible {
             let spinner = existing ?? GPUSpinnerNSView()
             spinner.style = .macOSSpokes
             spinner.color = color
+            spinner.isPresentationActive = presentationActive
             if spinner.superview == nil {
                 parent.addSubview(spinner)
             }

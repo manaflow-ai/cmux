@@ -151,10 +151,11 @@ struct SidebarAppKitRowCellTests {
 
     private static func makeActions(
         model: SidebarWorkspaceRowModel,
+        workspace: Workspace = Workspace(),
         onOpenStatusURL: @escaping (URL) -> Void = { _ in }
     ) -> SidebarAppKitRowActions {
         let commands = SidebarWorkspaceRowCommands(
-            tab: Workspace(),
+            tab: workspace,
             tabManager: nil,
             notificationStore: nil,
             index: model.index,
@@ -396,6 +397,26 @@ struct SidebarAppKitRowCellTests {
         activeCell.showOptimisticDeselection()
         #expect(activeApplied == [false])
         #expect(activeCell.currentModelForMeasurement?.isActive == true)
+    }
+
+    @Test
+    func suspendedCellReleasesWorkspaceOwnedByItsActions() {
+        let model = Self.makeModel()
+        let cell = SidebarWorkspaceRowTableCellView()
+        var workspace: Workspace? = Workspace()
+        weak var retainedWorkspace = workspace
+        cell.configure(
+            model: model,
+            actions: Self.makeActions(model: model, workspace: workspace!),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+
+        workspace = nil
+        #expect(retainedWorkspace != nil)
+        cell.suspendPresentation()
+        #expect(retainedWorkspace == nil)
     }
 
     @Test

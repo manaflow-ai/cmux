@@ -11,6 +11,13 @@ final class GPUSpinnerNSView: NSView {
     private var spokeLayers: [CALayer] = []
     private let arcLayer = CAShapeLayer()
 
+    var isPresentationActive = true {
+        didSet {
+            guard isPresentationActive != oldValue else { return }
+            updateAnimationState()
+        }
+    }
+
     var style: GPUSpinnerStyle = .macOSSpokes {
         didSet {
             guard style != oldValue else { return }
@@ -175,6 +182,7 @@ final class GPUSpinnerNSView: NSView {
     }
 
     private var shouldAnimate: Bool {
+        guard isPresentationActive else { return false }
         guard let window else { return false }
         guard window.occlusionState.contains(.visible) else { return false }
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return false }
@@ -188,6 +196,16 @@ final class GPUSpinnerNSView: NSView {
             contentLayer.removeAnimation(forKey: Self.animationKey)
         }
     }
+
+#if DEBUG
+    var hasActiveAnimationForTesting: Bool {
+        contentLayer.animation(forKey: Self.animationKey) != nil
+    }
+
+    func installAnimationForTesting() {
+        installAnimationIfNeeded()
+    }
+#endif
 
     /// Anchors `beginTime` to the shared Core Animation media clock so all
     /// spinners of the same duration stay phase-locked, even when their layer

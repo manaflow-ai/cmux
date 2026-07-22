@@ -29,6 +29,13 @@ final class SidebarWorkspaceTableRowHeightCache {
     private let prototypeRowView = SidebarWorkspaceRowTableCellView()
     private var preparedColumnWidth: CGFloat?
 
+    func clearRetainedPayloads() {
+        entries.removeAll(keepingCapacity: true)
+        preparedColumnWidth = nil
+        prototypeRowView.suspendPresentation()
+        prototypeView.rootView = AnyView(EmptyView())
+    }
+
     func prepareHostedRows(
         _ rows: [SidebarWorkspaceTableRowConfiguration],
         columnWidth: CGFloat,
@@ -165,6 +172,7 @@ final class SidebarWorkspaceTableRowHeightCache {
         }
         if let rowModel = row.appKitWorkspaceRowModel,
            let actions = row.appKitWorkspaceRowActions {
+            defer { prototypeRowView.suspendPresentation() }
             prototypeRowView.configure(
                 model: rowModel,
                 actions: actions,
@@ -183,6 +191,7 @@ final class SidebarWorkspaceTableRowHeightCache {
                 .frame(width: columnWidth, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         )
+        defer { prototypeView.rootView = AnyView(EmptyView()) }
         prototypeView.frame = NSRect(x: 0, y: 0, width: columnWidth, height: 1)
         prototypeView.layoutSubtreeIfNeeded()
         return prototypeView.fittingSize.height

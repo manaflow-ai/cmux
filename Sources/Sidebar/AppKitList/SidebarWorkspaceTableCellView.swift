@@ -56,6 +56,11 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { clearRetainedPayload() }
+    }
+
     @discardableResult
     func configure(
         row: SidebarWorkspaceTableRowConfiguration,
@@ -77,5 +82,9 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         }
 #endif
         return didReconfigure
+    }
+
+    func clearRetainedPayload() {
+        model.clear()
     }
 }

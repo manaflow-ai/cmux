@@ -15,6 +15,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
     private var isPresentationActive = true
+    private var shouldRestoreInteractionsAfterNextApply = false
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
@@ -129,11 +130,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return container
     }
 
-    func setPresentationActive(_ isActive: Bool) {
-        guard isPresentationActive != isActive else { return }
+    func setPresentationActive(_ isActive: Bool, workspaceIds liveWorkspaceIds: [UUID]) {
+        let didChange = isPresentationActive != isActive
         isPresentationActive = isActive
         if isActive {
-            mutationScheduler.stageViewportChange()
+            if didChange {
+                shouldRestoreInteractionsAfterNextApply = true
+                mutationScheduler.stageViewportChange()
+            }
             return
         }
         mutationScheduler.cancelPendingMutations()
@@ -141,6 +145,48 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
         widthRemeasureTask = nil
+        suspendPresentation(retainingWorkspaceIds: liveWorkspaceIds)
+    }
+
+    private func suspendPresentation(retainingWorkspaceIds liveWorkspaceIds: [UUID]) {
+        let liveIds = Set(liveWorkspaceIds)
+        let previousRowIds = rows.map(\.id)
+        suspendLoadedCells()
+        rows = rows
+            .filter { liveIds.contains($0.workspaceId) }
+            .map { $0.presentationSnapshot() }
+        actions = nil
+        workspaceIds = liveWorkspaceIds
+        selectedScrollTargetWorkspaceId = nil
+        hoveredRowId = nil
+        contextMenuRowId = nil
+        optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
+        pumpHeightOverrides.removeAll(keepingCapacity: true)
+        selectionCoalescer.cancel()
+        rowHeightCache.clearRetainedPayloads()
+        if let containerView {
+            clearDropViewActions(in: containerView)
+            if previousRowIds != rows.map(\.id) {
+                containerView.tableView.reloadData()
+            }
+        }
+        setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+    }
+
+    private func suspendLoadedCells() {
+        guard let table = containerView?.tableView else { return }
+        for row in 0..<table.numberOfRows {
+            switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+            case let cell as SidebarWorkspaceRowTableCellView:
+                cell.suspendPresentation()
+            case let cell as SidebarGroupHeaderTableCellView:
+                cell.suspendPresentation()
+            case let cell as SidebarWorkspaceTableCellView:
+                cell.clearRetainedPayload()
+            default:
+                continue
+            }
+        }
     }
 
     func apply(
@@ -184,6 +230,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             previousRows.indices.contains(index)
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
+        if shouldRestoreInteractionsAfterNextApply {
+            contentChanges.formUnion(IndexSet(nextRows.indices))
+            shouldRestoreInteractionsAfterNextApply = false
+        }
         // Optimistically painted rows reconcile even when their model did
         // not change: the preview may not match the authoritative outcome,
         // and this apply cancels the bailout that would otherwise catch it.
@@ -861,9 +911,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func configure(workspaceCell cell: SidebarWorkspaceRowTableCellView, at row: Int) {
         let configuration = rows[row]
-        guard let model = configuration.appKitWorkspaceRowModel,
-              let actions = configuration.appKitWorkspaceRowActions else { return }
+        guard let model = configuration.appKitWorkspaceRowModel else { return }
+        guard let actions = configuration.appKitWorkspaceRowActions else {
+            cell.configurePresentation(model: model)
+            return
+        }
         let rowId = configuration.id
+        cell.setPresentationActive(isPresentationActive)
         cell.configure(
             model: model,
             actions: actions,
@@ -907,8 +961,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func configure(headerCell cell: SidebarGroupHeaderTableCellView, at row: Int) {
         let configuration = rows[row]
-        guard let model = configuration.appKitGroupHeaderModel,
-              let actions = configuration.appKitGroupHeaderActions else { return }
+        guard let model = configuration.appKitGroupHeaderModel else { return }
+        guard let actions = configuration.appKitGroupHeaderActions else {
+            cell.configurePresentation(model: model)
+            return
+        }
         let rowId = configuration.id
         cell.configure(
             model: model,
@@ -1019,6 +1076,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             actions.didMoveBonsplitToWorkspace(workspaceId)
             return true
         }
+    }
+
+    private func clearDropViewActions(in container: SidebarWorkspaceTableContainerView) {
+        let reorder = container.reorderDropView
+        reorder.isValidDrag = nil
+        reorder.updateDrag = nil
+        reorder.performDropAtPoint = nil
+        reorder.clearDropIndicator = nil
+        reorder.setWorkspaceDropTargetCollectionActive = nil
+        reorder.targets = []
+
+        let bonsplit = container.bonsplitDropView
+        bonsplit.canPerformAction = { _, _ in false }
+        bonsplit.updateAutoscroll = {}
+        bonsplit.setWorkspaceDropTargetCollectionActive = { _ in }
+        bonsplit.setDropIndicator = { _ in }
+        bonsplit.performExistingWorkspaceMove = { _, _ in false }
+        bonsplit.performNewWorkspaceMove = { _, _, _ in false }
     }
 
     private func updateDropTargets() {

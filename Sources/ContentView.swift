@@ -10918,6 +10918,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func deactivateSidebarInteractions() {
+        appKitFrozenTableRowsBox.rows = nil
         guard sidebarInteractionsAreActive else { return }
         sidebarInteractionsAreActive = false
         pointerInteractionMonitor.stop()
@@ -11407,7 +11408,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let isDividerDragActive = isPresented
             && TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: observedWindow)
         if !isPresented {
-            tableRows = appKitFrozenTableRowsBox.rows ?? []
+            tableRows = []
         } else if isDividerDragActive, let frozenRows = appKitFrozenTableRowsBox.rows {
             // Rows cannot change while the resizer owns the mouse; reuse the
             // last-built rows so per-width-tick body evals skip the row
@@ -11431,7 +11432,7 @@ struct VerticalTabsSidebar: View, Equatable {
         return SidebarWorkspaceTableView(
             rows: tableRows,
             actions: workspaceTableActions(renderContext: renderContext),
-            workspaceIds: renderContext.workspaceIds,
+            workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
             isPresented: isPresented
